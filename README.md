@@ -10,6 +10,9 @@ interface. `burrow` calls the shared library and prints `2 + 3 = 5`. Rendering,
 windowing, gameplay, vendor integrations, and the other planned modules remain
 future work.
 
+The [release and distribution requirements](AGENTS.md#releases-and-distribution)
+define future desktop exports and the later browser and mobile targets.
+
 ## Requirements
 
 - CMake 3.25 or newer, and a C17 compiler: MSVC, GCC, or Clang.

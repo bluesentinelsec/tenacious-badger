@@ -224,6 +224,71 @@ Shared mutable state uses atomics or synchronization primitives, never `volatile
 - Every interface, platform requirement and capability tier is documented under `docs/`.
 
 
+## Releases and Distribution
+
+Release exports are a product feature. Support idiomatic, polished distributions
+as users expect from Unreal, Unity, and Godot, with initial export parity with
+Unity on **Windows, macOS, and Linux**. Browser and mobile exports follow later;
+they must fit the same release model rather than becoming separate projects.
+
+### Desktop exports first
+
+- **Windows:** a runnable game executable with the engine DLL and required game
+  data in an ordinary Windows distribution layout, delivered as a ZIP archive
+  initially. Include an application icon and native executable version resources
+  with product name, file description, company/publisher, copyright, file version,
+  and product version. An installer may follow when needed.
+- **macOS:** a proper `.app` bundle with `Contents/MacOS`, `Contents/Resources`,
+  bundled engine libraries under `Contents/Frameworks`, an application icon, and
+  a complete `Info.plist`. Set the display name, executable, bundle identifier,
+  semantic version, build version, copyright, minimum OS, and supported
+  architectures. Distribute the bundle in an archive or native disk image while
+  preserving bundle structure and executable permissions.
+- **Linux:** a runnable executable with its engine shared library and game data,
+  using relative runtime library paths. Include a desktop entry, application
+  icons, and AppStream metadata suitable for desktop integration. Deliver a
+  portable archive initially, preserving executable permissions and documenting
+  supported architectures and the minimum runtime baseline.
+
+Exports must run after extraction on a supported clean machine without the
+source tree, developer SDKs, or a package manager. Bundle project-owned runtime
+files and cooked assets in their platform-appropriate locations. Keep developer
+tools, tests, build caches, and debug symbols out of the end-user distribution;
+publish symbols separately when useful. Validate each exported artifact in CI,
+including startup, asset lookup, and engine library discovery.
+
+### Professional metadata and release identity
+
+- Use the author's GitHub alias, **`bluesentinelsec`**, for person, author,
+  organization, company, publisher, and maintainer names in release metadata.
+  This is a personal project; do not include Amazon or other work-organization
+  branding, attribution, templates, or boilerplate.
+- Use the actual project and application names for product metadata:
+  **Tenacious Badger**, engine **badger**, and showcase game **Burrow**. Use stable
+  application identifiers rooted in the personal identity, such as
+  `io.github.bluesentinelsec.burrow`, where the platform accepts that format.
+- Populate applicable native metadata completely. Do not ship template values,
+  placeholder publishers, missing icons, or generic executable descriptions.
+- Derive versions from the root `VERSION` file and matching semantic-version
+  release tags. Generate platform-specific version fields from that source;
+  do not maintain competing version definitions.
+- Publish named, versioned, architecture-specific artifacts through GitHub
+  Releases, with release notes, checksums, and the Apache-2.0 license and project
+  notices. Document the supported OS/runtime baseline and launch instructions.
+- Build packaging with our own code and native platform tools, preserving the
+  no-third-party-package rule and the explicit approval requirement for external
+  dependencies or redistributables.
+
+### Later export targets
+
+After the desktop exports, add **web browser**, **Android**, and **iOS** exports
+with the same metadata and release quality. Browser exports need a deployable web
+bundle and proper web application metadata; Android needs platform-native app
+packages (APK/AAB) and manifests; iOS needs an Xcode project/archive, a native app
+bundle, platform metadata, and its normal distribution/signing workflow. Define
+and test each target's runtime,
+asset, and platform-interface contracts when that export is introduced.
+
 ## Engineering Standards
 
 These C and workflow standards are binding for all project code.
