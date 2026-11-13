@@ -78,10 +78,10 @@ if(TB_ENABLE_SANITIZERS)
     endfunction()
 
     tb_add_tests(tb_tests_sanitized SUFFIX ".sanitized" FRAMEWORK tb_test_sanitized)
-    target_sources(tb_tests_sanitized PRIVATE ${TB_CORE_SOURCES})
+    target_sources(tb_tests_sanitized PRIVATE ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES})
     tb_make_standalone_sanitized(tb_tests_sanitized)
 
-    add_executable(tb_platform_sanitized platform/time_probe.c "${TB_PLATFORM_TIME_SOURCE}")
+    add_executable(tb_platform_sanitized platform/time_probe.c ${TB_PLATFORM_SOURCES})
     tb_configure_target(tb_platform_sanitized)
     tb_make_standalone_sanitized(tb_platform_sanitized)
     tb_add_platform_test(tb_platform_sanitized ".sanitized")

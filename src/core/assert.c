@@ -1,7 +1,8 @@
 #include "badger/assert.h"
 
+#include "badger/platform.h"
+
 #include <stdio.h>
-#include <stdlib.h>
 
 /** Installed failure handler; a NULL handler selects the default report. */
 typedef struct tb_assert_binding
@@ -49,7 +50,8 @@ void tb_assert_fail(const char *expression, const char *message, const char *fil
     }
     /* Reached by the default report and by a handler that returned: the caller's
      * invariant is broken, so continuing is never an option. */
-    abort();
+    (void)fflush(stderr);
+    tb_platform_abort();
 }
 
 bool tb_assert_library_enabled(void)

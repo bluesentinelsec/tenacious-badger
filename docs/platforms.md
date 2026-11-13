@@ -1,9 +1,9 @@
 # Platform interfaces and bootstrap scope
 
 The binding architecture is in [AGENTS.md](../AGENTS.md). The existing
-[vision.md](vision.md) is an earlier draft. Only the time-counter interface is
-introduced by this bootstrap; the other platform services and rendering backends
-are still planned. No renderer, window, vendor SDK, or game loop is implemented.
+[vision.md](vision.md) is an earlier draft. Only the time-counter and
+abnormal-termination interfaces exist so far; the other platform services and
+rendering backends are still planned. No renderer, window, vendor SDK, or game loop is implemented.
 
 ## Time counter
 
@@ -29,6 +29,26 @@ native API, and next action, then exit with failure. CTest launches each stub in
 a child process and checks both its exit status and diagnostic. Calling the
 portable arithmetic API or running the bootstrap `burrow` demo does not invoke
 native time services.
+
+## Abnormal termination
+
+Public declaration: `include/badger/platform.h`, `tb_platform_abort(void)`.
+Ends the process at once after an unrecoverable failure has been reported; the
+default assertion handler calls it. It stops in an attached debugger, never
+waits on an error dialog, runs no exit handlers, and does not return.
+
+| Platform | Selected implementation | Current behavior |
+| --- | --- | --- |
+| Windows | `src/platform/win32/abort.c` | Breaks into an attached debugger, then terminates the process with exit status 3. The C runtime's `abort()` is avoided because its debug build opens a modal error window. |
+| Linux / Steam Deck | `src/platform/linux/abort.c` | Calls `abort()`: `SIGABRT`, and a core dump where the system is configured for one. |
+| macOS | `src/platform/macos/abort.c` | Calls `abort()`: `SIGABRT`, and a crash report where the system is configured for one. |
+
+This interface is implemented on all three platforms, not stubbed: a fatal stub
+itself needs a way to end the process. Crash dumps and stack traces belong to
+the planned system-information interface and will hook in here.
+
+A child process checks in CI that a failed assertion reports its location and
+ends the process promptly on every platform.
 
 ## Future interfaces and capabilities
 
