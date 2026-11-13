@@ -1,9 +1,9 @@
 # Platform interfaces and bootstrap scope
 
 The binding architecture is in [AGENTS.md](../AGENTS.md). The existing
-[vision.md](vision.md) is an earlier draft. Only the time-counter and
-abnormal-termination interfaces exist so far; the other platform services and
-rendering backends are still planned. No renderer, window, vendor SDK, or game loop is implemented.
+[vision.md](vision.md) is an earlier draft. Only the time-counter,
+abnormal-termination, and atomic-counter interfaces exist so far; the other
+platform services and rendering backends are still planned. No renderer, window, vendor SDK, or game loop is implemented.
 
 ## Time counter
 
@@ -49,6 +49,25 @@ the planned system-information interface and will hook in here.
 
 A child process checks in CI that a failed assertion reports its location and
 ends the process promptly on every platform.
+
+## Atomic counter
+
+Public declaration: `include/badger/platform.h`, `tb_platform_atomic_size` with
+`tb_platform_atomic_size_add`, `tb_platform_atomic_size_subtract`, and
+`tb_platform_atomic_size_load`. A `size_t` that any thread may update without a
+lock; every operation is sequentially consistent. The allocation functions
+count live blocks with it.
+
+| Platform | Selected implementation | Current behavior |
+| --- | --- | --- |
+| Windows | `src/platform/win32/atomic.c` | Interlocked operations from the Windows API. |
+| Linux / Steam Deck | `src/platform/linux/atomic.c` | The compiler's atomic builtins (GCC and Clang). |
+| macOS | `src/platform/macos/atomic.c` | The compiler's atomic builtins (AppleClang). |
+
+It is a platform interface because MSVC does not offer C11 `<stdatomic.h>` in
+C17 mode without an experimental switch. It is implemented on all three
+platforms: every allocation depends on it. It is the first piece of the planned
+threading interface, which will grow the remaining atomic types and operations.
 
 ## Future interfaces and capabilities
 

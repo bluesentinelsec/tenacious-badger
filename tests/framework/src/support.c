@@ -1,3 +1,6 @@
+/* The framework's own memory management. The framework is independent of the
+ * engine it tests, so this file, and only this file, uses the C library's
+ * allocator directly; tools/check_allocations.py authorizes it by name. */
 #include "internal.h"
 
 #include <stdarg.h>
@@ -19,6 +22,11 @@ void *tb_test_allocate_zeroed(size_t count, size_t element_size)
         tb_test_misuse("out of memory allocating %zu objects of %zu bytes", count, element_size);
     }
     return memory;
+}
+
+void tb_test_release(void *memory)
+{
+    free(memory);
 }
 
 void tb_test_misuse(const char *format, ...)

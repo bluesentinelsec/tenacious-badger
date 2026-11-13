@@ -217,8 +217,8 @@ bool tb_test_options_parse(int argc, char **argv, tb_test_options *options, char
 
 void tb_test_options_release(tb_test_options *options)
 {
-    free(options->include_patterns);
-    free(options->exclude_patterns);
+    tb_test_release(options->include_patterns);
+    tb_test_release(options->exclude_patterns);
     *options = (tb_test_options)TB_TEST_OPTIONS_INIT;
 }
 

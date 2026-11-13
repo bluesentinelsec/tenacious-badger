@@ -15,9 +15,12 @@
 
 /**
  * @brief Allocate a zeroed array or terminate; never returns NULL.
- * @return Memory owned by the caller; release it with free().
+ * @return Memory owned by the caller; release it with tb_test_release().
  */
 void *tb_test_allocate_zeroed(size_t count, size_t element_size);
+
+/** @brief Release memory from tb_test_allocate_zeroed(); NULL is ignored. */
+void tb_test_release(void *memory);
 
 /** @brief Report a misuse of the framework to stderr and abort. */
 TB_TEST_PRINTF_FORMAT(1, 2) _Noreturn void tb_test_misuse(const char *format, ...);

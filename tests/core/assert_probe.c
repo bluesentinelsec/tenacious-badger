@@ -1,5 +1,6 @@
 /* Fails assertions with the engine's default handler, which reports to stderr
- * and ends the process. ExpectAssertAbort.cmake runs each case as a child
+ * and ends the process. Each case first restores that handler, because the
+ * test entry point replaces it. ExpectAssertAbort.cmake runs each case as a child
  * process and checks how it ends; they are not registered with CTest directly. */
 #include "badger/assert.h"
 
@@ -11,6 +12,7 @@ TB_TEST(assert_probe, failed_macro_reports_and_aborts)
 {
     const int two = 2;
 
+    tb_assert_set_handler(NULL, NULL);
     if (tb_assert_library_enabled())
     {
         puts("assertions=enabled");
@@ -34,5 +36,6 @@ TB_TEST(assert_probe, failure_function_aborts_in_every_build)
 {
     /* The function behind the macros exists in builds that compile the macros
      * out, so this case reaches the abort in Release as well. */
+    tb_assert_set_handler(NULL, NULL);
     fail_through_the_function();
 }

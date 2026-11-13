@@ -42,5 +42,8 @@ void tb_engine_test_install_assert_handler(void)
 int main(int argc, char **argv)
 {
     tb_engine_test_install_assert_handler();
+    tb_engine_test_install_memory_functions();
+    tb_engine_test_install_memory_failure_handler();
+    tb_test_set_case_hooks(tb_engine_test_before_case, tb_engine_test_after_case, NULL);
     return tb_test_main(argc, argv);
 }

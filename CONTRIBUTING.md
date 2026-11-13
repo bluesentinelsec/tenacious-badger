@@ -22,6 +22,9 @@ Before review:
 - Run `make test`, `make release`, and `make sanitizer` where supported.
 - Add focused regression tests for changed behavior, including edge cases. Write
   them with the in-house framework described in [docs/testing.md](docs/testing.md).
+- Allocate only through `badger/memory.h`, as [docs/memory.md](docs/memory.md)
+  describes. `python tools/check_allocations.py` must pass; it also runs with
+  the tests.
 - Fix warnings; ask the author before suppressing any warning.
 - Update interface and platform documentation when contracts change.
 
