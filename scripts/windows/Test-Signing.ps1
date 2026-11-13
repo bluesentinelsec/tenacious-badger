@@ -33,7 +33,21 @@ function Assert-VerificationResult {
 }
 
 try {
-    & $scriptPath -Action Verify -FilePath $BinaryPath -CertificateFile $publicCertificate
+    # Managed compilation for native signature verification must not depend on
+    # optional MSVC library directories inherited from a developer shell.
+    $nativeLibraryPath = [Environment]::GetEnvironmentVariable('LIB', 'Process')
+    try {
+        $missingLibraryPath = Join-Path $tempDirectory 'missing native libraries'
+        $poisonedLibraryPath = $missingLibraryPath
+        if ($nativeLibraryPath) {
+            $poisonedLibraryPath += ";$nativeLibraryPath"
+        }
+        [Environment]::SetEnvironmentVariable('LIB', $poisonedLibraryPath, 'Process')
+        & $scriptPath -Action Verify -FilePath $BinaryPath -CertificateFile $publicCertificate
+    }
+    finally {
+        [Environment]::SetEnvironmentVariable('LIB', $nativeLibraryPath, 'Process')
+    }
     Assert-VerificationResult -Path $BinaryPath -Thumbprint $expectedThumbprint -ShouldSucceed
     & $scriptPath -Action Initialize -OutputDirectory $tempDirectory -Publisher $Publisher `
         -CertificateThumbprint $expectedThumbprint
