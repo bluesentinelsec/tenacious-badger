@@ -7,6 +7,11 @@ project-owned executables and DLLs after linking. An existing certificate can be
 selected by thumbprint, and signing can be disabled explicitly. CI verifies
 signatures, rejects tampering, and checks both controls.
 
+The engine now provides developer assertions in `badger/assert.h`: `TB_ASSERT`
+and `TB_ASSERT_MSG` for invariants that are checked in Debug and compiled out of
+Release, `TB_STATIC_ASSERT` for build-time checks, and a replaceable failure
+handler.
+
 Included foundations:
 
 - `badger` dynamic library and `badger_static` static library with the same

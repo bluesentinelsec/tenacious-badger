@@ -26,7 +26,36 @@
         "--preset",
         "debug"
       ],
-      "problemMatcher": []
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "problemMatcher": [
+        {
+          "owner": "tb_test",
+          "source": "tb_test",
+          "fileLocation": "absolute",
+          "pattern": {
+            "regexp": "^(.+)\\((\\d+)\\): (error): (.*)$",
+            "file": 1,
+            "line": 2,
+            "severity": 3,
+            "message": 4
+          }
+        },
+        {
+          "owner": "tb_test",
+          "source": "tb_test",
+          "fileLocation": "absolute",
+          "pattern": {
+            "regexp": "^(.+):(\\d+): (error): (.*)$",
+            "file": 1,
+            "line": 2,
+            "severity": 3,
+            "message": 4
+          }
+        }
+      ]
     }
   ]
 }

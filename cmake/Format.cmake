@@ -4,8 +4,9 @@ if(NOT TB_CLANG_FORMAT)
 endif()
 # Discovery is for formatting only; build translation units are listed explicitly.
 file(GLOB_RECURSE sources LIST_DIRECTORIES FALSE
-    "${root}/src/*.c" "${root}/src/*.h.in"
-    "${root}/include/*.h" "${root}/tests/*.c" "${root}/cmake/*.h.in")
+    "${root}/src/*.c" "${root}/src/*.h" "${root}/src/*.h.in"
+    "${root}/include/*.h" "${root}/tests/*.c" "${root}/tests/*.h" "${root}/tests/*.h.in"
+    "${root}/cmake/*.h.in")
 if(TB_FORMAT_MODE STREQUAL "write")
     set(arguments -i)
 elseif(TB_FORMAT_MODE STREQUAL "check")

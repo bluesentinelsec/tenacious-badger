@@ -7,8 +7,8 @@ FetchContent and the published Debug/Release SDKs. The binding design and engine
 standards are in [AGENTS.md](../AGENTS.md). The earlier
 [vision draft](vision.md) is preserved.
 
-This bootstrap implements checked signed addition and one native platform
-interface. `burrow` calls the shared library and prints `2 + 3 = 5`. Rendering,
+This bootstrap implements checked signed addition, developer assertions, and one
+native platform interface. `burrow` calls the shared library and prints `2 + 3 = 5`. Rendering,
 windowing, gameplay, vendor integrations, and the other planned modules remain
 future work.
 
@@ -72,20 +72,30 @@ for an existing-certificate override and the signing opt-out.
 
 ## Tests and sanitizers
 
-The in-house harness tests ordinary sums, zero, negative operands, signed integer
-limits, overflow rejection, and preservation of the output on failure. Tests use
-explicit checks, so they still run in Release with assertions disabled.
+Unit tests use the in-house `tb_test` framework. [Testing](testing.md) explains
+how to write, run, filter, and debug test cases, and how IDE test explorers pick
+them up. Every case is its own CTest test, such as
+`core.sum.adds_representable_operands`.
+
+The core tests cover checked addition (tables of ordinary and limit operands,
+overflow rejection, and agreement with wide arithmetic on random operands) and
+the assertion macros. Test checks are independent of `TB_ASSERT`, so they still
+run in Release, where assertions are compiled out; cases that need an active
+assertion skip themselves there. The framework has its own tests under
+`tests/framework/selftest/`.
 
 Integration tests exercise `burrow` through the shared library and probe the
 selected platform adapter. On Windows, the native performance counter must be
 monotonic. On Linux/macOS, a subprocess must exit with the exact fatal-stub
-message and name the planned native API.
+message and name the planned native API. Another subprocess checks that a failed
+assertion reports its location and aborts.
 
 `TB_ENABLE_SANITIZERS=ON` adds standalone Debug test executables that compile the
-engine sources directly. MSVC uses AddressSanitizer; GCC and Clang use
-AddressSanitizer plus UndefinedBehaviorSanitizer. The shipping library and
-`burrow` remain free of sanitizer instrumentation. Use Debug when running these
-tests. `TB_BUILD_TESTS=OFF` builds only the library and consumer.
+engine sources directly and link an instrumented copy of the test framework.
+MSVC uses AddressSanitizer; GCC and Clang use AddressSanitizer plus
+UndefinedBehaviorSanitizer. The shipping library and `burrow` remain free of
+sanitizer instrumentation. Use Debug when running these tests.
+`TB_BUILD_TESTS=OFF` builds only the library and consumer.
 
 ## CI
 
@@ -120,7 +130,9 @@ publishes verified native exports after all tagged-build checks pass.
 - `src/core/`: platform-independent library logic.
 - `src/platform/{win32,linux,macos}/`: CMake-selected native implementations.
 - `src/main.c`: thin `burrow` entrypoint.
-- `tests/`: in-house unit tests and platform integration checks.
+- `tests/`: unit tests and platform integration checks.
+- `tests/framework/`: the in-house `tb_test` unit test framework and its tests.
+- `tests/support/`: the entry point shared by engine test executables.
 - `VERSION`: the single version definition; generated headers live in `build/`.
 
 [Platform contracts](platforms.md) explain the implemented interface and the

@@ -18,7 +18,8 @@ Before review:
 
 - Run `make fmt` and `make check-format`.
 - Run `make test`, `make release`, and `make sanitizer` where supported.
-- Add focused regression tests for changed behavior, including edge cases.
+- Add focused regression tests for changed behavior, including edge cases. Write
+  them with the in-house framework described in [docs/testing.md](docs/testing.md).
 - Fix warnings; ask the author before suppressing any warning.
 - Update interface and platform documentation when contracts change.
 
