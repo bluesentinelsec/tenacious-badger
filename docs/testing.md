@@ -178,7 +178,7 @@ Each case is also the CTest test `<suite>.<name>`, for example
 Two things cannot be cases of `tb_tests`, because they end the process: the
 framework's own failure reports and the engine's default assertion handler. Each
 has a small helper executable that a CTest script runs as a child process
-(`tb_test_fixture` and `tb_assert_probe`). Follow that pattern for other
+(`tb_test_fixture` and `tb_probe`). Follow that pattern for other
 behavior that must terminate, such as a platform's fatal stubs.
 
 ### How cases are found
@@ -282,6 +282,24 @@ debugger with the case name and `--break`:
 ```sh
 build/debug/bin/tb_tests core_sum.adds_small_numbers --break
 ```
+
+## Memory in tests
+
+The test executable watches the engine's allocations for every case. The
+details are in [Memory allocation](memory.md#in-tests); in short:
+
+- A case that passes its checks but leaves blocks allocated fails with
+  `memory leak: 2 blocks allocated by this case and never freed`. A case that
+  already failed is not checked, because a failed `REQUIRE` skips the cleanup
+  after it.
+- `tb_engine_test_fail_allocations_after(n)` makes allocations fail from the
+  `n`-th attempt on, to test how code behaves when memory runs out.
+- An exhausted fail-fast allocation is a trap whose message starts with
+  `out of memory`.
+
+These are built on case hooks: `tb_test_set_case_hooks` registers functions
+that the framework runs before and after every case, inside the case, so they
+can use checks. The after hook runs however the body ended.
 
 ## Sanitizers
 

@@ -238,6 +238,21 @@ TB_TEST(order, f)
 {
 }
 
+/* --- hooks ----------------------------------------------------------------- */
+
+/* These pass when run without hooks. With the hooks of fixture_main.c, the
+ * first is failed after its body and the second never reaches its body. */
+
+TB_TEST(hooks, is_failed_by_the_after_hook)
+{
+    puts("failed-case-body-ran");
+}
+
+TB_TEST(hooks, is_skipped_by_the_before_hook)
+{
+    puts("skipped-case-body-ran");
+}
+
 /* --- crash ----------------------------------------------------------------- */
 
 TB_TEST(crash, aborts)

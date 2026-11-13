@@ -7,8 +7,9 @@ FetchContent and the published Debug/Release SDKs. The binding design and engine
 standards are in [AGENTS.md](../AGENTS.md). The earlier
 [vision draft](vision.md) is preserved.
 
-This bootstrap implements checked signed addition, developer assertions, and one
-native platform interface. `burrow` calls the shared library and prints `2 + 3 = 5`. Rendering,
+This bootstrap implements checked signed addition, developer assertions,
+[memory allocation](memory.md), and three native platform interfaces. `burrow`
+calls the shared library and prints `2 + 3 = 5`. Rendering,
 windowing, gameplay, vendor integrations, and the other planned modules remain
 future work.
 
@@ -23,6 +24,9 @@ define desktop exports and the later browser and mobile targets. See
   with the MSVC C compiler tools and the Windows SDK.
 - Ninja for the convenience presets; plain CMake commands below also work with
   the platform's default build tool.
+- Python 3 to run the tests: the source checks, such as the one that keeps
+  allocation behind `badger/memory.h`, are Python scripts. Building the
+  libraries alone does not need it.
 - Optional developer tools: clang-format 22, Doxygen, and Universal Ctags.
 
 There are **no third-party library or package dependencies**. Configure, build,
@@ -133,7 +137,10 @@ publishes verified native exports after all tagged-build checks pass.
 - `src/main.c`: thin `burrow` entrypoint.
 - `tests/`: unit tests and platform integration checks.
 - `tests/framework/`: the in-house `tb_test` unit test framework and its tests.
-- `tests/support/`: the entry point shared by engine test executables.
+- `tests/support/`: the test entry point, which turns the engine's fatal
+  conditions into test results and checks every case for leaks.
+- `tools/check_allocations.py`: fails when C code allocates without going
+  through `badger/memory.h`.
 - `VERSION`: the single version definition; generated headers live in `build/`.
 
 [Platform contracts](platforms.md) explain the implemented interface and the

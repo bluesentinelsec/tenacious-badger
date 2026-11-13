@@ -392,6 +392,40 @@ void tb_test_context_clear(void);
 #define TB_TEST_CONTEXT(...) tb_test_context(__VA_ARGS__)
 
 /* -------------------------------------------------------------------------
+ * Hooks: code that the program embedding the framework runs around every case.
+ * ------------------------------------------------------------------------- */
+
+/** @brief Code to run around a case. Receives the context given with the hooks. */
+typedef void tb_test_case_hook(void *context);
+
+/**
+ * @brief Run code before and after every case, such as a resource leak check.
+ *
+ * Both hooks run inside the case, so they can use checks and their failures
+ * belong to it. The before hook runs just ahead of the body; if it ends the
+ * case, the body does not run. The after hook runs however the body ended:
+ * returned, failed a `REQUIRE`, was skipped, or trapped.
+ *
+ * Install hooks from a custom `main`, before tb_test_main().
+ *
+ * @param before Hook to run before each body, or NULL for none.
+ * @param after Hook to run after each body, or NULL for none.
+ * @param context Passed to both hooks; may be NULL. The caller keeps ownership
+ * and must keep it valid for the run.
+ * @par Errors Calling it while a case is running is reported and aborts.
+ */
+void tb_test_set_case_hooks(tb_test_case_hook *before, tb_test_case_hook *after, void *context);
+
+/**
+ * @brief The case that is running. For hooks, which are not written inside one.
+ * @return Borrowed pointer to the running case; never NULL.
+ */
+const tb_test_case *tb_test_current_case(void);
+
+/** @brief Whether the running case has recorded a failed check so far. */
+bool tb_test_case_has_failed(void);
+
+/* -------------------------------------------------------------------------
  * Traps: fatal conditions raised by the code under test.
  * ------------------------------------------------------------------------- */
 

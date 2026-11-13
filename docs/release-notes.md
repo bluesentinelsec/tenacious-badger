@@ -12,6 +12,12 @@ and `TB_ASSERT_MSG` for invariants that are checked in Debug and compiled out of
 Release, `TB_STATIC_ASSERT` for build-time checks, and a replaceable failure
 handler.
 
+Memory allocation goes through `badger/memory.h`. `tb_malloc`, `tb_calloc`,
+`tb_realloc`, and `tb_aligned_alloc` never return NULL: running out of memory
+ends the process through a replaceable handler. The `tb_try_*` forms return NULL
+for callers that can recover. An application can supply its own allocator with
+`tb_memory_set_functions`.
+
 Included foundations:
 
 - `badger` dynamic library and `badger_static` static library with the same

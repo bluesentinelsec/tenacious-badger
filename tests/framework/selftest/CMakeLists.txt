@@ -25,7 +25,9 @@ function(tb_test_add_scenarios fixture suffix)
     endforeach()
 endfunction()
 
-tb_add_test_executable(tb_test_fixture NO_CTEST SOURCES fixture/fixture_tests.c)
+tb_add_test_executable(tb_test_fixture NO_CTEST
+    MAIN fixture/fixture_main.c
+    SOURCES fixture/fixture_tests.c)
 tb_configure_target(tb_test_fixture)
 tb_test_add_scenarios(tb_test_fixture "")
 
@@ -33,6 +35,7 @@ if(TB_ENABLE_SANITIZERS)
     # The failure paths leave cases with non-local jumps; run them instrumented.
     tb_add_test_executable(tb_test_fixture_sanitized NO_CTEST
         FRAMEWORK tb_test_sanitized
+        MAIN fixture/fixture_main.c
         SOURCES fixture/fixture_tests.c)
     tb_configure_target(tb_test_fixture_sanitized)
     tb_enable_sanitizers(tb_test_fixture_sanitized)

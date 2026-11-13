@@ -281,6 +281,40 @@ function(scenario_fail_fast_stops_at_the_first_failed_case)
     expect_text("[ SUMMARY ] 1 case: 0 passed, 1 failed, 0 skipped; 2 checks;")
 endfunction()
 
+function(scenario_hooks_run_around_every_case)
+    # Without hooks installed, nothing extra runs and both hook cases pass.
+    run_fixture("hooks.*" pass.several_checks)
+    expect_status(0)
+    expect_no_text("hook-")
+    expect_text("failed-case-body-ran")
+    expect_text("skipped-case-body-ran")
+
+    run_fixture(--with-hooks pass.several_checks fail.require_stops skip.with_reason "hooks.*")
+    expect_status(1)
+    # Both hooks run for every case, with the context they were given.
+    expect_count("hook-before " 5)
+    expect_count("hook-after " 5)
+    expect_text("hook-before pass.several_checks (fixture context)")
+    expect_text("hook-after pass.several_checks failed=0")
+    string(FIND "${output}" "hook-before pass.several_checks" before_position)
+    string(FIND "${output}" "hook-after pass.several_checks" after_position)
+    if(NOT before_position LESS after_position)
+        fail_scenario("the before hook must run ahead of the after hook")
+    endif()
+    # The after hook runs even when the body was cut short, and can see that.
+    expect_text("hook-after fail.require_stops failed=1")
+    expect_text("hook-after skip.with_reason failed=0")
+    # A hook can fail a case whose body passed.
+    expect_text("failed-case-body-ran")
+    expect_text("error: hooks.is_failed_by_the_after_hook: TB_TEST_FAIL: rejected by the after hook")
+    expect_text("[ FAILED  ] hooks.is_failed_by_the_after_hook: 1 of 1 checks failed")
+    # A before hook that ends the case keeps the body from running.
+    expect_text("[ SKIPPED ] hooks.is_skipped_by_the_before_hook: skipped by the before hook")
+    expect_no_text("skipped-case-body-ran")
+    expect_text("hook-after hooks.is_skipped_by_the_before_hook failed=0")
+    expect_text("[ SUMMARY ] 5 cases: 1 passed, 2 failed, 2 skipped;")
+endfunction()
+
 function(scenario_crash_ends_the_process_with_a_failure_status)
     # A debug C runtime must not park the run behind an error dialog.
     run_fixture("crash.aborts")

@@ -52,6 +52,16 @@ typedef struct tb_test_state
 
 static tb_test_state tb_test_running = {0};
 
+/* Code that the embedding program runs around every case. */
+typedef struct tb_test_hooks
+{
+    tb_test_case_hook *before;
+    tb_test_case_hook *after;
+    void *context;
+} tb_test_hooks;
+
+static tb_test_hooks tb_test_installed_hooks = {0};
+
 /* ---------------------------------------------------------------------------
  * State shared with the checks.
  * ------------------------------------------------------------------------- */
@@ -156,6 +166,29 @@ void tb_test_context_clear(void)
 {
     tb_test_require_running_case("tb_test_context_clear");
     tb_test_running.context[0] = '\0';
+}
+
+void tb_test_set_case_hooks(tb_test_case_hook *before, tb_test_case_hook *after, void *context)
+{
+    if (tb_test_running.current != NULL)
+    {
+        tb_test_misuse("tb_test_set_case_hooks was used while a test case is running");
+    }
+    tb_test_installed_hooks.before = before;
+    tb_test_installed_hooks.after = after;
+    tb_test_installed_hooks.context = context;
+}
+
+const tb_test_case *tb_test_current_case(void)
+{
+    tb_test_require_running_case("tb_test_current_case");
+    return tb_test_running.current;
+}
+
+bool tb_test_case_has_failed(void)
+{
+    tb_test_require_running_case("tb_test_case_has_failed");
+    return tb_test_running.failure_count > 0;
 }
 
 /* ---------------------------------------------------------------------------
@@ -340,16 +373,31 @@ static uint64_t tb_test_seed_from_time(void)
     return tb_test_generator_next(&mixer);
 }
 
-/* Calls the case body. Returns normally whether the body returned or left
- * through tb_test_leave_case(). Kept free of other locals; see
- * tb_test_body_traps(). */
+/* Calls the before hook and the case body. Returns normally whether they
+ * returned or left through tb_test_leave_case(). Kept free of other locals;
+ * see tb_test_body_traps(). */
 static void tb_test_call_case_body(const tb_test_case *test)
 {
     if (setjmp(tb_test_running.case_exit) != 0)
     {
         return;
     }
+    if (tb_test_installed_hooks.before != NULL)
+    {
+        tb_test_installed_hooks.before(tb_test_installed_hooks.context);
+    }
     test->function();
+}
+
+/* Calls the after hook, which runs however the body ended and may itself fail
+ * the case. Kept free of other locals; see tb_test_body_traps(). */
+static void tb_test_call_after_hook(void)
+{
+    if (setjmp(tb_test_running.case_exit) != 0)
+    {
+        return;
+    }
+    tb_test_installed_hooks.after(tb_test_installed_hooks.context);
 }
 
 static tb_test_outcome tb_test_run_case(const tb_test_case *test, uint64_t run_seed)
@@ -377,6 +425,12 @@ static tb_test_outcome tb_test_run_case(const tb_test_case *test, uint64_t run_s
     started = tb_test_now_milliseconds();
     tb_test_running.current = test;
     tb_test_call_case_body(test);
+    if (tb_test_installed_hooks.after != NULL)
+    {
+        /* A trap check that the body left early must not swallow a trap here. */
+        tb_test_running.trap_is_expected = false;
+        tb_test_call_after_hook();
+    }
     tb_test_running.current = NULL;
     elapsed = tb_test_now_milliseconds() - started;
 
@@ -492,7 +546,7 @@ static const tb_test_case **tb_test_select(const tb_test_case *const *cases, siz
         tb_test_select_matching(cases, case_count, options, options->include_patterns[index],
                                 is_selected, selected, selected_count);
     }
-    free(is_selected);
+    tb_test_release(is_selected);
     return selected;
 }
 
@@ -648,7 +702,7 @@ int tb_test_run(int argc, char **argv, const tb_test_case *const *cases, size_t 
     status = tb_test_execute(selected, selected_count, &options);
 
 cleanup:
-    free(selected);
+    tb_test_release(selected);
     tb_test_options_release(&options);
     return status;
 }

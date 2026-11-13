@@ -28,6 +28,21 @@ def main():
     library.tb_assert_library_enabled.restype = ctypes.c_bool
     if library.tb_assert_library_enabled() not in (True, False):
         raise RuntimeError('External assertion-setting query failed')
+    library.tb_memory_allocation_count.argtypes = []
+    library.tb_memory_allocation_count.restype = ctypes.c_size_t
+    library.tb_calloc.argtypes = [ctypes.c_size_t, ctypes.c_size_t]
+    library.tb_calloc.restype = ctypes.c_void_p
+    library.tb_free.argtypes = [ctypes.c_void_p]
+    library.tb_free.restype = None
+    blocks_before = library.tb_memory_allocation_count()
+    block = library.tb_calloc(16, 4)
+    if not block or ctypes.string_at(block, 64) != bytes(64):
+        raise RuntimeError('External allocation did not return zero-filled memory')
+    if library.tb_memory_allocation_count() != blocks_before + 1:
+        raise RuntimeError('External allocation was not counted')
+    library.tb_free(block)
+    if library.tb_memory_allocation_count() != blocks_before:
+        raise RuntimeError('External free was not counted')
     library.tb_platform_ticks.argtypes = []
     library.tb_platform_ticks.restype = ctypes.c_uint64
     if platform.system() == 'Windows':
