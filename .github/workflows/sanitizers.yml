@@ -33,6 +33,8 @@ jobs:
             cc: clang
     env:
       CC: ${{ matrix.cc }}
+      CMAKE_GENERATOR: ${{ matrix.os == 'windows-2025-vs2026' && 'Visual Studio 18 2026' || 'Unix Makefiles' }}
+      CMAKE_GENERATOR_PLATFORM: ${{ matrix.os == 'windows-2025-vs2026' && 'x64' || '' }}
       ASAN_OPTIONS: halt_on_error=1
       UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
     steps:
