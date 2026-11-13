@@ -438,37 +438,61 @@ static bool tb_test_matches_any(const char *const *patterns, size_t pattern_coun
     return false;
 }
 
-static bool tb_test_is_selected(const tb_test_case *test, const tb_test_options *options)
+static bool tb_test_is_excluded(const tb_test_case *test, const tb_test_options *options)
 {
     char name[TB_TEST_MESSAGE_CAPACITY] = {0};
 
     tb_test_full_name(test, name, sizeof(name));
-    if (tb_test_matches_any(options->exclude_patterns, options->exclude_count, name))
-    {
-        return false;
-    }
-    if (options->include_count == 0)
-    {
-        return true;
-    }
-    return tb_test_matches_any(options->include_patterns, options->include_count, name);
+    return tb_test_matches_any(options->exclude_patterns, options->exclude_count, name);
 }
 
-/* Returns an owned array of the selected cases in registry order. */
+/* Appends the not-yet-selected cases that match `pattern`, in registry order.
+ * A NULL pattern matches every case. */
+static void tb_test_select_matching(const tb_test_case *const *cases, size_t case_count,
+                                    const tb_test_options *options, const char *pattern,
+                                    bool *is_selected, const tb_test_case **selected,
+                                    size_t *selected_count)
+{
+    char name[TB_TEST_MESSAGE_CAPACITY] = {0};
+
+    for (size_t index = 0; index < case_count; index++)
+    {
+        if (is_selected[index] || tb_test_is_excluded(cases[index], options))
+        {
+            continue;
+        }
+        tb_test_full_name(cases[index], name, sizeof(name));
+        if (pattern != NULL && !tb_test_pattern_matches(pattern, name))
+        {
+            continue;
+        }
+        is_selected[index] = true;
+        selected[*selected_count] = cases[index];
+        (*selected_count)++;
+    }
+}
+
+/* Returns an owned array of the selected cases in run order: the order of the
+ * patterns on the command line, then registry order within each pattern. A
+ * case that several patterns match runs once, where the first of them puts it. */
 static const tb_test_case **tb_test_select(const tb_test_case *const *cases, size_t case_count,
                                            const tb_test_options *options, size_t *selected_count)
 {
     const tb_test_case **selected = tb_test_allocate_zeroed(case_count, sizeof(*selected));
+    bool *is_selected = tb_test_allocate_zeroed(case_count, sizeof(*is_selected));
 
     *selected_count = 0;
-    for (size_t index = 0; index < case_count; index++)
+    if (options->include_count == 0)
     {
-        if (tb_test_is_selected(cases[index], options))
-        {
-            selected[*selected_count] = cases[index];
-            (*selected_count)++;
-        }
+        tb_test_select_matching(cases, case_count, options, NULL, is_selected, selected,
+                                selected_count);
     }
+    for (size_t index = 0; index < options->include_count; index++)
+    {
+        tb_test_select_matching(cases, case_count, options, options->include_patterns[index],
+                                is_selected, selected, selected_count);
+    }
+    free(is_selected);
     return selected;
 }
 

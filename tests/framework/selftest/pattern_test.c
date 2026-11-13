@@ -12,7 +12,7 @@ typedef struct pattern_row
     bool matches;
 } pattern_row;
 
-TB_TEST(pattern, matches_known_patterns)
+TB_TEST(framework_pattern, matches_known_patterns)
 {
     static const pattern_row rows[] = {
         /* Literals match only themselves, in full. */
@@ -117,7 +117,7 @@ static void fill_random_string(char *buffer, size_t maximum_length, const char *
     buffer[length] = '\0';
 }
 
-TB_TEST(pattern, agrees_with_reference_matcher_on_random_inputs)
+TB_TEST(framework_pattern, agrees_with_reference_matcher_on_random_inputs)
 {
     enum
     {
@@ -138,7 +138,7 @@ TB_TEST(pattern, agrees_with_reference_matcher_on_random_inputs)
     }
 }
 
-TB_TEST(pattern, case_names_match_themselves_and_their_generalizations)
+TB_TEST(framework_pattern, case_names_match_themselves_and_their_generalizations)
 {
     enum
     {

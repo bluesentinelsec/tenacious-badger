@@ -27,20 +27,20 @@ static bool count_evaluation(bool value)
     return value;
 }
 
-TB_TEST(assert, static_assert_compiles_in_block_scope)
+TB_TEST(core_assert, static_assert_compiles_in_block_scope)
 {
     /* Compiling is the test; a false condition would fail the build. */
     TB_STATIC_ASSERT(sizeof(int) >= 2, "a static assertion must compile in a block");
 }
 
-TB_TEST(assert, library_and_tests_share_one_assertion_setting)
+TB_TEST(core_assert, library_and_tests_share_one_assertion_setting)
 {
     /* The cases below ask the library whether assertions are enabled and then
      * use the macros of this file, so the two settings must agree. */
     TB_TEST_EXPECT(tb_assert_library_enabled() == assertions_are_enabled_here());
 }
 
-TB_TEST(assert, true_condition_is_evaluated_once_when_enabled)
+TB_TEST(core_assert, true_condition_is_evaluated_once_when_enabled)
 {
     evaluation_count = 0;
     TB_ASSERT(count_evaluation(true));
@@ -56,7 +56,7 @@ TB_TEST(assert, true_condition_is_evaluated_once_when_enabled)
     }
 }
 
-TB_TEST(assert, disabled_assertions_do_nothing)
+TB_TEST(core_assert, disabled_assertions_do_nothing)
 {
     if (tb_assert_library_enabled())
     {
@@ -87,7 +87,7 @@ static void fail_assert_with_message(void *context)
     TB_ASSERT_MSG(*value > 100, "value must be large");
 }
 
-TB_TEST(assert, failure_reports_expression_and_location)
+TB_TEST(core_assert, failure_reports_expression_and_location)
 {
     int value = 1;
     const tb_assert_failure *failure = NULL;
@@ -105,7 +105,7 @@ TB_TEST(assert, failure_reports_expression_and_location)
     TB_TEST_EXPECT(strstr(failure->file, "assert_test.c") != NULL);
 }
 
-TB_TEST(assert, failure_carries_its_message)
+TB_TEST(core_assert, failure_carries_its_message)
 {
     int value = 1;
     const tb_assert_failure *failure = NULL;
@@ -145,7 +145,7 @@ static void fail_through_the_function(void *context)
     tb_assert_fail("direct == call", NULL, "direct_file.c", 77, "direct_function");
 }
 
-TB_TEST(assert, handler_can_be_replaced_and_receives_its_context)
+TB_TEST(core_assert, handler_can_be_replaced_and_receives_its_context)
 {
     /* tb_assert_fail() is the function behind the macros, so this case runs
      * in every build, including those that compile the macros out. */

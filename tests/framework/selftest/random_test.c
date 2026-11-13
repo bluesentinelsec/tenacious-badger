@@ -5,7 +5,7 @@
 
 #include <string.h>
 
-TB_TEST(random, generator_produces_the_reference_sequence)
+TB_TEST(framework_random, generator_produces_the_reference_sequence)
 {
     /* SplitMix64 outputs for seed 0, from the published reference code. */
     static const uint64_t expected[] = {
@@ -24,7 +24,7 @@ TB_TEST(random, generator_produces_the_reference_sequence)
     }
 }
 
-TB_TEST(random, equal_seeds_give_equal_sequences)
+TB_TEST(framework_random, equal_seeds_give_equal_sequences)
 {
     enum
     {
@@ -53,7 +53,7 @@ TB_TEST(random, equal_seeds_give_equal_sequences)
     TB_TEST_EXPECT_UINT(differing, ==, DRAW_COUNT);
 }
 
-TB_TEST(random, below_stays_under_every_bound)
+TB_TEST(framework_random, below_stays_under_every_bound)
 {
     static const uint64_t bounds[] = {
         1,
@@ -88,7 +88,7 @@ TB_TEST(random, below_stays_under_every_bound)
     }
 }
 
-TB_TEST(random, below_spreads_evenly_over_a_small_bound)
+TB_TEST(framework_random, below_spreads_evenly_over_a_small_bound)
 {
     enum
     {
@@ -117,7 +117,7 @@ TB_TEST(random, below_spreads_evenly_over_a_small_bound)
     }
 }
 
-TB_TEST(random, case_seed_depends_on_every_part_of_the_identity)
+TB_TEST(framework_random, case_seed_depends_on_every_part_of_the_identity)
 {
     const uint64_t base = tb_test_generator_seed_for_case(1, "list", "push");
 
@@ -130,7 +130,7 @@ TB_TEST(random, case_seed_depends_on_every_part_of_the_identity)
                        tb_test_generator_seed_for_case(1, "ab", "c"));
 }
 
-TB_TEST(random, case_stream_is_derived_from_the_run_seed_and_case_name)
+TB_TEST(framework_random, case_stream_is_derived_from_the_run_seed_and_case_name)
 {
     /* This is the contract behind "rerun with --seed": the running case draws
      * exactly the sequence that its seed and name determine. */
@@ -138,7 +138,7 @@ TB_TEST(random, case_stream_is_derived_from_the_run_seed_and_case_name)
 
     tb_test_generator_seed(
         &expected,
-        tb_test_generator_seed_for_case(tb_test_random_seed(), "random",
+        tb_test_generator_seed_for_case(tb_test_random_seed(), "framework_random",
                                         "case_stream_is_derived_from_the_run_seed_and_case_name"));
     for (size_t draw = 0; draw < 16; draw++)
     {
@@ -153,7 +153,7 @@ typedef struct range_row
     int64_t maximum;
 } range_row;
 
-TB_TEST(random, between_honors_inclusive_limits)
+TB_TEST(framework_random, between_honors_inclusive_limits)
 {
     static const range_row rows[] = {
         {0, 0},
@@ -188,7 +188,7 @@ TB_TEST(random, between_honors_inclusive_limits)
     }
 }
 
-TB_TEST(random, between_reaches_both_ends_of_a_small_range)
+TB_TEST(framework_random, between_reaches_both_ends_of_a_small_range)
 {
     enum
     {
@@ -212,7 +212,7 @@ TB_TEST(random, between_reaches_both_ends_of_a_small_range)
     TB_TEST_EXPECT(reached_negative_limit);
 }
 
-TB_TEST(random, bytes_fill_exactly_the_requested_range)
+TB_TEST(framework_random, bytes_fill_exactly_the_requested_range)
 {
     enum
     {
@@ -236,7 +236,7 @@ TB_TEST(random, bytes_fill_exactly_the_requested_range)
     tb_test_random_bytes(NULL, 0);
 }
 
-TB_TEST(random, bytes_are_not_constant)
+TB_TEST(framework_random, bytes_are_not_constant)
 {
     enum
     {

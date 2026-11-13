@@ -75,7 +75,8 @@ for an existing-certificate override and the signing opt-out.
 Unit tests use the in-house `tb_test` framework. [Testing](testing.md) explains
 how to write, run, filter, and debug test cases, and how IDE test explorers pick
 them up. Every case is its own CTest test, such as
-`core.sum.adds_representable_operands`.
+`core_sum.adds_representable_operands`, and all of them are part of one executable,
+`tb_tests`, which can run any selection of cases in any order.
 
 The core tests cover checked addition (tables of ordinary and limit operands,
 overflow rejection, and agreement with wide arithmetic on random operands) and

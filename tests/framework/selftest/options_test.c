@@ -47,7 +47,7 @@ static void parse_valid(command_line *line, const char *const *arguments, size_t
     TB_TEST_EXPECT_STRING(error, ==, "");
 }
 
-TB_TEST(options, no_arguments_select_the_defaults)
+TB_TEST(framework_options, no_arguments_select_the_defaults)
 {
     tb_test_options options = TB_TEST_OPTIONS_INIT;
     command_line line = {0};
@@ -67,7 +67,7 @@ TB_TEST(options, no_arguments_select_the_defaults)
     tb_test_options_release(&options);
 }
 
-TB_TEST(options, an_absent_argv_is_an_empty_command_line)
+TB_TEST(framework_options, an_absent_argv_is_an_empty_command_line)
 {
     tb_test_options options = TB_TEST_OPTIONS_INIT;
     char error[ERROR_CAPACITY] = {0};
@@ -78,7 +78,7 @@ TB_TEST(options, an_absent_argv_is_an_empty_command_line)
     tb_test_options_release(&options);
 }
 
-TB_TEST(options, flags_are_recognized_individually)
+TB_TEST(framework_options, flags_are_recognized_individually)
 {
     static const char *const arguments[] = {"--list",    "--fail-fast", "--break",
                                             "--shuffle", "--verbose",   "--help"};
@@ -99,7 +99,7 @@ TB_TEST(options, flags_are_recognized_individually)
     }
 }
 
-TB_TEST(options, short_help_is_an_alias)
+TB_TEST(framework_options, short_help_is_an_alias)
 {
     static const char *const arguments[] = {"-h"};
     tb_test_options options = TB_TEST_OPTIONS_INIT;
@@ -110,7 +110,7 @@ TB_TEST(options, short_help_is_an_alias)
     tb_test_options_release(&options);
 }
 
-TB_TEST(options, patterns_and_exclusions_keep_their_order)
+TB_TEST(framework_options, patterns_and_exclusions_keep_their_order)
 {
     static const char *const arguments[] = {"sum.*",     "--exclude", "*.slow_*",       "list.?",
                                             "--shuffle", "table.get", "--exclude=set.*"};
@@ -135,7 +135,7 @@ typedef struct seed_row
     uint64_t seed;
 } seed_row;
 
-TB_TEST(options, seed_accepts_decimal_and_hexadecimal)
+TB_TEST(framework_options, seed_accepts_decimal_and_hexadecimal)
 {
     static const seed_row rows[] = {
         {"0", 0},
@@ -170,7 +170,7 @@ TB_TEST(options, seed_accepts_decimal_and_hexadecimal)
     }
 }
 
-TB_TEST(options, seed_can_come_from_the_clock)
+TB_TEST(framework_options, seed_can_come_from_the_clock)
 {
     static const char *const arguments[] = {"--seed", "time"};
     tb_test_options options = TB_TEST_OPTIONS_INIT;
@@ -181,7 +181,7 @@ TB_TEST(options, seed_can_come_from_the_clock)
     tb_test_options_release(&options);
 }
 
-TB_TEST(options, the_last_seed_wins)
+TB_TEST(framework_options, the_last_seed_wins)
 {
     static const char *const arguments[] = {"--seed", "time", "--seed", "7"};
     tb_test_options options = TB_TEST_OPTIONS_INIT;
@@ -193,7 +193,7 @@ TB_TEST(options, the_last_seed_wins)
     tb_test_options_release(&options);
 }
 
-TB_TEST(options, repeat_accepts_its_whole_range)
+TB_TEST(framework_options, repeat_accepts_its_whole_range)
 {
     static const char *const once[] = {"--repeat", "1"};
     static const char *const most[] = {"--repeat=1000000"};
@@ -216,7 +216,7 @@ typedef struct invalid_row
     const char *error_part; /* Text the error message must contain. */
 } invalid_row;
 
-TB_TEST(options, invalid_command_lines_are_rejected_with_a_reason)
+TB_TEST(framework_options, invalid_command_lines_are_rejected_with_a_reason)
 {
     static const invalid_row rows[] = {
         /* Unknown options, including near misses of real ones. */
@@ -273,7 +273,7 @@ TB_TEST(options, invalid_command_lines_are_rejected_with_a_reason)
     }
 }
 
-TB_TEST(options, release_returns_to_the_defaults)
+TB_TEST(framework_options, release_returns_to_the_defaults)
 {
     static const char *const arguments[] = {"--seed", "9", "--repeat", "4", "--verbose", "a.*"};
     tb_test_options options = TB_TEST_OPTIONS_INIT;

@@ -228,6 +228,7 @@ void tb_test_options_print_usage(FILE *stream, const char *program)
     fputs("\n"
           "Runs the test cases whose \"suite.name\" matches any pattern; all cases when no\n"
           "pattern is given. In a pattern, '*' matches any run of characters and '?' one.\n"
+          "Cases run in the order of the patterns, and in source order within a pattern.\n"
           "\n"
           "  --exclude PATTERN  Leave out matching cases. May be repeated.\n"
           "  --list             Print the selected cases with their locations and exit.\n"

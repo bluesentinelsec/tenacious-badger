@@ -17,7 +17,7 @@ typedef struct sum_row
     int32_t sum;
 } sum_row;
 
-TB_TEST(sum, adds_representable_operands)
+TB_TEST(core_sum, adds_representable_operands)
 {
     static const sum_row rows[] = {
         {2, 3, 5},
@@ -54,7 +54,7 @@ typedef struct overflow_row
     int32_t right;
 } overflow_row;
 
-TB_TEST(sum, rejects_overflow_and_preserves_the_output)
+TB_TEST(core_sum, rejects_overflow_and_preserves_the_output)
 {
     static const overflow_row rows[] = {
         {INT32_MAX, 1},
@@ -98,7 +98,7 @@ static int32_t random_operand(void)
     }
 }
 
-TB_TEST(sum, agrees_with_wide_arithmetic_on_random_operands)
+TB_TEST(core_sum, agrees_with_wide_arithmetic_on_random_operands)
 {
     enum
     {
@@ -137,7 +137,7 @@ static void sum_into_null(void *context)
     (void)tb_sum_i32(1, 2, NULL);
 }
 
-TB_TEST(sum, null_output_violates_the_contract)
+TB_TEST(core_sum, null_output_violates_the_contract)
 {
     if (!tb_assert_library_enabled())
     {

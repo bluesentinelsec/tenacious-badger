@@ -21,7 +21,7 @@ static const char *count_string_evaluation(const char *value)
     return value;
 }
 
-TB_TEST(checks, boolean_checks_accept_any_true_scalar)
+TB_TEST(framework_checks, boolean_checks_accept_any_true_scalar)
 {
     const int object = 7;
     const int *const address = &object;
@@ -35,7 +35,7 @@ TB_TEST(checks, boolean_checks_accept_any_true_scalar)
     TB_TEST_REQUIRE(object > 1);
 }
 
-TB_TEST(checks, integer_checks_cover_the_full_range)
+TB_TEST(framework_checks, integer_checks_cover_the_full_range)
 {
     TB_TEST_EXPECT_INT(0, ==, 0);
     TB_TEST_EXPECT_INT(-1, <, 0);
@@ -56,7 +56,7 @@ TB_TEST(checks, integer_checks_cover_the_full_range)
     TB_TEST_REQUIRE_HEX(UINT64_MAX, >=, UINT64_MAX);
 }
 
-TB_TEST(checks, float_checks_compare_exactly_and_within_tolerance)
+TB_TEST(framework_checks, float_checks_compare_exactly_and_within_tolerance)
 {
     const double infinity = strtod("inf", NULL);
     const double not_a_number = strtod("nan", NULL);
@@ -77,7 +77,7 @@ TB_TEST(checks, float_checks_compare_exactly_and_within_tolerance)
     TB_TEST_REQUIRE_FLOAT_NEAR(1.0f, 1.0f, 0.0f);
 }
 
-TB_TEST(checks, pointer_checks_compare_addresses)
+TB_TEST(framework_checks, pointer_checks_compare_addresses)
 {
     const int values[2] = {1, 2};
     const int *const missing = NULL;
@@ -89,7 +89,7 @@ TB_TEST(checks, pointer_checks_compare_addresses)
     TB_TEST_REQUIRE_POINTER(values, !=, NULL);
 }
 
-TB_TEST(checks, string_checks_order_by_content)
+TB_TEST(framework_checks, string_checks_order_by_content)
 {
     const char *const missing = NULL;
     char copy[] = "badger";
@@ -113,7 +113,7 @@ typedef struct string_order_row
     int order;
 } string_order_row;
 
-TB_TEST(checks, string_order_is_normalized_and_total_over_null)
+TB_TEST(framework_checks, string_order_is_normalized_and_total_over_null)
 {
     static const string_order_row rows[] = {
         {NULL, NULL, 0},
@@ -143,7 +143,7 @@ TB_TEST(checks, string_order_is_normalized_and_total_over_null)
     }
 }
 
-TB_TEST(checks, byte_checks_accept_equal_and_empty_ranges)
+TB_TEST(framework_checks, byte_checks_accept_equal_and_empty_ranges)
 {
     const unsigned char first[] = {0x00, 0x01, 0xFE, 0xFF};
     const unsigned char second[] = {0x00, 0x01, 0xFE, 0xFF, 0x55};
@@ -158,7 +158,7 @@ TB_TEST(checks, byte_checks_accept_equal_and_empty_ranges)
     TB_TEST_REQUIRE_BYTES("text", "text", sizeof("text"));
 }
 
-TB_TEST(checks, operands_are_evaluated_exactly_once)
+TB_TEST(framework_checks, operands_are_evaluated_exactly_once)
 {
     /* A check that evaluated an operand twice would break every test that
      * passes a call with side effects, such as popping from a container. */
@@ -188,7 +188,7 @@ TB_TEST(checks, operands_are_evaluated_exactly_once)
     TB_TEST_EXPECT_INT(evaluation_count, ==, 7);
 }
 
-TB_TEST(checks, count_of_measures_arrays)
+TB_TEST(framework_checks, count_of_measures_arrays)
 {
     const int three[3] = {0};
     const char text[] = "four";
@@ -200,7 +200,7 @@ TB_TEST(checks, count_of_measures_arrays)
     TB_TEST_EXPECT_UINT(TB_TEST_COUNT_OF(matrix[0]), ==, 5);
 }
 
-TB_TEST(checks, context_does_not_affect_passing_checks)
+TB_TEST(framework_checks, context_does_not_affect_passing_checks)
 {
     static const char long_text[] =
         "0123456789012345678901234567890123456789012345678901234567890123456789"
@@ -232,7 +232,7 @@ static void raise_requested_trap(void *context)
     tb_test_trap(__FILE__, __LINE__, request->message);
 }
 
-TB_TEST(checks, trap_checks_accept_a_matching_trap)
+TB_TEST(framework_checks, trap_checks_accept_a_matching_trap)
 {
     static const char long_message[] =
         "0123456789012345678901234567890123456789012345678901234567890123456789"

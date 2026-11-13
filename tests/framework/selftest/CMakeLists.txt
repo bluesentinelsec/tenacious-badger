@@ -1,9 +1,9 @@
-# The framework tests itself in two ways. Cases that must pass run like any
-# other test. Behavior that only shows when a case fails (reports, exit
-# statuses, fail-fast) is checked from the outside by running a fixture
-# executable whose cases fail on purpose.
+# The framework tests itself in two ways. Cases that must pass (*_test.c) are
+# part of the project's test executable, tb_tests, like any other test. Behavior
+# that only shows when a case fails (reports, exit statuses, fail-fast) is
+# checked from the outside, by running a fixture executable whose cases fail on
+# purpose. That fixture is necessarily a separate program.
 
-set(selftest_sources checks_test.c options_test.c pattern_test.c random_test.c)
 set(scenario_script "${CMAKE_CURRENT_SOURCE_DIR}/RunScenario.cmake")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${scenario_script}")
 
@@ -14,7 +14,7 @@ function(tb_test_add_scenarios fixture suffix)
     foreach(definition IN LISTS definitions)
         string(REGEX REPLACE "^function\\(scenario_([A-Za-z0-9_]+)\\).*$" "\\1" scenario
             "${definition}")
-        add_test(NAME test_framework.scenario.${scenario}${suffix}
+        add_test(NAME framework_scenario.${scenario}${suffix}
             COMMAND "${CMAKE_COMMAND}"
                 "-DTB_SCENARIO=${scenario}"
                 "-DTB_FIXTURE=$<TARGET_FILE:${fixture}>"
@@ -25,29 +25,16 @@ function(tb_test_add_scenarios fixture suffix)
     endforeach()
 endfunction()
 
-tb_add_test_executable(tb_test_selftests
-    PREFIX "test_framework."
-    SOURCES ${selftest_sources})
-target_include_directories(tb_test_selftests PRIVATE ../src)
-tb_configure_target(tb_test_selftests)
-
 tb_add_test_executable(tb_test_fixture NO_CTEST SOURCES fixture/fixture_tests.c)
 tb_configure_target(tb_test_fixture)
 tb_test_add_scenarios(tb_test_fixture "")
 
 if(TB_ENABLE_SANITIZERS)
     # The failure paths leave cases with non-local jumps; run them instrumented.
-    tb_add_test_executable(tb_test_selftests_sanitized
-        PREFIX "test_framework." SUFFIX ".sanitized"
-        FRAMEWORK tb_test_sanitized
-        SOURCES ${selftest_sources})
-    target_include_directories(tb_test_selftests_sanitized PRIVATE ../src)
     tb_add_test_executable(tb_test_fixture_sanitized NO_CTEST
         FRAMEWORK tb_test_sanitized
         SOURCES fixture/fixture_tests.c)
-    foreach(target tb_test_selftests_sanitized tb_test_fixture_sanitized)
-        tb_configure_target(${target})
-        tb_enable_sanitizers(${target})
-    endforeach()
+    tb_configure_target(tb_test_fixture_sanitized)
+    tb_enable_sanitizers(tb_test_fixture_sanitized)
     tb_test_add_scenarios(tb_test_fixture_sanitized ".sanitized")
 endif()
