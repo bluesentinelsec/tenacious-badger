@@ -10,10 +10,11 @@ should explain the problem and resulting behavior. Link each pull request to its
 issue with a closing keyword (`Closes #12`) so the two stay in sync.
 
 Keep reusable behavior in the `badger` library, and keep `burrow` thin. List
-translation units explicitly in component CMake files. Every new platform
-interface needs a Windows adapter and compiling Linux/macOS implementations or
-fatal stubs. Document public APIs with Doxygen, including their threading,
-ownership, valid-input, and failure contracts.
+translation units explicitly in component CMake files, and add every new C
+source or header to `cmake/FormatSources.cmake`; nothing is found by globbing.
+Every new platform interface needs a Windows adapter and compiling Linux/macOS
+implementations or fatal stubs. Document public APIs with Doxygen, including
+their threading, ownership, valid-input, and failure contracts.
 
 Before review:
 
