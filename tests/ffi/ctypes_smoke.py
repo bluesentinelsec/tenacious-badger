@@ -24,6 +24,10 @@ def main():
         output = ctypes.c_int32(123)
         if library.tb_sum_i32(left, right, ctypes.byref(output)) or output.value != 123:
             raise RuntimeError('External C ABI overflow contract failed')
+    library.tb_assert_library_enabled.argtypes = []
+    library.tb_assert_library_enabled.restype = ctypes.c_bool
+    if library.tb_assert_library_enabled() not in (True, False):
+        raise RuntimeError('External assertion-setting query failed')
     library.tb_platform_ticks.argtypes = []
     library.tb_platform_ticks.restype = ctypes.c_uint64
     if platform.system() == 'Windows':

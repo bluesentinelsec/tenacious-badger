@@ -1,4 +1,41 @@
 {
   "version": "0.2.0",
-  "configurations": []
+  "configurations": [
+    {
+      "name": "Debug test case (Windows)",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${cmake.testProgram}",
+      "args": [
+        "${cmake.testArgs}",
+        "--break"
+      ],
+      "cwd": "${cmake.testWorkingDirectory}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Debug test case (gdb)",
+      "type": "cppdbg",
+      "request": "launch",
+      "MIMode": "gdb",
+      "program": "${cmake.testProgram}",
+      "args": [
+        "${cmake.testArgs}",
+        "--break"
+      ],
+      "cwd": "${cmake.testWorkingDirectory}"
+    },
+    {
+      "name": "Debug test case (lldb)",
+      "type": "cppdbg",
+      "request": "launch",
+      "MIMode": "lldb",
+      "program": "${cmake.testProgram}",
+      "args": [
+        "${cmake.testArgs}",
+        "--break"
+      ],
+      "cwd": "${cmake.testWorkingDirectory}"
+    }
+  ]
 }

@@ -8,6 +8,8 @@
   "files.trimTrailingWhitespace": true,
   "cmake.useCMakePresets": "always",
   "cmake.configureOnOpen": true,
+  "cmake.ctest.testSuiteDelimiter": "\\.",
+  "C_Cpp.intelliSenseEngine": "disabled",
   "clangd.arguments": [
     "--compile-commands-dir=build/debug",
     "--header-insertion=never"

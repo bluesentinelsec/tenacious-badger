@@ -1,0 +1,18 @@
+/** @file tb_test_config.h
+ * @brief Build-selected compiler support for the test framework.
+ */
+#ifndef TB_TEST_CONFIG_H
+#define TB_TEST_CONFIG_H
+
+/**
+ * @brief Ask the compiler to check a printf-style format against its arguments.
+ * @param format_index 1-based position of the format parameter.
+ * @param arguments_index 1-based position of the first formatted argument, or
+ * 0 when the arguments arrive as a va_list.
+ */
+/* The build replaces the placeholder, which is not C until then. */
+/* clang-format off */
+#define TB_TEST_PRINTF_FORMAT(format_index, arguments_index) @TB_TEST_PRINTF_FORMAT_ATTRIBUTE@
+/* clang-format on */
+
+#endif
