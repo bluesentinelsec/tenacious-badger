@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.platform }} / ${{ matrix.compiler }} / ${{ matrix.build_type }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release]
+        toolchain: [windows-msvc, macos-clang, linux-gcc, linux-clang]
+        include:
+          - toolchain: windows-msvc
+            platform: Windows
+            os: windows-2025-vs2026
+            compiler: MSVC
+            cc: cl
+          - toolchain: macos-clang
+            platform: macOS
+            os: macos-26
+            compiler: AppleClang
+            cc: clang
+          - toolchain: linux-gcc
+            platform: Linux
+            os: ubuntu-26.04
+            compiler: GCC
+            cc: gcc
+          - toolchain: linux-clang
+            platform: Linux
+            os: ubuntu-26.04
+            compiler: Clang
+            cc: clang
+    env:
+      CC: ${{ matrix.cc }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Configure
+        run: cmake -S . -B build/ci -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+      - name: Build
+        run: cmake --build build/ci --config ${{ matrix.build_type }} --parallel
+      - name: Test shared library, consumer, and native adapter or fatal stub
+        run: ctest --test-dir build/ci -C ${{ matrix.build_type }} --output-on-failure --no-tests=error
+
+  format:
+    name: C formatting
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check with the runner's preinstalled clang-format 22
+        run: cmake -DTB_FORMAT_MODE=check -DTB_CLANG_FORMAT=clang-format-22 -P cmake/Format.cmake

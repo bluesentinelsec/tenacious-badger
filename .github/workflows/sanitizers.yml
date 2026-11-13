@@ -1,0 +1,56 @@
+name: Sanitizers
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sanitizer:
+    name: ${{ matrix.os }} / ${{ matrix.compiler }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2025-vs2026
+            compiler: MSVC ASan
+            cc: cl
+          - os: macos-26
+            compiler: AppleClang ASan + UBSan
+            cc: clang
+          - os: ubuntu-26.04
+            compiler: GCC ASan + UBSan
+            cc: gcc
+          - os: ubuntu-26.04
+            compiler: Clang ASan + UBSan
+            cc: clang
+    env:
+      CC: ${{ matrix.cc }}
+      ASAN_OPTIONS: halt_on_error=1
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Add the installed MSVC AddressSanitizer runtime to PATH
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { throw 'MSVC installation not found' }
+          $version = (Get-Content "$vs\VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt" -Raw).Trim()
+          $tools = "$vs\VC\Tools\MSVC\$version\bin\Hostx64\x64"
+          if (-not (Test-Path "$tools\clang_rt.asan_dynamic-x86_64.dll")) { throw 'MSVC ASan runtime not found' }
+          $tools | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Configure standalone Debug sanitizer tests
+        run: cmake -S . -B build/sanitizer -DCMAKE_BUILD_TYPE=Debug -DTB_ENABLE_SANITIZERS=ON
+      - name: Build
+        run: cmake --build build/sanitizer --config Debug --parallel
+      - name: Test
+        run: ctest --test-dir build/sanitizer -C Debug --output-on-failure --no-tests=error

@@ -1,0 +1,4 @@
+target_sources(badger PRIVATE time.c)
+set(TB_PLATFORM_TIME_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/time.c" CACHE INTERNAL "Selected time adapter")
+set(TB_STUB_PLATFORM "macos" CACHE INTERNAL "Fatal stub platform")
+set(TB_STUB_API "mach_absolute_time" CACHE INTERNAL "Planned native time API")

@@ -1,0 +1,38 @@
+cmake_minimum_required(VERSION 3.25)
+
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" TB_VERSION LIMIT_COUNT 1)
+if(NOT TB_VERSION MATCHES "^0\\.[0-9]+\\.[0-9]+$")
+    message(FATAL_ERROR "VERSION must contain a development semantic version: 0.x.y")
+endif()
+project(TenaciousBadger VERSION "${TB_VERSION}" LANGUAGES C)
+
+set(CMAKE_C_STANDARD 17)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/bin")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/bin")
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/lib")
+foreach(config DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${config} "${PROJECT_BINARY_DIR}/bin")
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_${config} "${PROJECT_BINARY_DIR}/bin")
+    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_${config} "${PROJECT_BINARY_DIR}/lib")
+endforeach()
+
+option(TB_BUILD_TESTS "Build the in-house test harness" ON)
+option(TB_ENABLE_SANITIZERS "Add standalone Debug sanitizer test binaries" OFF)
+if(TB_ENABLE_SANITIZERS AND NOT TB_BUILD_TESTS)
+    message(FATAL_ERROR "TB_ENABLE_SANITIZERS requires TB_BUILD_TESTS")
+endif()
+
+include(cmake/CompilerWarnings.cmake)
+include(cmake/Sanitizers.cmake)
+configure_file(cmake/version.h.in generated/badger/version.h @ONLY)
+add_subdirectory(src)
+
+if(TB_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
+
+include(cmake/Formatting.cmake)

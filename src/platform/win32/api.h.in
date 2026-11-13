@@ -1,0 +1,19 @@
+/** @file api.h
+ * @brief Build-selected Windows shared-library visibility.
+ */
+#ifndef TB_API_H
+#define TB_API_H
+
+/** @brief Disable DLL annotations for standalone development test binaries. */
+#if defined(TB_STATIC)
+/** @brief Public symbol in a standalone test binary. */
+#define TB_API
+#elif defined(TB_BUILDING_BADGER)
+/** @brief Export a public engine symbol from badger. */
+#define TB_API __declspec(dllexport)
+#else
+/** @brief Import a public engine symbol from badger. */
+#define TB_API __declspec(dllimport)
+#endif
+
+#endif

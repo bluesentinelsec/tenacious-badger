@@ -1,0 +1,32 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "C17: build debug",
+      "type": "process",
+      "command": "cmake",
+      "args": [
+        "--build",
+        "--preset",
+        "debug"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": [
+        "$gcc"
+      ]
+    },
+    {
+      "label": "C17: test",
+      "type": "process",
+      "command": "ctest",
+      "args": [
+        "--preset",
+        "debug"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}

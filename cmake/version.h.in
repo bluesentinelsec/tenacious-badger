@@ -1,0 +1,10 @@
+/** @file version.h
+ * @brief Build-generated version metadata; edit the root VERSION file.
+ */
+#ifndef TB_VERSION_H
+#define TB_VERSION_H
+
+/** @brief Semantic version of this build. Immutable; safe on all threads. */
+#define TB_VERSION_STRING "@PROJECT_VERSION@"
+
+#endif
