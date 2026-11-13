@@ -24,7 +24,6 @@ $ErrorActionPreference = 'Stop'
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
     throw 'Windows Authenticode signing requires Windows.'
 }
-Import-Module Microsoft.PowerShell.Security
 
 function Get-SigningCertificate {
     param([string]$Thumbprint, [string]$PublisherName)

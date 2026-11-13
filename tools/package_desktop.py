@@ -44,9 +44,11 @@ def verify_windows_signatures(folder, publisher):
     with tempfile.TemporaryDirectory(prefix='tb-signatures-') as temporary:
         manifest = Path(temporary) / 'binaries.txt'
         manifest.write_text('\n'.join(str(path.resolve()) for path in binaries) + '\n', encoding='utf-8-sig')
+        environment = os.environ.copy()
+        environment.pop('PSModulePath', None)
         run(['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
              '-File', ROOT / 'scripts/windows/Sign-Binary.ps1', '-Action', 'VerifyManifest',
-             '-FilePath', manifest, '-CertificateFile', certificate])
+             '-FilePath', manifest, '-CertificateFile', certificate], env=environment)
     return signing
 
 

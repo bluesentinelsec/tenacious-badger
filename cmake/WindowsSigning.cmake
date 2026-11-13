@@ -13,7 +13,8 @@ function(tb_sign_windows_target target)
         return()
     endif()
     add_custom_command(TARGET ${target} POST_BUILD
-        COMMAND "${TB_SIGNING_POWERSHELL}" -NoProfile -NonInteractive
+        COMMAND "${CMAKE_COMMAND}" -E env --unset=PSModulePath
+            "${TB_SIGNING_POWERSHELL}" -NoProfile -NonInteractive
             -ExecutionPolicy Bypass -File "${TB_SIGNING_SCRIPT}"
             -Action Sign -FilePath "$<TARGET_FILE:${target}>"
             -Publisher "${TB_SIGNING_PUBLISHER}"
@@ -35,13 +36,15 @@ function(tb_add_windows_signing_tests)
     set(manifest_path "${TB_SIGNING_DIRECTORY}/targets-$<CONFIG>.txt")
     file(GENERATE OUTPUT "${manifest_path}" CONTENT "${manifest}")
     add_test(NAME windows.signatures
-        COMMAND "${TB_SIGNING_POWERSHELL}" -NoProfile -NonInteractive
+        COMMAND "${CMAKE_COMMAND}" -E env --unset=PSModulePath
+            "${TB_SIGNING_POWERSHELL}" -NoProfile -NonInteractive
             -ExecutionPolicy Bypass -File "${TB_SIGNING_SCRIPT}"
             -Action VerifyManifest -FilePath "${manifest_path}"
             -CertificateFile "${TB_SIGNING_DIRECTORY}/self-signing.cer")
     if(TARGET burrow)
         add_test(NAME windows.signing_contract
-            COMMAND "${TB_SIGNING_POWERSHELL}" -NoProfile -NonInteractive
+            COMMAND "${CMAKE_COMMAND}" -E env --unset=PSModulePath
+                "${TB_SIGNING_POWERSHELL}" -NoProfile -NonInteractive
                 -ExecutionPolicy Bypass
                 -File "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../scripts/windows/Test-Signing.ps1"
                 -BinaryPath "$<TARGET_FILE:burrow>"
@@ -71,7 +74,10 @@ set(initialize_arguments -Action Initialize -OutputDirectory "${TB_SIGNING_DIREC
 if(TB_WINDOWS_SIGNING_THUMBPRINT)
     list(APPEND initialize_arguments -CertificateThumbprint "${TB_WINDOWS_SIGNING_THUMBPRINT}")
 endif()
-execute_process(COMMAND "${TB_SIGNING_POWERSHELL}" -NoProfile -NonInteractive
+# A parent PowerShell 7 session can otherwise pass incompatible module paths to
+# Windows PowerShell 5.1. Let the child initialize its native module paths.
+execute_process(COMMAND "${CMAKE_COMMAND}" -E env --unset=PSModulePath
+    "${TB_SIGNING_POWERSHELL}" -NoProfile -NonInteractive
     -ExecutionPolicy Bypass -File "${TB_SIGNING_SCRIPT}" ${initialize_arguments}
     COMMAND_ERROR_IS_FATAL ANY)
 file(STRINGS "${TB_SIGNING_DIRECTORY}/thumbprint.txt" active_thumbprint LIMIT_COUNT 1)
