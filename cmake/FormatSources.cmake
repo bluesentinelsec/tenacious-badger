@@ -9,9 +9,12 @@ set(TB_FORMAT_SOURCES
     src/core/assert.c
     src/core/sum.c
     src/main.c
+    src/platform/linux/abort.c
     src/platform/linux/time.c
+    src/platform/macos/abort.c
     src/platform/macos/time.c
     src/platform/posix_api.h.in
+    src/platform/win32/abort.c
     src/platform/win32/api.h.in
     src/platform/win32/time.c
     tests/consumers/static/main.c
