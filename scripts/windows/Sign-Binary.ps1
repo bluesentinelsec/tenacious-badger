@@ -67,7 +67,14 @@ function Assert-BinarySignature {
     if (-not ('TenaciousBadger.Signing.NativeVerification' -as [type])) {
         # Windows reports a self-signed root as a generic PowerShell signature
         # error. Inspect the native status so no other failure is accepted.
-        Add-Type -TypeDefinition @'
+        # Add-Type compiles managed code and needs no MSVC library directories.
+        # MSBuild can nevertheless provide optional, nonexistent native LIB
+        # entries, which Windows PowerShell promotes from a compiler warning to
+        # an error. Isolate managed compilation from that unrelated environment.
+        $nativeLibraryPath = [Environment]::GetEnvironmentVariable('LIB', 'Process')
+        try {
+            [Environment]::SetEnvironmentVariable('LIB', $null, 'Process')
+            Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 namespace TenaciousBadger.Signing {
@@ -130,6 +137,10 @@ namespace TenaciousBadger.Signing {
     }
 }
 '@
+        }
+        finally {
+            [Environment]::SetEnvironmentVariable('LIB', $nativeLibraryPath, 'Process')
+        }
     }
     $resolvedPath = (Resolve-Path -LiteralPath $BinaryPath).Path
     $rawSigner = [Security.Cryptography.X509Certificates.X509Certificate]::CreateFromSignedFile($resolvedPath)
