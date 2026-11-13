@@ -85,6 +85,11 @@ tests. `TB_BUILD_TESTS=OFF` builds only the library and consumer.
 
 ## CI
 
+Windows CI explicitly selects the `Visual Studio 18 2026` generator, `x64`, and
+MSVC. CMake builds the generated Visual Studio projects through MSBuild, including
+the external consumer projects and standalone sanitizer executables. The Ninja
+presets are local convenience settings and do not select the CI generator.
+
 The CI workflows run on pushes to `main`, pull requests, manual dispatch, and
 release validation:
 

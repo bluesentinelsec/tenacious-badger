@@ -213,6 +213,11 @@ Shared mutable state uses atomics or synchronization primitives, never `volatile
 ## Build, Tests and CI
 
 - **Toolchain.** MSVC in C17 mode (`/std:c17 /W4 /WX`, plus `/fsanitize=address` for sanitizer builds) with CMake. CMake also builds the stub platforms on Linux (GCC/Clang) and macOS (Clang), so portability can't silently decay.
+- **Windows CI generator.** Explicitly select `Visual Studio 18 2026` with the
+  `x64` platform and MSVC. Build the generated Visual Studio projects through
+  MSBuild for normal builds, standalone sanitizers, and external consumers.
+  Keep this selection explicit in both CI workflows; local convenience presets
+  may use other generators.
 - **Build types.** Debug (symbols, no optimization, debug layers), sanitizer (standalone test binaries) and Release (optimized, stripped, no sanitizers).
 - **Tests.** A small in-house test harness (no frameworks). It runs:
   - unit tests (strive for 80% source coverage or better);
