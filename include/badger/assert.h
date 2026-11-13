@@ -123,14 +123,25 @@ TB_API bool tb_assert_library_enabled(void);
     ((condition) ? (void)0 : tb_assert_fail(#condition, message, __FILE__, __LINE__, __func__))
 #else
 /**
+ * @brief Compile a condition without evaluating it.
+ *
+ * A disabled assertion must not make the things its condition names look
+ * unused. Compilers disagree on what counts as a use: MSVC accepts an operand
+ * of sizeof but not of a constant-false `&&`, and Clang the reverse for static
+ * functions. Naming the condition both ways satisfies every compiler.
+ */
+#define TB_ASSERT_UNEVALUATED(condition)                                                           \
+    ((void)sizeof((condition) ? 1 : 0), (void)(false && (condition)))
+
+/**
  * @brief Check an internal invariant in builds with assertions enabled.
  *
- * Assertions are disabled here: the condition is compiled, so it cannot rot,
- * but it is never evaluated.
+ * Assertions are disabled here: the condition is compiled, so it cannot rot
+ * and everything it names counts as used, but it is never evaluated.
  *
  * @param condition Scalar expression that must be non-zero.
  */
-#define TB_ASSERT(condition) ((void)sizeof((condition) ? 1 : 0))
+#define TB_ASSERT(condition) TB_ASSERT_UNEVALUATED(condition)
 
 /**
  * @brief Check an internal invariant and explain it when it fails.
@@ -140,7 +151,7 @@ TB_API bool tb_assert_library_enabled(void);
  * @param condition Scalar expression that must be non-zero; no side effects.
  * @param message String literal describing the violated expectation.
  */
-#define TB_ASSERT_MSG(condition, message) ((void)sizeof((condition) ? 1 : 0))
+#define TB_ASSERT_MSG(condition, message) TB_ASSERT_UNEVALUATED(condition)
 #endif
 
 #endif

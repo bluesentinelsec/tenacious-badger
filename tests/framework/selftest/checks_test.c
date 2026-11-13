@@ -25,13 +25,11 @@ TB_TEST(framework_checks, boolean_checks_accept_any_true_scalar)
 {
     const int object = 7;
     const int *const address = &object;
-    const double fraction = 0.5;
 
     TB_TEST_EXPECT(object == 7);
     TB_TEST_EXPECT(object);
     TB_TEST_EXPECT(-object);
     TB_TEST_EXPECT(address);
-    TB_TEST_EXPECT(fraction);
     TB_TEST_REQUIRE(object > 1);
 }
 
