@@ -403,6 +403,7 @@ These C and workflow standards are binding for all project code.
 - Most projects leverage gh for interacting with GitHub, such as creating PRs and querying CI logs.
 - Follow the repository’s established branching model. In larger projects that use Git Flow, use its defined branches and release process.
 - Prefer squash-merging pull requests into `main`, so each merged PR becomes one focused commit. Keep the PR’s commits and review activity visible until it is merged.
+- Keep issue tickets in sync with pull requests. Before starting planned work, find its issue, or open one if none exists. Name the issue a pull request completes with a closing keyword in the PR description (`Closes #12`), so merging closes the issue. When a pull request covers only part of an issue, reference it without a closing keyword (`Part of #12`) and record on the issue what remains. Open a new issue for follow-up work that a pull request discovers but does not do. After a merge, confirm that the issue closed and that no open issue describes work that is already done.
 
 ### Commit and History Hygiene
 - Commit messages should state the problem that motivated the change; the intent of the change needs to be clear and explicit. Focus on the behavioral changes that result. Do not regurgitate implementation details; that is what the source code is for.

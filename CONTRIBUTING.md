@@ -6,7 +6,8 @@ packages or download external dependencies.
 
 Work on a feature branch and submit a focused pull request. Preserve existing
 work and shared history. Prefer squash merges into `main`. Commit messages
-should explain the problem and resulting behavior.
+should explain the problem and resulting behavior. Link each pull request to its
+issue with a closing keyword (`Closes #12`) so the two stay in sync.
 
 Keep reusable behavior in the `badger` library, and keep `burrow` thin. List
 translation units explicitly in component CMake files. Every new platform
