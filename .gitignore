@@ -1,5 +1,7 @@
 # Build trees
 build/
+dist/
+stage/
 cmake-build-*/
 out/
 install/

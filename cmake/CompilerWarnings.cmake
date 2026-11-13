@@ -2,8 +2,9 @@ function(tb_configure_target target)
     set_target_properties(${target} PROPERTIES
         C_STANDARD 17 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
     if(MSVC)
-        target_compile_options(${target} PRIVATE /W4 /WX /sdl /utf-8
-            "$<$<CONFIG:Debug>:/Od>" "$<$<CONFIG:Debug>:/Zi>")
+        target_compile_options(${target} PRIVATE
+            "$<$<COMPILE_LANGUAGE:C>:/W4;/WX;/sdl;/utf-8>"
+            "$<$<AND:$<COMPILE_LANGUAGE:C>,$<CONFIG:Debug>>:/Od;/Zi>")
     elseif(CMAKE_C_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$")
         target_compile_options(${target} PRIVATE
             -Wall -Wextra -Wpedantic -Werror -Wconversion -Wsign-conversion

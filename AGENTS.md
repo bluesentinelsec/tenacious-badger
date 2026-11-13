@@ -6,6 +6,7 @@
 | --- | --- |
 | Project | **Tenacious Badger** |
 | Engine shared library | `badger` (`badger.dll`, `libbadger.so`, `libbadger.dylib`) |
+| Engine static library | `badger_static`, with the same public C headers |
 | Showcase game executable | `burrow` (`burrow.exe`), the graybox FPS |
 | Public symbol prefix | `tb_` for functions and types, `TB_` for macros and constants |
 
@@ -142,7 +143,7 @@ Upscalers, frame generation and latency reducers are **plugins** behind engine i
 
 ### Modules
 
-The engine is a set of focused modules with explicit startup and shutdown order and declared dependencies, similar to Unreal's modules. Each module exposes a small C API and owns its resources. The modules build into the `badger` shared library; `burrow` and the tools are separate consumers of its public API.
+The engine is a set of focused modules with explicit startup and shutdown order and declared dependencies, similar to Unreal's modules. Each module exposes a small C API and owns its resources. The modules build into the `badger` dynamic library and `badger_static` static library, exposing the same public C headers; `burrow` and the tools are separate consumers of that API. All shared logic belongs behind public module APIs, following the library-consumption model of SDL.
 
 | Module | Responsibility |
 | --- | --- |
@@ -259,6 +260,19 @@ including startup, asset lookup, and engine library discovery.
 
 ### Professional metadata and release identity
 
+- Maintain three primary outputs: the game executable, the dynamic engine
+  library, and the static engine library with public headers. Establish this
+  consumption and distribution infrastructure before real engine development.
+- CMake FetchContent is the primary source-consumption path for the dynamic
+  library. Embedded builds default to libraries only, with no application,
+  tests, or dependency downloads. Export clear CMake targets for both variants.
+- Publish SDK artifacts containing dynamic and static libraries, public headers,
+  and relocatable CMake package metadata for **both Debug and Release** on every
+  desktop platform. Publish appropriate debug symbols with Debug SDKs.
+- Every desktop platform's CI must invoke the installed dynamic library from
+  Python through `ctypes`. Also compile, link, and run an independent trivial C17
+  program against the installed static library, and test source consumption
+  through CMake FetchContent. These checks gate releases.
 - Use the author's GitHub alias, **`bluesentinelsec`**, for person, author,
   organization, company, publisher, and maintainer names in release metadata.
   This is a personal project; do not include Amazon or other work-organization

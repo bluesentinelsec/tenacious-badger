@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Burrow
+GenericName=Game Engine Showcase
+Comment=Tenacious Badger bootstrap demo — under construction
+Exec=burrow
+Icon=@TB_APP_ID@
+Terminal=true
+Categories=Game;
+StartupNotify=false
+X-AppVersion=@PROJECT_VERSION@
+X-Publisher=@TB_PUBLISHER@

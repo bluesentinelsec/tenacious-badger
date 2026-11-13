@@ -1,0 +1,13 @@
+{
+  "project": "Tenacious Badger",
+  "application": "Burrow",
+  "identifier": "@TB_APP_ID@",
+  "version": "@PROJECT_VERSION@",
+  "publisher": "@TB_PUBLISHER@",
+  "license": "Apache-2.0",
+  "system": "@CMAKE_SYSTEM_NAME@",
+  "compiler": "@CMAKE_C_COMPILER_ID@ @CMAKE_C_COMPILER_VERSION@",
+  "macos_deployment_target": "@CMAKE_OSX_DEPLOYMENT_TARGET@",
+  "architecture": "@CMAKE_SYSTEM_PROCESSOR@",
+  "configuration": "Release"
+}
