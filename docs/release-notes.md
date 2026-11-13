@@ -1,6 +1,11 @@
-First development release of Tenacious Badger, a dependency-free C17 engine
+Development release of Tenacious Badger, a dependency-free C17 engine
 foundation and its Burrow showcase executable. This project is under construction:
 the demo prints `2 + 3 = 5` and exits; there is no renderer or playable game yet.
+
+Windows builds now automatically create/reuse a local signing identity and sign
+project-owned executables and DLLs after linking. An existing certificate can be
+selected by thumbprint, and signing can be disabled explicitly. CI verifies
+signatures, rejects tampering, and checks both controls.
 
 Included foundations:
 
@@ -16,7 +21,8 @@ Downloads:
 
 - **Windows x86_64:** extract the ZIP and run `burrow.exe` in a terminal.
   Windows 10 or newer; the standard C runtime is statically linked. The executable
-  is unsigned.
+  is Authenticode-signed with a self-created local code-signing certificate.
+  The public certificate and signing metadata are included; no public trust is implied.
 - **macOS Apple silicon:** extract the ZIP and run
   `Burrow.app/Contents/MacOS/burrow` in Terminal to see the output. Requires macOS
   13 or newer. The app is ad-hoc signed, without Developer ID signing or Apple

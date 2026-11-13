@@ -57,3 +57,8 @@ default.profraw
 *.lib
 *.exe
 *.pdb
+
+# Private signing credentials (public certificates ship inside build archives).
+*.pfx
+*.p12
+*.key

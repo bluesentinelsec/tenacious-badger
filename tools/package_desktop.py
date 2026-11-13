@@ -29,6 +29,29 @@ def require(condition, message):
         raise RuntimeError(message)
 
 
+def verify_windows_signatures(folder, publisher):
+    certificate = folder / 'self-signing.cer'
+    description = folder / 'signing.json'
+    require(certificate.is_file() and description.is_file(),
+            'Windows exports require signing metadata; enable TB_WINDOWS_SELF_SIGN')
+    signing = json.loads(description.read_text(encoding='utf-8-sig'))
+    require(signing['publisher'] == publisher, 'Unexpected signing metadata publisher')
+    with certificate.open('rb') as stream:
+        digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+    require(digest.lower() == signing['certificate_sha256'].lower(), 'Signing certificate fingerprint mismatch')
+    binaries = [path for path in folder.rglob('*') if path.suffix.lower() in ['.exe', '.dll', '.pyd']]
+    require(binaries, 'No Windows binaries found for signature verification')
+    with tempfile.TemporaryDirectory(prefix='tb-signatures-') as temporary:
+        manifest = Path(temporary) / 'binaries.txt'
+        manifest.write_text('\n'.join(str(path.resolve()) for path in binaries) + '\n', encoding='utf-8-sig')
+        environment = os.environ.copy()
+        environment.pop('PSModulePath', None)
+        run(['powershell', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+             '-File', ROOT / 'scripts/windows/Sign-Binary.ps1', '-Action', 'VerifyManifest',
+             '-FilePath', manifest, '-CertificateFile', certificate], env=environment)
+    return signing
+
+
 def metadata_check(folder, metadata, system):
     version = metadata['version']
     publisher = metadata['publisher']
@@ -36,6 +59,7 @@ def metadata_check(folder, metadata, system):
     require((folder / 'LICENSE').is_file(), 'Missing Apache-2.0 license')
     require(publisher in (folder / 'NOTICE').read_text(), 'Missing personal attribution')
     if system == 'Windows':
+        verify_windows_signatures(folder, publisher)
         executable = folder / 'burrow.exe'
         environment = os.environ.copy()
         environment['TB_EXPORTED_EXE'] = str(executable)
@@ -115,8 +139,11 @@ def main():
         if system == 'Windows':
             for binary in ['burrow.exe', 'badger.dll']:
                 shutil.copy2(build / 'bin' / binary, folder / binary)
+            for document in ['self-signing.cer', 'signing.json']:
+                shutil.copy2(build / 'signing' / document, folder / document)
+            metadata['signing'] = json.loads((folder / 'signing.json').read_text(encoding='utf-8-sig'))
             metadata['minimum_runtime'] = 'Windows 10 or newer, x86_64; standard C runtime statically linked'
-            launch = 'Run burrow.exe from a terminal.'
+            launch = 'Run burrow.exe from a terminal. Windows binaries are signed with a local self-created certificate; self-signing.cer is the public certificate.'
         elif system == 'Darwin':
             bundle = folder / 'Burrow.app'
             shutil.copytree(build / 'bin/burrow.app', bundle, symlinks=True)

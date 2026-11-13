@@ -9,7 +9,7 @@ import tarfile
 import tempfile
 import zipfile
 
-from package_desktop import ROOT, require, run
+from package_desktop import ROOT, require, run, verify_windows_signatures
 
 
 def verify(prefix, metadata):
@@ -20,6 +20,8 @@ def verify(prefix, metadata):
     static_name = 'badger_static.lib' if platform.system() == 'Windows' else 'libbadger_static.a'
     require((prefix / 'lib' / static_name).is_file(), 'Missing static engine library')
     require(metadata['publisher'] in (prefix / 'NOTICE').read_text(), 'Missing personal attribution')
+    if platform.system() == 'Windows':
+        verify_windows_signatures(prefix, metadata['publisher'])
     run([shutil.which('python3') or shutil.which('python'), ROOT / 'tests/ffi/ctypes_smoke.py',
          '--prefix', prefix])
 
@@ -36,6 +38,8 @@ def main():
     metadata = json.loads((arguments.build / 'desktop-metadata.json').read_text())
     require(metadata['version'] == (ROOT / 'VERSION').read_text().strip(), 'Stale SDK version')
     metadata['configuration'] = arguments.configuration
+    if platform.system() == 'Windows':
+        metadata['signing'] = json.loads((arguments.prefix / 'signing.json').read_text(encoding='utf-8-sig'))
     metadata['outputs'] = ['dynamic library', 'static library', 'public headers', 'CMake package']
     system = platform.system()
     operating_system = {'Windows': 'windows', 'Darwin': 'macos', 'Linux': 'linux'}[system]
