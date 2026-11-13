@@ -21,5 +21,7 @@ if(WIN32)
             "$<TARGET_FILE:badger>" "$<TARGET_FILE_DIR:fetch_consumer>"
         VERBATIM)
 endif()
+tb_sign_windows_target(fetch_consumer)
 enable_testing()
 add_test(NAME shared.fetch_content COMMAND fetch_consumer)
+tb_add_windows_signing_tests()

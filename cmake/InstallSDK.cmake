@@ -7,6 +7,10 @@ install(FILES "${PROJECT_BINARY_DIR}/generated/badger/api.h"
     "${PROJECT_BINARY_DIR}/generated/badger/version.h" DESTINATION include/badger)
 install(FILES "${PROJECT_SOURCE_DIR}/LICENSE" "${PROJECT_SOURCE_DIR}/NOTICE"
     DESTINATION .)
+if(WIN32 AND TB_WINDOWS_SELF_SIGN)
+    install(FILES "${TB_SIGNING_DIRECTORY}/self-signing.cer"
+        "${TB_SIGNING_DIRECTORY}/signing.json" DESTINATION .)
+endif()
 install(EXPORT TenaciousBadgerTargets NAMESPACE TenaciousBadger::
     DESTINATION lib/cmake/TenaciousBadger)
 configure_package_config_file("${PROJECT_SOURCE_DIR}/cmake/TenaciousBadgerConfig.cmake.in"

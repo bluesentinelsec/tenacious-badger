@@ -244,6 +244,14 @@ they must fit the same release model rather than becoming separate projects.
   initially. Include an application icon and native executable version resources
   with product name, file description, company/publisher, copyright, file version,
   and product version. An installer may follow when needed.
+- **Windows signing:** CMake creates a self-signed code-signing certificate
+  programmatically on the first Windows configure and reuses that user's local
+  identity on subsequent builds. Sign all project-owned executable, dynamic,
+  and module library targets after linking, including tests and sanitizers.
+  Provide controls to disable signing or select an existing certificate with
+  its own subject/publisher identity. Keep generated private keys in the user's
+  certificate store; export only public certificates and signing metadata.
+  Verify signatures and invalid-signature rejection in CI and after packaging.
 - **macOS:** a proper `.app` bundle with `Contents/MacOS`, `Contents/Resources`,
   bundled engine libraries under `Contents/Frameworks`, an application icon, and
   a complete `Info.plist`. Set the display name, executable, bundle identifier,

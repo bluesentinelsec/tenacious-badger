@@ -66,6 +66,10 @@ or `sanitizer` for the other configurations. On Windows, run `build.bat test`,
 `build.bat release`, or `build.bat sanitizer` from an **x64 Native Tools Command
 Prompt** so Ninja can find MSVC and the sanitizer runtime.
 
+Windows builds also self-sign project executables and DLLs automatically, using
+a locally generated certificate. See [Windows signing controls](releasing.md#windows-self-signing)
+for an existing-certificate override and the signing opt-out.
+
 ## Tests and sanitizers
 
 The in-house harness tests ordinary sums, zero, negative operands, signed integer
