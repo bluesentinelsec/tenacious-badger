@@ -24,6 +24,7 @@ $ErrorActionPreference = 'Stop'
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
     throw 'Windows Authenticode signing requires Windows.'
 }
+Import-Module Microsoft.PowerShell.Security
 
 function Get-SigningCertificate {
     param([string]$Thumbprint, [string]$PublisherName)
@@ -37,8 +38,8 @@ function Get-SigningCertificate {
         $certificate = Get-Item -LiteralPath "Cert:\CurrentUser\My\$Thumbprint"
     }
     else {
-        $certificate = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert |
-            Where-Object { $_.Subject -eq $subject -and $_.FriendlyName -eq $friendlyName } |
+        $certificate = Get-ChildItem -LiteralPath Cert:\CurrentUser\My |
+            Where-Object { $_.HasPrivateKey -and $_.Subject -eq $subject -and $_.FriendlyName -eq $friendlyName } |
             Sort-Object NotAfter -Descending | Select-Object -First 1
         if (-not $certificate) {
             $certificate = New-SelfSignedCertificate -Type CodeSigningCert `
@@ -64,17 +65,90 @@ function Get-SigningCertificate {
 function Assert-BinarySignature {
     param([string]$BinaryPath, [string]$ExpectedThumbprint)
 
-    $signature = Get-AuthenticodeSignature -LiteralPath $BinaryPath
-    if (-not $signature.SignerCertificate -or
-        $signature.SignerCertificate.Thumbprint -ne $ExpectedThumbprint) {
-        throw "Missing signature or unexpected signer: $BinaryPath"
+    if (-not ('TenaciousBadger.Signing.NativeVerification' -as [type])) {
+        # Windows reports a self-signed root as a generic PowerShell signature
+        # error. Inspect the native status so no other failure is accepted.
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+namespace TenaciousBadger.Signing {
+    public static class NativeVerification {
+        public const uint UntrustedRoot = 0x800B0109u;
+        [StructLayout(LayoutKind.Sequential)]
+        private struct FileInfo {
+            public uint Size;
+            public IntPtr Path;
+            public IntPtr Handle;
+            public IntPtr KnownSubject;
+        }
+        [StructLayout(LayoutKind.Sequential)]
+        private struct TrustData {
+            public uint Size;
+            public IntPtr PolicyCallback;
+            public IntPtr SipClient;
+            public uint UiChoice;
+            public uint RevocationChecks;
+            public uint UnionChoice;
+            public IntPtr File;
+            public uint StateAction;
+            public IntPtr State;
+            public IntPtr Url;
+            public uint Flags;
+            public uint UiContext;
+            public IntPtr SignatureSettings;
+        }
+        [DllImport("wintrust.dll", ExactSpelling = true)]
+        private static extern uint WinVerifyTrust(IntPtr window, ref Guid action, ref TrustData data);
+        public static uint Verify(string path) {
+            IntPtr nativePath = IntPtr.Zero;
+            IntPtr nativeFile = IntPtr.Zero;
+            TrustData data = new TrustData();
+            Guid action = new Guid("00AAC56B-CD44-11D0-8CC2-00C04FC295EE");
+            try {
+                nativePath = Marshal.StringToCoTaskMemUni(path);
+                FileInfo file = new FileInfo();
+                file.Size = (uint)Marshal.SizeOf(typeof(FileInfo));
+                file.Path = nativePath;
+                nativeFile = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(FileInfo)));
+                Marshal.StructureToPtr(file, nativeFile, false);
+                data.Size = (uint)Marshal.SizeOf(typeof(TrustData));
+                data.UiChoice = 2; // WTD_UI_NONE
+                data.UnionChoice = 1; // WTD_CHOICE_FILE
+                data.File = nativeFile;
+                data.StateAction = 1; // WTD_STATEACTION_VERIFY
+                data.Flags = 0x1010; // CACHE_ONLY_URL_RETRIEVAL | REVOCATION_CHECK_NONE
+                return WinVerifyTrust(new IntPtr(-1), ref action, ref data);
+            }
+            finally {
+                if (data.State != IntPtr.Zero) {
+                    data.StateAction = 2; // WTD_STATEACTION_CLOSE
+                    WinVerifyTrust(new IntPtr(-1), ref action, ref data);
+                }
+                if (nativeFile != IntPtr.Zero) { Marshal.FreeHGlobal(nativeFile); }
+                if (nativePath != IntPtr.Zero) { Marshal.FreeCoTaskMem(nativePath); }
+            }
+        }
     }
-    # Trust is deliberately local/ad-hoc. HashMismatch and every other error
-    # remain fatal; an untrusted chain is the only permitted verification error.
-    if ($signature.Status -notin @('Valid', 'NotTrusted')) {
-        throw "Signature verification failed ($($signature.Status)): $BinaryPath -- $($signature.StatusMessage)"
+}
+'@
     }
-    Write-Host "Verified Authenticode: $BinaryPath [$($signature.Status)]"
+    $resolvedPath = (Resolve-Path -LiteralPath $BinaryPath).Path
+    $rawSigner = [Security.Cryptography.X509Certificates.X509Certificate]::CreateFromSignedFile($resolvedPath)
+    $signer = [Security.Cryptography.X509Certificates.X509Certificate2]::new($rawSigner)
+    try {
+        if ($signer.Thumbprint -ne $ExpectedThumbprint) {
+            throw "Unexpected signer: $BinaryPath"
+        }
+        $result = [TenaciousBadger.Signing.NativeVerification]::Verify($resolvedPath)
+        if ($result -ne 0 -and $result -ne [TenaciousBadger.Signing.NativeVerification]::UntrustedRoot) {
+            throw ("Authenticode verification failed (0x{0:X8}): {1}" -f $result, $BinaryPath)
+        }
+        Write-Host ("Verified embedded Authenticode: {0} [0x{1:X8}]" -f $BinaryPath, $result)
+    }
+    finally {
+        $signer.Dispose()
+        $rawSigner.Dispose()
+    }
 }
 
 if ($Action -in @('Initialize', 'Sign')) {
