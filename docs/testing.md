@@ -15,7 +15,7 @@ The API reference is the documented header
 
 #include "tb_test.h"
 
-TB_TEST(sum, adds_small_numbers)
+TB_TEST(core_sum, adds_small_numbers)
 {
     int32_t result = {0};
 
@@ -24,9 +24,12 @@ TB_TEST(sum, adds_small_numbers)
 }
 ```
 
-`TB_TEST(suite, name)` defines a case; its full name is `suite.name`. Add the
-file to a test executable (see [Adding a test executable](#adding-a-test-executable))
-and build. There is nothing else to register.
+`TB_TEST(suite, name)` defines a case; its full name is `suite.name`. Put the
+case in a test source that is already built, or add a new source (see
+[Adding tests](#adding-tests)), and build. There is nothing else to register.
+
+Every test case in the project is part of one executable, `tb_tests`. It runs
+all cases, any selection of them, in any order.
 
 Name a case after the behavior it proves, and open each test file with a comment
 that says what is being checked and why. A failing test should tell its reader
@@ -61,7 +64,7 @@ Every check has two strengths:
 Prefer a typed check to `TB_TEST_EXPECT(a == b)`: it reports both values.
 
 ```
-sum_test.c(31): error: sum.adds_small_numbers: TB_TEST_EXPECT_INT(result, ==, 5) failed with 6 == 5
+sum_test.c(31): error: core_sum.adds_small_numbers: TB_TEST_EXPECT_INT(result, ==, 5) failed with 6 == 5
 ```
 
 Pick the check by the type of the operands. GCC and Clang reject a sign-changing
@@ -127,7 +130,7 @@ static void sum_into_null(void *context)
     (void)tb_sum_i32(1, 2, NULL);
 }
 
-TB_TEST(sum, null_output_violates_the_contract)
+TB_TEST(core_sum, null_output_violates_the_contract)
 {
     if (!tb_assert_library_enabled())
     {
@@ -150,23 +153,33 @@ A trap leaves the code under test with a non-local jump. Nothing after the
 failing statement runs and nothing it acquired is released, so keep trap bodies
 to the one call that violates the contract.
 
-## Adding a test executable
+## Adding tests
+
+To add a case, write a `TB_TEST` in a test source. To add a test source, list
+it in `TB_TEST_CASE_SOURCES` in `tests/CMakeLists.txt`:
 
 ```cmake
-tb_add_engine_tests(tb_core_tests
-    PREFIX "core."
-    SOURCES core/assert_test.c core/sum_test.c
-    LIBRARIES TenaciousBadger::badger)
+set(TB_TEST_CASE_SOURCES
+    core/assert_test.c
+    core/sum_test.c
+    ...)
 ```
 
-`tb_add_engine_tests` (in `tests/CMakeLists.txt`) wraps
-`tb_add_test_executable` (in `tests/framework/cmake/TbTest.cmake`), adding the
-engine's assertion routing and the project's compiler settings. To add a case to
-an existing executable, add a `TB_TEST` to one of its sources, or add a new
-source to its `SOURCES`.
+All of them build into `tb_tests`. One executable keeps the build small and
+gives one place to run anything; a new module adds a source file, not a program.
 
-Each case becomes the CTest test `<PREFIX><suite>.<name><SUFFIX>`, for example
-`core.sum.adds_small_numbers`.
+Name suites `<module>_<feature>`, such as `core_sum` or `codec_base64`. Suite
+names share one namespace, and this form lets a pattern select a module
+(`core_*`) or a feature (`core_sum.*`).
+
+Each case is also the CTest test `<suite>.<name>`, for example
+`core_sum.adds_small_numbers`.
+
+Two things cannot be cases of `tb_tests`, because they end the process: the
+framework's own failure reports and the engine's default assertion handler. Each
+has a small helper executable that a CTest script runs as a child process
+(`tb_test_fixture` and `tb_assert_probe`). Follow that pattern for other
+behavior that must terminate, such as a platform's fatal stubs.
 
 ### How cases are found
 
@@ -193,24 +206,32 @@ no cases at all, fail the build with a message.
 
 ```sh
 ctest --preset debug                       # everything
-ctest --preset debug -R '^core\.sum\.'     # one suite
-ctest --preset debug --stop-on-failure     # fail fast across all executables
+ctest --preset debug -R '^core_sum\.'      # one suite
+ctest --preset debug --stop-on-failure     # stop at the first failed test
 ```
 
-A test executable can also be run directly, which is the fastest loop while
-working on one module:
+CTest starts one process per case, which isolates cases from each other and is
+what CI runs. Running `tb_tests` directly runs the selected cases in a single
+process, which is the fastest loop while working on a module:
 
 ```sh
-build/debug/bin/tb_core_tests                      # all of its cases
-build/debug/bin/tb_core_tests 'sum.*'              # cases matching a pattern
-build/debug/bin/tb_core_tests --list               # names and source locations
-build/debug/bin/tb_core_tests --fail-fast          # stop at the first failed case
-build/debug/bin/tb_core_tests --help
+build/debug/bin/tb_tests                            # every case
+build/debug/bin/tb_tests 'core_*'                   # one module
+build/debug/bin/tb_tests 'core_sum.*'               # one suite
+build/debug/bin/tb_tests core_sum.rejects_overflow_and_preserves_the_output
+build/debug/bin/tb_tests 'core_assert.*' core_sum.adds_representable_operands
+build/debug/bin/tb_tests --list                     # names and source locations
+build/debug/bin/tb_tests --fail-fast                # stop at the first failed case
+build/debug/bin/tb_tests --help
 ```
+
+Cases run in the order of the arguments, and in source order within one
+pattern, so naming cases is also how to run them in a chosen order. A case that
+several arguments match runs once.
 
 | Option | Effect |
 | --- | --- |
-| `pattern...` | Run cases whose `suite.name` matches any pattern. `*` matches any run of characters, `?` exactly one. |
+| `pattern...` | Run cases whose `suite.name` matches any pattern, in the order given. `*` matches any run of characters, `?` exactly one. |
 | `--exclude PATTERN` | Leave out matching cases. May be repeated. |
 | `--list` | Print the selected cases with their locations and exit. |
 | `--fail-fast` | Stop the run at the first failed case. |
@@ -229,7 +250,7 @@ Output is quiet by default: failures, skips, and a one-line summary.
 
 The integration rests on three things the framework produces, all standard:
 
-- **One CTest test per case**, named `module.suite.case`.
+- **One CTest test per case**, named `suite.case`.
 - **The source location of each case**, in the CTest property
   `DEF_SOURCE_LINE`, the same property CMake's GoogleTest support sets.
 - **Failures in compiler diagnostic form**: `file(line): error: ...` on Windows
@@ -238,7 +259,7 @@ The integration rests on three things the framework produces, all standard:
 What that gives each tool:
 
 - **VS Code** (CMake Tools): cases appear in the Testing view as a
-  `module > suite > case` tree; each can be run or debugged alone, "Go to Test"
+  `suite > case` tree; each can be run or debugged alone, "Go to Test"
   opens its definition, and a failed check is shown inline at its line. The
   repository's `.vscode/` settings configure the tree, and `launch.json`
   provides debug configurations that stop at the failing check (`--break`).
@@ -259,20 +280,20 @@ To debug without an IDE's test integration, start the executable under a
 debugger with the case name and `--break`:
 
 ```sh
-build/debug/bin/tb_core_tests sum.adds_small_numbers --break
+build/debug/bin/tb_tests core_sum.adds_small_numbers --break
 ```
 
 ## Sanitizers
 
 `TB_ENABLE_SANITIZERS=ON` (the `sanitizer` preset) builds instrumented copies of
-the test executables, the framework, and the engine sources under test. Their
+the test executable, the framework, and the engine sources under test. Their
 CTest names end in `.sanitized`.
 
 ## Testing the framework
 
 The framework is tested in `tests/framework/selftest/`:
 
-- Cases that must pass (`*_test.c`) cover the checks, the command line, pattern
+- Cases that must pass (`*_test.c`, built into `tb_tests`) cover the checks, the command line, pattern
   matching, and the random generator, including its exact output.
 - Behavior that only shows when a case fails is checked from the outside.
   `fixture/fixture_tests.c` contains cases that fail, skip, trap, and crash on

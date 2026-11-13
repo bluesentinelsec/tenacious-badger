@@ -312,6 +312,32 @@ function(scenario_patterns_select_cases)
     expect_diagnostic("no test case matches the given patterns")
 endfunction()
 
+function(scenario_cases_run_in_command_line_order)
+    # One executable holds every case of the project, so the command line must
+    # be able to run any of them, in any order.
+    run_fixture(--verbose order.e order.b order.d)
+    expect_status(0)
+    read_run_order(named_order)
+    if(NOT named_order STREQUAL "e;b;d")
+        fail_scenario("named cases must run in the order given, got ${named_order}")
+    endif()
+
+    # A pattern adds its matches in source order. A case that an earlier
+    # argument already selected is not run a second time.
+    run_fixture(--verbose order.f "order.*" order.a)
+    expect_status(0)
+    read_run_order(mixed_order)
+    if(NOT mixed_order STREQUAL "f;a;b;c;d;e")
+        fail_scenario("expected f first, then the rest in source order, got ${mixed_order}")
+    endif()
+
+    run_fixture(--verbose order.d "order.?" --exclude order.b)
+    read_run_order(excluded_order)
+    if(NOT excluded_order STREQUAL "d;a;c;e;f")
+        fail_scenario("an exclusion must apply to every pattern, got ${excluded_order}")
+    endif()
+endfunction()
+
 function(scenario_bad_command_lines_are_usage_errors)
     run_fixture(--bogus)
     expect_status(2)
