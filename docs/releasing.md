@@ -85,6 +85,10 @@ To return to automatic local identity selection, clear that cache setting with
 `-DTB_WINDOWS_SELF_SIGN=OFF`. Opt-out builds can run normally; Windows release
 packaging requires signed binaries and the public signing metadata.
 
+Changing the selected certificate causes affected targets to rebuild and re-sign
+on the next normal build, including with Visual Studio/MSBuild. CI exercises
+certificate replacement in the same build directory without a clean build.
+
 For a single file, the same script can create/reuse the default identity and sign
 it directly:
 

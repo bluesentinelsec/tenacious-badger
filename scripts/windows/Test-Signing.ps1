@@ -84,18 +84,29 @@ try {
         -CertificateThumbprint $overrideCertificate.Thumbprint
     Assert-VerificationResult -Path $overrideBinary -Thumbprint $overrideCertificate.Thumbprint -ShouldSucceed
 
-    $unsignedBuild = Join-Path $tempDirectory 'unsigned build'
+    $controlledBuild = Join-Path $tempDirectory 'certificate controls build'
     $sourceDirectory = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
-    & cmake -S $sourceDirectory -B $unsignedBuild -DTB_WINDOWS_SELF_SIGN=OFF `
+    & cmake -S $sourceDirectory -B $controlledBuild `
+        "-DTB_WINDOWS_SIGNING_THUMBPRINT=$($overrideCertificate.Thumbprint)" `
         -DTB_BUILD_TESTS=OFF -DTB_BUILD_BURROW=OFF
+    if ($LASTEXITCODE -ne 0) { throw 'Existing-certificate configure failed.' }
+    & cmake --build $controlledBuild --config Release --parallel
+    if ($LASTEXITCODE -ne 0) { throw 'Existing-certificate build failed.' }
+    $controlledLibrary = Join-Path $controlledBuild 'bin/badger.dll'
+    Assert-VerificationResult -Path $controlledLibrary -Thumbprint $overrideCertificate.Thumbprint -ShouldSucceed
+
+    & cmake -S $sourceDirectory -B $controlledBuild `
+        "-DTB_WINDOWS_SIGNING_THUMBPRINT=$expectedThumbprint"
+    if ($LASTEXITCODE -ne 0) { throw 'Replacement-certificate configure failed.' }
+    & cmake --build $controlledBuild --config Release --parallel
+    if ($LASTEXITCODE -ne 0) { throw 'Incremental replacement-certificate build failed.' }
+    Assert-VerificationResult -Path $controlledLibrary -Thumbprint $expectedThumbprint -ShouldSucceed
+
+    & cmake -S $sourceDirectory -B $controlledBuild -DTB_WINDOWS_SELF_SIGN=OFF
     if ($LASTEXITCODE -ne 0) { throw 'Opt-out configure failed.' }
-    & cmake --build $unsignedBuild --config Release --parallel
+    & cmake --build $controlledBuild --config Release --parallel
     if ($LASTEXITCODE -ne 0) { throw 'Opt-out build failed.' }
-    if (Test-Path -LiteralPath (Join-Path $unsignedBuild 'signing')) {
-        throw 'The opt-out must not create signing metadata or an identity.'
-    }
-    $unsignedLibrary = Join-Path $unsignedBuild 'bin/badger.dll'
-    if ((Get-AuthenticodeSignature -LiteralPath $unsignedLibrary).Status -ne 'NotSigned') {
+    if ((Get-AuthenticodeSignature -LiteralPath $controlledLibrary).Status -ne 'NotSigned') {
         throw 'The opt-out must produce an unsigned engine DLL.'
     }
     Write-Host 'Verified local identity reuse, existing-certificate override, opt-out, and rejection of invalid signatures.'

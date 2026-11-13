@@ -12,6 +12,10 @@ function(tb_sign_windows_target target)
     if(NOT target_type MATCHES "^(EXECUTABLE|SHARED_LIBRARY|MODULE_LIBRARY)$")
         return()
     endif()
+    # A different signer must cause an incremental rebuild/relink on MSBuild as
+    # well as Ninja/Make, so POST_BUILD cannot leave the old signature in place.
+    target_compile_definitions(${target} PRIVATE
+        "TB_INTERNAL_SIGNER_THUMBPRINT=\"${TB_SIGNING_ACTIVE_THUMBPRINT}\"")
     add_custom_command(TARGET ${target} POST_BUILD
         COMMAND "${CMAKE_COMMAND}" -E env --unset=PSModulePath
             "${TB_SIGNING_POWERSHELL}" -NoProfile -NonInteractive
