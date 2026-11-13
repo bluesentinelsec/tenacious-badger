@@ -1,0 +1,5 @@
+target_sources(badger PRIVATE time.c)
+target_sources(badger_static PRIVATE time.c)
+set(TB_PLATFORM_TIME_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/time.c" CACHE INTERNAL "Selected time adapter")
+set(TB_STUB_PLATFORM "linux" CACHE INTERNAL "Fatal stub platform")
+set(TB_STUB_API "clock_gettime" CACHE INTERNAL "Planned native time API")

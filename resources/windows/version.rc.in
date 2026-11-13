@@ -1,0 +1,32 @@
+#include <winver.h>
+
+1 ICON "@PROJECT_SOURCE_DIR@/resources/icons/burrow.ico"
+
+1 VERSIONINFO
+FILEVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+PRODUCTVERSION @PROJECT_VERSION_MAJOR@,@PROJECT_VERSION_MINOR@,@PROJECT_VERSION_PATCH@,0
+FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+FILEFLAGS 0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE @TB_RESOURCE_TYPE@
+FILESUBTYPE 0
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName", "@TB_PUBLISHER@\0"
+            VALUE "FileDescription", "@TB_RESOURCE_DESCRIPTION@\0"
+            VALUE "FileVersion", "@PROJECT_VERSION@.0\0"
+            VALUE "InternalName", "@TB_RESOURCE_FILENAME@\0"
+            VALUE "LegalCopyright", "Copyright 2026 @TB_PUBLISHER@\0"
+            VALUE "OriginalFilename", "@TB_RESOURCE_FILENAME@\0"
+            VALUE "ProductName", "Tenacious Badger\0"
+            VALUE "ProductVersion", "@PROJECT_VERSION@\0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END

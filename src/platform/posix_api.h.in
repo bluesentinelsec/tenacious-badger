@@ -1,0 +1,10 @@
+/** @file api.h
+ * @brief Build-selected shared-library visibility for Linux and macOS.
+ */
+#ifndef TB_API_H
+#define TB_API_H
+
+/** @brief Publish a public engine symbol from the shared library. */
+#define TB_API __attribute__((visibility("default")))
+
+#endif

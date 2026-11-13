@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>@TB_APP_ID@</id>
+  <metadata_license>Apache-2.0</metadata_license>
+  <project_license>Apache-2.0</project_license>
+  <name>Burrow</name>
+  <summary>Tenacious Badger game engine bootstrap</summary>
+  <developer id="io.github.@TB_PUBLISHER@"><name>@TB_PUBLISHER@</name></developer>
+  <description><p>A dependency-free C17 game engine foundation. Under construction; this release runs a small arithmetic demonstration.</p></description>
+  <launchable type="desktop-id">@TB_APP_ID@.desktop</launchable>
+  <url type="homepage">https://github.com/@TB_PUBLISHER@/tenacious-badger</url>
+  <content_rating type="oars-1.1"/>
+</component>

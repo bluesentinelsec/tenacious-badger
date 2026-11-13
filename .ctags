@@ -1,0 +1,9 @@
+--recurse=yes
+--languages=C
+--langmap=C:+.h
+--exclude=.git
+--exclude=build
+--exclude=docs/html
+--fields=+iaS
+--tag-relative=never
+-f tags

@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.platform }} / ${{ matrix.compiler }} / ${{ matrix.build_type }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release]
+        toolchain: [windows-msvc, macos-clang, linux-gcc, linux-clang]
+        include:
+          - toolchain: windows-msvc
+            platform: Windows
+            os: windows-2025-vs2026
+            compiler: MSVC
+            cc: cl
+          - toolchain: macos-clang
+            platform: macOS
+            os: macos-26
+            compiler: AppleClang
+            cc: clang
+          - toolchain: linux-gcc
+            platform: Linux
+            os: ubuntu-26.04
+            compiler: GCC
+            cc: gcc
+          - toolchain: linux-clang
+            platform: Linux
+            os: ubuntu-26.04
+            compiler: Clang
+            cc: clang
+    env:
+      CC: ${{ matrix.cc }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Configure
+        run: cmake -S . -B build/ci -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+      - name: Build
+        run: cmake --build build/ci --config ${{ matrix.build_type }} --parallel
+      - name: Test shared library, consumer, and native adapter or fatal stub
+        run: ctest --test-dir build/ci -C ${{ matrix.build_type }} --output-on-failure --no-tests=error
+      - name: Install the dynamic/static SDK and public headers
+        run: cmake --install build/ci --config ${{ matrix.build_type }} --prefix stage/sdk
+      - name: Invoke the installed shared library from Python ctypes
+        run: python3 tests/ffi/ctypes_smoke.py --prefix stage/sdk
+      - name: Configure an independent static-library consumer
+        run: cmake -S tests/consumers/static -B build/static-consumer -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} "-DCMAKE_PREFIX_PATH=${{ github.workspace }}/stage/sdk"
+      - name: Build the independent static-library consumer
+        run: cmake --build build/static-consumer --config ${{ matrix.build_type }} --parallel
+      - name: Run the independent static-library consumer
+        run: ctest --test-dir build/static-consumer -C ${{ matrix.build_type }} --output-on-failure --no-tests=error
+      - name: Configure a FetchContent shared-library consumer without downloads
+        run: cmake -S tests/consumers/fetch -B build/fetch-consumer -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} "-DTB_SOURCE_ROOT=${{ github.workspace }}"
+      - name: Build the FetchContent consumer
+        run: cmake --build build/fetch-consumer --config ${{ matrix.build_type }} --parallel
+      - name: Run the FetchContent consumer
+        run: ctest --test-dir build/fetch-consumer -C ${{ matrix.build_type }} --output-on-failure --no-tests=error
+      - name: Package, extract, and launch the native desktop export
+        if: matrix.build_type == 'Release' && matrix.toolchain != 'linux-clang'
+        run: python3 tools/package_desktop.py --build build/ci --output dist
+      - name: Package and externally invoke the dynamic/static SDK
+        if: matrix.toolchain != 'linux-clang'
+        run: python3 tools/package_sdk.py --build build/ci --prefix stage/sdk --configuration ${{ matrix.build_type }} --output dist
+      - name: Save verified desktop export
+        if: matrix.toolchain != 'linux-clang'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-${{ matrix.toolchain }}-${{ matrix.build_type }}
+          path: dist/*
+          if-no-files-found: error
+
+  format:
+    name: C formatting
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check with the runner's preinstalled clang-format 22
+        run: cmake -DTB_FORMAT_MODE=check -DTB_CLANG_FORMAT=clang-format-22 -P cmake/Format.cmake
