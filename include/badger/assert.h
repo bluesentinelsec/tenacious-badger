@@ -58,7 +58,8 @@ typedef void tb_assert_handler(const tb_assert_failure *failure, void *context);
 /**
  * @brief Replace what happens when an assertion fails.
  *
- * The default writes the failure to stderr and aborts. A test harness installs
+ * The default writes the failure to stderr and ends the process with
+ * tb_platform_abort(). A test harness installs
  * a handler to turn a failure into a test result instead of losing the process.
  *
  * @param handler Handler to install, or NULL to restore the default.
