@@ -146,6 +146,9 @@ cmake -DTB_FORMAT_MODE=write -P cmake/Format.cmake
 cmake -DTB_FORMAT_MODE=check -P cmake/Format.cmake
 ```
 
+The formatted files are listed in `cmake/FormatSources.cmake`. The check fails
+when a tracked C source or header is missing from that list.
+
 The scaffold was created with `cppboot --name tenacious-badger --shared --no-git
 --no-fmt --no-codespaces`, then adapted to C17. Its Apache-2.0
 [license](../LICENSE) is retained.

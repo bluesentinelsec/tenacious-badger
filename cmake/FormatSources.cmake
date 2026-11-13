@@ -1,0 +1,42 @@
+# Every C source and header that clang-format maintains, relative to the
+# repository root. Add each new file here. The format check fails when a
+# tracked C file is missing from this list or a listed file no longer exists.
+set(TB_FORMAT_SOURCES
+    cmake/version.h.in
+    include/badger/assert.h
+    include/badger/core.h
+    include/badger/platform.h
+    src/core/assert.c
+    src/core/sum.c
+    src/main.c
+    src/platform/linux/time.c
+    src/platform/macos/time.c
+    src/platform/posix_api.h.in
+    src/platform/win32/api.h.in
+    src/platform/win32/time.c
+    tests/consumers/static/main.c
+    tests/core/assert_probe.c
+    tests/core/assert_test.c
+    tests/core/sum_test.c
+    tests/framework/include/tb_test.h
+    tests/framework/include/tb_test_config.h.in
+    tests/framework/selftest/checks_test.c
+    tests/framework/selftest/fixture/fixture_tests.c
+    tests/framework/selftest/options_test.c
+    tests/framework/selftest/pattern_test.c
+    tests/framework/selftest/random_test.c
+    tests/framework/src/checks.c
+    tests/framework/src/internal.h
+    tests/framework/src/main.c
+    tests/framework/src/options.c
+    tests/framework/src/pattern.c
+    tests/framework/src/platform.h
+    tests/framework/src/platform/posix.c
+    tests/framework/src/platform/win32.c
+    tests/framework/src/random.c
+    tests/framework/src/report.c
+    tests/framework/src/runner.c
+    tests/framework/src/support.c
+    tests/platform/time_probe.c
+    tests/support/engine_main.c
+    tests/support/engine_test.h)
