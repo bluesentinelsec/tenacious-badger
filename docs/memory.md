@@ -86,6 +86,23 @@ buffer = resized;
 - **Array arithmetic is checked.** `tb_calloc`, `tb_realloc_array`, and the
   `TB_NEW_ARRAY` macro multiply `count` by `size` with an overflow check before
   anything is allocated. Prefer them to multiplying sizes yourself.
+- **Compute other sizes with `badger/size.h`.** A size built from parts, such
+  as a header plus a payload whose length comes from a file, can wrap past
+  `SIZE_MAX` to a small number. `tb_size_add` and `tb_size_multiply` return
+  false instead of wrapping and leave their output untouched:
+
+  ```c
+  size_t total_size = {0};
+
+  if (!tb_size_multiply(row_count, row_size, &total_size) ||
+      !tb_size_add(total_size, sizeof(table_header), &total_size))
+  {
+      goto cleanup; /* the file describes a table that cannot exist */
+  }
+  ```
+
+  `tb_size_grow` chooses the next capacity of a buffer that grows by doubling,
+  limited to what `size_t` can express.
 
 ## Aligned blocks
 

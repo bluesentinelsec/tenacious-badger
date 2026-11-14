@@ -18,6 +18,10 @@ ends the process through a replaceable handler. The `tb_try_*` forms return NULL
 for callers that can recover. An application can supply its own allocator with
 `tb_memory_set_functions`.
 
+Sizes are computed safely with `badger/size.h`: `tb_size_add` and
+`tb_size_multiply` report overflow instead of wrapping, and `tb_size_grow`
+chooses the next capacity of a buffer that grows by doubling.
+
 Included foundations:
 
 - `badger` dynamic library and `badger_static` static library with the same

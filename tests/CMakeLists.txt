@@ -6,6 +6,7 @@ add_subdirectory(framework)
 set(TB_TEST_CASE_SOURCES
     core/assert_test.c
     core/memory_test.c
+    core/size_test.c
     core/sum_test.c
     framework/selftest/checks_test.c
     framework/selftest/options_test.c
