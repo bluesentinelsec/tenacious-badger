@@ -181,8 +181,9 @@ TB_API void tb_aligned_free(void *memory);
  * A count that is higher at shutdown than at startup is a leak. Tests compare
  * it before and after each case.
  *
- * @par Threading Thread-safe. With other threads allocating, the value is a
- * snapshot.
+ * @par Threading Thread-safe. The count is exact whenever no other thread is
+ * in the middle of allocating or freeing. While others are, it is added up
+ * from parts read one after another, and may be the count of no single moment.
  */
 TB_API size_t tb_memory_allocation_count(void);
 

@@ -49,8 +49,48 @@ static void tb_memory_original_free(void *memory)
 
 static tb_memory_functions tb_memory_installed = TB_MEMORY_ORIGINAL_FUNCTIONS;
 
-/* Blocks allocated and not yet freed. */
-static tb_platform_atomic_size tb_memory_live_blocks = {0};
+/* Blocks allocated and not yet freed, counted in pieces.
+ *
+ * One number that every allocation and every release changes is one cache
+ * line that every core must own in turn: with a thread on each of eight cores
+ * allocating at once it cost ten times what the allocations did. So each
+ * thread counts in a piece of its own, each piece is on a cache line of its
+ * own, and the count is the sum of the pieces.
+ *
+ * A block released by a thread other than the one that allocated it takes one
+ * from another piece than the one it was added to. A piece may so pass zero
+ * and wrap around, which unsigned arithmetic defines; the sum is right all
+ * the same. */
+#define TB_MEMORY_PIECE_COUNT ((size_t)64)
+#define TB_MEMORY_CACHE_LINE_SIZE ((size_t)64)
+
+typedef struct tb_memory_piece
+{
+    tb_platform_atomic_size count;
+    /* Keeps the counts of two pieces a cache line apart. */
+    char padding[TB_MEMORY_CACHE_LINE_SIZE - sizeof(tb_platform_atomic_size)];
+} tb_memory_piece;
+
+static tb_memory_piece tb_memory_live_blocks[TB_MEMORY_PIECE_COUNT] = {0};
+
+/* Threads that have allocated or freed so far. */
+static tb_platform_atomic_size tb_memory_thread_count = {0};
+
+/* The number of the calling thread among them, counted from 1 in the order
+ * the threads first allocated or freed; 0 until it does. */
+static _Thread_local size_t tb_memory_thread_number = 0;
+
+/* The piece that the calling thread counts in. Threads take the pieces in
+ * turn, so no two share one until there are more threads than pieces; those
+ * that then share one count correctly, only more slowly. */
+static tb_platform_atomic_size *tb_memory_piece_of_thread(void)
+{
+    if (tb_memory_thread_number == 0)
+    {
+        tb_memory_thread_number = tb_platform_atomic_size_add(&tb_memory_thread_count, 1);
+    }
+    return &tb_memory_live_blocks[(tb_memory_thread_number - 1) % TB_MEMORY_PIECE_COUNT].count;
+}
 
 /* Installed failure handler; a NULL handler selects the default report. */
 typedef struct tb_memory_failure_binding
@@ -125,7 +165,13 @@ bool tb_memory_set_functions(const tb_memory_functions *functions)
 
 size_t tb_memory_allocation_count(void)
 {
-    return tb_platform_atomic_size_load(&tb_memory_live_blocks);
+    size_t count = {0};
+
+    for (size_t piece = 0; piece < TB_MEMORY_PIECE_COUNT; piece++)
+    {
+        count += tb_platform_atomic_size_load(&tb_memory_live_blocks[piece].count);
+    }
+    return count;
 }
 
 /* ---------------------------------------------------------------------------
@@ -149,7 +195,7 @@ void *tb_try_malloc(size_t size)
 
     if (memory != NULL)
     {
-        (void)tb_platform_atomic_size_add(&tb_memory_live_blocks, 1);
+        (void)tb_platform_atomic_size_add(tb_memory_piece_of_thread(), 1);
     }
     return memory;
 }
@@ -168,7 +214,7 @@ void *tb_try_calloc(size_t count, size_t size)
     memory = tb_memory_installed.calloc_function(count, size);
     if (memory != NULL)
     {
-        (void)tb_platform_atomic_size_add(&tb_memory_live_blocks, 1);
+        (void)tb_platform_atomic_size_add(tb_memory_piece_of_thread(), 1);
     }
     return memory;
 }
@@ -203,7 +249,7 @@ void tb_free(void *memory)
         return;
     }
     tb_memory_installed.free_function(memory);
-    (void)tb_platform_atomic_size_subtract(&tb_memory_live_blocks, 1);
+    (void)tb_platform_atomic_size_subtract(tb_memory_piece_of_thread(), 1);
 }
 
 /* ---------------------------------------------------------------------------
