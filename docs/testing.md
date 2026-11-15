@@ -296,6 +296,9 @@ details are in [Memory allocation](memory.md#in-tests); in short:
   `n`-th attempt on, to test how code behaves when memory runs out.
 - An exhausted fail-fast allocation is a trap whose message starts with
   `out of memory`.
+- `tb_test_allocator` is an allocator to hand to a module under test. It checks
+  that every block comes back with the size and alignment it was given and that
+  nothing is left allocated.
 
 These are built on case hooks: `tb_test_set_case_hooks` registers functions
 that the framework runs before and after every case, inside the case, so they

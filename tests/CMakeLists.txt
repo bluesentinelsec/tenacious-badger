@@ -4,6 +4,7 @@ add_subdirectory(framework)
 # of a new test here. Suites are named <module>_<feature>, so one pattern
 # selects a module (tb_tests "core_*") or a feature (tb_tests "core_sum.*").
 set(TB_TEST_CASE_SOURCES
+    core/allocator_test.c
     core/arena_test.c
     core/assert_test.c
     core/memory_test.c
@@ -21,7 +22,9 @@ function(tb_add_tests target)
     tb_add_test_executable(${target}
         MAIN "${CMAKE_CURRENT_SOURCE_DIR}/support/engine_main.c"
         ${ARGN})
-    target_sources(${target} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/support/engine_memory.c")
+    target_sources(${target} PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/support/engine_memory.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/support/test_allocator.c")
     target_include_directories(${target} PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/support"
         # The framework's own cases test its internal interfaces.

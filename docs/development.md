@@ -7,11 +7,20 @@ FetchContent and the published Debug/Release SDKs. The binding design and engine
 standards are in [AGENTS.md](../AGENTS.md). The earlier
 [vision draft](vision.md) is preserved.
 
-This bootstrap implements checked signed addition, checked size arithmetic,
-developer assertions, [memory allocation](memory.md) with
-[arenas](memory.md#arenas), and three native platform interfaces. `burrow` calls
-the shared library and prints `2 + 3 = 5`. Rendering, windowing, gameplay,
-vendor integrations, and the other planned modules remain future work.
+The foundation layer so far, one public header per module under
+`include/badger/`:
+
+| Header | Provides |
+| --- | --- |
+| `assert.h` | Developer assertions with a replaceable failure handler |
+| `core.h`, `size.h` | Checked signed addition and checked size arithmetic |
+| `memory.h` | [Memory allocation](memory.md) that fails fast, with a replaceable allocator |
+| `arena.h` | [Arenas](memory.md#arenas) for objects that share a lifetime |
+| `allocator.h` | [Allocators chosen per object](memory.md#choosing-the-allocator-of-one-object) |
+| `platform.h` | Three native platform interfaces: time, abort, and an atomic counter |
+
+`burrow` calls the shared library and prints `2 + 3 = 5`. Rendering, windowing,
+gameplay, vendor integrations, and the other planned modules remain future work.
 
 The [release and distribution requirements](../AGENTS.md#releases-and-distribution)
 define desktop exports and the later browser and mobile targets. See

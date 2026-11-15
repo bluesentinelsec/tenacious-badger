@@ -52,6 +52,7 @@
 #ifndef TB_ARENA_H
 #define TB_ARENA_H
 
+#include "badger/allocator.h"
 #include "badger/api.h"
 
 #include <stddef.h>
@@ -280,6 +281,39 @@ TB_API tb_arena_mark tb_arena_get_mark(const tb_arena *arena);
  * objects allocated since the mark are invalid afterwards.
  */
 TB_API void tb_arena_rewind(tb_arena *arena, tb_arena_mark mark);
+
+/* -------------------------------------------------------------------------
+ * An arena as an allocator.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * @brief Get an allocator (allocator.h) that allocates from an arena.
+ *
+ * Pass it to anything that takes an allocator, such as a collection, to put
+ * that object in the arena:
+ *
+ * @code
+ * const tb_allocator in_frame = tb_arena_allocator(frame_arena);
+ * draw_call *const calls = TB_ALLOCATOR_NEW_ARRAY(&in_frame, draw_call, call_count);
+ * @endcode
+ *
+ * The allocator follows the rules of the arena:
+ * - **Releasing a block does nothing.** Its memory comes back when the arena
+ *   is reset, rewound, or destroyed, which also ends the life of every object
+ *   allocated through the allocator. Such an object need not be destroyed
+ *   first, and must not be used afterwards.
+ * - **Growing the most recent block is free.** It is extended in place while
+ *   its chunk has room. Any other block that grows is copied to new memory,
+ *   and the old memory stays unused until the next reset or rewind.
+ * - **A rewind takes back everything since its mark**, including the growth
+ *   of a block that was allocated before the mark and resized after it.
+ *   Take marks only around objects that are created and abandoned inside them.
+ *
+ * @param arena Required non-null. It must outlive every use of the allocator.
+ * @return The allocator. It is a value: copy it freely.
+ * @par Threading Externally synchronized, like the arena.
+ */
+TB_API tb_allocator tb_arena_allocator(tb_arena *arena);
 
 /* -------------------------------------------------------------------------
  * Accounting.
