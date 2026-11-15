@@ -117,6 +117,7 @@ if (slot != TB_BIT_NOT_FOUND)
 | Change a range | `tb_bit_set`, `tb_bit_clear`, `tb_bit_flip`, each with `(bits, begin, end)` |
 | Count the set bits | `tb_bit_count(bits)` |
 | Find the next set or clear bit | `tb_bit_find_set(bits, from)`, `tb_bit_find_clear(bits, from)` |
+| Step through the set bits | `tb_bit_next_set(bits, &cursor, &index)` |
 | Visit every bit | `tb_bit_visit(bits, visitor, context)` |
 | Compare two vectors | `tb_bit_equal`, `tb_bit_is_subset`, `tb_bit_is_proper_subset` |
 | Combine two vectors | `tb_bit_union`, `tb_bit_intersection`, `tb_bit_difference`, `tb_bit_symmetric_difference` |
@@ -137,16 +138,22 @@ tb_bit *const either = tb_bit_copy(mine, allocator);
 tb_bit_union(either, theirs);
 ```
 
-**To walk the set bits**, search from one past each result. Each search skips
-whole words of clear bits:
+**To walk the set bits**, step through them with a cursor. It passes over
+whole words of clear bits and keeps its place from one bit to the next:
 
 ```c
-for (size_t index = tb_bit_find_set(visible, 0); index != TB_BIT_NOT_FOUND;
-     index = tb_bit_find_set(visible, index + 1))
+tb_bit_cursor cursor = {0};
+size_t index = 0;
+
+while (tb_bit_next_set(visible, &cursor, &index))
 {
     draw(objects[index]);
 }
 ```
+
+The vector must not change during the walk. A loop that changes bits as it
+goes searches from one past each result instead, with
+`tb_bit_find_set(visible, index + 1)`, which is slower and sees every change.
 
 ## Ring
 

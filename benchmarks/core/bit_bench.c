@@ -66,6 +66,38 @@ static void run_walk_dense(void *context)
     tb_bench_keep(walk_set_bits(state->dense, BIT_DENSE_ROUNDS));
 }
 
+/* Visits every set bit with a cursor, which keeps its place between bits. */
+static uint64_t step_through_set_bits(const tb_bit *bits, size_t rounds)
+{
+    uint64_t sum = 0;
+
+    for (size_t round = 0; round < rounds; round++)
+    {
+        tb_bit_cursor cursor = {0};
+        size_t index = 0;
+
+        while (tb_bit_next_set(bits, &cursor, &index))
+        {
+            sum += index;
+        }
+    }
+    return sum;
+}
+
+static void run_step_sparse(void *context)
+{
+    const bit_state *const state = context;
+
+    tb_bench_keep(step_through_set_bits(state->sparse, BIT_SPARSE_ROUNDS));
+}
+
+static void run_step_dense(void *context)
+{
+    const bit_state *const state = context;
+
+    tb_bench_keep(step_through_set_bits(state->dense, BIT_DENSE_ROUNDS));
+}
+
 static void run_single_bits(void *context)
 {
     const bit_state *const state = context;
@@ -98,13 +130,26 @@ void tb_bench_bit(tb_bench *bench)
     bit_state state = {0};
     uint64_t sequence = 3;
     double words = 0;
-    tb_bench_case cases[5] = {
-        {.name = "count the set bits (per 64 bits)", .run = run_count},
-        {.name = "visit the set bits, 1 in 100 set (per bit visited)", .run = run_walk_sparse},
-        {.name = "visit the set bits, 1 in 2 set (per bit visited)", .run = run_walk_dense},
-        {.name = "read one bit at a scattered index", .run = run_single_bits},
-        {.name = "union of two vectors (per 64 bits)", .run = run_union},
+    tb_bench_case count = {.name = "count the set bits (per 64 bits)", .run = run_count};
+    /* The two ways to visit the set bits, side by side. */
+    tb_bench_case sparse[2] = {
+        {.name = "visit the set bits, 1 in 100 set (per bit visited)",
+         .variant = "tb_bit_next_set",
+         .run = run_step_sparse},
+        {.name = "visit the set bits, 1 in 100 set (per bit visited)",
+         .variant = "tb_bit_find_set from each result",
+         .run = run_walk_sparse},
     };
+    tb_bench_case dense[2] = {
+        {.name = "visit the set bits, 1 in 2 set (per bit visited)",
+         .variant = "tb_bit_next_set",
+         .run = run_step_dense},
+        {.name = "visit the set bits, 1 in 2 set (per bit visited)",
+         .variant = "tb_bit_find_set from each result",
+         .run = run_walk_dense},
+    };
+    tb_bench_case single = {.name = "read one bit at a scattered index", .run = run_single_bits};
+    tb_bench_case combine = {.name = "union of two vectors (per 64 bits)", .run = run_union};
 
     if (!tb_bench_wants(bench, "bit"))
     {
@@ -131,17 +176,27 @@ void tb_bench_bit(tb_bench *bench)
     (void)tb_bit_put(state.sparse, 0, true);
     (void)tb_bit_put(state.dense, 0, true);
     words = (double)state.length / (double)BIT_WORD_WIDTH;
-    cases[0].operations = words * (double)BIT_COUNT_ROUNDS;
-    cases[1].operations = (double)tb_bit_count(state.sparse) * (double)BIT_SPARSE_ROUNDS;
-    cases[2].operations = (double)tb_bit_count(state.dense) * (double)BIT_DENSE_ROUNDS;
-    cases[3].operations = (double)state.reads;
-    cases[4].operations = words * (double)BIT_COMBINE_ROUNDS;
-    for (size_t index = 0; index < sizeof(cases) / sizeof(cases[0]); index++)
+    count.variant = "badger";
+    count.operations = words * (double)BIT_COUNT_ROUNDS;
+    count.context = &state;
+    single.variant = "badger";
+    single.operations = (double)state.reads;
+    single.context = &state;
+    combine.variant = "badger";
+    combine.operations = words * (double)BIT_COMBINE_ROUNDS;
+    combine.context = &state;
+    for (size_t index = 0; index < 2; index++)
     {
-        cases[index].variant = "badger";
-        cases[index].context = &state;
-        tb_bench_measure(bench, "bit", &cases[index], 1);
+        sparse[index].operations = (double)tb_bit_count(state.sparse) * (double)BIT_SPARSE_ROUNDS;
+        sparse[index].context = &state;
+        dense[index].operations = (double)tb_bit_count(state.dense) * (double)BIT_DENSE_ROUNDS;
+        dense[index].context = &state;
     }
+    tb_bench_measure(bench, "bit", &count, 1);
+    tb_bench_measure(bench, "bit", sparse, 2);
+    tb_bench_measure(bench, "bit", dense, 2);
+    tb_bench_measure(bench, "bit", &single, 1);
+    tb_bench_measure(bench, "bit", &combine, 1);
     tb_bit_destroy(state.sparse);
     tb_bit_destroy(state.dense);
 }

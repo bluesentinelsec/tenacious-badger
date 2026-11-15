@@ -48,10 +48,19 @@ static size_t tb_bit_count_word(uint64_t word)
 /* Position of the lowest set bit of a word that is not zero. */
 static size_t tb_bit_lowest_position(uint64_t word)
 {
-    /* The lowest set bit alone, less one, is a run of ones below it. */
+    /* The lowest set bit alone is a power of two, so multiplying by it shifts
+     * the constant left by the position. The constant is a de Bruijn
+     * sequence: every run of six of its bits is different, so the six bits
+     * that reach the top name the position, and the table turns them back
+     * into it. One multiplication, where counting the bits below takes a
+     * dozen operations. */
+    static const unsigned char positions[64] = {
+        0,  1,  48, 2,  57, 49, 28, 3,  61, 58, 50, 42, 38, 29, 17, 4,  62, 55, 59, 36, 53, 51,
+        43, 22, 45, 39, 33, 30, 24, 18, 12, 5,  63, 47, 56, 27, 60, 41, 37, 16, 54, 35, 52, 21,
+        44, 32, 23, 11, 46, 26, 40, 15, 34, 20, 31, 10, 25, 14, 19, 9,  13, 8,  7,  6};
     const uint64_t lowest = word & (~word + 1);
 
-    return tb_bit_count_word(lowest - 1);
+    return positions[(lowest * UINT64_C(0x03F79D71B4CB0A89)) >> 58];
 }
 
 /* A word with the positions from `position` upward set. */
@@ -281,6 +290,32 @@ size_t tb_bit_find_clear(const tb_bit *bits, size_t from)
     return tb_bit_find(bits, from, true);
 }
 
+bool tb_bit_next_set(const tb_bit *bits, tb_bit_cursor *cursor, size_t *index)
+{
+    TB_ASSERT(bits != NULL);
+    TB_ASSERT(cursor != NULL);
+    TB_ASSERT(index != NULL);
+    /* The cursor holds the set bits of one word that have not been returned
+     * yet. When it has none left it takes the next word that has any, which
+     * passes over 64 clear bits at a step. The positions of the last word
+     * beyond the length are always clear, so no bit is checked against it. */
+    while (cursor->remaining == 0)
+    {
+        if (cursor->next_word >= bits->word_count)
+        {
+            return false;
+        }
+        cursor->remaining = bits->words[cursor->next_word];
+        cursor->next_word++;
+    }
+    *index =
+        (cursor->next_word - 1) * TB_BIT_WORD_WIDTH + tb_bit_lowest_position(cursor->remaining);
+    /* Subtracting one clears the lowest set bit and sets the bits below it,
+     * which were clear and are cleared again. */
+    cursor->remaining &= cursor->remaining - 1;
+    return true;
+}
+
 void tb_bit_visit(const tb_bit *bits, tb_bit_visitor *visitor, void *context)
 {
     TB_ASSERT(bits != NULL);
@@ -333,38 +368,70 @@ bool tb_bit_is_proper_subset(const tb_bit *left, const tb_bit *right)
     return tb_bit_is_subset(left, right) && !tb_bit_equal(left, right);
 }
 
+/* The four functions below read the words and their number out of the
+ * structures once, before the loop. A loop that reads them from the structures
+ * on every pass must assume that storing a word may have changed them, and
+ * cannot combine several words in one step. */
 void tb_bit_union(tb_bit *bits, const tb_bit *other)
 {
+    uint64_t *words = NULL;
+    const uint64_t *other_words = NULL;
+    size_t word_count = {0};
+
     tb_bit_require_pair(bits, other);
-    for (size_t word = 0; word < bits->word_count; word++)
+    words = bits->words;
+    other_words = other->words;
+    word_count = bits->word_count;
+    for (size_t word = 0; word < word_count; word++)
     {
-        bits->words[word] |= other->words[word];
+        words[word] |= other_words[word];
     }
 }
 
 void tb_bit_intersection(tb_bit *bits, const tb_bit *other)
 {
+    uint64_t *words = NULL;
+    const uint64_t *other_words = NULL;
+    size_t word_count = {0};
+
     tb_bit_require_pair(bits, other);
-    for (size_t word = 0; word < bits->word_count; word++)
+    words = bits->words;
+    other_words = other->words;
+    word_count = bits->word_count;
+    for (size_t word = 0; word < word_count; word++)
     {
-        bits->words[word] &= other->words[word];
+        words[word] &= other_words[word];
     }
 }
 
 void tb_bit_difference(tb_bit *bits, const tb_bit *other)
 {
+    uint64_t *words = NULL;
+    const uint64_t *other_words = NULL;
+    size_t word_count = {0};
+
     tb_bit_require_pair(bits, other);
-    for (size_t word = 0; word < bits->word_count; word++)
+    words = bits->words;
+    other_words = other->words;
+    word_count = bits->word_count;
+    for (size_t word = 0; word < word_count; word++)
     {
-        bits->words[word] &= ~other->words[word];
+        words[word] &= ~other_words[word];
     }
 }
 
 void tb_bit_symmetric_difference(tb_bit *bits, const tb_bit *other)
 {
+    uint64_t *words = NULL;
+    const uint64_t *other_words = NULL;
+    size_t word_count = {0};
+
     tb_bit_require_pair(bits, other);
-    for (size_t word = 0; word < bits->word_count; word++)
+    words = bits->words;
+    other_words = other->words;
+    word_count = bits->word_count;
+    for (size_t word = 0; word < word_count; word++)
     {
-        bits->words[word] ^= other->words[word];
+        words[word] ^= other_words[word];
     }
 }

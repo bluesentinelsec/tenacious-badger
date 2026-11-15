@@ -394,6 +394,103 @@ TB_TEST(core_bit, a_search_loop_visits_every_set_bit_once)
     tb_bit_destroy(bits);
 }
 
+/* Walks a vector with a cursor and checks that it returns exactly the set
+ * bits of the model, lowest first. */
+static void expect_cursor_walk(const tb_bit *bits, const bit_model *model)
+{
+    tb_bit_cursor cursor = {0};
+    size_t index = SIZE_MAX;
+    size_t expected = {0};
+    size_t visited = {0};
+
+    while (tb_bit_next_set(bits, &cursor, &index))
+    {
+        /* The next bit of the model that is set is the one returned. */
+        while (expected < model->length && !model->values[expected])
+        {
+            expected++;
+        }
+        TB_TEST_REQUIRE_UINT(index, ==, expected);
+        expected++;
+        visited++;
+    }
+    TB_TEST_EXPECT_UINT(visited, ==, model_count(model));
+    /* A walk that has ended stays ended, and leaves the index alone. */
+    index = SIZE_MAX;
+    TB_TEST_EXPECT(!tb_bit_next_set(bits, &cursor, &index));
+    TB_TEST_EXPECT(!tb_bit_next_set(bits, &cursor, &index));
+    TB_TEST_EXPECT_UINT(index, ==, SIZE_MAX);
+}
+
+TB_TEST(core_bit, a_cursor_steps_through_exactly_the_set_bits_in_order)
+{
+    for (size_t row = 0; row < TB_TEST_COUNT_OF(lengths); row++)
+    {
+        const size_t length = lengths[row];
+        bit_model model = {.length = length};
+        tb_bit *bits = create_from_model(NULL, &model);
+
+        /* No bit set: the walk is over before it starts. */
+        TB_TEST_CONTEXT("%zu bits, all clear", length);
+        expect_cursor_walk(bits, &model);
+
+        /* Every bit set: each word gives up all of its bits, and the last
+         * word none beyond the length. */
+        TB_TEST_CONTEXT("%zu bits, all set", length);
+        tb_bit_set(bits, 0, length);
+        for (size_t index = 0; index < length; index++)
+        {
+            model.values[index] = true;
+        }
+        expect_cursor_walk(bits, &model);
+        tb_bit_destroy(bits);
+
+        /* One bit, at each end and beside each boundary between words. */
+        for (size_t place = 0; place < length; place++)
+        {
+            if (place % 64 > 1 && place % 64 < 62 && place + 1 != length)
+            {
+                continue;
+            }
+            TB_TEST_CONTEXT("%zu bits, only bit %zu set", length, place);
+            model = (bit_model){.length = length};
+            model.values[place] = true;
+            bits = create_from_model(NULL, &model);
+            expect_cursor_walk(bits, &model);
+            tb_bit_destroy(bits);
+        }
+
+        for (size_t round = 0; round < 20; round++)
+        {
+            TB_TEST_CONTEXT("%zu bits, random round %zu", length, round);
+            randomize_model(&model, length);
+            bits = create_from_model(NULL, &model);
+            expect_cursor_walk(bits, &model);
+            tb_bit_destroy(bits);
+        }
+    }
+}
+
+/* The two ways to visit the set bits return the same bits. */
+TB_TEST(core_bit, a_cursor_and_a_search_loop_visit_the_same_bits)
+{
+    bit_model model = {0};
+    tb_bit *bits = NULL;
+    tb_bit_cursor cursor = {0};
+    size_t stepped = {0};
+
+    randomize_model(&model, MODEL_LENGTH_LIMIT);
+    bits = create_from_model(NULL, &model);
+    for (size_t searched = tb_bit_find_set(bits, 0); searched != TB_BIT_NOT_FOUND;
+         searched = tb_bit_find_set(bits, searched + 1))
+    {
+        TB_TEST_REQUIRE(tb_bit_next_set(bits, &cursor, &stepped));
+        TB_TEST_EXPECT_UINT(stepped, ==, searched);
+    }
+    TB_TEST_EXPECT(!tb_bit_next_set(bits, &cursor, &stepped));
+    tb_bit_destroy(bits);
+}
+
 typedef struct visit_record
 {
     tb_bit *bits;
@@ -757,6 +854,15 @@ static void find_clear_in_null(void *context)
     (void)tb_bit_find_clear(NULL, 0);
 }
 
+static void next_set_in_null(void *context)
+{
+    tb_bit_cursor cursor = {0};
+    size_t index = {0};
+
+    (void)context;
+    (void)tb_bit_next_set(NULL, &cursor, &index);
+}
+
 static void visit_null(void *context)
 {
     (void)context;
@@ -774,7 +880,7 @@ TB_TEST(core_bit, a_null_vector_violates_the_contract)
     static tb_test_trap_body *const bodies[] = {
         length_of_null,     count_of_null, get_from_null, put_into_null,
         set_in_null,        clear_in_null, flip_in_null,  find_set_in_null,
-        find_clear_in_null, visit_null,    copy_null,
+        find_clear_in_null, visit_null,    copy_null,     next_set_in_null,
     };
 
     if (!tb_assert_library_enabled())
@@ -934,6 +1040,20 @@ static void visit_without_a_visitor(void *context)
     tb_bit_visit(context, NULL, NULL);
 }
 
+static void next_set_without_a_cursor(void *context)
+{
+    size_t index = {0};
+
+    (void)tb_bit_next_set(context, NULL, &index);
+}
+
+static void next_set_without_an_index(void *context)
+{
+    tb_bit_cursor cursor = {0};
+
+    (void)tb_bit_next_set(context, &cursor, NULL);
+}
+
 TB_TEST(core_bit, positions_outside_the_vector_violate_the_contract)
 {
     static const char *const range_text = "the range must be in order and within the vector";
@@ -965,6 +1085,8 @@ TB_TEST(core_bit, positions_outside_the_vector_violate_the_contract)
     TB_TEST_EXPECT_TRAP(flip_range, &request, range_text);
 
     TB_TEST_EXPECT_TRAP(visit_without_a_visitor, request.bits, "visitor != NULL");
+    TB_TEST_EXPECT_TRAP(next_set_without_a_cursor, request.bits, "cursor != NULL");
+    TB_TEST_EXPECT_TRAP(next_set_without_an_index, request.bits, "index != NULL");
     TB_TEST_EXPECT_UINT(tb_bit_count(request.bits), ==, 0);
     tb_bit_destroy(request.bits);
 }
