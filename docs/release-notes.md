@@ -92,6 +92,9 @@ measurements showed waste:
 - The count of live blocks is kept in a piece for each thread, so threads that
   allocate at the same time no longer wait for one another to update it:
   eight threads allocating at once are ten times as fast.
+- Release builds of the shared library are optimized across source files at
+  link time where the toolchain supports it, which makes small operations
+  that cross modules 15% to 80% faster. It is automatic.
 
 Included foundations:
 

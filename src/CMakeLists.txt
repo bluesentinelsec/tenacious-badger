@@ -19,6 +19,22 @@ add_subdirectory(core)
 add_subdirectory(platform)
 tb_strip_release(badger)
 
+# The engine's modules call one another across source files, and a compiler
+# that sees one file at a time can neither inline those calls nor shape a
+# function to its callers. Release builds of the shared library are therefore
+# optimized as a whole when they are linked, wherever the toolchain can do it.
+# Nothing selects this and nothing else changes: a toolchain that cannot builds
+# as before. The static library is left alone, because an archive of objects
+# meant for link-time optimization can only be linked by the same version of
+# the same compiler, and the SDK ships that archive to others.
+include(CheckIPOSupported)
+check_ipo_supported(RESULT tb_ipo_supported OUTPUT tb_ipo_output LANGUAGES C)
+if(tb_ipo_supported)
+    set_target_properties(badger PROPERTIES INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
+else()
+    message(STATUS "badger: Release is not optimized at link time; the toolchain cannot")
+endif()
+
 if(TB_BUILD_BURROW)
     add_executable(burrow main.c)
     target_link_libraries(burrow PRIVATE TenaciousBadger::badger)
