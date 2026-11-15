@@ -442,6 +442,55 @@ void tb_arena_rewind(tb_arena *arena, tb_arena_mark mark)
 }
 
 /* ---------------------------------------------------------------------------
+ * An arena as an allocator.
+ * ------------------------------------------------------------------------- */
+
+static void *tb_arena_allocator_function(void *context, void *memory, size_t old_size,
+                                         size_t new_size, size_t alignment)
+{
+    tb_arena *const arena = context;
+    unsigned char *const block = memory;
+    unsigned char *moved = NULL;
+
+    /* An arena releases nothing until it is reset, rewound, or destroyed. */
+    if (new_size == 0)
+    {
+        return NULL;
+    }
+    if (block == NULL)
+    {
+        return tb_arena_try_alloc(arena, new_size, alignment);
+    }
+    if (new_size <= old_size)
+    {
+        return block;
+    }
+    /* The most recent block ends at the cursor, and can grow where it is when
+     * the chunk has room. Appending to one growing array costs no copies. */
+    if (block + old_size == arena->cursor && new_size <= (size_t)(arena->current->end - block))
+    {
+        tb_sanitizer_unpoison(block + old_size, new_size - old_size);
+        arena->cursor = block + new_size;
+        return block;
+    }
+    moved = tb_arena_try_alloc(arena, new_size, alignment);
+    if (moved == NULL)
+    {
+        return NULL;
+    }
+    memcpy(moved, block, old_size);
+    return moved;
+}
+
+tb_allocator tb_arena_allocator(tb_arena *arena)
+{
+    const tb_allocator allocator = {.function = tb_arena_allocator_function, .context = arena};
+
+    TB_ASSERT(arena != NULL);
+    return allocator;
+}
+
+/* ---------------------------------------------------------------------------
  * Accounting.
  * ------------------------------------------------------------------------- */
 

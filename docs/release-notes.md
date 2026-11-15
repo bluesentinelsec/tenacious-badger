@@ -29,6 +29,11 @@ same fail-fast rule as the other allocation functions. Builds with assertions
 fill released memory with a recognizable byte, and AddressSanitizer reports any
 use of it.
 
+Where one object gets its memory is chosen with `badger/allocator.h`. An
+allocator is a function and a context pointer, passed to the object that uses
+it: NULL selects the engine's heap, `tb_arena_allocator` an arena, and an
+application can supply its own.
+
 Included foundations:
 
 - `badger` dynamic library and `badger_static` static library with the same

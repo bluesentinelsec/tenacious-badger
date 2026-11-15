@@ -290,6 +290,67 @@ Aligned allocation is built on these four, so a replacement needs nothing else.
 `tb_memory_get_original_functions` returns the built-in ones, for a replacement
 that wraps them to add tracking.
 
+## Choosing the allocator of one object
+
+Replacing the allocator changes where the whole engine gets its memory. The
+allocator interface (`include/badger/allocator.h`) chooses it for one object at
+a time. A module that owns memory takes a `const tb_allocator *` when one of
+its objects is created and uses it for everything that object allocates:
+
+```c
+static vertex *copy_vertices(const tb_allocator *allocator, const vertex *source, size_t count)
+{
+    vertex *const copy = TB_ALLOCATOR_NEW_ARRAY(allocator, vertex, count);
+
+    memcpy(copy, source, count * sizeof(*copy));
+    return copy;
+}
+
+const tb_allocator in_frame = tb_arena_allocator(frame_arena);
+vertex *const scratch = copy_vertices(&in_frame, vertices, count); /* in the arena */
+vertex *const kept = copy_vertices(NULL, vertices, count);         /* on the heap */
+```
+
+- **NULL is the engine's heap**: the functions at the top of this page,
+  including a replacement installed with `tb_memory_set_functions`. Code that
+  does not care where its memory comes from passes NULL.
+- **`tb_arena_allocator(arena)`** puts the object in an arena. Releasing a
+  block does nothing; the memory comes back when the arena is reset, rewound,
+  or destroyed, and the object need not be destroyed first. The most recent
+  block grows in place, so appending to one array in an arena copies nothing.
+- **Your own allocator** is a function and a context pointer:
+
+  ```c
+  static void *pool_function(void *context, void *memory, size_t old_size, size_t new_size,
+                             size_t alignment)
+  {
+      level_pool *const pool = context;
+
+      if (new_size == 0)
+      {
+          level_pool_release(pool, memory, old_size);
+          return NULL;
+      }
+      return level_pool_resize(pool, memory, old_size, new_size, alignment);
+  }
+
+  const tb_allocator in_level = {.function = pool_function, .context = &level->pool};
+  ```
+
+  The one function allocates (`memory` is NULL), resizes, and releases
+  (`new_size` is 0). It is always told the size and alignment the block was
+  given, so an allocator needs no header on its blocks, and it is never asked
+  for a block of zero bytes. It returns NULL when it cannot supply the memory.
+
+An allocator is copied by whoever receives it, so the structure can be a local
+variable. What its context points to must outlive every block.
+
+Code that takes an allocator allocates through `tb_allocator_alloc`,
+`tb_allocator_calloc`, `tb_allocator_realloc`, and `tb_allocator_free`, or the
+typed `TB_ALLOCATOR_NEW` and `TB_ALLOCATOR_DELETE` forms. They fail fast like
+the rest of this page, and each has a `tb_allocator_try_*` form that returns
+NULL. Releasing takes the size of the block, which the owner of a block knows.
+
 ## Running out of memory
 
 When a fail-fast function cannot be satisfied, the failure handler is called
@@ -316,6 +377,13 @@ The test executable builds on the pieces above (see `tests/support/`):
   `tb_engine_test_stop_failing_allocations()` is called. Looping `n` from zero
   upward walks a recoverable operation through a failure at every step; with
   the leak check, that proves each early exit cleans up.
+- **A module can be handed an allocator that checks it.** `tb_test_allocator`
+  (`tests/support/test_allocator.h`) is a `tb_allocator` that records every
+  block. It reports a block resized or released with the wrong size or
+  alignment, counts what is still live, moves every block it resizes so that a
+  stale pointer is an invalid access, and can refuse requests on demand. The
+  tests of a module that takes an allocator use it to prove that the module
+  allocates nowhere else and releases everything.
 
 ## The allocation check
 
