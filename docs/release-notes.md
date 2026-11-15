@@ -34,6 +34,11 @@ allocator is a function and a context pointer, passed to the object that uses
 it: NULL selects the engine's heap, `tb_arena_allocator` an arena, and an
 application can supply its own.
 
+The first collections are in place, each taking the allocator it uses:
+
+- `badger/array.h`: a dynamic array that stores elements of one type by value,
+  contiguously, and grows by doubling.
+
 Included foundations:
 
 - `badger` dynamic library and `badger_static` static library with the same
