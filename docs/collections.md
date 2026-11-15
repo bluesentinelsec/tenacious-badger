@@ -6,6 +6,7 @@ The engine's general-purpose containers. Each has one public header under
 | Collection | Header | Use it for |
 | --- | --- | --- |
 | [Dynamic array](#dynamic-array) | `array.h` | Elements of one type, in order, stored contiguously. The default choice. |
+| [Bit vector](#bit-vector) | `bit.h` | One bit for each of a fixed number of things, with set operations. |
 
 ## What they have in common
 
@@ -81,3 +82,57 @@ place and copies nothing.
 **Removing.** `tb_array_remove` moves every later element down, which costs time
 in proportion to their number. When the order of elements does not matter,
 `tb_array_remove_unordered` moves the last element into the gap instead.
+
+## Bit vector
+
+`tb_bit` holds a fixed number of bits, one for each of N things: which
+components an entity has, which objects are visible, which slots of a pool are
+taken. It packs 64 bits to a word, and whole vectors combine a word at a time.
+
+```c
+tb_bit *const taken = tb_bit_create(NULL, slot_count);
+const size_t slot = tb_bit_find_clear(taken, 0);
+
+if (slot != TB_BIT_NOT_FOUND)
+{
+    (void)tb_bit_put(taken, slot, true);
+}
+```
+
+| Need | Use |
+| --- | --- |
+| Create, copy, destroy | `tb_bit_create(allocator, length)`, `tb_bit_copy(bits, allocator)`, `tb_bit_destroy(bits)` |
+| Read or write one bit | `tb_bit_get(bits, index)`, `tb_bit_put(bits, index, value)` |
+| Change a range | `tb_bit_set`, `tb_bit_clear`, `tb_bit_flip`, each with `(bits, begin, end)` |
+| Count the set bits | `tb_bit_count(bits)` |
+| Find the next set or clear bit | `tb_bit_find_set(bits, from)`, `tb_bit_find_clear(bits, from)` |
+| Visit every bit | `tb_bit_visit(bits, visitor, context)` |
+| Compare two vectors | `tb_bit_equal`, `tb_bit_is_subset`, `tb_bit_is_proper_subset` |
+| Combine two vectors | `tb_bit_union`, `tb_bit_intersection`, `tb_bit_difference`, `tb_bit_symmetric_difference` |
+
+**Ranges are half-open.** A range is given as `begin` and `end` and holds the
+bits from `begin` up to, but not including, `end`, so `tb_bit_set(bits, 0,
+tb_bit_length(bits))` sets every bit and a range with `begin == end` is empty.
+
+**The length is fixed.** A vector is created with its length and allocates once.
+The functions that take two vectors require them to have the same length.
+
+**Combining changes the first vector in place** and allocates nothing, which is
+what a mask test in a hot loop needs. To keep the original, combine into a copy:
+
+```c
+tb_bit *const either = tb_bit_copy(mine, allocator);
+
+tb_bit_union(either, theirs);
+```
+
+**To walk the set bits**, search from one past each result. Each search skips
+whole words of clear bits:
+
+```c
+for (size_t index = tb_bit_find_set(visible, 0); index != TB_BIT_NOT_FOUND;
+     index = tb_bit_find_set(visible, index + 1))
+{
+    draw(objects[index]);
+}
+```
