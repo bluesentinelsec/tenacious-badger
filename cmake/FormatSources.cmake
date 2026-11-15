@@ -1,64 +1,27 @@
-# Every C source and header that clang-format maintains, relative to the
-# repository root. Add each new file here. The format check fails when a
-# tracked C file is missing from this list or a listed file no longer exists.
-set(TB_FORMAT_SOURCES
-    cmake/version.h.in
-    include/badger/arena.h
-    include/badger/assert.h
-    include/badger/core.h
-    include/badger/memory.h
-    include/badger/platform.h
-    include/badger/size.h
-    src/core/arena.c
-    src/core/assert.c
-    src/core/memory.c
-    src/core/memory_internal.h
-    src/core/sanitizer.h
-    src/core/size.c
-    src/core/sum.c
-    src/main.c
-    src/platform/linux/abort.c
-    src/platform/linux/atomic.c
-    src/platform/linux/time.c
-    src/platform/macos/abort.c
-    src/platform/macos/atomic.c
-    src/platform/macos/time.c
-    src/platform/posix_api.h.in
-    src/platform/win32/abort.c
-    src/platform/win32/atomic.c
-    src/platform/win32/api.h.in
-    src/platform/win32/time.c
-    tests/consumers/static/main.c
-    tests/core/arena_probe.c
-    tests/core/arena_test.c
-    tests/core/assert_probe.c
-    tests/core/assert_test.c
-    tests/core/memory_probe.c
-    tests/core/memory_test.c
-    tests/core/size_test.c
-    tests/core/sum_test.c
-    tests/framework/include/tb_test.h
-    tests/framework/include/tb_test_config.h.in
-    tests/framework/selftest/checks_test.c
-    tests/framework/selftest/fixture/fixture_main.c
-    tests/framework/selftest/fixture/fixture_tests.c
-    tests/framework/selftest/options_test.c
-    tests/framework/selftest/pattern_test.c
-    tests/framework/selftest/random_test.c
-    tests/framework/src/checks.c
-    tests/framework/src/internal.h
-    tests/framework/src/main.c
-    tests/framework/src/options.c
-    tests/framework/src/pattern.c
-    tests/framework/src/platform.h
-    tests/framework/src/platform/posix.c
-    tests/framework/src/platform/win32.c
-    tests/framework/src/random.c
-    tests/framework/src/report.c
-    tests/framework/src/runner.c
-    tests/framework/src/support.c
-    tests/platform/time_probe.c
-    tests/support/engine_main.c
-    tests/support/engine_memory.c
-    tests/support/engine_test.h
-    tests/support/support_probe.c)
+# Finds every C source and header that clang-format maintains and sets
+# TB_FORMAT_SOURCES to their paths, sorted and relative to the repository root.
+# A new file needs no entry here: it is found by being in one of the
+# directories below.
+#
+# tools/check_allocations.py reads the two settings below to check the same
+# files, so keep each one a single set() of plain words.
+
+# Directories that hold project C code, searched with their subdirectories.
+# Searching these, and not the whole tree, keeps build directories and other
+# generated files out. The format check fails when git tracks a C file that
+# they do not cover.
+set(TB_FORMAT_DIRECTORIES cmake include src tests)
+
+# C sources, headers, and the templates that headers are configured from.
+set(TB_FORMAT_PATTERNS *.c *.h *.h.in)
+
+get_filename_component(tb_format_root "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+set(tb_format_globs "")
+foreach(directory IN LISTS TB_FORMAT_DIRECTORIES)
+    foreach(pattern IN LISTS TB_FORMAT_PATTERNS)
+        list(APPEND tb_format_globs "${tb_format_root}/${directory}/${pattern}")
+    endforeach()
+endforeach()
+file(GLOB_RECURSE TB_FORMAT_SOURCES LIST_DIRECTORIES false RELATIVE "${tb_format_root}"
+    ${tb_format_globs})
+list(SORT TB_FORMAT_SOURCES)

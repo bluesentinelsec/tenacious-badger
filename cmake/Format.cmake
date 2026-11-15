@@ -11,29 +11,29 @@ else()
     message(FATAL_ERROR "Set TB_FORMAT_MODE to write or check")
 endif()
 
-# The formatted files are listed explicitly, like every build input.
+# The formatted files are found by searching the project's source directories.
 include("${CMAKE_CURRENT_LIST_DIR}/FormatSources.cmake")
-set(sources "")
-foreach(source IN LISTS TB_FORMAT_SOURCES)
-    if(NOT EXISTS "${root}/${source}")
-        message(FATAL_ERROR
-            "cmake/FormatSources.cmake lists ${source}, which does not exist; remove the entry")
-    endif()
-    list(APPEND sources "${root}/${source}")
-endforeach()
+if(NOT TB_FORMAT_SOURCES)
+    message(FATAL_ERROR "cmake/FormatSources.cmake found no C sources or headers to format")
+endif()
+list(TRANSFORM TB_FORMAT_SOURCES PREPEND "${root}/" OUTPUT_VARIABLE sources)
 
-# An explicit list can silently fall behind. The check therefore asks git which
-# C files the repository tracks and fails for any that the list leaves out.
+# A search of named directories misses C code that is added anywhere else. The
+# check therefore asks git which C files the repository tracks and fails for
+# any that the search did not find.
 find_package(Git QUIET)
 if(TB_FORMAT_MODE STREQUAL "check" AND Git_FOUND AND EXISTS "${root}/.git")
-    execute_process(COMMAND "${GIT_EXECUTABLE}" ls-files -- "*.c" "*.h" "*.h.in"
+    execute_process(COMMAND "${GIT_EXECUTABLE}" ls-files -- ${TB_FORMAT_PATTERNS}
         WORKING_DIRECTORY "${root}" OUTPUT_VARIABLE tracked
         OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
     string(REPLACE "\n" ";" tracked "${tracked}")
     foreach(source IN LISTS tracked)
-        if(NOT source IN_LIST TB_FORMAT_SOURCES)
+        # A file deleted from the working tree is still tracked until the
+        # deletion is committed.
+        if(EXISTS "${root}/${source}" AND NOT source IN_LIST TB_FORMAT_SOURCES)
             message(FATAL_ERROR
-                "${source} is tracked but not formatted; add it to cmake/FormatSources.cmake")
+                "${source} is tracked but not formatted; add its directory to "
+                "TB_FORMAT_DIRECTORIES in cmake/FormatSources.cmake")
         endif()
     endforeach()
 endif()
