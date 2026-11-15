@@ -17,7 +17,7 @@ The foundation layer so far, one public header per module under
 | `memory.h` | [Memory allocation](memory.md) that fails fast, with a replaceable allocator |
 | `arena.h` | [Arenas](memory.md#arenas) for objects that share a lifetime |
 | `allocator.h` | [Allocators chosen per object](memory.md#choosing-the-allocator-of-one-object) |
-| `array.h` | [Collections](collections.md): a dynamic array |
+| `array.h`, `bit.h` | [Collections](collections.md): a dynamic array and a bit vector |
 | `platform.h` | Three native platform interfaces: time, abort, and an atomic counter |
 
 `burrow` calls the shared library and prints `2 + 3 = 5`. Rendering, windowing,

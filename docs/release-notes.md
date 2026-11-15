@@ -38,6 +38,8 @@ The first collections are in place, each taking the allocator it uses:
 
 - `badger/array.h`: a dynamic array that stores elements of one type by value,
   contiguously, and grows by doubling.
+- `badger/bit.h`: a bit vector of fixed length with range changes, searches for
+  the next set or clear bit, and the set operations.
 
 Included foundations:
 
