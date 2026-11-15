@@ -14,6 +14,7 @@ set(TB_CORE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/size.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/str.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/sum.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/table.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/text.c"
     CACHE INTERNAL "Platform-independent core sources")
 target_sources(badger PRIVATE ${TB_CORE_SOURCES})

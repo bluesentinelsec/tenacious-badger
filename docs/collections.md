@@ -9,6 +9,7 @@ The engine's general-purpose containers. Each has one public header under
 | [Bit vector](#bit-vector) | `bit.h` | One bit for each of a fixed number of things, with set operations. |
 | [Ring](#ring) | `ring.h` | A queue: elements added and removed at both ends in constant time. |
 | [List](#list) | `list.h` | Membership: objects that join and leave sets in constant time, without allocation. |
+| [Table](#table) | `table.h` | Lookup: a value found by its key in constant time, with keys of any kind. |
 
 ## What they have in common
 
@@ -35,6 +36,9 @@ The engine's general-purpose containers. Each has one public header under
 
 The [list](#list) differs in one way: it is intrusive. It owns no memory, takes
 no allocator, and is initialized in place instead of created.
+
+The [table](#table) holds pointers instead of elements by value: it stores the
+keys and values it is given and does not own what they point to.
 
 ## Dynamic array
 
@@ -275,3 +279,79 @@ while (link != NULL)
 
 **The length is counted.** `tb_list_length` walks the list. A caller that needs
 the length often keeps its own count.
+
+## Table
+
+`tb_table` is a hash table: it finds a value by its key in constant time on
+average, however many entries it holds. Console variables by name, assets by
+path, components by entity: anything that is looked up rather than scanned.
+
+```c
+tb_table *const variables = tb_table_create(NULL, 0, NULL, NULL);
+
+(void)tb_table_put(variables, tb_atom_string(names, "r_fov"), &fov);
+variable = tb_table_get(variables, tb_atom_string(names, typed_name));
+tb_table_destroy(variables);
+```
+
+| Need | Use |
+| --- | --- |
+| Create, copy, destroy | `tb_table_create(allocator, capacity_hint, hash, equal)`, `tb_table_copy`, `tb_table_destroy` |
+| Store a value | `tb_table_put(table, key, value)`, which returns the value it replaced |
+| Look a key up | `tb_table_get(table, key)`, `tb_table_contains(table, key)`, `tb_table_find(table, key, &entry)` |
+| Remove | `tb_table_remove(table, key, &entry)`, `tb_table_clear(table)` |
+| Go through every entry | `tb_table_next(table, &cursor, &entry)`, `tb_table_visit(table, visitor, context)`, `tb_table_to_array` |
+| Control the storage | `tb_table_reserve`, `tb_table_try_reserve`, `tb_table_shrink_to_fit`, `tb_table_capacity` |
+
+**Keys and values are pointers that the table borrows.** It stores them and
+never copies, compares, or releases what they point to, except through the
+functions it was given. Whatever a key or value points to must outlive its
+entry.
+
+**Three kinds of key cover most uses:**
+
+| Key | Create with | Two keys are equal when |
+| --- | --- | --- |
+| An [atom](strings.md#atoms), or any object | `NULL, NULL` | they are the same pointer |
+| An integer, cast to a pointer | `NULL, NULL` | they are the same number |
+| A C string | `tb_table_string_hash, tb_table_string_equal` | they have the same bytes |
+
+For anything else, pass a hash function and an equality function of your own;
+[`hash.h`](strings.md#hashing) has the pieces to build the hash from. Keys that
+are equal must have the same hash.
+
+**Atoms are the best keys for names.** Interning the name once turns every
+later lookup into hashing one address and comparing pointers, with no string
+read at all.
+
+**A missing key and a NULL value look the same to `tb_table_get`.** A table
+that stores NULL values tells them apart with `tb_table_contains` or
+`tb_table_find`.
+
+**Putting over a key keeps the first key.** With string keys, the pointer the
+table holds is the one from the first put; a later put of an equal string
+replaces the value only.
+
+**Going through the entries** is in no particular order, and the order changes
+when the table grows. The simplest way needs no callback:
+
+```c
+size_t cursor = 0;
+tb_table_entry entry = {0};
+
+while (tb_table_next(table, &cursor, &entry))
+{
+    release(entry.value);
+}
+```
+
+Do not add or remove entries while going through them. `tb_table_visit` checks
+that rule with an assertion, and lets the visitor replace the value of the
+entry it is given.
+
+**How it is built.** The entries are in one array, and an entry sits at or just
+after the place its hash names, next to the entries it collides with: a lookup
+usually touches one cache line. Removing an entry moves its neighbors back into
+the gap, so a table that entries come and go from at a steady size never
+degrades and never needs rebuilding. The array doubles when it would become
+more than three quarters full, and each entry costs three words.

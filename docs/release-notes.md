@@ -44,6 +44,8 @@ The first collections are in place, each taking the allocator it uses:
   with indexed access and rotation.
 - `badger/list.h`: an intrusive doubly linked list, whose elements join and
   leave in constant time without allocation.
+- `badger/table.h`: a hash table from keys to values, with atoms, integers,
+  strings, or keys of the caller's own kind.
 
 Strings are UTF-8, handled as bytes without decoding:
 
