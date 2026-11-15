@@ -11,18 +11,20 @@
 #include <stdio.h>
 #include <string.h>
 
-TB_TEST(core_hash, bytes_are_hashed_with_fnv_1a)
+TB_TEST(core_hash, bytes_are_hashed_with_xxh64)
 {
     typedef struct vector_row
     {
         const char *text;
         uint64_t hash;
     } vector_row;
-    /* Published test vectors for 64-bit FNV-1a. */
+    /* Published results of XXH64 with a seed of zero. */
     static const vector_row rows[] = {
-        {"", UINT64_C(0xCBF29CE484222325)},       {"a", UINT64_C(0xAF63DC4C8601EC8C)},
-        {"b", UINT64_C(0xAF63DF4C8601F1A5)},      {"abc", UINT64_C(0xE71FA2190541574B)},
-        {"foobar", UINT64_C(0x85944171F73967E8)},
+        {"", UINT64_C(0xEF46DB3751D8E999)},
+        {"a", UINT64_C(0xD24EC4F1A98C6E5B)},
+        {"abc", UINT64_C(0x44BC2CF5AD770999)},
+        {"xxhash", UINT64_C(0x32DD38952C4BC720)},
+        {"Nobody inspects the spammish repetition", UINT64_C(0xFBCEA83C8A378BF1)},
     };
 
     for (size_t index = 0; index < TB_TEST_COUNT_OF(rows); index++)
@@ -32,7 +34,68 @@ TB_TEST(core_hash, bytes_are_hashed_with_fnv_1a)
                            rows[index].hash);
         TB_TEST_EXPECT_HEX(tb_hash_string(rows[index].text), ==, rows[index].hash);
     }
-    TB_TEST_EXPECT_HEX(tb_hash_bytes(NULL, 0), ==, UINT64_C(0xCBF29CE484222325));
+    TB_TEST_EXPECT_HEX(tb_hash_bytes(NULL, 0), ==, UINT64_C(0xEF46DB3751D8E999));
+}
+
+/* The function takes its input 32 bytes at a time, then 8, then 4, then 1.
+ * These lengths sit on and beside each of those steps, so that every path
+ * through it is pinned. The expected values come from a second implementation
+ * written from the specification, which agrees with the published results
+ * above. Byte `index` of the input is `index * 7 + 3`. */
+TB_TEST(core_hash, every_length_takes_its_own_path_to_a_known_result)
+{
+    typedef struct length_row
+    {
+        size_t length;
+        uint64_t hash;
+    } length_row;
+    static const length_row rows[] = {
+        {1, UINT64_C(0x1F25C8D0BC1F4BB6)},  {3, UINT64_C(0x31D2363F52E564C9)},
+        {4, UINT64_C(0x9BB64B7D66EE9FDA)},  {7, UINT64_C(0x9A7B149959CE60D8)},
+        {8, UINT64_C(0xDAB99D95C6F90092)},  {15, UINT64_C(0x1B47CB8243CC8E32)},
+        {16, UINT64_C(0x434850232B787BE2)}, {31, UINT64_C(0xA2AA5F33CC4A6119)},
+        {32, UINT64_C(0x23C3C17EF790FD97)}, {33, UINT64_C(0x50A7CFC7BA588784)},
+        {63, UINT64_C(0x5E3E54B431C7493C)}, {64, UINT64_C(0x0EB64B3EF6EEB01F)},
+        {65, UINT64_C(0xA383B724B2BD12F1)}, {100, UINT64_C(0xA61F8D4C170FE531)},
+    };
+    unsigned char bytes[100] = {0};
+
+    for (size_t index = 0; index < sizeof(bytes); index++)
+    {
+        bytes[index] = (unsigned char)((index * 7 + 3) & 0xFFu);
+    }
+    for (size_t row = 0; row < TB_TEST_COUNT_OF(rows); row++)
+    {
+        TB_TEST_CONTEXT("%zu bytes", rows[row].length);
+        TB_TEST_EXPECT_HEX(tb_hash_bytes(bytes, rows[row].length), ==, rows[row].hash);
+    }
+}
+
+/* The words of the input are copied out of it, never read in place, so where
+ * the input is in memory cannot matter: it hashes the same at every alignment. */
+TB_TEST(core_hash, the_hash_does_not_depend_on_where_the_bytes_are)
+{
+    enum
+    {
+        LENGTH = 77,
+        OFFSET_COUNT = 9
+    };
+    unsigned char buffer[LENGTH + OFFSET_COUNT] = {0};
+    uint64_t expected = 0;
+
+    for (size_t offset = 0; offset < OFFSET_COUNT; offset++)
+    {
+        TB_TEST_CONTEXT("offset %zu", offset);
+        for (size_t index = 0; index < LENGTH; index++)
+        {
+            buffer[offset + index] = (unsigned char)((index * 31 + 5) & 0xFFu);
+        }
+        if (offset == 0)
+        {
+            expected = tb_hash_bytes(buffer, LENGTH);
+        }
+        TB_TEST_EXPECT_HEX(tb_hash_bytes(buffer + offset, LENGTH), ==, expected);
+    }
 }
 
 TB_TEST(core_hash, every_byte_and_the_length_change_the_hash)

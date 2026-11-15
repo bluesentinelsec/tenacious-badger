@@ -22,14 +22,17 @@
 #include <stdint.h>
 
 /**
- * @brief Hash a range of bytes with 64-bit FNV-1a.
+ * @brief Hash a range of bytes with XXH64, the 64-bit function of xxHash,
+ * seeded with zero.
  *
- * FNV-1a mixes one byte at a time, which suits the short identifiers that
- * most keys are: names of assets, console variables, and components.
+ * XXH64 takes its input eight bytes at a time and thirty-two at a step, so a
+ * long key costs a small fraction of a nanosecond per byte, and the short
+ * identifiers that most keys are, names of assets, console variables, and
+ * components, cost a few nanoseconds each.
  *
  * @param bytes The bytes; may be NULL only when `length` is 0.
  * @param length Number of bytes.
- * @return The hash. The empty range hashes to `0xCBF29CE484222325`.
+ * @return The hash. The empty range hashes to `0xEF46DB3751D8E999`.
  */
 TB_API uint64_t tb_hash_bytes(const void *bytes, size_t length);
 

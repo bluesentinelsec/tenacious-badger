@@ -60,7 +60,7 @@ Strings are UTF-8, handled as bytes without decoding:
   and conversions an application can add. Floating point is not converted yet.
 - `badger/atom.h`: atoms are strings stored once, so that equal names are the
   same pointer and compare in one step. `badger/hash.h` has the hash functions
-  behind them: FNV-1a for bytes and the SplitMix64 finalizer for integers and
+  behind them: XXH64 for bytes and the SplitMix64 finalizer for integers and
   addresses.
 
 The foundation modules were measured with `tb_bench` and made faster where the
@@ -69,6 +69,10 @@ measurements showed waste:
 - Adding a key to a hash table or a set hashes the key and searches for it
   once, not twice: about 1.7 times as fast for a table with room, more for
   string keys.
+- Bytes are hashed with XXH64 in place of FNV-1a, several bytes at a step: an
+  identifier hashes in less than half the time and a long key in a fifteenth,
+  which makes every table and set keyed by strings, and every atom, faster.
+  The values of `tb_hash_bytes` and `tb_hash_string` changed with it.
 
 Included foundations:
 

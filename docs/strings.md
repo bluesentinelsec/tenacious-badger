@@ -331,7 +331,7 @@ that needs a hash of its own:
 
 | Key | Function | Algorithm |
 | --- | --- | --- |
-| Bytes, strings | `tb_hash_bytes(bytes, length)`, `tb_hash_string(string)` | 64-bit FNV-1a |
+| Bytes, strings | `tb_hash_bytes(bytes, length)`, `tb_hash_string(string)` | XXH64, the 64-bit function of xxHash, seeded with zero |
 | Integers | `tb_hash_u64(value)` | The SplitMix64 finalizer |
 | Addresses | `tb_hash_pointer(pointer)` | The same, on the address |
 
