@@ -46,19 +46,6 @@ static const char *format_text(const char *format, ...)
     return text;
 }
 
-/* The same format through the C library, for conversions on which the C
- * standard leaves nothing to the implementation. */
-static const char *reference_text(const char *format, ...)
-{
-    static char text[TEXT_CAPACITY] = {0};
-    va_list arguments = {0};
-
-    va_start(arguments, format);
-    (void)vsnprintf(text, sizeof(text), format, arguments);
-    va_end(arguments);
-    return text;
-}
-
 /* --- plain text and percent signs --------------------------------------------- */
 
 TB_TEST(core_fmt, text_without_conversions_is_copied)
@@ -241,20 +228,79 @@ TB_TEST(core_fmt, pointers_are_written_the_same_way_on_every_platform)
 
 /* --- agreement with the C library --------------------------------------------- */
 
-/* The kinds of integer argument a conversion can name. */
-typedef enum argument_kind
-{
-    ARGUMENT_INT,
-    ARGUMENT_CHAR,
-    ARGUMENT_SHORT,
-    ARGUMENT_LONG,
-    ARGUMENT_LONG_LONG,
-    ARGUMENT_MAX,
-    ARGUMENT_SIZE,
-    ARGUMENT_KIND_COUNT
-} argument_kind;
+/* The C standard leaves nothing to the implementation for the integer,
+ * character, and string conversions, so the C library is the reference for
+ * them. A compiler can check a format string only when it is a literal, and
+ * rightly warns about one that is not. Every format compared here is
+ * therefore a literal: its flags, length, and conversion are written out, and
+ * its width, precision, and value vary at run time. */
 
-static const char *const length_letters[ARGUMENT_KIND_COUNT] = {"", "hh", "h", "l", "ll", "j", "z"};
+static char expected_text[TEXT_CAPACITY] = {0};
+static char actual_text[TEXT_CAPACITY] = {0};
+
+/* Checks one format that both implementations have just written out. */
+static void compare_with_c_library(const char *format, int expected_length, size_t actual_length)
+{
+    TB_TEST_CONTEXT("format \"%s\"", format);
+    TB_TEST_EXPECT_STRING(actual_text, ==, expected_text);
+    TB_TEST_EXPECT_INT(expected_length, ==, (int)actual_length);
+}
+
+/* Formats the same arguments with the C library and with the engine, and
+ * compares the text and the length. The format must be a string literal, and
+ * the arguments are evaluated twice, so they must be plain values. The
+ * macros built on it take the `width` and `precision` of the loop around
+ * them. */
+#define EXPECT_SAME_AS_C_LIBRARY(format, ...)                                                      \
+    compare_with_c_library(format,                                                                 \
+                           snprintf(expected_text, sizeof(expected_text), format, __VA_ARGS__),    \
+                           tb_fmt_buffer(actual_text, sizeof(actual_text), format, __VA_ARGS__))
+
+/* One signed conversion with every set of flags the C standard defines for
+ * it, with a width and then with a width and a precision. The zero flag is
+ * left out where there is a precision, which turns it off; compilers warn
+ * about that combination, as they do about a space with a plus sign. */
+#define EXPECT_SIGNED_SAME(length, conversion, value)                                              \
+    do                                                                                             \
+    {                                                                                              \
+        EXPECT_SAME_AS_C_LIBRARY("[%*" length conversion "]", width, (value));                     \
+        EXPECT_SAME_AS_C_LIBRARY("[%-*" length conversion "]", width, (value));                    \
+        EXPECT_SAME_AS_C_LIBRARY("[%0*" length conversion "]", width, (value));                    \
+        EXPECT_SAME_AS_C_LIBRARY("[%+*" length conversion "]", width, (value));                    \
+        EXPECT_SAME_AS_C_LIBRARY("[% *" length conversion "]", width, (value));                    \
+        EXPECT_SAME_AS_C_LIBRARY("[%+0*" length conversion "]", width, (value));                   \
+        EXPECT_SAME_AS_C_LIBRARY("[% 0*" length conversion "]", width, (value));                   \
+        EXPECT_SAME_AS_C_LIBRARY("[%-+*" length conversion "]", width, (value));                   \
+        EXPECT_SAME_AS_C_LIBRARY("[%- *" length conversion "]", width, (value));                   \
+        EXPECT_SAME_AS_C_LIBRARY("[%*.*" length conversion "]", width, precision, (value));        \
+        EXPECT_SAME_AS_C_LIBRARY("[%-*.*" length conversion "]", width, precision, (value));       \
+        EXPECT_SAME_AS_C_LIBRARY("[%+*.*" length conversion "]", width, precision, (value));       \
+        EXPECT_SAME_AS_C_LIBRARY("[% *.*" length conversion "]", width, precision, (value));       \
+        EXPECT_SAME_AS_C_LIBRARY("[%-+*.*" length conversion "]", width, precision, (value));      \
+    } while (0)
+
+/* One unsigned conversion, likewise. The alternate form is defined for octal
+ * and hexadecimal and not for decimal. */
+#define EXPECT_UNSIGNED_SAME(length, conversion, value)                                            \
+    do                                                                                             \
+    {                                                                                              \
+        EXPECT_SAME_AS_C_LIBRARY("[%*" length conversion "]", width, (value));                     \
+        EXPECT_SAME_AS_C_LIBRARY("[%-*" length conversion "]", width, (value));                    \
+        EXPECT_SAME_AS_C_LIBRARY("[%0*" length conversion "]", width, (value));                    \
+        EXPECT_SAME_AS_C_LIBRARY("[%*.*" length conversion "]", width, precision, (value));        \
+        EXPECT_SAME_AS_C_LIBRARY("[%-*.*" length conversion "]", width, precision, (value));       \
+    } while (0)
+
+#define EXPECT_ALTERNATE_SAME(length, conversion, value)                                           \
+    do                                                                                             \
+    {                                                                                              \
+        EXPECT_UNSIGNED_SAME(length, conversion, value);                                           \
+        EXPECT_SAME_AS_C_LIBRARY("[%#*" length conversion "]", width, (value));                    \
+        EXPECT_SAME_AS_C_LIBRARY("[%#-*" length conversion "]", width, (value));                   \
+        EXPECT_SAME_AS_C_LIBRARY("[%#0*" length conversion "]", width, (value));                   \
+        EXPECT_SAME_AS_C_LIBRARY("[%#*.*" length conversion "]", width, precision, (value));       \
+        EXPECT_SAME_AS_C_LIBRARY("[%#-*.*" length conversion "]", width, precision, (value));      \
+    } while (0)
 
 /* A value whose interesting cases are near zero, near the limits of each
  * width, and anywhere else. */
@@ -287,157 +333,95 @@ static uint64_t random_value(void)
     }
 }
 
-/* Appends text to a format string being built. */
-static void append(char *format, const char *text)
+enum
 {
-    memcpy(format + strlen(format), text, strlen(text) + 1);
-}
+    AGREEMENT_ITERATION_COUNT = 1500,
+    /* Widths and precisions from below zero, which have meanings of their
+     * own, to more than the digits of any integer. */
+    SMALLEST_WIDTH = -12,
+    LARGEST_WIDTH = 26,
+    SMALLEST_PRECISION = -3,
+    LARGEST_PRECISION = 24
+};
 
-/* Builds a random integer conversion: flags, width, precision, and length
- * that the C standard defines for the conversion character. */
-static void build_integer_format(char *format, char conversion, argument_kind kind)
+TB_TEST(core_fmt, signed_conversions_agree_with_the_c_library_on_random_values)
 {
-    static const char *const widths[] = {"", "", "1", "5", "12", "25"};
-    static const char *const precisions[] = {"", "", ".", ".0", ".1", ".7", ".22"};
-    const bool is_signed = conversion == 'd' || conversion == 'i';
-    const bool has_alternate_form = conversion == 'o' || conversion == 'x' || conversion == 'X';
-    char letter[2] = {conversion, '\0'};
+    for (size_t iteration = 0; iteration < AGREEMENT_ITERATION_COUNT; iteration++)
+    {
+        const int width = (int)tb_test_random_between(SMALLEST_WIDTH, LARGEST_WIDTH);
+        const int precision = (int)tb_test_random_between(SMALLEST_PRECISION, LARGEST_PRECISION);
+        const uint64_t value = random_value();
 
-    format[0] = '\0';
-    append(format, "[%");
-    if (tb_test_random_below(3) == 0)
-    {
-        append(format, "-");
-    }
-    if (tb_test_random_below(3) == 0)
-    {
-        append(format, "0");
-    }
-    if (is_signed && tb_test_random_below(3) == 0)
-    {
-        append(format, "+");
-    }
-    if (is_signed && tb_test_random_below(3) == 0)
-    {
-        append(format, " ");
-    }
-    if (has_alternate_form && tb_test_random_below(2) == 0)
-    {
-        append(format, "#");
-    }
-    append(format, widths[tb_test_random_below(TB_TEST_COUNT_OF(widths))]);
-    append(format, precisions[tb_test_random_below(TB_TEST_COUNT_OF(precisions))]);
-    append(format, length_letters[kind]);
-    append(format, letter);
-    append(format, "]");
-}
-
-/* Formats one value with both implementations and compares. The argument is
- * passed with the type its length names, to both alike. */
-static void check_integer_format(const char *format, argument_kind kind, bool is_signed,
-                                 uint64_t value)
-{
-    char expected[TEXT_CAPACITY] = {0};
-    char actual[TEXT_CAPACITY] = {0};
-
-    switch (kind)
-    {
-    case ARGUMENT_INT:
-    case ARGUMENT_CHAR:
-    case ARGUMENT_SHORT:
-        /* Narrow arguments are passed as int, and narrowed by the conversion. */
-        memcpy(expected, reference_text(format, (int)(unsigned)value), sizeof(expected));
-        (void)tb_fmt_buffer(actual, sizeof(actual), format, (int)(unsigned)value);
-        break;
-    case ARGUMENT_LONG:
-        memcpy(expected, reference_text(format, (long)(unsigned long)value), sizeof(expected));
-        (void)tb_fmt_buffer(actual, sizeof(actual), format, (long)(unsigned long)value);
-        break;
-    case ARGUMENT_LONG_LONG:
-        memcpy(expected, reference_text(format, (long long)value), sizeof(expected));
-        (void)tb_fmt_buffer(actual, sizeof(actual), format, (long long)value);
-        break;
-    case ARGUMENT_MAX:
-        memcpy(expected, reference_text(format, (intmax_t)value), sizeof(expected));
-        (void)tb_fmt_buffer(actual, sizeof(actual), format, (intmax_t)value);
-        break;
-    case ARGUMENT_SIZE:
-        memcpy(expected, reference_text(format, (size_t)value), sizeof(expected));
-        (void)tb_fmt_buffer(actual, sizeof(actual), format, (size_t)value);
-        break;
-    case ARGUMENT_KIND_COUNT:
-        break;
-    }
-    if (strcmp(actual, expected) != 0)
-    {
-        TB_TEST_FAIL("format \"%s\" of %s value 0x%llx gave \"%s\"; the C library gives \"%s\"",
-                     format, is_signed ? "signed" : "unsigned", (unsigned long long)value, actual,
-                     expected);
+        EXPECT_SIGNED_SAME("", "d", (int)value);
+        EXPECT_SIGNED_SAME("", "i", (int)value);
+        EXPECT_SIGNED_SAME("hh", "d", (signed char)value);
+        EXPECT_SIGNED_SAME("h", "d", (short)value);
+        EXPECT_SIGNED_SAME("l", "d", (long)value);
+        EXPECT_SIGNED_SAME("ll", "d", (long long)value);
+        EXPECT_SIGNED_SAME("j", "d", (intmax_t)value);
+        EXPECT_SIGNED_SAME("t", "d", (ptrdiff_t)value);
     }
 }
 
-TB_TEST(core_fmt, integer_conversions_agree_with_the_c_library_on_random_formats)
+TB_TEST(core_fmt, unsigned_conversions_agree_with_the_c_library_on_random_values)
 {
-    enum
+    for (size_t iteration = 0; iteration < AGREEMENT_ITERATION_COUNT; iteration++)
     {
-        ITERATION_COUNT = 60000
-    };
-    static const char conversions[] = "diuoxX";
+        const int width = (int)tb_test_random_between(SMALLEST_WIDTH, LARGEST_WIDTH);
+        const int precision = (int)tb_test_random_between(SMALLEST_PRECISION, LARGEST_PRECISION);
+        const uint64_t value = random_value();
 
-    for (size_t iteration = 0; iteration < ITERATION_COUNT; iteration++)
+        EXPECT_UNSIGNED_SAME("", "u", (unsigned)value);
+        EXPECT_UNSIGNED_SAME("hh", "u", (unsigned char)value);
+        EXPECT_UNSIGNED_SAME("h", "u", (unsigned short)value);
+        EXPECT_UNSIGNED_SAME("l", "u", (unsigned long)value);
+        EXPECT_UNSIGNED_SAME("ll", "u", (unsigned long long)value);
+        EXPECT_UNSIGNED_SAME("j", "u", (uintmax_t)value);
+        EXPECT_UNSIGNED_SAME("z", "u", (size_t)value);
+    }
+}
+
+TB_TEST(core_fmt, octal_and_hexadecimal_conversions_agree_with_the_c_library_on_random_values)
+{
+    for (size_t iteration = 0; iteration < AGREEMENT_ITERATION_COUNT; iteration++)
     {
-        const char conversion = conversions[tb_test_random_below(sizeof(conversions) - 1)];
-        const argument_kind kind = (argument_kind)tb_test_random_below(ARGUMENT_KIND_COUNT);
-        char format[64] = {0};
+        const int width = (int)tb_test_random_between(SMALLEST_WIDTH, LARGEST_WIDTH);
+        const int precision = (int)tb_test_random_between(SMALLEST_PRECISION, LARGEST_PRECISION);
+        const uint64_t value = random_value();
 
-        build_integer_format(format, conversion, kind);
-        check_integer_format(format, kind, conversion == 'd' || conversion == 'i', random_value());
+        EXPECT_ALTERNATE_SAME("", "o", (unsigned)value);
+        EXPECT_ALTERNATE_SAME("", "x", (unsigned)value);
+        EXPECT_ALTERNATE_SAME("", "X", (unsigned)value);
+        EXPECT_ALTERNATE_SAME("hh", "x", (unsigned char)value);
+        EXPECT_ALTERNATE_SAME("h", "o", (unsigned short)value);
+        EXPECT_ALTERNATE_SAME("l", "X", (unsigned long)value);
+        EXPECT_ALTERNATE_SAME("ll", "o", (unsigned long long)value);
+        EXPECT_ALTERNATE_SAME("ll", "x", (unsigned long long)value);
+        EXPECT_ALTERNATE_SAME("j", "X", (uintmax_t)value);
+        EXPECT_ALTERNATE_SAME("z", "x", (size_t)value);
     }
 }
 
 TB_TEST(core_fmt, string_and_character_conversions_agree_with_the_c_library)
 {
     static const char *const strings[] = {"", "a", "badger", "tenacious badger", "caf\xC3\xA9"};
-    static const char *const shapes[] = {"",    "1",   "5",    "20",    "-5",   "-20",
-                                         ".0",  ".1",  ".3",   ".40",   "9.3",  "-9.3",
-                                         "20.", "3.5", "-3.5", "25.25", "1.20", "-1.0"};
 
-    for (size_t shape = 0; shape < TB_TEST_COUNT_OF(shapes); shape++)
+    for (int width = SMALLEST_WIDTH; width <= LARGEST_WIDTH; width++)
     {
-        char string_format[32] = {0};
-        char character_format[32] = {0};
-        const bool has_precision = strchr(shapes[shape], '.') != NULL;
-
-        append(string_format, "[%");
-        append(string_format, shapes[shape]);
-        append(string_format, "s]");
-        for (size_t index = 0; index < TB_TEST_COUNT_OF(strings); index++)
+        for (int precision = SMALLEST_PRECISION; precision <= LARGEST_PRECISION; precision++)
         {
-            char expected[TEXT_CAPACITY] = {0};
-            char actual[TEXT_CAPACITY] = {0};
-
-            memcpy(expected, reference_text(string_format, strings[index]), sizeof(expected));
-            (void)tb_fmt_buffer(actual, sizeof(actual), string_format, strings[index]);
-            TB_TEST_CONTEXT("format \"%s\" of \"%s\"", string_format, strings[index]);
-            TB_TEST_EXPECT_STRING(actual, ==, expected);
+            for (size_t index = 0; index < TB_TEST_COUNT_OF(strings); index++)
+            {
+                EXPECT_SAME_AS_C_LIBRARY("[%*s]", width, strings[index]);
+                EXPECT_SAME_AS_C_LIBRARY("[%-*s]", width, strings[index]);
+                EXPECT_SAME_AS_C_LIBRARY("[%*.*s]", width, precision, strings[index]);
+                EXPECT_SAME_AS_C_LIBRARY("[%-*.*s]", width, precision, strings[index]);
+            }
         }
-        /* The C standard gives a character conversion no precision. */
-        if (has_precision)
-        {
-            continue;
-        }
-        append(character_format, "[%");
-        append(character_format, shapes[shape]);
-        append(character_format, "c]");
         for (int character = 1; character < 128; character += 7)
         {
-            char expected[TEXT_CAPACITY] = {0};
-            char actual[TEXT_CAPACITY] = {0};
-
-            memcpy(expected, reference_text(character_format, character), sizeof(expected));
-            (void)tb_fmt_buffer(actual, sizeof(actual), character_format, character);
-            TB_TEST_CONTEXT("format \"%s\" of character %d", character_format, character);
-            TB_TEST_EXPECT_STRING(actual, ==, expected);
+            EXPECT_SAME_AS_C_LIBRARY("[%*c]", width, character);
+            EXPECT_SAME_AS_C_LIBRARY("[%-*c]", width, character);
         }
     }
 }
