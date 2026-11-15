@@ -6,6 +6,7 @@ add_subdirectory(framework)
 set(TB_TEST_CASE_SOURCES
     core/allocator_test.c
     core/arena_test.c
+    core/array_test.c
     core/assert_test.c
     core/memory_test.c
     core/size_test.c
