@@ -76,28 +76,36 @@ enum
     EXPECTED_PER_BUCKET = KEY_COUNT / BUCKET_COUNT
 };
 
-/* Checks that a table of BUCKET_COUNT slots would be filled evenly: no slot
- * holds much less or much more than its share of the keys. */
+/* Checks that a table of BUCKET_COUNT slots would be filled evenly, with the
+ * chi-squared statistic: the squared distance of each slot from its share of
+ * the keys, summed over the slots and divided by that share. Keys spread by
+ * chance score close to the number of slots, give or take 45. A hash that
+ * leaves slots unused, or favors some, scores many times more. The keys of
+ * each case are fixed, so its score is the same on every run. */
 static void expect_even_spread(const size_t *buckets)
 {
-    size_t smallest = buckets[0];
-    size_t largest = buckets[0];
+    enum
+    {
+        /* Six times the 45 that chance allows. */
+        LARGEST_FAIR_SCORE = BUCKET_COUNT + 270
+    };
+    size_t squared_distance = {0};
 
     for (size_t index = 0; index < BUCKET_COUNT; index++)
     {
-        if (buckets[index] < smallest)
+        size_t distance = {0};
+
+        if (buckets[index] > EXPECTED_PER_BUCKET)
         {
-            smallest = buckets[index];
+            distance = buckets[index] - EXPECTED_PER_BUCKET;
         }
-        if (buckets[index] > largest)
+        else
         {
-            largest = buckets[index];
+            distance = EXPECTED_PER_BUCKET - buckets[index];
         }
+        squared_distance += distance * distance;
     }
-    /* A fair spread of 100 keys a slot varies by about ten either way; these
-     * limits are four times that. */
-    TB_TEST_EXPECT_UINT(smallest, >, EXPECTED_PER_BUCKET - 40);
-    TB_TEST_EXPECT_UINT(largest, <, EXPECTED_PER_BUCKET + 40);
+    TB_TEST_EXPECT_UINT(squared_distance / EXPECTED_PER_BUCKET, <, LARGEST_FAIR_SCORE);
 }
 
 TB_TEST(core_hash, consecutive_integers_spread_over_both_ends_of_the_hash)
@@ -122,13 +130,16 @@ TB_TEST(core_hash, aligned_addresses_spread_over_the_low_bits)
 {
     static size_t buckets[BUCKET_COUNT] = {0};
     static char storage[16] = {0};
+    /* Real addresses change from one run to the next, and a test must not:
+     * these are made from a fixed number and are only hashed, never used. */
+    const uintptr_t first_address = 0x40001000u;
 
     memset(buckets, 0, sizeof(buckets));
     /* Addresses sixteen bytes apart, as an allocator hands them out: their
      * low four bits are all the same. */
     for (uintptr_t index = 0; index < KEY_COUNT; index++)
     {
-        const void *const pointer = (const void *)((uintptr_t)storage + index * 16);
+        const void *const pointer = (const void *)(first_address + index * 16);
 
         buckets[tb_hash_pointer(pointer) % BUCKET_COUNT]++;
     }
