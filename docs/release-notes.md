@@ -105,6 +105,11 @@ are now reported through `badger/fmt.h`. `tb_fmt_flush` delivers what has been
 printed to the standard streams, which the program's own `fflush` cannot do
 where the engine is a shared library with a C library of its own.
 
+The engine has a clock on every platform. `tb_platform_clock_nanoseconds`
+reads a monotonic clock in nanoseconds on Windows, Linux, and macOS. It
+replaces `tb_platform_ticks`, whose ticks had no stated length and which ended
+the process on Linux and macOS. `tb_bench` times with it.
+
 Included foundations:
 
 - `badger` dynamic library and `badger_static` static library with the same
@@ -112,7 +117,7 @@ Included foundations:
 - Separate `burrow` consumer and an in-house test harness.
 - `tb_bench`, an in-house benchmark of the foundation modules, run at a small
   size by the tests on every platform.
-- Native Windows performance-counter adapter and explicit Linux/macOS fatal stubs.
+- A monotonic clock in nanoseconds, native on Windows, Linux, and macOS.
 - Debug/Release CI, formatting, and standalone sanitizer tests on all three OSes.
 - Native desktop exports with icons, metadata, relative library paths, and
   extraction-and-launch checks in CI.

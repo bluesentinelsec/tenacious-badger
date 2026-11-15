@@ -2,12 +2,11 @@
 
 #include "badger/assert.h"
 #include "badger/fmt.h"
+#include "badger/platform.h"
 #include "badger/str.h"
 
-#include <float.h>
 #include <inttypes.h>
 #include <stdlib.h>
-#include <time.h>
 
 /* Times each case is run when the command line does not say. The fastest of
  * them is reported. */
@@ -19,8 +18,6 @@
 
 /* Most cases that tb_bench_measure() takes in one call. */
 #define TB_BENCH_GROUP_CAPACITY ((size_t)8)
-
-#define TB_BENCH_NANOSECONDS_PER_SECOND 1e9
 
 /* A result is printed to this many parts of a nanosecond. */
 #define TB_BENCH_PARTS_PER_NANOSECOND 100
@@ -56,53 +53,27 @@ struct tb_bench
 static uint64_t tb_bench_kept = 0;
 
 /* ---------------------------------------------------------------------------
- * Time.
- * ------------------------------------------------------------------------- */
-
-static struct timespec tb_bench_now(void)
-{
-    struct timespec now = {0};
-
-    if (timespec_get(&now, TIME_UTC) != TIME_UTC)
-    {
-        (void)tb_fmt_print_error("tb_bench: the clock cannot be read\n");
-        exit(EXIT_FAILURE);
-    }
-    return now;
-}
-
-/* Seconds from one reading of the clock to a later one. The whole seconds
- * are subtracted before anything becomes a double, so no precision is lost
- * to the size of the date. */
-static double tb_bench_seconds_between(struct timespec start, struct timespec end)
-{
-    const double whole = difftime(end.tv_sec, start.tv_sec);
-    const double fraction = (double)(end.tv_nsec - start.tv_nsec) / TB_BENCH_NANOSECONDS_PER_SECOND;
-
-    return whole + fraction;
-}
-
-/* ---------------------------------------------------------------------------
  * Measuring.
  * ------------------------------------------------------------------------- */
 
-static double tb_bench_time_once(const tb_bench_case *measured)
+/* Nanoseconds that one run of a case took. */
+static uint64_t tb_bench_time_once(const tb_bench_case *measured)
 {
-    struct timespec start = {0};
-    struct timespec end = {0};
+    uint64_t start = {0};
+    uint64_t end = {0};
 
     if (measured->setup != NULL)
     {
         measured->setup(measured->context);
     }
-    start = tb_bench_now();
+    start = tb_platform_clock_nanoseconds();
     measured->run(measured->context);
-    end = tb_bench_now();
+    end = tb_platform_clock_nanoseconds();
     if (measured->teardown != NULL)
     {
         measured->teardown(measured->context);
     }
-    return tb_bench_seconds_between(start, end);
+    return end - start;
 }
 
 /* Index of a module in tb_bench_modules, or TB_BENCH_MODULE_COUNT. */
@@ -156,7 +127,7 @@ static void tb_bench_print_result(const char *module, const tb_bench_case *measu
 
 void tb_bench_measure(tb_bench *bench, const char *module, const tb_bench_case *cases, size_t count)
 {
-    double fastest[TB_BENCH_GROUP_CAPACITY] = {0};
+    uint64_t fastest[TB_BENCH_GROUP_CAPACITY] = {0};
 
     TB_ASSERT(bench != NULL);
     TB_ASSERT(module != NULL);
@@ -173,7 +144,7 @@ void tb_bench_measure(tb_bench *bench, const char *module, const tb_bench_case *
         TB_ASSERT(cases[index].variant != NULL);
         TB_ASSERT(cases[index].run != NULL);
         TB_ASSERT_MSG(cases[index].operations > 0, "a case performs at least one operation");
-        fastest[index] = DBL_MAX;
+        fastest[index] = UINT64_MAX;
     }
     /* Round after round, each case once: a slow spell of the machine then
      * costs every case one round, and none of them its fastest. */
@@ -181,20 +152,18 @@ void tb_bench_measure(tb_bench *bench, const char *module, const tb_bench_case *
     {
         for (size_t index = 0; index < count; index++)
         {
-            const double seconds = tb_bench_time_once(&cases[index]);
+            const uint64_t nanoseconds = tb_bench_time_once(&cases[index]);
 
-            if (seconds < fastest[index])
+            if (nanoseconds < fastest[index])
             {
-                fastest[index] = seconds;
+                fastest[index] = nanoseconds;
             }
         }
     }
     for (size_t index = 0; index < count; index++)
     {
-        const double nanoseconds =
-            fastest[index] * TB_BENCH_NANOSECONDS_PER_SECOND / cases[index].operations;
-
-        tb_bench_print_result(module, &cases[index], nanoseconds);
+        tb_bench_print_result(module, &cases[index],
+                              (double)fastest[index] / cases[index].operations);
     }
     (void)tb_fmt_flush();
     bench->case_count += count;

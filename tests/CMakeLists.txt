@@ -81,31 +81,43 @@ target_link_libraries(tb_static_tests PRIVATE TenaciousBadger::badger_static)
 tb_configure_target(tb_static_tests)
 add_test(NAME consumers.static COMMAND tb_static_tests)
 
-function(tb_add_platform_test target suffix)
-    if(WIN32)
-        add_test(NAME platform.time${suffix} COMMAND ${target})
-    else()
-        add_test(NAME platform.fatal_stub${suffix}
-            COMMAND "${CMAKE_COMMAND}"
-                "-DTB_PROBE=$<TARGET_FILE:${target}>"
-                "-DTB_PLATFORM=${TB_STUB_PLATFORM}"
-                "-DTB_NATIVE_API=${TB_STUB_API}"
-                -P "${CMAKE_CURRENT_SOURCE_DIR}/ExpectPlatformStub.cmake")
-    endif()
+# Compiles engine sources into a test executable in place of linking the
+# engine library, so that the tests reach what the library does not export.
+function(tb_make_standalone target)
+    target_include_directories(${target} PRIVATE
+        "${PROJECT_SOURCE_DIR}/include" "${PROJECT_BINARY_DIR}/generated")
+    target_compile_definitions(${target} PRIVATE TB_STATIC)
 endfunction()
 
-add_executable(tb_platform_probe platform/time_probe.c)
-target_link_libraries(tb_platform_probe PRIVATE TenaciousBadger::badger)
-tb_configure_target(tb_platform_probe)
-tb_add_platform_test(tb_platform_probe "")
+# The platform adapters are the layer beneath the foundation modules. Their
+# tests are built from the selected adapter's sources and nothing else of the
+# engine, which keeps the adapters free of the modules above them and lets a
+# test call a function that is private to an adapter.
+set(TB_PLATFORM_TEST_SOURCES platform/time_test.c)
+set(TB_PLATFORM_PRIVATE_DIRECTORY "")
+if(WIN32)
+    list(APPEND TB_PLATFORM_TEST_SOURCES platform/win32/counter_test.c)
+    set(TB_PLATFORM_PRIVATE_DIRECTORY "${PROJECT_SOURCE_DIR}/src/platform/win32")
+endif()
+
+# The arguments go to tb_add_test_executable.
+function(tb_add_platform_tests target)
+    tb_add_test_executable(${target} SOURCES ${TB_PLATFORM_TEST_SOURCES} ${ARGN})
+    target_sources(${target} PRIVATE ${TB_PLATFORM_SOURCES})
+    if(TB_PLATFORM_PRIVATE_DIRECTORY)
+        target_include_directories(${target} PRIVATE "${TB_PLATFORM_PRIVATE_DIRECTORY}")
+    endif()
+    tb_configure_target(${target})
+    tb_make_standalone(${target})
+endfunction()
+
+tb_add_platform_tests(tb_platform_tests)
 
 if(TB_ENABLE_SANITIZERS)
     # Compile engine sources into standalone test executables. The shipping
     # shared library and burrow never acquire sanitizer dependencies.
     function(tb_make_standalone_sanitized target)
-        target_include_directories(${target} PRIVATE
-            "${PROJECT_SOURCE_DIR}/include" "${PROJECT_BINARY_DIR}/generated")
-        target_compile_definitions(${target} PRIVATE TB_STATIC)
+        tb_make_standalone(${target})
         tb_enable_sanitizers(${target})
     endfunction()
 
@@ -125,8 +137,7 @@ if(TB_ENABLE_SANITIZERS)
         COMMAND "${CMAKE_COMMAND}" "-DTB_PROBE=$<TARGET_FILE:tb_probe_sanitized>"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/ExpectArenaPoison.cmake")
 
-    add_executable(tb_platform_sanitized platform/time_probe.c ${TB_PLATFORM_SOURCES})
-    tb_configure_target(tb_platform_sanitized)
-    tb_make_standalone_sanitized(tb_platform_sanitized)
-    tb_add_platform_test(tb_platform_sanitized ".sanitized")
+    tb_add_platform_tests(tb_platform_tests_sanitized
+        SUFFIX ".sanitized" FRAMEWORK tb_test_sanitized)
+    tb_enable_sanitizers(tb_platform_tests_sanitized)
 endif()

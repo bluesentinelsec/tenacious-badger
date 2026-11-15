@@ -74,12 +74,11 @@ def main():
     library.tb_arena_destroy(arena)
     if library.tb_memory_allocation_count() != blocks_before:
         raise RuntimeError('External arena destruction did not release its memory')
-    library.tb_platform_ticks.argtypes = []
-    library.tb_platform_ticks.restype = ctypes.c_uint64
-    if platform.system() == 'Windows':
-        first = library.tb_platform_ticks()
-        if library.tb_platform_ticks() < first:
-            raise RuntimeError('External platform time invocation failed')
+    library.tb_platform_clock_nanoseconds.argtypes = []
+    library.tb_platform_clock_nanoseconds.restype = ctypes.c_uint64
+    first = library.tb_platform_clock_nanoseconds()
+    if library.tb_platform_clock_nanoseconds() < first:
+        raise RuntimeError('External platform clock invocation failed')
     print(f'Python ctypes successfully invoked the installed C ABI: {path.name}')
 
 
