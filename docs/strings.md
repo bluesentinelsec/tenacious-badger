@@ -6,6 +6,7 @@ under `include/badger/`, which is its API reference.
 | Module | Header | Use it for |
 | --- | --- | --- |
 | [C strings](#c-strings) | `str.h` | Searching, comparing, and building NUL-terminated strings. |
+| [Text](#text) | `text.h` | A length and a pointer: substrings without copying, any bytes, no terminator. |
 | [Formatting](#formatting) | `fmt.h` | printf-style output to a buffer, a new string, a stream, or any function. |
 
 ## What they have in common
@@ -101,6 +102,76 @@ TB_STR_END, "/\\")` finds the first separator of either kind, and
 so the length must be what it was when the string was built. A string that was
 shortened by writing a terminator into it is released with `tb_allocator_free`
 and its original size, or was allocated in an arena and is not released at all.
+
+## Text
+
+`text.h` is the string type for code that takes strings apart. A `tb_text` is a
+length and a pointer to bytes that do not change. It is a small value, passed
+and returned like an integer; it needs no terminator and may hold any byte; and
+a part of a text is another text that points into the same bytes, so taking a
+substring copies nothing and allocates nothing.
+
+```c
+const tb_text path = tb_text_from_cstr("assets/textures/stone.png");
+const size_t slash = tb_text_rfind_char(path, 0, TB_TEXT_END, '/');
+const tb_text name = tb_text_sub(path, slash + 1, TB_TEXT_END); /* "stone.png", not copied */
+
+if (tb_text_ends_with(name, TB_TEXT(".png")))
+{
+    ...
+}
+```
+
+| Need | Use |
+| --- | --- |
+| The text of a literal | `TB_TEXT("...")`, or `TB_TEXT_INIT("...")` to initialize a constant |
+| The text of a C string or of bytes | `tb_text_from_cstr(string)`, `tb_text_make(bytes, length)` |
+| A part, without copying | `tb_text_sub(text, begin, end)`, `tb_text_trim(text, set)` |
+| Compare | `tb_text_compare`, `tb_text_equal`, `tb_text_starts_with`, `tb_text_ends_with`, `tb_text_matches_at` |
+| Search | `tb_text_find_char`, `tb_text_find_any`, `tb_text_find`, `tb_text_span`, each with an `r` form |
+| A copy that owns its bytes | `tb_text_copy(allocator, text)`, `tb_text_to_cstr(allocator, text)` |
+| Build | `tb_text_cat`, `tb_text_join`, `tb_text_repeat`, `tb_text_reverse`, `tb_text_map` |
+| Release what was built | `tb_text_free(allocator, text)` |
+| Format | `%T`, after `tb_text_register_format()` |
+
+The searches take the same arguments, in the same order, as their C string
+counterparts, with texts where those take strings.
+
+**Borrowed or owned.** A text is valid for as long as the bytes it points to.
+The functions that make a text without an allocator (`tb_text_from_cstr`,
+`tb_text_make`, `tb_text_sub`, `tb_text_trim`) borrow bytes that someone else
+owns. The functions that take an allocator produce new bytes, which the caller
+owns. The usual pattern is to take texts apart freely while their source is
+alive, and to copy a text into an arena when it must outlive its source:
+
+```c
+static tb_text asset_name(const tb_allocator *allocator, tb_text path)
+{
+    const size_t slash = tb_text_rfind_char(path, 0, TB_TEXT_END, '/');
+    const size_t begin = slash == TB_TEXT_NOT_FOUND ? 0 : slash + 1;
+
+    return tb_text_copy(allocator, tb_text_sub(path, begin, TB_TEXT_END));
+}
+```
+
+**The empty text is the zero value.** `tb_text name = {0};` is a valid, empty
+text. It has no bytes, and an empty result never allocates.
+
+**A text is not a C string.** It has no terminator, so its `bytes` cannot be
+handed to a function that expects one. `tb_text_to_cstr` makes a terminated
+copy, and `%T` formats a text directly.
+
+**Sets.** A set of bytes is a text: `TB_TEXT_WHITESPACE`, `TB_TEXT_DIGITS`,
+`TB_TEXT_UPPERCASE`, and `TB_TEXT_LOWERCASE` are predefined, and
+`tb_text_trim(line, TB_TEXT_WHITESPACE)` is the common use.
+
+**Formatting.** `tb_text_register_format()`, called once at startup, adds the
+`%T` conversion. It takes a `tb_text` by value; the width pads and the precision
+cuts, as for `%s`:
+
+```c
+tb_fmt_print("loading %T (%zu bytes)\n", name, name.length);
+```
 
 ## Formatting
 
