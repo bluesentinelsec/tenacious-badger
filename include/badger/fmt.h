@@ -123,8 +123,9 @@ TB_API size_t tb_fmt_vbuffer(char *buffer, size_t size, const char *format, va_l
 /**
  * @brief Format into a new string.
  * @param allocator Where the string comes from, or NULL for the engine's heap.
- * @param format Format string; required non-null. It is processed twice, once
- * to measure, so a custom conversion must give the same output both times.
+ * @param format Format string; required non-null. Short text is formatted
+ * once; text of 256 bytes or more is processed twice, once to measure, so a
+ * custom conversion must give the same output both times.
  * @param ... One argument for each conversion.
  * @return The NUL-terminated output, exactly as long as it needs to be; never
  * NULL. The caller owns it and releases it with tb_str_free() (str.h).

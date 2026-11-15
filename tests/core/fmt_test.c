@@ -626,12 +626,38 @@ TB_TEST(core_fmt, a_registered_conversion_formats_a_type_of_the_caller)
     TB_TEST_EXPECT_STRING(format_text("%#.2R", 1, 2), ==, "1/2!~2");
     TB_TEST_EXPECT_STRING(format_text("%d %V %s", 1, &position, "end"), ==, "1 (3, -4) end");
 
-    /* A new string is measured and then written: two calls, one allocation. */
+    /* A short new string is formatted once and copied: one call, one
+     * allocation. */
     vector_conversion_calls = 0;
     text = tb_fmt_string(&allocator, "%V", &position);
     TB_TEST_EXPECT_STRING(text, ==, "(3, -4)");
-    TB_TEST_EXPECT_UINT(vector_conversion_calls, ==, 2);
+    TB_TEST_EXPECT_UINT(vector_conversion_calls, ==, 1);
     TB_TEST_EXPECT_UINT(tracker.allocation_count, ==, 1);
+    tb_str_free(&allocator, text);
+
+    /* So is the longest text that fits the buffer it is first formatted
+     * into, 255 bytes and a terminator. */
+    vector_conversion_calls = 0;
+    text = tb_fmt_string(&allocator, "%255V", &position);
+    TB_TEST_EXPECT_UINT(strlen(text), ==, 255);
+    TB_TEST_EXPECT_STRING(text + 248, ==, "(3, -4)");
+    TB_TEST_EXPECT_INT(text[0], ==, ' ');
+    TB_TEST_EXPECT_INT(text[247], ==, ' ');
+    TB_TEST_EXPECT_UINT(vector_conversion_calls, ==, 1);
+    TB_TEST_EXPECT_UINT(tracker.live_byte_count, ==, 256);
+    tb_str_free(&allocator, text);
+
+    /* One byte more does not fit: the text is measured and then written, two
+     * calls, and still one allocation of exactly its size. */
+    vector_conversion_calls = 0;
+    text = tb_fmt_string(&allocator, "%256V", &position);
+    TB_TEST_EXPECT_UINT(strlen(text), ==, 256);
+    TB_TEST_EXPECT_STRING(text + 249, ==, "(3, -4)");
+    TB_TEST_EXPECT_INT(text[0], ==, ' ');
+    TB_TEST_EXPECT_INT(text[248], ==, ' ');
+    TB_TEST_EXPECT_UINT(vector_conversion_calls, ==, 2);
+    TB_TEST_EXPECT_UINT(tracker.live_byte_count, ==, 257);
+    TB_TEST_EXPECT_UINT(tracker.allocation_count, ==, 3);
     tb_str_free(&allocator, text);
 
     /* Registering again returns what was there; NULL removes it. */

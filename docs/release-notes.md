@@ -76,6 +76,10 @@ measurements showed waste:
 - An atom table carves its atoms from shared blocks and searches once for a
   new name: interning a new name is 1.6 to 3 times as fast, and destroying a
   table of 100,000 atoms 16 times.
+- Formatting an integer divides by a constant and takes decimal digits two
+  at a time, and `tb_fmt_string` formats short text once, not twice: both are
+  1.7 times as fast. A custom conversion is now called once for a new string
+  shorter than 256 bytes.
 
 Included foundations:
 

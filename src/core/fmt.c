@@ -30,6 +30,15 @@ struct tb_fmt_output
 /* Padding is written from a block of this many equal bytes. */
 #define TB_FMT_PADDING_BLOCK 32
 
+/* Bits of a number that one digit holds in hexadecimal and in octal. */
+#define TB_FMT_HEXADECIMAL_DIGIT_BITS 4u
+#define TB_FMT_OCTAL_DIGIT_BITS 3u
+
+/* A new string whose text fits in a buffer of this size, terminator included,
+ * is formatted once, into that buffer on the stack. Longer text is measured
+ * first. Most strings a program formats are far shorter. */
+#define TB_FMT_LOCAL_CAPACITY 256
+
 static tb_fmt_conversion *tb_fmt_registry[TB_FMT_REGISTRY_SIZE] = {0};
 
 /* ---------------------------------------------------------------------------
@@ -56,6 +65,11 @@ static void tb_fmt_put_repeated(tb_fmt_output *output, char byte, size_t count)
 {
     char block[TB_FMT_PADDING_BLOCK] = {0};
 
+    /* Most conversions have no padding, and need no block of it. */
+    if (count == 0)
+    {
+        return;
+    }
     memset(block, byte, sizeof(block));
     while (count > sizeof(block))
     {
@@ -108,6 +122,68 @@ typedef struct tb_fmt_integer
     bool forces_prefix;  /* Write "0x" even for zero, as a pointer does. */
 } tb_fmt_integer;
 
+/* The functions below write the digits of a number so that the last one is
+ * just before `end`, and return where the first one is. Zero has no digits:
+ * the precision supplies its one. Each divides by a constant, which a
+ * compiler turns into a multiplication or a shift; dividing by a base held in
+ * a variable costs a division instruction for every digit. */
+
+/* Decimal, two digits at a time: half as many divisions, and the two digits
+ * of every number below a hundred are read from a table. */
+static char *tb_fmt_decimal_digits(char *end, uintmax_t value)
+{
+    static const char pairs[] = "00010203040506070809"
+                                "10111213141516171819"
+                                "20212223242526272829"
+                                "30313233343536373839"
+                                "40414243444546474849"
+                                "50515253545556575859"
+                                "60616263646566676869"
+                                "70717273747576777879"
+                                "80818283848586878889"
+                                "90919293949596979899";
+    char *first = end;
+
+    while (value >= 100)
+    {
+        const size_t pair = (size_t)(value % 100);
+
+        value /= 100;
+        first -= 2;
+        first[0] = pairs[pair * 2];
+        first[1] = pairs[pair * 2 + 1];
+    }
+    if (value >= 10)
+    {
+        first -= 2;
+        first[0] = pairs[value * 2];
+        first[1] = pairs[value * 2 + 1];
+        return first;
+    }
+    if (value != 0)
+    {
+        first--;
+        first[0] = (char)('0' + (int)value);
+    }
+    return first;
+}
+
+/* A base that is a power of two: each digit is the next few bits. */
+static char *tb_fmt_binary_digits(char *end, uintmax_t value, unsigned bits_per_digit,
+                                  const char *alphabet)
+{
+    const uintmax_t digit_mask = ((uintmax_t)1 << bits_per_digit) - 1;
+    char *first = end;
+
+    while (value != 0)
+    {
+        first--;
+        first[0] = alphabet[value & digit_mask];
+        value >>= bits_per_digit;
+    }
+    return first;
+}
+
 static void tb_fmt_put_integer(tb_fmt_output *output, const tb_fmt_spec *spec,
                                const tb_fmt_integer *integer)
 {
@@ -116,22 +192,29 @@ static void tb_fmt_put_integer(tb_fmt_output *output, const tb_fmt_spec *spec,
     const char *const alphabet = integer->uppercase ? uppercase_digits : lowercase_digits;
     char digits[TB_FMT_DIGIT_CAPACITY] = {0};
     char prefix[3] = {0};
-    size_t first_digit = sizeof(digits);
+    char *const digits_end = digits + sizeof(digits);
+    const char *first_digit = digits_end;
     size_t digit_count = {0};
     size_t prefix_length = {0};
     size_t zero_count = {0};
     size_t minimum_digit_count = 1;
     size_t padding = {0};
-    uintmax_t remaining = integer->magnitude;
 
-    /* The digits, last one first. Zero has none: the precision supplies it. */
-    while (remaining != 0)
+    if (integer->base == 10)
     {
-        first_digit--;
-        digits[first_digit] = alphabet[remaining % integer->base];
-        remaining /= integer->base;
+        first_digit = tb_fmt_decimal_digits(digits_end, integer->magnitude);
     }
-    digit_count = sizeof(digits) - first_digit;
+    else if (integer->base == 16)
+    {
+        first_digit = tb_fmt_binary_digits(digits_end, integer->magnitude,
+                                           TB_FMT_HEXADECIMAL_DIGIT_BITS, alphabet);
+    }
+    else
+    {
+        first_digit =
+            tb_fmt_binary_digits(digits_end, integer->magnitude, TB_FMT_OCTAL_DIGIT_BITS, alphabet);
+    }
+    digit_count = (size_t)(digits_end - first_digit);
 
     /* The precision is the least number of digits, made up with zeros. */
     if (spec->has_precision)
@@ -177,7 +260,7 @@ static void tb_fmt_put_integer(tb_fmt_output *output, const tb_fmt_spec *spec,
     }
     tb_fmt_put(output, prefix, prefix_length);
     tb_fmt_put_repeated(output, '0', zero_count);
-    tb_fmt_put(output, digits + first_digit, digit_count);
+    tb_fmt_put(output, first_digit, digit_count);
     if (spec->left_justify)
     {
         tb_fmt_put_repeated(output, ' ', padding);
@@ -720,9 +803,11 @@ size_t tb_fmt_buffer(char *buffer, size_t size, const char *format, ...)
 
 char *tb_fmt_vstring(const tb_allocator *allocator, const char *format, va_list arguments)
 {
-    /* Measured first, so that the string is exactly as long as its text and
-     * can be released by its length. */
-    const size_t length = tb_fmt_measure(format, arguments);
+    /* Formatted into a buffer on the stack, which also measures it. The
+     * string is then exactly as long as its text, and can be released by its
+     * length. */
+    char local[TB_FMT_LOCAL_CAPACITY] = {0};
+    const size_t length = tb_fmt_vbuffer(local, sizeof(local), format, arguments);
     char *string = NULL;
     size_t size = {0};
 
@@ -731,6 +816,14 @@ char *tb_fmt_vstring(const tb_allocator *allocator, const char *format, va_list 
         tb_memory_fail(1, length, 1);
     }
     string = tb_allocator_alloc(allocator, size, 1);
+    if (length < sizeof(local))
+    {
+        /* All of it fitted, terminator included: it only has to be copied. */
+        memcpy(string, local, size);
+        return string;
+    }
+    /* Too long for the buffer, which held its beginning: formatted again,
+     * into the string. */
     (void)tb_fmt_vbuffer(string, size, format, arguments);
     return string;
 }
