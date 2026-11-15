@@ -16,6 +16,7 @@ set(TB_TEST_CASE_SOURCES
     core/size_test.c
     core/str_test.c
     core/sum_test.c
+    core/text_test.c
     framework/selftest/checks_test.c
     framework/selftest/options_test.c
     framework/selftest/pattern_test.c

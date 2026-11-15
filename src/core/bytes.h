@@ -27,6 +27,11 @@ typedef struct tb_byte_set
 /* The set of `length` bytes, which may repeat and may include zero. */
 tb_byte_set tb_byte_set_of(const char *members, size_t length);
 
+/* Three-way comparison of two byte ranges as unsigned bytes: negative, zero,
+ * or positive as the left sorts before, equal to, or after the right. A range
+ * that is a prefix of the other sorts first. */
+int tb_bytes_compare(const char *left, size_t left_length, const char *right, size_t right_length);
+
 /* Index of the first, or last, byte in the range that equals `byte`. */
 size_t tb_bytes_find_byte(const char *bytes, size_t begin, size_t end, char byte);
 size_t tb_bytes_rfind_byte(const char *bytes, size_t begin, size_t end, char byte);

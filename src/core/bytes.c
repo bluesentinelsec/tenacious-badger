@@ -13,6 +13,36 @@ tb_byte_set tb_byte_set_of(const char *members, size_t length)
     return set;
 }
 
+int tb_bytes_compare(const char *left, size_t left_length, const char *right, size_t right_length)
+{
+    size_t shared_length = left_length;
+    int order = {0};
+
+    if (right_length < shared_length)
+    {
+        shared_length = right_length;
+    }
+    /* memcmp compares as unsigned bytes, which is the order wanted here. It
+     * must not be given a null pointer, even for no bytes. */
+    if (shared_length > 0)
+    {
+        order = memcmp(left, right, shared_length);
+    }
+    if (order != 0)
+    {
+        return order;
+    }
+    if (left_length < right_length)
+    {
+        return -1;
+    }
+    if (left_length > right_length)
+    {
+        return 1;
+    }
+    return 0;
+}
+
 size_t tb_bytes_find_byte(const char *bytes, size_t begin, size_t end, char byte)
 {
     const char *found = NULL;
