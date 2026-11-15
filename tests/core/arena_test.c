@@ -137,6 +137,81 @@ static void install_recording_allocator(void)
     TB_TEST_REQUIRE(tb_memory_set_functions(&functions));
 }
 
+/* --- an application's own allocator, which owes nothing to the C library ------ */
+
+enum
+{
+    POOL_SIZE = 256 * 1024,
+    POOL_ALIGNMENT = 16
+};
+
+/* Hands out pieces of one static buffer and never reuses them. Any address
+ * outside the buffer therefore did not come from this allocator. */
+typedef struct pool_allocator
+{
+    size_t used;
+    size_t malloc_calls;
+    size_t calloc_calls;
+    size_t realloc_calls;
+    size_t free_calls;
+} pool_allocator;
+
+static _Alignas(POOL_ALIGNMENT) unsigned char pool_memory[POOL_SIZE];
+static pool_allocator pool = {0};
+
+static void *pool_malloc_function(size_t size)
+{
+    const size_t rounded_size = (size + POOL_ALIGNMENT - 1) / POOL_ALIGNMENT * POOL_ALIGNMENT;
+    void *memory = NULL;
+
+    pool.malloc_calls++;
+    if (rounded_size > POOL_SIZE - pool.used)
+    {
+        return NULL;
+    }
+    memory = pool_memory + pool.used;
+    pool.used += rounded_size;
+    return memory;
+}
+
+/* An arena takes whole chunks and never resizes them, so it has no use for
+ * these two. They count the calls and refuse. */
+static void *pool_calloc_function(size_t count, size_t size)
+{
+    (void)count;
+    (void)size;
+    pool.calloc_calls++;
+    return NULL;
+}
+
+static void *pool_realloc_function(void *memory, size_t size)
+{
+    (void)memory;
+    (void)size;
+    pool.realloc_calls++;
+    return NULL;
+}
+
+static void pool_free_function(void *memory)
+{
+    (void)memory;
+    pool.free_calls++;
+}
+
+/* Makes the pool the engine's allocator. Nothing may be allocated when this
+ * is called. Put the shared functions back with
+ * tb_engine_test_install_memory_functions() before any check can end the case. */
+static void install_pool_allocator(void)
+{
+    static const tb_memory_functions functions = {.malloc_function = pool_malloc_function,
+                                                  .calloc_function = pool_calloc_function,
+                                                  .realloc_function = pool_realloc_function,
+                                                  .free_function = pool_free_function};
+
+    memset(&pool, 0, sizeof(pool));
+    TB_TEST_REQUIRE(tb_memory_set_functions(&functions));
+}
+
 /* --- creating and destroying -------------------------------------------------- */
 
 TB_TEST(core_arena, a_new_arena_is_one_block_that_is_ready_for_objects)
@@ -501,14 +576,20 @@ enum
     WORKLOAD_OBJECT_COUNT = 60
 };
 
-static void run_workload(tb_arena *arena, unsigned char *objects[WORKLOAD_OBJECT_COUNT])
+static size_t workload_object_size(size_t index)
 {
     static const size_t sizes[] = {24, 100, 7, 400, 1, 3000, 64, 900};
+
+    return sizes[index % TB_TEST_COUNT_OF(sizes)];
+}
+
+static void run_workload(tb_arena *arena, unsigned char *objects[WORKLOAD_OBJECT_COUNT])
+{
     static const size_t alignments[] = {8, 1, 16, 4, 64};
 
     for (size_t index = 0; index < WORKLOAD_OBJECT_COUNT; index++)
     {
-        const size_t size = sizes[index % TB_TEST_COUNT_OF(sizes)];
+        const size_t size = workload_object_size(index);
 
         objects[index] =
             tb_arena_alloc(arena, size, alignments[index % TB_TEST_COUNT_OF(alignments)]);
@@ -1159,6 +1240,76 @@ TB_TEST(core_arena, the_largest_expressible_size_reaches_the_allocator_intact)
     TB_TEST_EXPECT_POINTER(memory, ==, NULL);
     TB_TEST_EXPECT_UINT(recording.malloc_calls, ==, malloc_calls + 1);
     TB_TEST_EXPECT_UINT(largest_request, ==, SIZE_MAX);
+}
+
+/* --- an application's allocator ----------------------------------------------- */
+
+TB_TEST(core_arena, an_application_allocator_supplies_all_of_an_arenas_memory)
+{
+    static unsigned char buffer[FIXED_BUFFER_SIZE];
+    unsigned char *objects[WORKLOAD_OBJECT_COUNT] = {0};
+    tb_arena *arena = NULL;
+    tb_arena *fixed = NULL;
+    bool is_arena_in_pool = false;
+    size_t objects_outside_pool = {0};
+    size_t damaged_objects = {0};
+    size_t chunks = {0};
+    size_t chunks_after_reuse = {0};
+    size_t chunks_after_fixed_arena = {0};
+    size_t frees_before_destroy = {0};
+
+    /* An application that installs its own allocator expects the engine to
+     * take nothing from anywhere else. The pool is one static buffer, so an
+     * address outside it would have come from the C library. */
+    install_pool_allocator();
+    arena = tb_arena_create(SMALL_CHUNK_SIZE);
+    is_arena_in_pool = is_inside(arena, 1, pool_memory, sizeof(pool_memory));
+    run_workload(arena, objects);
+    objects[0] = tb_arena_alloc(arena, 24, 4096);
+    for (size_t index = 0; index < WORKLOAD_OBJECT_COUNT; index++)
+    {
+        if (!is_inside(objects[index], 1, pool_memory, sizeof(pool_memory)))
+        {
+            objects_outside_pool++;
+        }
+    }
+    chunks = pool.malloc_calls;
+
+    /* Memory kept across a reset is reused without asking the allocator. */
+    tb_arena_reset(arena);
+    run_workload(arena, objects);
+    for (size_t index = 0; index < WORKLOAD_OBJECT_COUNT; index++)
+    {
+        const size_t size = workload_object_size(index);
+
+        if (find_pattern_mismatch(objects[index], size, index) != size)
+        {
+            damaged_objects++;
+        }
+    }
+    chunks_after_reuse = pool.malloc_calls;
+
+    /* An arena in a caller's buffer asks the allocator for nothing. */
+    fixed = tb_arena_create_fixed(buffer, sizeof(buffer));
+    (void)tb_arena_alloc(fixed, 1000, 8);
+    tb_arena_destroy(fixed);
+    chunks_after_fixed_arena = pool.malloc_calls;
+
+    /* Every chunk goes back to the allocator it came from. */
+    frees_before_destroy = pool.free_calls;
+    tb_arena_destroy(arena);
+    tb_engine_test_install_memory_functions();
+
+    TB_TEST_EXPECT(is_arena_in_pool);
+    TB_TEST_EXPECT_UINT(objects_outside_pool, ==, 0);
+    TB_TEST_EXPECT_UINT(damaged_objects, ==, 0);
+    TB_TEST_EXPECT_UINT(chunks, >, 10);
+    TB_TEST_EXPECT_UINT(chunks_after_reuse, ==, chunks);
+    TB_TEST_EXPECT_UINT(chunks_after_fixed_arena, ==, chunks);
+    TB_TEST_EXPECT_UINT(frees_before_destroy, ==, 0);
+    TB_TEST_EXPECT_UINT(pool.free_calls, ==, chunks);
+    TB_TEST_EXPECT_UINT(pool.calloc_calls, ==, 0);
+    TB_TEST_EXPECT_UINT(pool.realloc_calls, ==, 0);
 }
 
 /* --- running out of memory ---------------------------------------------------- */

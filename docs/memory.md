@@ -169,6 +169,11 @@ size can be served. The room left in a chunk when the arena moves on is not
 used until the next reset or rewind; choose a chunk size that holds many
 typical objects and the waste stays small.
 
+The chunks come from whatever allocator is installed. An application that
+[replaces the allocator](#replacing-the-allocator) supplies the memory of every
+arena as well, one call per chunk, and gets each chunk back when its arena is
+destroyed.
+
 `tb_arena_reset` keeps every chunk. An arena that is reset and refilled with
 similar work, such as one reset at the start of each frame, grows to its
 working size and then stops allocating:

@@ -26,6 +26,11 @@
  * functions as it fills (tb_arena_create()). A fixed arena lives entirely in a
  * buffer the caller supplies and never allocates (tb_arena_create_fixed()).
  *
+ * **Whose memory.** A growing arena takes each chunk with one call to the
+ * memory functions installed by tb_memory_set_functions(), and returns it with
+ * one call when the arena is destroyed. An application that installs its own
+ * allocator therefore supplies all of an arena's memory.
+ *
  * **Failing fast is the default**, as in memory.h. tb_arena_alloc() and
  * tb_arena_calloc() never return NULL: when the arena cannot supply the memory
  * they call the memory failure handler and end the process. The
