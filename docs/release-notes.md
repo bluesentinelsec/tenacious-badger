@@ -87,6 +87,8 @@ measurements showed waste:
 - `tb_bit_next_set` steps through the set bits of a bit vector with a cursor
   that keeps its place, 1.7 to 4.4 times as fast as searching from each
   result, and combining two bit vectors is 2.3 times as fast.
+- Inserting into the middle of a ring, or removing from it, moves the elements
+  as blocks of memory: 33 times as fast among 4,096 elements.
 
 Included foundations:
 
