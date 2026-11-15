@@ -8,10 +8,10 @@ standards are in [AGENTS.md](../AGENTS.md). The earlier
 [vision draft](vision.md) is preserved.
 
 This bootstrap implements checked signed addition, checked size arithmetic,
-developer assertions, [memory allocation](memory.md), and three native platform
-interfaces. `burrow` calls the shared library and prints `2 + 3 = 5`. Rendering,
-windowing, gameplay, vendor integrations, and the other planned modules remain
-future work.
+developer assertions, [memory allocation](memory.md) with
+[arenas](memory.md#arenas), and three native platform interfaces. `burrow` calls
+the shared library and prints `2 + 3 = 5`. Rendering, windowing, gameplay,
+vendor integrations, and the other planned modules remain future work.
 
 The [release and distribution requirements](../AGENTS.md#releases-and-distribution)
 define desktop exports and the later browser and mobile targets. See

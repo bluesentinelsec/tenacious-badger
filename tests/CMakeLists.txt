@@ -4,6 +4,7 @@ add_subdirectory(framework)
 # of a new test here. Suites are named <module>_<feature>, so one pattern
 # selects a module (tb_tests "core_*") or a feature (tb_tests "core_sum.*").
 set(TB_TEST_CASE_SOURCES
+    core/arena_test.c
     core/assert_test.c
     core/memory_test.c
     core/size_test.c
@@ -98,6 +99,16 @@ if(TB_ENABLE_SANITIZERS)
         SOURCES ${TB_TEST_CASE_SOURCES})
     target_sources(tb_tests_sanitized PRIVATE ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES})
     tb_make_standalone_sanitized(tb_tests_sanitized)
+
+    # Touching memory that an arena has released must end the process with a
+    # sanitizer report, so it is probed from outside like the other fatal paths.
+    tb_add_tests(tb_probe_sanitized NO_CTEST FRAMEWORK tb_test_sanitized
+        SOURCES core/arena_probe.c)
+    target_sources(tb_probe_sanitized PRIVATE ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES})
+    tb_make_standalone_sanitized(tb_probe_sanitized)
+    add_test(NAME core_arena.released_memory_is_reported.sanitized
+        COMMAND "${CMAKE_COMMAND}" "-DTB_PROBE=$<TARGET_FILE:tb_probe_sanitized>"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/ExpectArenaPoison.cmake")
 
     add_executable(tb_platform_sanitized platform/time_probe.c ${TB_PLATFORM_SOURCES})
     tb_configure_target(tb_platform_sanitized)
