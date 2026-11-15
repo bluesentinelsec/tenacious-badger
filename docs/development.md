@@ -58,6 +58,9 @@ For Release, use a separate `build/local-release` directory and replace both
 `Debug` arguments with `Release`. Debug builds disable optimization and include
 symbols. Release builds enable optimization (`-O3` on GCC/Clang, `/O2` on MSVC)
 and strip the shipping Unix binaries; MSVC Release omits debug information.
+The Release shared library is also optimized across its source files when it
+is linked, on every toolchain that can do so. That is automatic: there is no
+option for it and nothing to do differently.
 Warnings are errors for all project code.
 
 The executable is `build/local/bin/burrow` (`burrow.exe` on Windows). On macOS
