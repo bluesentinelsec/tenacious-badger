@@ -3,13 +3,17 @@
 # tracked C file is missing from this list or a listed file no longer exists.
 set(TB_FORMAT_SOURCES
     cmake/version.h.in
+    include/badger/arena.h
     include/badger/assert.h
     include/badger/core.h
     include/badger/memory.h
     include/badger/platform.h
     include/badger/size.h
+    src/core/arena.c
     src/core/assert.c
     src/core/memory.c
+    src/core/memory_internal.h
+    src/core/sanitizer.h
     src/core/size.c
     src/core/sum.c
     src/main.c
@@ -25,6 +29,8 @@ set(TB_FORMAT_SOURCES
     src/platform/win32/api.h.in
     src/platform/win32/time.c
     tests/consumers/static/main.c
+    tests/core/arena_probe.c
+    tests/core/arena_test.c
     tests/core/assert_probe.c
     tests/core/assert_test.c
     tests/core/memory_probe.c

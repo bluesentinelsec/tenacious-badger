@@ -22,6 +22,13 @@ Sizes are computed safely with `badger/size.h`: `tb_size_add` and
 `tb_size_multiply` report overflow instead of wrapping, and `tb_size_grow`
 chooses the next capacity of a buffer that grows by doubling.
 
+Objects that share a lifetime can be allocated from an arena with
+`badger/arena.h` and released together. An arena grows in chunks or lives in a
+caller's buffer, can be reset for reuse or rewound to a mark, and follows the
+same fail-fast rule as the other allocation functions. Builds with assertions
+fill released memory with a recognizable byte, and AddressSanitizer reports any
+use of it.
+
 Included foundations:
 
 - `badger` dynamic library and `badger_static` static library with the same

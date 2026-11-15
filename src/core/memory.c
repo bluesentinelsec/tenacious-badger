@@ -5,6 +5,7 @@
 #include "badger/assert.h"
 #include "badger/platform.h"
 #include "badger/size.h"
+#include "memory_internal.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -64,7 +65,7 @@ static tb_memory_failure_binding tb_memory_failure_installed = {0};
  * Running out of memory.
  * ------------------------------------------------------------------------- */
 
-static _Noreturn void tb_memory_fail(size_t count, size_t size, size_t alignment)
+_Noreturn void tb_memory_fail(size_t count, size_t size, size_t alignment)
 {
     const tb_memory_failure failure = {.count = count, .size = size, .alignment = alignment};
 
