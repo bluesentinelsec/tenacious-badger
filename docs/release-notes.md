@@ -46,6 +46,8 @@ The first collections are in place, each taking the allocator it uses:
   leave in constant time without allocation.
 - `badger/table.h`: a hash table from keys to values, with atoms, integers,
   strings, or keys of the caller's own kind.
+- `badger/set.h`: an unordered set with the same kinds of member, and union,
+  intersection, difference, and symmetric difference as new sets.
 
 Strings are UTF-8, handled as bytes without decoding:
 

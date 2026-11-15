@@ -10,6 +10,7 @@ The engine's general-purpose containers. Each has one public header under
 | [Ring](#ring) | `ring.h` | A queue: elements added and removed at both ends in constant time. |
 | [List](#list) | `list.h` | Membership: objects that join and leave sets in constant time, without allocation. |
 | [Table](#table) | `table.h` | Lookup: a value found by its key in constant time, with keys of any kind. |
+| [Set](#set) | `set.h` | Membership by value: whether something is in, with union, intersection, and difference. |
 
 ## What they have in common
 
@@ -37,8 +38,9 @@ The engine's general-purpose containers. Each has one public header under
 The [list](#list) differs in one way: it is intrusive. It owns no memory, takes
 no allocator, and is initialized in place instead of created.
 
-The [table](#table) holds pointers instead of elements by value: it stores the
-keys and values it is given and does not own what they point to.
+The [table](#table) and the [set](#set) hold pointers instead of elements by
+value: they store the keys, values, and members they are given and do not own
+what those point to.
 
 ## Dynamic array
 
@@ -355,3 +357,44 @@ usually touches one cache line. Removing an entry moves its neighbors back into
 the gap, so a table that entries come and go from at a steady size never
 degrades and never needs rebuilding. The array doubles when it would become
 more than three quarters full, and each entry costs three words.
+
+## Set
+
+`tb_set` holds members and no values: it answers whether something is in it.
+It takes the same kinds of member as a table takes keys, and is a table
+underneath.
+
+```c
+tb_set *const visible = tb_set_create(NULL, 0, NULL, NULL);
+
+(void)tb_set_put(visible, entity);
+if (tb_set_contains(visible, other_entity))
+{
+    ...
+}
+tb_set_destroy(visible);
+```
+
+| Need | Use |
+| --- | --- |
+| Create, copy, destroy | `tb_set_create(allocator, capacity_hint, hash, equal)`, `tb_set_copy`, `tb_set_destroy` |
+| Add, remove | `tb_set_put(set, member)`, which reports whether it was new; `tb_set_remove`, `tb_set_clear` |
+| Test membership | `tb_set_contains(set, member)`, `tb_set_find(set, member, &stored)` |
+| Go through every member | `tb_set_next(set, &cursor, &member)`, `tb_set_visit`, `tb_set_to_array` |
+| Compare two sets | `tb_set_equal`, `tb_set_is_subset`, `tb_set_is_proper_subset` |
+| Combine two sets | `tb_set_union`, `tb_set_intersection`, `tb_set_difference`, `tb_set_symmetric_difference` |
+| Control the storage | `tb_set_reserve`, `tb_set_try_reserve`, `tb_set_shrink_to_fit`, `tb_set_capacity` |
+
+**Combining makes a new set.** `tb_set_union(left, right, allocator)` and the
+others leave their operands alone and return a set the caller owns, in the
+allocator named. Give them an arena to combine freely and release every
+intermediate result at once.
+
+**Both operands need the same hash and equality functions**, since a result
+could not otherwise say which members are equal. Mixing them is a contract
+violation, and so is a NULL operand: an empty set is a set that was created
+and has no members.
+
+**Members that are small numbers from a fixed range** belong in a
+[bit vector](#bit-vector), which is far smaller and combines whole words at a
+time.
