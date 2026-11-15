@@ -20,6 +20,7 @@
 #include "badger/fmt.h"
 #include "badger/hash.h"
 #include "badger/size.h"
+#include "badger/str.h"
 #include "memory_internal.h"
 
 #include <stdbool.h>
@@ -345,7 +346,7 @@ const char *tb_atom_new(tb_atom_table *table, const char *bytes, size_t length)
 const char *tb_atom_string(tb_atom_table *table, const char *string)
 {
     TB_ASSERT(string != NULL);
-    return tb_atom_new(table, string, strlen(string));
+    return tb_atom_new(table, string, tb_str_length(string));
 }
 
 const char *tb_atom_int(tb_atom_table *table, long long value)

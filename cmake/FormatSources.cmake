@@ -3,7 +3,7 @@
 # A new file needs no entry here: it is found by being in one of the
 # directories below.
 #
-# tools/check_allocations.py reads the two settings below to check the same
+# tools/check_foundation.py reads the two settings below to check the same
 # files, so keep each one a single set() of plain words.
 
 # Directories that hold project C code, searched with their subdirectories.

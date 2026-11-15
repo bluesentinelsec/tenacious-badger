@@ -201,6 +201,14 @@ tb_str_free(NULL, message);
 Each has a form that takes a `va_list`, with a `v` after `tb_fmt_`, for writing
 your own formatting functions.
 
+**Printed text is delivered by `tb_fmt_flush`.** Standard output may hold text
+back until there is enough of it. Call `tb_fmt_flush()` before anything that
+must find it delivered, such as waiting for input or ending the process
+abnormally; a failed assertion does so itself. It returns `false` once a
+stream has refused output. The program's own `fflush(stdout)` is not a
+substitute: on Windows the engine's shared library has a C library of its
+own, with its own streams.
+
 **A buffer is never overrun and always terminated.** `tb_fmt_buffer` returns
 the length of the whole output, so `length < size` means it fit, and the same
 call with a size of 0 measures without writing.

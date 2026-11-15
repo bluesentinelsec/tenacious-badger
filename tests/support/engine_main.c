@@ -1,8 +1,7 @@
 #include "engine_test.h"
 
+#include "badger/fmt.h"
 #include "tb_test.h"
-
-#include <stdio.h>
 
 /* Capacity of the trap message built from a failed assertion. */
 #define TB_ENGINE_TEST_MESSAGE_CAPACITY 512
@@ -24,12 +23,12 @@ static void tb_engine_test_report_assert_failure(const tb_assert_failure *failur
     tb_engine_test_last_failure = *failure;
     if (failure->message != NULL)
     {
-        (void)snprintf(message, sizeof(message), "assertion failed: %s (%s)", failure->expression,
-                       failure->message);
+        (void)tb_fmt_buffer(message, sizeof(message), "assertion failed: %s (%s)",
+                            failure->expression, failure->message);
     }
     else
     {
-        (void)snprintf(message, sizeof(message), "assertion failed: %s", failure->expression);
+        (void)tb_fmt_buffer(message, sizeof(message), "assertion failed: %s", failure->expression);
     }
     tb_test_trap(failure->file, failure->line, message);
 }

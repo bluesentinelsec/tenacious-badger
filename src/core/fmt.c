@@ -6,6 +6,7 @@
 
 #include "badger/assert.h"
 #include "badger/size.h"
+#include "badger/str.h"
 #include "memory_internal.h"
 
 #include <limits.h>
@@ -413,7 +414,8 @@ static bool tb_fmt_is_registrable(char character)
                                 "aAeEfFgGn"
                                 "hljztL";
 
-    return tb_fmt_is_letter(character) && strchr(taken, character) == NULL;
+    return tb_fmt_is_letter(character) &&
+           tb_str_find_char(taken, 0, TB_STR_END, character) == TB_STR_NOT_FOUND;
 }
 
 tb_fmt_conversion *tb_fmt_register(char conversion, tb_fmt_conversion *function)
@@ -880,4 +882,13 @@ size_t tb_fmt_print_error(const char *format, ...)
     length = tb_fmt_vprint_error(format, arguments);
     va_end(arguments);
     return length;
+}
+
+bool tb_fmt_flush(void)
+{
+    /* Both are flushed whatever the first reports. */
+    const bool output_is_delivered = fflush(stdout) == 0 && ferror(stdout) == 0;
+    const bool error_is_delivered = fflush(stderr) == 0 && ferror(stderr) == 0;
+
+    return output_is_delivered && error_is_delivered;
 }

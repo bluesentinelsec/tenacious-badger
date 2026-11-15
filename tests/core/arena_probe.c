@@ -5,9 +5,8 @@
  * build and checks how it ends; they are not registered with CTest directly. */
 #include "badger/arena.h"
 
+#include "badger/fmt.h"
 #include "tb_test.h"
-
-#include <stdio.h>
 
 enum
 {
@@ -19,8 +18,8 @@ enum
  * earlier for another reason is not mistaken for a report. */
 static void announce_access(void)
 {
-    puts("before-invalid-access");
-    (void)fflush(stdout);
+    (void)tb_fmt_print("before-invalid-access\n");
+    (void)tb_fmt_flush();
 }
 
 TB_TEST(arena_probe, read_after_reset)
@@ -31,7 +30,7 @@ TB_TEST(arena_probe, read_after_reset)
     object[0] = 7;
     tb_arena_reset(arena);
     announce_access();
-    printf("after-invalid-access: read %d\n", object[0]);
+    (void)tb_fmt_print("after-invalid-access: read %d\n", object[0]);
     tb_arena_destroy(arena);
 }
 
@@ -49,7 +48,7 @@ TB_TEST(arena_probe, write_after_rewind)
     kept[PROBE_OBJECT_SIZE - 1] = 3;
     announce_access();
     released[0] = 4;
-    puts("after-invalid-access");
+    (void)tb_fmt_print("after-invalid-access\n");
     tb_arena_destroy(arena);
 }
 
@@ -62,7 +61,7 @@ TB_TEST(arena_probe, read_after_reset_of_a_fixed_arena)
     object[0] = 7;
     tb_arena_reset(arena);
     announce_access();
-    printf("after-invalid-access: read %d\n", object[0]);
+    (void)tb_fmt_print("after-invalid-access: read %d\n", object[0]);
     tb_arena_destroy(arena);
 }
 
@@ -75,7 +74,7 @@ TB_TEST(arena_probe, write_past_the_last_object)
     announce_access();
     /* The chunk has room here, but no object owns it. */
     object[PROBE_OBJECT_SIZE] = 2;
-    puts("after-invalid-access");
+    (void)tb_fmt_print("after-invalid-access\n");
     tb_arena_destroy(arena);
 }
 
@@ -108,5 +107,5 @@ TB_TEST(arena_probe, valid_use_is_not_reported)
     /* Once its arena is destroyed, a fixed buffer is ordinary memory again. */
     buffer[0] = 6;
     buffer[sizeof(buffer) - 1] = 7;
-    puts("valid-use-completed");
+    (void)tb_fmt_print("valid-use-completed\n");
 }

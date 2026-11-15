@@ -9,6 +9,7 @@
 #include "badger/assert.h"
 #include "badger/hash.h"
 #include "badger/size.h"
+#include "badger/str.h"
 #include "memory_internal.h"
 
 #include <string.h>
@@ -294,7 +295,7 @@ bool tb_table_string_equal(const void *left, const void *right)
 {
     TB_ASSERT(left != NULL);
     TB_ASSERT(right != NULL);
-    return strcmp(left, right) == 0;
+    return tb_str_equal(left, right);
 }
 
 /* ---------------------------------------------------------------------------

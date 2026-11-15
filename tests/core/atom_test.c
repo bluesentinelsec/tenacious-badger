@@ -7,13 +7,14 @@
 
 #include "badger/arena.h"
 #include "badger/assert.h"
+#include "badger/fmt.h"
 #include "badger/hash.h"
 #include "badger/memory.h"
+#include "badger/str.h"
 #include "tb_test.h"
 #include "test_allocator.h"
 
 #include <limits.h>
-#include <stdio.h>
 #include <string.h>
 
 /* Checks an atom against the bytes it was made from: its length, its bytes,
@@ -93,7 +94,7 @@ TB_TEST(core_atom, any_difference_in_bytes_or_length_gives_a_different_pointer)
     {
         atoms[index] = tb_atom_string(table, names[index]);
         TB_TEST_CONTEXT("\"%s\"", names[index]);
-        expect_atom(atoms[index], names[index], strlen(names[index]));
+        expect_atom(atoms[index], names[index], tb_str_length(names[index]));
         for (size_t other = 0; other < index; other++)
         {
             TB_TEST_EXPECT_POINTER(atoms[index], !=, atoms[other]);
@@ -104,7 +105,7 @@ TB_TEST(core_atom, any_difference_in_bytes_or_length_gives_a_different_pointer)
     for (size_t index = 0; index < TB_TEST_COUNT_OF(names); index++)
     {
         TB_TEST_EXPECT_POINTER(tb_atom_string(table, names[index]), ==, atoms[index]);
-        TB_TEST_EXPECT_POINTER(tb_atom_find(table, names[index], strlen(names[index])), ==,
+        TB_TEST_EXPECT_POINTER(tb_atom_find(table, names[index], tb_str_length(names[index])), ==,
                                atoms[index]);
     }
     TB_TEST_EXPECT_UINT(tb_atom_table_count(table), ==, TB_TEST_COUNT_OF(names));
@@ -265,7 +266,7 @@ TB_TEST(core_atom, strings_that_land_in_the_same_slot_stay_distinct)
     {
         char name[24] = {0};
 
-        (void)snprintf(name, sizeof(name), "key_%zu", candidate);
+        (void)tb_fmt_buffer(name, sizeof(name), "key_%zu", candidate);
         if ((tb_hash_string(name) & SHARED_BITS_MASK) ==
             (tb_hash_string("key_0") & SHARED_BITS_MASK))
         {
@@ -308,9 +309,9 @@ TB_TEST(core_atom, a_million_atoms_survive_every_growth_of_the_table)
     for (size_t index = 0; index < ATOM_COUNT; index++)
     {
         char name[24] = {0};
-        const int length = snprintf(name, sizeof(name), "%zu", index * 7919);
+        const size_t length = tb_fmt_buffer(name, sizeof(name), "%zu", index * 7919);
 
-        atoms[index] = tb_atom_new(table, name, (size_t)length);
+        atoms[index] = tb_atom_new(table, name, length);
     }
     TB_TEST_EXPECT_UINT(tb_atom_table_count(table), ==, ATOM_COUNT);
     /* Every atom is still where it was, with its own bytes, and interning its
@@ -318,10 +319,10 @@ TB_TEST(core_atom, a_million_atoms_survive_every_growth_of_the_table)
     for (size_t index = 0; index < ATOM_COUNT; index++)
     {
         char name[24] = {0};
-        const int length = snprintf(name, sizeof(name), "%zu", index * 7919);
+        const size_t length = tb_fmt_buffer(name, sizeof(name), "%zu", index * 7919);
 
-        if (tb_atom_new(table, name, (size_t)length) != atoms[index] ||
-            tb_atom_length(atoms[index]) != (size_t)length || strcmp(atoms[index], name) != 0)
+        if (tb_atom_new(table, name, length) != atoms[index] ||
+            tb_atom_length(atoms[index]) != length || !tb_str_equal(atoms[index], name))
         {
             wrong++;
         }

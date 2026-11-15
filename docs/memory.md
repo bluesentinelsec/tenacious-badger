@@ -387,9 +387,7 @@ The test executable builds on the pieces above (see `tests/support/`):
 
 ## The allocation check
 
-`tools/check_allocations.py` reads every C source and header that clang-format
-maintains, in the directories that `cmake/FormatSources.cmake` names, and fails
-on any use of an allocation function from
+`tools/check_foundation.py` fails on any use of an allocation function from
 the C library or the operating system: `malloc`, `calloc`, `realloc`, `free`,
 `strdup`, `alloca`, `aligned_alloc`, `_aligned_malloc`, `HeapAlloc`,
 `VirtualAlloc`, `mmap`, and their relatives. It reports each use like a compiler
@@ -399,16 +397,13 @@ error:
 src/core/table.c:88: error: malloc is not allowed here; use tb_malloc, tb_calloc, tb_realloc, or tb_free (see docs/memory.md)
 ```
 
-It runs in CI and as the CTest test `source_checks.allocations`, so
-`ctest --preset debug` catches a violation locally. Comments and string literals
-are ignored. The names are reserved everywhere else: a variable or structure
-member called `free` is reported too, so pick another name.
+It runs in CI and with the tests. Two files are authorized to call an
+allocator directly: the engine's allocation functions themselves, and the test
+framework's allocation helper, which must not depend on the engine it tests.
 
-A file that must call an allocator directly is authorized by name in the
-`AUTHORIZED` table of the script, with its reason. Two files are: the engine's
-allocation functions themselves, and the test framework's allocation helper,
-which must not depend on the engine it tests. There is no in-source
-suppression.
+Allocation is one of the rules that the check enforces.
+[The foundation check](development.md#the-foundation-check) describes all of
+them, how exceptions are granted, and what the check does not report.
 
 ## Not here yet
 

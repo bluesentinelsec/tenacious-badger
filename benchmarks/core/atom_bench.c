@@ -5,6 +5,7 @@
 #include "badger/atom.h"
 #include "badger/fmt.h"
 #include "badger/memory.h"
+#include "badger/str.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -49,7 +50,7 @@ static atom_names make_names(const tb_bench *bench, size_t full_count)
         write_name(names.names + index * ATOM_NAME_SIZE, index);
         write_name(names.absent + index * ATOM_NAME_SIZE, index + names.count);
     }
-    names.length = strlen(names.names);
+    names.length = tb_str_length(names.names);
     /* The copies are looked up in a shuffled order, so that a lookup compares
      * bytes it has not just written. */
     memcpy(names.copies, names.names, names.count * ATOM_NAME_SIZE);

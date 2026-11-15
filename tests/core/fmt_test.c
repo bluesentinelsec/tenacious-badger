@@ -39,7 +39,7 @@ static const char *format_text(const char *format, ...)
     measured = tb_fmt_vbuffer(NULL, 0, format, arguments);
     allocated = tb_fmt_vstring(NULL, format, arguments);
     va_end(arguments);
-    TB_TEST_EXPECT_UINT(length, ==, strlen(text));
+    TB_TEST_EXPECT_UINT(length, ==, tb_str_length(text));
     TB_TEST_EXPECT_UINT(measured, ==, length);
     TB_TEST_EXPECT_STRING(allocated, ==, text);
     tb_str_free(NULL, allocated);
@@ -474,7 +474,7 @@ TB_TEST(core_fmt, a_new_string_is_exactly_as_long_as_its_text)
 
     TB_TEST_EXPECT_STRING(text, ==, "badger #007");
     TB_TEST_EXPECT_UINT(tracker.live_block_count, ==, 1);
-    TB_TEST_EXPECT_UINT(tracker.live_byte_count, ==, strlen("badger #007") + 1);
+    TB_TEST_EXPECT_UINT(tracker.live_byte_count, ==, tb_str_length("badger #007") + 1);
     tb_str_free(&allocator, text);
 
     text = tb_fmt_string(&allocator, "");
@@ -484,7 +484,7 @@ TB_TEST(core_fmt, a_new_string_is_exactly_as_long_as_its_text)
 
     /* Long output, far beyond any internal buffer. */
     text = tb_fmt_string(&allocator, "[%5000d|%-5000s]", 1, "x");
-    TB_TEST_EXPECT_UINT(strlen(text), ==, 10003);
+    TB_TEST_EXPECT_UINT(tb_str_length(text), ==, 10003);
     TB_TEST_EXPECT_INT(text[5000], ==, '1');
     TB_TEST_EXPECT_INT(text[5002], ==, 'x');
     TB_TEST_EXPECT_INT(text[5003], ==, ' ');
@@ -530,7 +530,7 @@ TB_TEST(core_fmt, a_sink_receives_the_output_in_order)
     length = tb_fmt_write(record_output, &record, "%s=%d, %s=%#x; %200s|", "width", 640, "flags",
                           255u, "end");
     TB_TEST_EXPECT_UINT(length, ==, record.length);
-    TB_TEST_EXPECT_UINT(length, ==, strlen("width=640, flags=0xff; ") + 200 + 1);
+    TB_TEST_EXPECT_UINT(length, ==, tb_str_length("width=640, flags=0xff; ") + 200 + 1);
     TB_TEST_EXPECT(memcmp(record.text, "width=640, flags=0xff; ", 23) == 0);
     TB_TEST_EXPECT_STRING(record.text + record.length - 4, ==, "end|");
     TB_TEST_EXPECT_UINT(record.call_count, >, 1);
@@ -639,7 +639,7 @@ TB_TEST(core_fmt, a_registered_conversion_formats_a_type_of_the_caller)
      * into, 255 bytes and a terminator. */
     vector_conversion_calls = 0;
     text = tb_fmt_string(&allocator, "%255V", &position);
-    TB_TEST_EXPECT_UINT(strlen(text), ==, 255);
+    TB_TEST_EXPECT_UINT(tb_str_length(text), ==, 255);
     TB_TEST_EXPECT_STRING(text + 248, ==, "(3, -4)");
     TB_TEST_EXPECT_INT(text[0], ==, ' ');
     TB_TEST_EXPECT_INT(text[247], ==, ' ');
@@ -651,7 +651,7 @@ TB_TEST(core_fmt, a_registered_conversion_formats_a_type_of_the_caller)
      * calls, and still one allocation of exactly its size. */
     vector_conversion_calls = 0;
     text = tb_fmt_string(&allocator, "%256V", &position);
-    TB_TEST_EXPECT_UINT(strlen(text), ==, 256);
+    TB_TEST_EXPECT_UINT(tb_str_length(text), ==, 256);
     TB_TEST_EXPECT_STRING(text + 249, ==, "(3, -4)");
     TB_TEST_EXPECT_INT(text[0], ==, ' ');
     TB_TEST_EXPECT_INT(text[248], ==, ' ');
@@ -708,7 +708,7 @@ TB_TEST(core_fmt, an_invalid_conversion_violates_the_contract)
     {
         char format[64] = {0};
 
-        memcpy(format, invalid_formats[index], strlen(invalid_formats[index]));
+        memcpy(format, invalid_formats[index], tb_str_length(invalid_formats[index]));
         TB_TEST_CONTEXT("format \"%s\"", format);
         TB_TEST_EXPECT_TRAP(format_invalid, format, "the format string has an invalid conversion");
     }

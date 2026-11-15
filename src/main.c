@@ -1,8 +1,8 @@
 #include "badger/core.h"
+#include "badger/fmt.h"
 #include "badger/version.h"
 
 #include <inttypes.h>
-#include <stdio.h>
 #include <stdlib.h>
 
 int main(void)
@@ -11,10 +11,12 @@ int main(void)
 
     if (!tb_sum_i32(2, 3, &sum))
     {
-        fputs("burrow: bootstrap sum failed\n", stderr);
+        (void)tb_fmt_print_error("burrow: bootstrap sum failed\n");
         return EXIT_FAILURE;
     }
-    if (printf("Tenacious Badger %s: 2 + 3 = %" PRId32 "\n", TB_VERSION_STRING, sum) < 0)
+    (void)tb_fmt_print("Tenacious Badger %s: 2 + 3 = %" PRId32 "\n", TB_VERSION_STRING, sum);
+    /* Formatting reports no failure; the stream does, once it is flushed. */
+    if (!tb_fmt_flush())
     {
         return EXIT_FAILURE;
     }
