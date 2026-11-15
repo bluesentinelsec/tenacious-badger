@@ -8,6 +8,7 @@ under `include/badger/`, which is its API reference.
 | [C strings](#c-strings) | `str.h` | Searching, comparing, and building NUL-terminated strings. |
 | [Text](#text) | `text.h` | A length and a pointer: substrings without copying, any bytes, no terminator. |
 | [Formatting](#formatting) | `fmt.h` | printf-style output to a buffer, a new string, a stream, or any function. |
+| [Atoms](#atoms) | `atom.h`, `hash.h` | Names stored once, so that equal names are the same pointer. |
 
 ## What they have in common
 
@@ -271,3 +272,69 @@ and precision from the spec, and writes with `tb_fmt_put` or
 `tb_fmt_put_padded`. Any ASCII letter that C does not already use in a
 conversion can be registered. Register conversions during single-threaded
 startup; formatting itself is thread-safe.
+
+## Atoms
+
+`atom.h` stores each string once. Interning a string returns its atom: a
+pointer to the one copy of those bytes that the table keeps. Two atoms of the
+same table are equal exactly when their pointers are equal, so comparing names
+costs one comparison however long they are. Atoms are for names that are
+compared far more often than they are made: console variables and commands,
+assets, components.
+
+```c
+tb_atom_table *const names = tb_atom_table_create(NULL);
+const char *const fov = tb_atom_string(names, "r_fov");
+
+if (tb_atom_string(names, typed_name) == fov) /* one pointer comparison */
+{
+    ...
+}
+tb_atom_table_destroy(names); /* every atom goes with it */
+```
+
+| Need | Use |
+| --- | --- |
+| A table of atoms | `tb_atom_table_create(allocator)`, `tb_atom_table_destroy(table)` |
+| The atom of a C string | `tb_atom_string(table, string)` |
+| The atom of any bytes | `tb_atom_new(table, bytes, length)` |
+| The atom of an integer, as decimal digits | `tb_atom_int(table, value)` |
+| Look without creating | `tb_atom_find(table, bytes, length)`, NULL when there is none |
+| Length and hash, in constant time | `tb_atom_length(atom)`, `tb_atom_hash(atom)` |
+| How many atoms a table holds | `tb_atom_table_count(table)` |
+
+**An atom is a `const char *`.** It points to the bytes followed by a
+terminator, so an atom can be passed to anything that takes a C string. It may
+hold any bytes, zero bytes included; `tb_atom_length` gives the true length.
+The atom of a text is `tb_atom_new(table, text.bytes, text.length)`.
+
+**Atoms live as long as their table.** They are never released one by one, so
+an atom can be kept anywhere without counting references. Destroying the table
+releases them all. Give a table an arena, and the arena releases everything at
+once.
+
+**Each table is its own world.** Equal strings interned in two tables are two
+different pointers. Compare atoms only with atoms of the same table.
+
+**Atoms are ready-made keys.** An atom is unique, so a hash table can use its
+address as the key, and `tb_atom_hash` returns the hash of its bytes without
+reading them again.
+
+**Threading.** A table is externally synchronized: interning from several
+threads needs a lock around the table. Atoms that already exist can be
+compared and read from any thread.
+
+### Hashing
+
+`hash.h` has the hash functions behind atoms and hashed collections, for code
+that needs a hash of its own:
+
+| Key | Function | Algorithm |
+| --- | --- | --- |
+| Bytes, strings | `tb_hash_bytes(bytes, length)`, `tb_hash_string(string)` | 64-bit FNV-1a |
+| Integers | `tb_hash_u64(value)` | The SplitMix64 finalizer |
+| Addresses | `tb_hash_pointer(pointer)` | The same, on the address |
+
+The results are the same on every platform and in every run, so they can be
+stored. They are not randomized: do not use them for keys that someone hostile
+chooses.
