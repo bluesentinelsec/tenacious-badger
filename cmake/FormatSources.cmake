@@ -10,7 +10,7 @@
 # Searching these, and not the whole tree, keeps build directories and other
 # generated files out. The format check fails when git tracks a C file that
 # they do not cover.
-set(TB_FORMAT_DIRECTORIES cmake include src tests)
+set(TB_FORMAT_DIRECTORIES benchmarks cmake include src tests)
 
 # C sources, headers, and the templates that headers are configured from.
 set(TB_FORMAT_PATTERNS *.c *.h *.h.in)

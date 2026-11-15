@@ -111,7 +111,16 @@ engine sources directly and link an instrumented copy of the test framework.
 MSVC uses AddressSanitizer; GCC and Clang use AddressSanitizer plus
 UndefinedBehaviorSanitizer. The shipping library and `burrow` remain free of
 sanitizer instrumentation. Use Debug when running these tests.
-`TB_BUILD_TESTS=OFF` builds only the library and consumer.
+`TB_BUILD_TESTS=OFF` and `TB_BUILD_BENCHMARKS=OFF` build only the library and
+consumer.
+
+## Benchmarks
+
+`tb_bench` times the public operations of the foundation modules and prints
+the nanoseconds each takes; [Benchmarks](benchmarks.md) explains how to run it,
+how to compare two builds, and how to add a case. A change made for speed
+reports the numbers before and after. The tests run every benchmark once at a
+small size, so that none can rot, and never depend on a timing.
 
 ## CI
 
@@ -147,6 +156,8 @@ publishes verified native exports after all tagged-build checks pass.
 - `src/platform/{win32,linux,macos}/`: CMake-selected native implementations.
 - `src/main.c`: thin `burrow` entrypoint.
 - `tests/`: unit tests and platform integration checks.
+- `benchmarks/`: `tb_bench`, which times the operations of the foundation
+  modules. [Benchmarks](benchmarks.md) explains how to run it and how to read it.
 - `tests/framework/`: the in-house `tb_test` unit test framework and its tests.
 - `tests/support/`: the test entry point, which turns the engine's fatal
   conditions into test results and checks every case for leaks.
@@ -165,8 +176,9 @@ cmake -DTB_FORMAT_MODE=write -P cmake/Format.cmake
 cmake -DTB_FORMAT_MODE=check -P cmake/Format.cmake
 ```
 
-Formatting finds every `.c`, `.h`, and `.h.in` file under `cmake`, `include`,
-`src`, and `tests`, so a new source or header is covered without registering it.
+Formatting finds every `.c`, `.h`, and `.h.in` file under `benchmarks`, `cmake`,
+`include`, `src`, and `tests`, so a new source or header is covered without
+registering it.
 Those directories are named in `cmake/FormatSources.cmake`. The check fails when
 git tracks a C source or header outside them; add the new directory there.
 
