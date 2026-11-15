@@ -7,8 +7,10 @@ set(TB_FORMAT_SOURCES
     include/badger/core.h
     include/badger/memory.h
     include/badger/platform.h
+    include/badger/size.h
     src/core/assert.c
     src/core/memory.c
+    src/core/size.c
     src/core/sum.c
     src/main.c
     src/platform/linux/abort.c
@@ -27,6 +29,7 @@ set(TB_FORMAT_SOURCES
     tests/core/assert_test.c
     tests/core/memory_probe.c
     tests/core/memory_test.c
+    tests/core/size_test.c
     tests/core/sum_test.c
     tests/framework/include/tb_test.h
     tests/framework/include/tb_test_config.h.in
