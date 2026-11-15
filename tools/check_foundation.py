@@ -112,12 +112,29 @@ ATOMICS = rule('badger/platform.h', 'docs/platforms.md', {
         '_Atomic <stdatomic.h> Interlocked* _Interlocked* __atomic_* __sync_*',
 })
 
+THREADS = rule('badger/thread.h', 'docs/platforms.md', {
+    'tb_thread_create, tb_thread_join, and tb_thread_current_id':
+        'thrd_* CreateThread _beginthread _beginthreadex GetCurrentThreadId',
+    'tb_mutex and its functions':
+        'mtx_* AcquireSRWLockExclusive ReleaseSRWLockExclusive TryAcquireSRWLockExclusive '
+        'AcquireSRWLockShared ReleaseSRWLockShared TryAcquireSRWLockShared '
+        'InitializeCriticalSection EnterCriticalSection TryEnterCriticalSection '
+        'LeaveCriticalSection DeleteCriticalSection',
+    'tb_condition and its functions':
+        'cnd_* SleepConditionVariableSRW SleepConditionVariableCS WakeConditionVariable '
+        'WakeAllConditionVariable',
+    'the threads, mutexes, and condition variables of badger/thread.h':
+        '<threads.h> <pthread.h> pthread_*',
+    'the C keyword _Thread_local':
+        'thread_local __thread tss_* TlsAlloc TlsGetValue TlsSetValue TlsFree',
+})
+
 COLLECTIONS = rule('badger/table.h', 'docs/collections.md', {
     'tb_table, tb_set, or tb_list':
         '<search.h>',
 })
 
-RULES = [ALLOCATION, FORMATTING, STRINGS, FAILURES, TIMING, ATOMICS, COLLECTIONS]
+RULES = [ALLOCATION, FORMATTING, STRINGS, FAILURES, TIMING, ATOMICS, THREADS, COLLECTIONS]
 FORBIDDEN = {name: entry for group in RULES for name, entry in group.items()}
 PREFIXES = sorted((name[:-1] for name in FORBIDDEN if name.endswith('*')), key=len, reverse=True)
 
@@ -139,7 +156,7 @@ AUTHORIZED = {
         {'_Static_assert'},
         'defines TB_STATIC_ASSERT'),
     'src/platform/': (
-        set(TIMING) | set(ATOMICS) | {'abort', 'fputs'},
+        set(TIMING) | set(ATOMICS) | set(THREADS) | {'abort', 'fputs'},
         'implements the platform interfaces beneath the foundation modules, and is built '
         'and tested without them'),
 
@@ -413,6 +430,20 @@ def self_test():
         ('names that only resemble a family',
          'tb_platform_atomic_size n; int interlocked = 0; NotInterlocked(n); tb__sync_point();',
          []),
+        ('native threads and locks',
+         'pthread_mutex_lock(&m); AcquireSRWLockExclusive(&l); thrd_create(&t, run, 0); '
+         'cnd_wait(&c, &m); WakeAllConditionVariable(&v); pthread_t id;',
+         ['pthread_mutex_lock', 'AcquireSRWLockExclusive', 'thrd_create', 'cnd_wait',
+          'WakeAllConditionVariable', 'pthread_t']),
+        ('other ways to a variable for each thread',
+         'static __thread int a; thread_local int b; slot = TlsAlloc(); tss_set(key, p);',
+         ['__thread', 'thread_local', 'TlsAlloc', 'tss_set']),
+        ('engine threads and the C keyword',
+         'tb_mutex_lock(&m); tb_thread_join(&t); static _Thread_local int n; '
+         'thread_local_value = 1; my_pthread_create();',
+         []),
+        ('the thread headers', '#include <pthread.h>\n#include <threads.h>',
+         ['<pthread.h>', '<threads.h>']),
         ('a replaced header', '#include <assert.h>\n# include <stdatomic.h>\n#include <malloc.h>',
          ['<assert.h>', '<stdatomic.h>', '<malloc.h>']),
         ('headers that are not replaced',

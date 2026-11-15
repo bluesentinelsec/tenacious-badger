@@ -93,10 +93,11 @@ endfunction()
 # tests are built from the selected adapter's sources and nothing else of the
 # engine, which keeps the adapters free of the modules above them and lets a
 # test call a function that is private to an adapter.
-set(TB_PLATFORM_TEST_SOURCES platform/time_test.c)
+set(TB_PLATFORM_TEST_SOURCES platform/thread_test.c platform/time_test.c)
 set(TB_PLATFORM_PRIVATE_DIRECTORY "")
 if(WIN32)
-    list(APPEND TB_PLATFORM_TEST_SOURCES platform/win32/counter_test.c)
+    list(APPEND TB_PLATFORM_TEST_SOURCES
+        platform/win32/counter_test.c platform/win32/thread_wait_test.c)
     set(TB_PLATFORM_PRIVATE_DIRECTORY "${PROJECT_SOURCE_DIR}/src/platform/win32")
 endif()
 

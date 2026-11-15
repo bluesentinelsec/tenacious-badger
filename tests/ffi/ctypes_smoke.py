@@ -79,6 +79,10 @@ def main():
     first = library.tb_platform_clock_nanoseconds()
     if library.tb_platform_clock_nanoseconds() < first:
         raise RuntimeError('External platform clock invocation failed')
+    library.tb_thread_current_id.argtypes = []
+    library.tb_thread_current_id.restype = ctypes.c_uint64
+    if library.tb_thread_current_id() == 0:
+        raise RuntimeError('External thread identifier invocation failed')
     print(f'Python ctypes successfully invoked the installed C ABI: {path.name}')
 
 

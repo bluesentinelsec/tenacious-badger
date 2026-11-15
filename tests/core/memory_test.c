@@ -6,6 +6,7 @@
 #include "badger/memory.h"
 
 #include "badger/fmt.h"
+#include "badger/thread.h"
 #include "engine_test.h"
 #include "tb_test.h"
 
@@ -547,6 +548,101 @@ TB_TEST(core_memory, allocation_count_follows_every_block)
     tb_aligned_free(third);
     TB_TEST_EXPECT_UINT(tb_memory_allocation_count(), ==, start + 1);
     tb_free(fourth);
+    TB_TEST_EXPECT_UINT(tb_memory_allocation_count(), ==, start);
+}
+
+/* More threads than a hosted CI machine has cores. Each counts its blocks in
+ * a piece of the count of its own. */
+#define ALLOCATING_THREAD_COUNT 8
+#define BLOCKS_PER_THREAD ((size_t)500)
+
+typedef struct block_owner
+{
+    void *blocks[BLOCKS_PER_THREAD];
+    bool is_freeing; /* What its thread does next: free the blocks, or allocate them. */
+} block_owner;
+
+static void allocate_blocks(block_owner *owner)
+{
+    for (size_t index = 0; index < BLOCKS_PER_THREAD; index++)
+    {
+        owner->blocks[index] = tb_malloc(index + 1);
+    }
+}
+
+static void free_blocks(block_owner *owner)
+{
+    for (size_t index = 0; index < BLOCKS_PER_THREAD; index++)
+    {
+        tb_free(owner->blocks[index]);
+        owner->blocks[index] = NULL;
+    }
+}
+
+static void allocate_or_free_blocks(void *argument)
+{
+    block_owner *const owner = argument;
+
+    if (owner->is_freeing)
+    {
+        free_blocks(owner);
+        return;
+    }
+    allocate_blocks(owner);
+}
+
+/* Gives every owner a thread, all running at once. */
+static void run_a_thread_for_every_owner(block_owner *owners)
+{
+    tb_thread threads[ALLOCATING_THREAD_COUNT] = {0};
+
+    for (size_t index = 0; index < ALLOCATING_THREAD_COUNT; index++)
+    {
+        tb_thread_create(&threads[index], allocate_or_free_blocks, &owners[index]);
+    }
+    for (size_t index = 0; index < ALLOCATING_THREAD_COUNT; index++)
+    {
+        tb_thread_join(&threads[index]);
+    }
+}
+
+/* A block is counted by the thread that allocates it and uncounted by the
+ * thread that frees it, which need not be the same one: the sum over all
+ * threads is what must be exact. */
+TB_TEST(core_memory, allocation_count_is_exact_when_threads_allocate_and_free_at_once)
+{
+    block_owner owners[ALLOCATING_THREAD_COUNT] = {0};
+    const size_t start = tb_memory_allocation_count();
+    const size_t half = ALLOCATING_THREAD_COUNT / 2;
+
+    /* Every thread allocates. */
+    run_a_thread_for_every_owner(owners);
+    TB_TEST_EXPECT_UINT(tb_memory_allocation_count(), ==,
+                        start + ALLOCATING_THREAD_COUNT * BLOCKS_PER_THREAD);
+
+    /* The thread of the test frees half of the blocks, none of them its own. */
+    for (size_t index = 0; index < half; index++)
+    {
+        free_blocks(&owners[index]);
+    }
+    TB_TEST_EXPECT_UINT(tb_memory_allocation_count(), ==,
+                        start + (ALLOCATING_THREAD_COUNT - half) * BLOCKS_PER_THREAD);
+
+    /* Half of the threads allocate while the other half free what threads
+     * that have ended allocated. As many blocks come as go. */
+    for (size_t index = half; index < ALLOCATING_THREAD_COUNT; index++)
+    {
+        owners[index].is_freeing = true;
+    }
+    run_a_thread_for_every_owner(owners);
+    TB_TEST_EXPECT_UINT(tb_memory_allocation_count(), ==, start + half * BLOCKS_PER_THREAD);
+
+    /* Every thread frees. Those with nothing left free null pointers. */
+    for (size_t index = 0; index < half; index++)
+    {
+        owners[index].is_freeing = true;
+    }
+    run_a_thread_for_every_owner(owners);
     TB_TEST_EXPECT_UINT(tb_memory_allocation_count(), ==, start);
 }
 
