@@ -40,6 +40,8 @@ The first collections are in place, each taking the allocator it uses:
   contiguously, and grows by doubling.
 - `badger/bit.h`: a bit vector of fixed length with range changes, searches for
   the next set or clear bit, and the set operations.
+- `badger/ring.h`: a queue that adds and removes at both ends in constant time,
+  with indexed access and rotation.
 
 Included foundations:
 
