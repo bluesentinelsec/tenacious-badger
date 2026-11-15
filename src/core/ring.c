@@ -77,6 +77,61 @@ static void tb_ring_move_element(tb_ring *ring, size_t to, size_t from)
     memcpy(tb_ring_slot(ring, to), tb_ring_slot(ring, from), ring->element_size);
 }
 
+/* Moves the `count` elements that start at index `from` so that they start
+ * at index `to`. The two runs may overlap. Each run is at most two stretches
+ * of storage, so the move is a few block copies whatever the count. */
+static void tb_ring_move_run(tb_ring *ring, size_t to, size_t from, size_t count)
+{
+    const size_t size = ring->element_size;
+
+    if (to < from)
+    {
+        /* Toward the front: first elements first, so that none is
+         * overwritten before it has moved. */
+        while (count > 0)
+        {
+            const size_t from_position = tb_ring_position_after(ring, ring->head, from);
+            const size_t to_position = tb_ring_position_after(ring, ring->head, to);
+            size_t stretch = count;
+
+            if (stretch > ring->capacity - from_position)
+            {
+                stretch = ring->capacity - from_position;
+            }
+            if (stretch > ring->capacity - to_position)
+            {
+                stretch = ring->capacity - to_position;
+            }
+            memmove(ring->data + to_position * size, ring->data + from_position * size,
+                    stretch * size);
+            from += stretch;
+            to += stretch;
+            count -= stretch;
+        }
+        return;
+    }
+    /* Toward the back: last elements first. */
+    while (count > 0)
+    {
+        /* One past the storage position of the last element of each run. */
+        const size_t from_end = tb_ring_position_after(ring, ring->head, from + count - 1) + 1;
+        const size_t to_end = tb_ring_position_after(ring, ring->head, to + count - 1) + 1;
+        size_t stretch = count;
+
+        if (stretch > from_end)
+        {
+            stretch = from_end;
+        }
+        if (stretch > to_end)
+        {
+            stretch = to_end;
+        }
+        memmove(ring->data + (to_end - stretch) * size, ring->data + (from_end - stretch) * size,
+                stretch * size);
+        count -= stretch;
+    }
+}
+
 /* Copies an element into a slot, or zero-fills the slot when there is none. */
 static void tb_ring_fill_slot(const tb_ring *ring, unsigned char *slot, const void *element)
 {
@@ -365,20 +420,14 @@ void *tb_ring_insert(tb_ring *ring, size_t index, const void *element)
         /* Nearer the front: open a slot there and move the elements before
          * the index down into it. */
         (void)tb_ring_add_front(ring);
-        for (size_t position = 0; position < index; position++)
-        {
-            tb_ring_move_element(ring, position, position + 1);
-        }
+        tb_ring_move_run(ring, 0, 1, index);
     }
     else
     {
         /* Nearer the back: open a slot there and move the elements from the
          * index on up into it. */
         (void)tb_ring_add_back(ring);
-        for (size_t position = ring->length - 1; position > index; position--)
-        {
-            tb_ring_move_element(ring, position, position - 1);
-        }
+        tb_ring_move_run(ring, index + 1, index, ring->length - 1 - index);
     }
     slot = tb_ring_slot(ring, index);
     tb_ring_fill_slot(ring, slot, element);
@@ -394,19 +443,13 @@ void tb_ring_remove(tb_ring *ring, size_t index, void *element)
     {
         /* Nearer the front: move the elements before the index up over it,
          * then drop the front slot. */
-        for (size_t position = index; position > 0; position--)
-        {
-            tb_ring_move_element(ring, position, position - 1);
-        }
+        tb_ring_move_run(ring, 1, 0, index);
         tb_ring_advance_head(ring);
     }
     else
     {
         /* Nearer the back: move the elements after the index down over it. */
-        for (size_t position = index; position + 1 < ring->length; position++)
-        {
-            tb_ring_move_element(ring, position, position + 1);
-        }
+        tb_ring_move_run(ring, index, index + 1, ring->length - 1 - index);
     }
     ring->length--;
 }
