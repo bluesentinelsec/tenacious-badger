@@ -21,8 +21,8 @@ set_target_properties(my_game PROPERTIES
     C_STANDARD 17 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
 ```
 
-Embedded builds default to libraries only: `TB_BUILD_BURROW` and `TB_BUILD_TESTS`
-are off. The engine has no package dependencies or dependency downloads. Source
+Embedded builds default to libraries only: `TB_BUILD_BURROW`, `TB_BUILD_TESTS`,
+and `TB_BUILD_BENCHMARKS` are off. The engine has no package dependencies or dependency downloads. Source
 consumption fetches only this project. For static linking, use
 `TenaciousBadger::badger_static` instead; the target supplies `TB_STATIC` to headers.
 

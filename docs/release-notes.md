@@ -68,6 +68,8 @@ Included foundations:
 - `badger` dynamic library and `badger_static` static library with the same
   documented, overflow-checked C17 module API.
 - Separate `burrow` consumer and an in-house test harness.
+- `tb_bench`, an in-house benchmark of the foundation modules, run at a small
+  size by the tests on every platform.
 - Native Windows performance-counter adapter and explicit Linux/macOS fatal stubs.
 - Debug/Release CI, formatting, and standalone sanitizer tests on all three OSes.
 - Native desktop exports with icons, metadata, relative library paths, and

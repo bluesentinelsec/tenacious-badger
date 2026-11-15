@@ -32,6 +32,7 @@ endforeach()
 
 option(TB_BUILD_BURROW "Build the Burrow showcase executable" ${PROJECT_IS_TOP_LEVEL})
 option(TB_BUILD_TESTS "Build the in-house test harness" ${PROJECT_IS_TOP_LEVEL})
+option(TB_BUILD_BENCHMARKS "Build the benchmarks of the foundation modules" ${PROJECT_IS_TOP_LEVEL})
 option(TB_ENABLE_SANITIZERS "Add standalone Debug sanitizer test binaries" OFF)
 if(TB_ENABLE_SANITIZERS AND NOT TB_BUILD_TESTS)
     message(FATAL_ERROR "TB_ENABLE_SANITIZERS requires TB_BUILD_TESTS")
@@ -48,6 +49,10 @@ if(TB_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
     tb_add_windows_signing_tests()
+endif()
+
+if(TB_BUILD_BENCHMARKS)
+    add_subdirectory(benchmarks)
 endif()
 
 include(cmake/Formatting.cmake)
