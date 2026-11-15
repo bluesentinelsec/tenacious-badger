@@ -49,6 +49,9 @@ Strings are UTF-8, handled as bytes without decoding:
 
 - `badger/str.h`: searching, comparing, and building NUL-terminated strings,
   with zero-based half-open ranges and results allocated from any allocator.
+- `badger/fmt.h`: printf-style formatting to a buffer, a new string, the
+  standard streams, or any function, with the same output on every platform
+  and conversions an application can add. Floating point is not converted yet.
 
 Included foundations:
 

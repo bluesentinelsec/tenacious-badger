@@ -9,6 +9,7 @@ set(TB_TEST_CASE_SOURCES
     core/array_test.c
     core/assert_test.c
     core/bit_test.c
+    core/fmt_test.c
     core/list_test.c
     core/memory_test.c
     core/ring_test.c
@@ -45,7 +46,7 @@ tb_add_tests(tb_tests SOURCES ${TB_TEST_CASE_SOURCES} LIBRARIES TenaciousBadger:
 # own checks. tb_probe holds those cases; a script per topic runs them in a
 # child process and checks the outcome.
 tb_add_tests(tb_probe NO_CTEST
-    SOURCES core/assert_probe.c core/memory_probe.c support/support_probe.c
+    SOURCES core/assert_probe.c core/fmt_probe.c core/memory_probe.c support/support_probe.c
     LIBRARIES TenaciousBadger::badger)
 function(tb_add_probe_test name script)
     add_test(NAME ${name}
@@ -53,6 +54,7 @@ function(tb_add_probe_test name script)
             -P "${CMAKE_CURRENT_SOURCE_DIR}/${script}")
 endfunction()
 tb_add_probe_test(core_assert.default_handler_reports_and_aborts ExpectAssertAbort.cmake)
+tb_add_probe_test(core_fmt.prints_to_the_standard_streams ExpectFormattedOutput.cmake)
 tb_add_probe_test(core_memory.default_handler_reports_and_aborts ExpectOutOfMemoryAbort.cmake)
 tb_add_probe_test(test_support.leaks_and_failure_injection ExpectTestSupport.cmake)
 

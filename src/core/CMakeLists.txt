@@ -5,6 +5,7 @@ set(TB_CORE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/assert.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/bit.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/bytes.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/fmt.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/list.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/memory.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/ring.c"
