@@ -4,6 +4,8 @@
 
 #include "badger/assert.h"
 #include "badger/platform.h"
+#include "badger/size.h"
+#include "memory_internal.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -63,7 +65,7 @@ static tb_memory_failure_binding tb_memory_failure_installed = {0};
  * Running out of memory.
  * ------------------------------------------------------------------------- */
 
-static _Noreturn void tb_memory_fail(size_t count, size_t size, size_t alignment)
+_Noreturn void tb_memory_fail(size_t count, size_t size, size_t alignment)
 {
     const tb_memory_failure failure = {.count = count, .size = size, .alignment = alignment};
 
@@ -155,10 +157,11 @@ void *tb_try_malloc(size_t size)
 void *tb_try_calloc(size_t count, size_t size)
 {
     void *memory = NULL;
+    size_t total_size = {0};
 
     count = tb_memory_at_least_one(count);
     size = tb_memory_at_least_one(size);
-    if (count > SIZE_MAX / size)
+    if (!tb_size_multiply(count, size, &total_size))
     {
         return NULL;
     }
@@ -182,13 +185,15 @@ void *tb_try_realloc(void *memory, size_t size)
 
 void *tb_try_realloc_array(void *memory, size_t count, size_t size)
 {
+    size_t total_size = {0};
+
     count = tb_memory_at_least_one(count);
     size = tb_memory_at_least_one(size);
-    if (count > SIZE_MAX / size)
+    if (!tb_size_multiply(count, size, &total_size))
     {
         return NULL;
     }
-    return tb_try_realloc(memory, count * size);
+    return tb_try_realloc(memory, total_size);
 }
 
 void tb_free(void *memory)
@@ -265,17 +270,21 @@ void *tb_try_aligned_alloc(size_t alignment, size_t size)
     unsigned char *aligned = NULL;
     uintptr_t first_usable = {0};
     size_t padding = {0};
+    size_t underlying_size = {0};
 
     TB_ASSERT_MSG(tb_memory_is_power_of_two(alignment), "alignment must be a power of two");
     size = tb_memory_at_least_one(size);
     /* Room for the header, plus enough slack to reach the next aligned address
      * from wherever the underlying block happens to start. */
-    if (alignment > SIZE_MAX - TB_MEMORY_ALIGNED_HEADER_SIZE ||
-        size > SIZE_MAX - TB_MEMORY_ALIGNED_HEADER_SIZE - alignment)
+    if (!tb_size_add(size, TB_MEMORY_ALIGNED_HEADER_SIZE, &underlying_size))
     {
         return NULL;
     }
-    underlying = tb_try_malloc(size + TB_MEMORY_ALIGNED_HEADER_SIZE + alignment);
+    if (!tb_size_add(underlying_size, alignment, &underlying_size))
+    {
+        return NULL;
+    }
+    underlying = tb_try_malloc(underlying_size);
     if (underlying == NULL)
     {
         return NULL;

@@ -7,11 +7,11 @@ FetchContent and the published Debug/Release SDKs. The binding design and engine
 standards are in [AGENTS.md](../AGENTS.md). The earlier
 [vision draft](vision.md) is preserved.
 
-This bootstrap implements checked signed addition, developer assertions,
-[memory allocation](memory.md), and three native platform interfaces. `burrow`
-calls the shared library and prints `2 + 3 = 5`. Rendering,
-windowing, gameplay, vendor integrations, and the other planned modules remain
-future work.
+This bootstrap implements checked signed addition, checked size arithmetic,
+developer assertions, [memory allocation](memory.md) with
+[arenas](memory.md#arenas), and three native platform interfaces. `burrow` calls
+the shared library and prints `2 + 3 = 5`. Rendering, windowing, gameplay,
+vendor integrations, and the other planned modules remain future work.
 
 The [release and distribution requirements](../AGENTS.md#releases-and-distribution)
 define desktop exports and the later browser and mobile targets. See
@@ -82,12 +82,12 @@ them up. Every case is its own CTest test, such as
 `core_sum.adds_representable_operands`, and all of them are part of one executable,
 `tb_tests`, which can run any selection of cases in any order.
 
-The core tests cover checked addition (tables of ordinary and limit operands,
-overflow rejection, and agreement with wide arithmetic on random operands) and
-the assertion macros. Test checks are independent of `TB_ASSERT`, so they still
-run in Release, where assertions are compiled out; cases that need an active
-assertion skip themselves there. The framework has its own tests under
-`tests/framework/selftest/`.
+The core tests cover checked addition and checked size arithmetic (tables of
+ordinary and limit operands, overflow rejection, and agreement with wide
+arithmetic on random operands) and the assertion macros. Test checks are
+independent of `TB_ASSERT`, so they still run in Release, where assertions are
+compiled out; cases that need an active assertion skip themselves there. The
+framework has its own tests under `tests/framework/selftest/`.
 
 Integration tests exercise `burrow` through the shared library and probe the
 selected platform adapter. On Windows, the native performance counter must be

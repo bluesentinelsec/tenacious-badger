@@ -307,6 +307,17 @@ can use checks. The after hook runs however the body ended.
 the test executable, the framework, and the engine sources under test. Their
 CTest names end in `.sanitized`.
 
+Those targets are compiled with `TB_SANITIZE_ADDRESS` defined. Engine code uses
+it to tell AddressSanitizer about memory it manages itself, such as the unused
+part of an arena, and a case can use it to skip a check that the sanitizer
+would end the process for.
+
+A report from the sanitizer ends the process, so a test that expects one is a
+probe: `tb_probe_sanitized` holds cases that misuse memory on purpose, and a
+CTest script runs each in a child process and checks for the report.
+`tests/core/arena_probe.c` and `tests/ExpectArenaPoison.cmake` are the example
+to follow.
+
 ## Testing the framework
 
 The framework is tested in `tests/framework/selftest/`:

@@ -5,6 +5,10 @@ if(TB_ENABLE_SANITIZERS AND MSVC)
 endif()
 
 function(tb_enable_sanitizers target)
+    # Engine allocators that manage memory inside a block tell AddressSanitizer
+    # which bytes are in use (src/core/sanitizer.h). Tests read it to know
+    # that touching released memory ends the process.
+    target_compile_definitions(${target} PRIVATE "$<$<CONFIG:Debug>:TB_SANITIZE_ADDRESS>")
     if(MSVC)
         target_compile_options(${target} PRIVATE "$<$<CONFIG:Debug>:/fsanitize=address>")
         target_link_options(${target} PRIVATE "$<$<CONFIG:Debug>:/INCREMENTAL:NO>")

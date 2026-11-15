@@ -43,6 +43,37 @@ def main():
     library.tb_free(block)
     if library.tb_memory_allocation_count() != blocks_before:
         raise RuntimeError('External free was not counted')
+    size_max = ctypes.c_size_t(-1).value
+    for name, left, right, expected in [('tb_size_add', size_max - 1, 1, size_max),
+                                        ('tb_size_add', size_max, 1, None),
+                                        ('tb_size_multiply', size_max // 3, 3, size_max),
+                                        ('tb_size_multiply', size_max // 2 + 1, 2, None)]:
+        function = getattr(library, name)
+        function.argtypes = [ctypes.c_size_t, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]
+        function.restype = ctypes.c_bool
+        output = ctypes.c_size_t(123)
+        succeeded = function(left, right, ctypes.byref(output))
+        if succeeded != (expected is not None) or output.value != (expected or 123):
+            raise RuntimeError(f'External {name} overflow contract failed')
+    library.tb_arena_create.argtypes = [ctypes.c_size_t]
+    library.tb_arena_create.restype = ctypes.c_void_p
+    library.tb_arena_calloc.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_size_t,
+                                        ctypes.c_size_t]
+    library.tb_arena_calloc.restype = ctypes.c_void_p
+    library.tb_arena_reset.argtypes = [ctypes.c_void_p]
+    library.tb_arena_reset.restype = None
+    library.tb_arena_destroy.argtypes = [ctypes.c_void_p]
+    library.tb_arena_destroy.restype = None
+    arena = library.tb_arena_create(4096)
+    first = library.tb_arena_calloc(arena, 16, 4, 64)
+    if not first or first % 64 != 0 or ctypes.string_at(first, 64) != bytes(64):
+        raise RuntimeError('External arena allocation was not aligned and zero-filled')
+    library.tb_arena_reset(arena)
+    if library.tb_arena_calloc(arena, 16, 4, 64) != first:
+        raise RuntimeError('External arena reset did not recycle its memory')
+    library.tb_arena_destroy(arena)
+    if library.tb_memory_allocation_count() != blocks_before:
+        raise RuntimeError('External arena destruction did not release its memory')
     library.tb_platform_ticks.argtypes = []
     library.tb_platform_ticks.restype = ctypes.c_uint64
     if platform.system() == 'Windows':
