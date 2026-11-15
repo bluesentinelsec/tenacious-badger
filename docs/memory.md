@@ -153,8 +153,9 @@ The test executable builds on the pieces above (see `tests/support/`):
 
 ## The allocation check
 
-`tools/check_allocations.py` reads every C source and header in
-`cmake/FormatSources.cmake` and fails on any use of an allocation function from
+`tools/check_allocations.py` reads every C source and header that clang-format
+maintains, in the directories that `cmake/FormatSources.cmake` names, and fails
+on any use of an allocation function from
 the C library or the operating system: `malloc`, `calloc`, `realloc`, `free`,
 `strdup`, `alloca`, `aligned_alloc`, `_aligned_malloc`, `HeapAlloc`,
 `VirtualAlloc`, `mmap`, and their relatives. It reports each use like a compiler

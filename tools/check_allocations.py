@@ -3,9 +3,10 @@
 Every allocation in the project goes through the engine's allocation functions
 (tb_malloc, tb_calloc, tb_realloc, tb_free and their relatives), so that
 allocations are counted, exhaustion is handled in one place, and the allocator
-can be replaced. This check reads every C source and header listed in
-cmake/FormatSources.cmake and reports any use of an allocation function from
-the C library or the operating system.
+can be replaced. This check reads every C source and header in the directories
+that cmake/FormatSources.cmake names, the same files that clang-format
+maintains, and reports any use of an allocation function from the C library or
+the operating system.
 
 A file that legitimately needs one is authorized by name in AUTHORIZED below,
 with the reason. There is no way to suppress the check from inside a source
@@ -105,17 +106,37 @@ def find_violations(path_name, text):
     return violations
 
 
-def listed_sources():
-    """The C sources and headers of the project, from the explicit source list."""
+def read_setting(listing, name):
+    """The words of `set(<name> word...)` in the text of a CMake file, or None."""
+    match = re.search(rf'^set\({name}((?:\s+[\w.*/-]+)+)\s*\)\s*$', listing, flags=re.MULTILINE)
+    return match.group(1).split() if match else None
+
+
+def project_sources():
+    """The C sources and headers of the project, as cmake/FormatSources.cmake finds them.
+
+    That file names the directories to search and the file name patterns to
+    match. Reading both from it keeps this check and clang-format on the same
+    files.
+    """
     listing = SOURCE_LIST.read_text(encoding='utf-8')
-    sources = re.findall(r'^\s+([\w./-]+\.(?:c|h|h\.in))\)?\s*$', listing, flags=re.MULTILINE)
+    directories = read_setting(listing, 'TB_FORMAT_DIRECTORIES')
+    patterns = read_setting(listing, 'TB_FORMAT_PATTERNS')
+    if not directories or not patterns:
+        sys.exit(f'{SOURCE_LIST}: TB_FORMAT_DIRECTORIES or TB_FORMAT_PATTERNS not found; '
+                 'has its format changed?')
+    sources = set()
+    for directory in directories:
+        for pattern in patterns:
+            sources.update(path.relative_to(ROOT).as_posix()
+                           for path in (ROOT / directory).rglob(pattern) if path.is_file())
     if not sources:
-        sys.exit(f'{SOURCE_LIST}: no sources found; has its format changed?')
-    return sources
+        sys.exit(f'{SOURCE_LIST}: no sources found in {", ".join(directories)}')
+    return sorted(sources)
 
 
 def check_project():
-    sources = listed_sources()
+    sources = project_sources()
     problems = 0
     for path_name in AUTHORIZED:
         if path_name not in sources:
@@ -173,9 +194,15 @@ def self_test():
     if [name for _, name, _ in authorized] != ['strdup']:
         print(f'self-test failed: authorization must cover only the named functions: {authorized}')
         failures += 1
+    listing = '# set(NAME ignored)\nset(NAME cmake src/core)\nset(PATTERNS *.c *.h.in)\n'
+    settings = [read_setting(listing, 'NAME'), read_setting(listing, 'PATTERNS'),
+                read_setting(listing, 'MISSING')]
+    if settings != [['cmake', 'src/core'], ['*.c', '*.h.in'], None]:
+        print(f'self-test failed: settings of the source list were read as {settings}')
+        failures += 1
     if failures:
         return 1
-    print(f'Self-test passed: {len(cases) + 2} checks.')
+    print(f'Self-test passed: {len(cases) + 3} checks.')
     return 0
 
 
