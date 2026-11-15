@@ -45,6 +45,11 @@ The first collections are in place, each taking the allocator it uses:
 - `badger/list.h`: an intrusive doubly linked list, whose elements join and
   leave in constant time without allocation.
 
+Strings are UTF-8, handled as bytes without decoding:
+
+- `badger/str.h`: searching, comparing, and building NUL-terminated strings,
+  with zero-based half-open ranges and results allocated from any allocator.
+
 Included foundations:
 
 - `badger` dynamic library and `badger_static` static library with the same

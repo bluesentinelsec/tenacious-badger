@@ -115,6 +115,7 @@ static void *tb_test_allocator_function(void *context, void *memory, size_t old_
         tb_test_allocator_forget(tracker, block);
         return NULL;
     }
+    tracker->request_count++;
     if (tb_test_allocator_must_refuse(tracker))
     {
         return NULL;

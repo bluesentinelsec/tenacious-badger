@@ -52,6 +52,7 @@ typedef struct tb_test_allocator
     size_t live_block_count;   /**< Blocks handed out and not yet released. */
     size_t live_byte_count;    /**< Sum of the sizes of the live blocks. */
     size_t peak_byte_count;    /**< Largest value live_byte_count has had. */
+    size_t request_count;      /**< Requests for a new block or a resize, granted or not. */
     size_t allocation_count;   /**< Successful requests for a new block. */
     size_t reallocation_count; /**< Successful requests to resize a block. */
     size_t release_count;      /**< Requests to release a block. */
