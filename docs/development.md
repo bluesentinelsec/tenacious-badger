@@ -18,7 +18,7 @@ The foundation layer so far, one public header per module under
 | `arena.h` | [Arenas](memory.md#arenas) for objects that share a lifetime |
 | `allocator.h` | [Allocators chosen per object](memory.md#choosing-the-allocator-of-one-object) |
 | `array.h`, `bit.h`, `ring.h`, `list.h` | [Collections](collections.md): a dynamic array, a bit vector, a ring, and an intrusive list |
-| `str.h`, `text.h`, `fmt.h` | [Strings](strings.md): C strings, text values, and formatted output |
+| `str.h`, `text.h`, `fmt.h`, `atom.h`, `hash.h` | [Strings](strings.md): C strings, text values, formatted output, atoms, and hash functions |
 | `platform.h` | Three native platform interfaces: time, abort, and an atomic counter |
 
 `burrow` calls the shared library and prints `2 + 3 = 5`. Rendering, windowing,

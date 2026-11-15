@@ -8,8 +8,10 @@ set(TB_TEST_CASE_SOURCES
     core/arena_test.c
     core/array_test.c
     core/assert_test.c
+    core/atom_test.c
     core/bit_test.c
     core/fmt_test.c
+    core/hash_test.c
     core/list_test.c
     core/memory_test.c
     core/ring_test.c
