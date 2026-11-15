@@ -315,18 +315,27 @@ void *tb_table_put(tb_table *table, const void *key, void *value)
 
     TB_ASSERT(table != NULL);
     TB_ASSERT_MSG(!table->is_being_visited, "the table must not be changed while it is visited");
-    slot = tb_table_lookup(table, key);
-    if (slot != NULL)
+    /* The key is hashed once, and one search finds either its entry or the
+     * empty slot where a new entry goes. */
+    hash = tb_table_hash_of(table, key);
+    if (table->slot_count > 0)
+    {
+        slot = tb_table_slot_of(table, key, hash);
+    }
+    if (slot != NULL && slot->hash != 0)
     {
         previous = slot->value;
         slot->value = value;
         return previous;
     }
-    /* A new key: make sure it leaves the table no more than three quarters
-     * full, then put it in the empty slot its hash leads to. */
-    tb_table_reserve(table, table->length + 1);
-    hash = tb_table_hash_of(table, key);
-    slot = tb_table_slot_of(table, key, hash);
+    /* A new key. The empty slot that was found is where it goes, unless the
+     * table must grow to stay no more than three quarters full: then its
+     * place is among the new slots. */
+    if (table->length >= tb_table_capacity_of(table->slot_count))
+    {
+        tb_table_reserve(table, table->length + 1);
+        slot = tb_table_slot_of(table, key, hash);
+    }
     slot->hash = hash;
     slot->key = key;
     slot->value = value;

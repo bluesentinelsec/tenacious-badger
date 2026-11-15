@@ -63,6 +63,13 @@ Strings are UTF-8, handled as bytes without decoding:
   behind them: FNV-1a for bytes and the SplitMix64 finalizer for integers and
   addresses.
 
+The foundation modules were measured with `tb_bench` and made faster where the
+measurements showed waste:
+
+- Adding a key to a hash table or a set hashes the key and searches for it
+  once, not twice: about 1.7 times as fast for a table with room, more for
+  string keys.
+
 Included foundations:
 
 - `badger` dynamic library and `badger_static` static library with the same

@@ -28,7 +28,10 @@
  * created with the same hash and equality functions.
  *
  * **Order.** Members are visited in no particular order, and the order changes
- * as the set grows.
+ * as the set grows. With members compared by address the order follows the
+ * addresses, so it can differ from one run of the program to the next. Code
+ * that must do the same thing in every run must not let the order of a set
+ * reach its results: sort the members, or keep the order it needs in an array.
  *
  * **Memory.** A set gets all of its memory from the allocator it was created
  * with (allocator.h). Growing fails fast; tb_set_try_reserve() is the one
