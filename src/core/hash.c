@@ -12,6 +12,7 @@
 #include "badger/hash.h"
 
 #include "badger/assert.h"
+#include "badger/str.h"
 
 #include <string.h>
 
@@ -142,7 +143,7 @@ uint64_t tb_hash_bytes(const void *bytes, size_t length)
 uint64_t tb_hash_string(const char *string)
 {
     TB_ASSERT(string != NULL);
-    return tb_hash_bytes(string, strlen(string));
+    return tb_hash_bytes(string, tb_str_length(string));
 }
 
 uint64_t tb_hash_u64(uint64_t value)

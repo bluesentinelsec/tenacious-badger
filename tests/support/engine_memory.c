@@ -1,9 +1,8 @@
 #include "engine_test.h"
 
+#include "badger/fmt.h"
 #include "badger/memory.h"
 #include "tb_test.h"
-
-#include <stdio.h>
 
 /* Capacity of the trap message built from a failed allocation. */
 #define TB_ENGINE_TEST_MESSAGE_CAPACITY 160
@@ -87,8 +86,8 @@ static void tb_engine_test_report_memory_failure(const tb_memory_failure *failur
     char message[TB_ENGINE_TEST_MESSAGE_CAPACITY] = {0};
 
     (void)context;
-    (void)snprintf(message, sizeof(message), "out of memory: %zu x %zu bytes, alignment %zu",
-                   failure->count, failure->size, failure->alignment);
+    (void)tb_fmt_buffer(message, sizeof(message), "out of memory: %zu x %zu bytes, alignment %zu",
+                        failure->count, failure->size, failure->alignment);
     tb_test_trap(__FILE__, __LINE__, message);
 }
 

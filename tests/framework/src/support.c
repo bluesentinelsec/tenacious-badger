@@ -1,6 +1,6 @@
 /* The framework's own memory management. The framework is independent of the
  * engine it tests, so this file, and only this file, uses the C library's
- * allocator directly; tools/check_allocations.py authorizes it by name. */
+ * allocator directly; tools/check_foundation.py authorizes it by name. */
 #include "internal.h"
 
 #include <stdarg.h>

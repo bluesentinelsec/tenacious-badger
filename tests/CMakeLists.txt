@@ -66,10 +66,10 @@ tb_add_probe_test(test_support.leaks_and_failure_injection ExpectTestSupport.cma
 # Checks of the source text. They run with the tests so that a violation fails
 # locally, before it fails in CI.
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
-add_test(NAME source_checks.allocations
-    COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/check_allocations.py")
-add_test(NAME source_checks.allocations_self_test
-    COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/check_allocations.py" --self-test)
+add_test(NAME source_checks.foundation
+    COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/check_foundation.py")
+add_test(NAME source_checks.foundation_self_test
+    COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/check_foundation.py" --self-test)
 
 if(TARGET burrow)
     add_test(NAME burrow.smoke COMMAND burrow)

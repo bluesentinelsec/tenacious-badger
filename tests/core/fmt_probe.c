@@ -6,7 +6,6 @@
 #include "tb_test.h"
 
 #include <stdarg.h>
-#include <stdio.h>
 
 static size_t print_with_list(const char *format, ...)
 {
@@ -34,6 +33,6 @@ TB_TEST(fmt_probe, prints_to_standard_output_and_standard_error)
     /* Output far longer than any internal buffer arrives whole. */
     length = tb_fmt_print("[%300s]\n", "end");
     TB_TEST_EXPECT_UINT(length, ==, 303);
-    (void)fflush(stdout);
-    (void)fflush(stderr);
+    /* Both streams took everything, and it is delivered before the case ends. */
+    TB_TEST_EXPECT(tb_fmt_flush());
 }

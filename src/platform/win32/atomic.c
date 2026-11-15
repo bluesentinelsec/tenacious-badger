@@ -1,10 +1,12 @@
 #include "badger/platform.h"
 
+#include "badger/assert.h"
+
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
 
-_Static_assert(sizeof(size_t) == sizeof(SIZE_T), "size_t and SIZE_T must be the same type size");
+TB_STATIC_ASSERT(sizeof(size_t) == sizeof(SIZE_T), "size_t and SIZE_T must be the same type size");
 
 size_t tb_platform_atomic_size_add(tb_platform_atomic_size *atomic, size_t amount)
 {

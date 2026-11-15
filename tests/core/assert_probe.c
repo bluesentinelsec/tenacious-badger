@@ -4,9 +4,8 @@
  * process and checks how it ends; they are not registered with CTest directly. */
 #include "badger/assert.h"
 
+#include "badger/fmt.h"
 #include "tb_test.h"
-
-#include <stdio.h>
 
 TB_TEST(assert_probe, failed_macro_reports_and_aborts)
 {
@@ -15,16 +14,16 @@ TB_TEST(assert_probe, failed_macro_reports_and_aborts)
     tb_assert_set_handler(NULL, NULL);
     if (tb_assert_library_enabled())
     {
-        puts("assertions=enabled");
+        (void)tb_fmt_print("assertions=enabled\n");
     }
     else
     {
-        puts("assertions=disabled");
+        (void)tb_fmt_print("assertions=disabled\n");
     }
-    printf("assert-line=%d\n", __LINE__ + 2);
-    (void)fflush(stdout);
+    (void)tb_fmt_print("assert-line=%d\n", __LINE__ + 2);
+    (void)tb_fmt_flush();
     TB_ASSERT_MSG(two + two == 5, "arithmetic is intact");
-    puts("after-assert");
+    (void)tb_fmt_print("after-assert\n");
 }
 
 static void fail_through_the_function(void)

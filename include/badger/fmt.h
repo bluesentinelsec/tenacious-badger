@@ -21,6 +21,7 @@
  * supplies, tb_fmt_string() into a new string, tb_fmt_print() to standard
  * output, tb_fmt_print_error() to standard error, and tb_fmt_write() to any
  * function that accepts bytes. Each has a `v` form that takes a `va_list`.
+ * tb_fmt_flush() delivers what has been printed to the standard streams.
  *
  * **Format strings.** A conversion is `%`, then optional flags, width,
  * precision, and length, then a conversion character, as in C:
@@ -157,6 +158,25 @@ TB_API size_t tb_fmt_print_error(const char *format, ...);
 
 /** @brief tb_fmt_print_error() with its arguments in a `va_list`, which is left as it was. */
 TB_API size_t tb_fmt_vprint_error(const char *format, va_list arguments);
+
+/**
+ * @brief Deliver everything printed so far to standard output and standard error.
+ *
+ * Standard output may hold text back until there is enough of it to be worth
+ * sending. Call this before anything that must find the text already
+ * delivered: waiting for input, starting another program, or ending the
+ * process abnormally. A failed assertion and an exhausted fail-fast allocation
+ * call it before they end the process.
+ *
+ * The streams are the engine's own. Where the engine is a shared library with
+ * a C library of its own, as on Windows, the `fflush(stdout)` of the program
+ * that uses it does not reach them, and this function does.
+ *
+ * @return `true` when both streams have accepted everything written to them
+ * so far; `false` once either has reported an error.
+ * @par Threading Thread-safe.
+ */
+TB_API bool tb_fmt_flush(void);
 
 /* -------------------------------------------------------------------------
  * Adding conversions.

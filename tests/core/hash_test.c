@@ -6,9 +6,10 @@
 #include "badger/hash.h"
 
 #include "badger/assert.h"
+#include "badger/fmt.h"
+#include "badger/str.h"
 #include "tb_test.h"
 
-#include <stdio.h>
 #include <string.h>
 
 TB_TEST(core_hash, bytes_are_hashed_with_xxh64)
@@ -30,7 +31,7 @@ TB_TEST(core_hash, bytes_are_hashed_with_xxh64)
     for (size_t index = 0; index < TB_TEST_COUNT_OF(rows); index++)
     {
         TB_TEST_CONTEXT("\"%s\"", rows[index].text);
-        TB_TEST_EXPECT_HEX(tb_hash_bytes(rows[index].text, strlen(rows[index].text)), ==,
+        TB_TEST_EXPECT_HEX(tb_hash_bytes(rows[index].text, tb_str_length(rows[index].text)), ==,
                            rows[index].hash);
         TB_TEST_EXPECT_HEX(tb_hash_string(rows[index].text), ==, rows[index].hash);
     }
@@ -220,7 +221,7 @@ TB_TEST(core_hash, short_names_spread_over_the_low_bits)
     {
         char name[32] = {0};
 
-        (void)snprintf(name, sizeof(name), "entity_%zu", index);
+        (void)tb_fmt_buffer(name, sizeof(name), "entity_%zu", index);
         buckets[tb_hash_string(name) % BUCKET_COUNT]++;
     }
     expect_even_spread(buckets);

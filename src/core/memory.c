@@ -1,14 +1,14 @@
 /* The only engine source that calls the C library's allocator. Every other
- * file allocates through badger/memory.h; tools/check_allocations.py enforces it. */
+ * file allocates through badger/memory.h; tools/check_foundation.py enforces it. */
 #include "badger/memory.h"
 
 #include "badger/assert.h"
+#include "badger/fmt.h"
 #include "badger/platform.h"
 #include "badger/size.h"
 #include "memory_internal.h"
 
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -115,12 +115,14 @@ _Noreturn void tb_memory_fail(size_t count, size_t size, size_t alignment)
     }
     else
     {
-        fprintf(stderr, "badger: out of memory allocating %zu x %zu bytes (alignment %zu)\n", count,
-                size, alignment);
+        /* Formatting to a stream allocates nothing, so it can report this. */
+        (void)tb_fmt_print_error(
+            "badger: out of memory allocating %zu x %zu bytes (alignment %zu)\n", count, size,
+            alignment);
     }
     /* Reached by the default report and by a handler that returned: the caller
      * was promised memory, so there is nothing to return to. */
-    (void)fflush(stderr);
+    (void)tb_fmt_flush();
     tb_platform_abort();
 }
 

@@ -5,11 +5,11 @@
  * path is checked by memory_probe.c in a child process. */
 #include "badger/memory.h"
 
+#include "badger/fmt.h"
 #include "engine_test.h"
 #include "tb_test.h"
 
 #include <stdint.h>
-#include <stdio.h>
 #include <string.h>
 
 /* A type with the strictest alignment of any ordinary scalar. */
@@ -423,8 +423,8 @@ TB_TEST(core_memory, overflowing_array_sizes_are_fatal_for_fail_fast_functions)
         char expected[96] = {0};
 
         TB_TEST_CONTEXT("row %zu", index);
-        (void)snprintf(expected, sizeof(expected), "out of memory: %zu x %zu bytes", row.count,
-                       row.size);
+        (void)tb_fmt_buffer(expected, sizeof(expected), "out of memory: %zu x %zu bytes", row.count,
+                            row.size);
         TB_TEST_EXPECT_TRAP(calloc_an_overflowing_array, &row, expected);
         TB_TEST_EXPECT_TRAP(resize_to_an_overflowing_array, &row, expected);
     }
@@ -626,8 +626,8 @@ TB_TEST(core_memory, fail_fast_functions_are_fatal_when_memory_is_exhausted)
     TB_TEST_EXPECT_TRAP(exhaust_realloc_array, existing,
                         "out of memory: 5 x 16 bytes, alignment 0");
     TB_TEST_EXPECT_TRAP(exhaust_aligned_alloc, NULL, "out of memory: 1 x 64 bytes, alignment 32");
-    (void)snprintf(expected_for_new, sizeof(expected_for_new), "out of memory: 1 x %zu bytes",
-                   sizeof(widest_scalar));
+    (void)tb_fmt_buffer(expected_for_new, sizeof(expected_for_new), "out of memory: 1 x %zu bytes",
+                        sizeof(widest_scalar));
     TB_TEST_EXPECT_TRAP(exhaust_new, NULL, expected_for_new);
     tb_engine_test_stop_failing_allocations();
 

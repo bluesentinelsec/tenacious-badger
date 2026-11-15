@@ -4,10 +4,9 @@
  * path is checked by assert_probe.c in a child process. */
 #include "badger/assert.h"
 
+#include "badger/str.h"
 #include "engine_test.h"
 #include "tb_test.h"
-
-#include <string.h>
 
 TB_STATIC_ASSERT(sizeof(char) == 1, "a static assertion must compile at file scope");
 TB_STATIC_ASSERT(TB_ASSERT_ENABLED == 0 || TB_ASSERT_ENABLED == 1,
@@ -102,7 +101,7 @@ TB_TEST(core_assert, failure_reports_expression_and_location)
     TB_TEST_EXPECT_POINTER(failure->message, ==, NULL);
     TB_TEST_EXPECT_STRING(failure->function, ==, "fail_plain_assert");
     TB_TEST_EXPECT_INT(failure->line, ==, failing_assert_line);
-    TB_TEST_EXPECT(strstr(failure->file, "assert_test.c") != NULL);
+    TB_TEST_EXPECT(tb_str_find(failure->file, 0, TB_STR_END, "assert_test.c") != TB_STR_NOT_FOUND);
 }
 
 TB_TEST(core_assert, failure_carries_its_message)

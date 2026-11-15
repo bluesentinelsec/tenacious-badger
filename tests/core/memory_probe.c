@@ -5,9 +5,8 @@
  * directly. */
 #include "badger/memory.h"
 
+#include "badger/fmt.h"
 #include "tb_test.h"
-
-#include <stdio.h>
 
 /* An allocator with nothing left to give. */
 static void *refuse_malloc_request(size_t size)
@@ -46,8 +45,8 @@ TB_TEST(memory_probe, exhausted_allocation_reports_and_aborts)
     TB_TEST_REQUIRE(tb_memory_set_functions(&exhausted));
     /* The fallible form reports failure and carries on. */
     TB_TEST_REQUIRE_POINTER(tb_try_malloc(64), ==, NULL);
-    puts("before-fail-fast-allocation");
-    (void)fflush(stdout);
+    (void)tb_fmt_print("before-fail-fast-allocation\n");
+    (void)tb_fmt_flush();
     (void)tb_calloc(3, 64);
-    puts("after-fail-fast-allocation");
+    (void)tb_fmt_print("after-fail-fast-allocation\n");
 }

@@ -96,6 +96,15 @@ measurements showed waste:
   link time where the toolchain supports it, which makes small operations
   that cross modules 15% to 80% faster. It is automatic.
 
+Code is held to the foundation layer. `tools/check_foundation.py`, run as a CI
+job and with the tests, fails on any use of a C library function that a
+foundation module replaces, such as `malloc`, `printf`, `strlen`, `assert`, or
+a native clock, and names the replacement. The engine, the benchmarks, and
+the tests were converted to pass it: failed assertions and exhausted memory
+are now reported through `badger/fmt.h`. `tb_fmt_flush` delivers what has been
+printed to the standard streams, which the program's own `fflush` cannot do
+where the engine is a shared library with a C library of its own.
+
 Included foundations:
 
 - `badger` dynamic library and `badger_static` static library with the same

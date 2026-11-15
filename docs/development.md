@@ -35,9 +35,9 @@ define desktop exports and the later browser and mobile targets. See
   with the MSVC C compiler tools and the Windows SDK.
 - Ninja for the convenience presets; plain CMake commands below also work with
   the platform's default build tool.
-- Python 3 to run the tests: the source checks, such as the one that keeps
-  allocation behind `badger/memory.h`, are Python scripts. Building the
-  libraries alone does not need it.
+- Python 3 to run the tests: the source check that keeps code on the
+  foundation layer is a Python script. Building the libraries alone does not
+  need it.
 - Optional developer tools: clang-format 22, Doxygen, and Universal Ctags.
 
 There are **no third-party library or package dependencies**. Configure, build,
@@ -137,7 +137,8 @@ release validation:
 
 - [CI](../.github/workflows/ci.yml): Debug and Release on Windows/MSVC,
   macOS/AppleClang, and Linux with both GCC and Clang; C formatting is checked
-  separately with the runner's preinstalled clang-format 22. Release jobs also
+  separately with the runner's preinstalled clang-format 22, and so is
+  [use of the foundation layer](#the-foundation-check). Release jobs also
   package, extract, and launch each native desktop export.
 - [Sanitizers](../.github/workflows/sanitizers.yml): standalone Debug sanitizer tests
   on the same four toolchains, including fatal-stub checks.
@@ -164,8 +165,8 @@ publishes verified native exports after all tagged-build checks pass.
 - `tests/framework/`: the in-house `tb_test` unit test framework and its tests.
 - `tests/support/`: the test entry point, which turns the engine's fatal
   conditions into test results and checks every case for leaks.
-- `tools/check_allocations.py`: fails when C code allocates without going
-  through `badger/memory.h`.
+- `tools/check_foundation.py`: fails when C code uses the C library where the
+  foundation layer has an equivalent. See [the foundation check](#the-foundation-check).
 - `VERSION`: the single version definition; generated headers live in `build/`.
 
 [Platform contracts](platforms.md) explain the implemented interface and the
@@ -184,6 +185,70 @@ Formatting finds every `.c`, `.h`, and `.h.in` file under `benchmarks`, `cmake`,
 registering it.
 Those directories are named in `cmake/FormatSources.cmake`. The check fails when
 git tracks a C source or header outside them; add the new directory there.
+
+## The foundation check
+
+The foundation modules give the engine one implementation of allocation,
+strings, formatted output, assertions, and the platform services: one place
+that counts, checks, and reports, with the same behavior on every platform.
+That holds only while code uses them, so `tools/check_foundation.py` fails on
+any use of a C library or operating system function that a foundation module
+replaces:
+
+| In place of | Use | From |
+| --- | --- | --- |
+| `malloc`, `calloc`, `realloc`, `free`, `strdup`, `alloca`, `aligned_alloc`, `HeapAlloc`, `VirtualAlloc`, `mmap`, and their relatives | `tb_malloc`, `tb_calloc`, `tb_realloc`, `tb_free`, `tb_aligned_alloc`, `tb_str_dup` | [`memory.h`](memory.md) |
+| `printf`, `fprintf`, `puts`, `fputs`, `putchar`, `perror`, and their relatives | `tb_fmt_print`, `tb_fmt_print_error`, `tb_fmt_write` | [`fmt.h`](strings.md#formatting) |
+| `sprintf`, `snprintf`, `vsnprintf`, and their relatives | `tb_fmt_buffer`, `tb_fmt_string` | [`fmt.h`](strings.md#formatting) |
+| `fflush` | `tb_fmt_flush` | [`fmt.h`](strings.md#formatting) |
+| `strlen`, `strcmp`, `strncmp`, `strchr`, `strrchr`, `strstr`, `strspn`, `strcspn`, `strpbrk` | `tb_str_length`, `tb_str_equal`, `tb_str_compare`, `tb_str_find_char`, `tb_str_find`, `tb_str_span`, `tb_str_find_any` | [`str.h`](strings.md#c-strings) |
+| `strcpy`, `strncpy`, `strcat`, `strncat`, `strtok`, and their relatives | `tb_str_dup`, `tb_str_sub`, `tb_str_cat`, `tb_str_join`, `tb_fmt_buffer` | [`str.h`](strings.md#c-strings) |
+| `assert`, `static_assert`, `_Static_assert`, `<assert.h>` | `TB_ASSERT`, `TB_ASSERT_MSG`, `TB_STATIC_ASSERT` | `assert.h` |
+| `abort` | `TB_ASSERT`, or `tb_platform_abort` after reporting | [`platform.h`](platforms.md#abnormal-termination) |
+| `timespec_get`, `clock_gettime`, `QueryPerformanceCounter`, `mach_absolute_time`, and other native clocks | `tb_platform_ticks` | [`platform.h`](platforms.md#time-counter) |
+| `<stdatomic.h>`, `_Atomic`, `Interlocked...`, `__atomic_...`, `__sync_...` | `tb_platform_atomic_size` | [`platform.h`](platforms.md#atomic-counter) |
+| `<search.h>` | `tb_table`, `tb_set`, `tb_list` | [`table.h`](collections.md) |
+
+`python tools/check_foundation.py --list` prints every name. The check reads
+every C source and header that clang-format maintains, in the directories that
+`cmake/FormatSources.cmake` names, and reports each use like a compiler error,
+with what to use instead:
+
+```
+src/core/table.c:88: error: strlen is not allowed here; use tb_str_length (see docs/strings.md)
+```
+
+It runs in CI as the job "Foundation layer use" and as the CTest test
+`source_checks.foundation`, so `ctest --preset debug` catches a violation
+locally. Comments and string literals are ignored. The names are reserved
+everywhere else: a variable or structure member called `free` or `abort` is
+reported too, so pick another name.
+
+**What is not reported.** A function is reported only when the foundation has
+an equivalent today. `memcpy`, `memset`, `memcmp`, `strtoul`, `qsort`, `exit`,
+and the file functions have none, and stay allowed. When a module gains the
+equivalent, add its rule to `RULES` in the script in the same change, with the
+self-test cases that go with it.
+
+**Exceptions.** A file that must use a replaced function is authorized by
+name in the `AUTHORIZED` table of the script, with its reason. There is no
+in-source suppression. The table holds three kinds of entry:
+
+- The module that implements the replacement: `src/core/memory.c` on `malloc`,
+  `src/core/str.c` on `strlen`, `src/core/fmt.c` on `fflush`, and
+  `src/platform/` on the native clocks, atomics, and `abort`. The platform
+  adapters are the layer beneath the foundation modules, built and tested
+  without them, so a fatal stub also reports with `fputs`.
+- A benchmark or test that sets a module beside the C library on purpose: the
+  `snprintf` and `strstr` columns of `tb_bench`, and the tests that check
+  formatting and strings against an implementation that shares no code with
+  them. `tb_bench` also reads the C clock, because `tb_platform_ticks` has no
+  stated period and is a fatal stub on Linux and macOS.
+- The test framework under `tests/framework/`, which cannot link the engine it
+  tests.
+
+An authorization that a file no longer uses fails the check, so an exception
+ends when its reason does.
 
 The scaffold was created with `cppboot --name tenacious-badger --shared --no-git
 --no-fmt --no-codespaces`, then adapted to C17. Its Apache-2.0

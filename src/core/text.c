@@ -3,6 +3,7 @@
 #include "badger/assert.h"
 #include "badger/fmt.h"
 #include "badger/size.h"
+#include "badger/str.h"
 #include "bytes.h"
 #include "memory_internal.h"
 
@@ -57,7 +58,7 @@ tb_text tb_text_make(const char *bytes, size_t length)
 tb_text tb_text_from_cstr(const char *string)
 {
     TB_ASSERT(string != NULL);
-    return tb_text_make(string, strlen(string));
+    return tb_text_make(string, tb_str_length(string));
 }
 
 tb_text tb_text_sub(tb_text text, size_t begin, size_t end)

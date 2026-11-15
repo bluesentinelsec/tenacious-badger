@@ -1,12 +1,12 @@
 #include "tb_bench.h"
 
 #include "badger/assert.h"
+#include "badger/fmt.h"
+#include "badger/str.h"
 
 #include <float.h>
 #include <inttypes.h>
-#include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <time.h>
 
 /* Times each case is run when the command line does not say. The fastest of
@@ -21,6 +21,12 @@
 #define TB_BENCH_GROUP_CAPACITY ((size_t)8)
 
 #define TB_BENCH_NANOSECONDS_PER_SECOND 1e9
+
+/* A result is printed to this many parts of a nanosecond. */
+#define TB_BENCH_PARTS_PER_NANOSECOND 100
+
+/* tb_fmt_print() or tb_fmt_print_error(): where some output is to go. */
+typedef size_t tb_bench_print(const char *format, ...);
 
 typedef struct tb_bench_module
 {
@@ -59,7 +65,7 @@ static struct timespec tb_bench_now(void)
 
     if (timespec_get(&now, TIME_UTC) != TIME_UTC)
     {
-        fputs("tb_bench: the clock cannot be read\n", stderr);
+        (void)tb_fmt_print_error("tb_bench: the clock cannot be read\n");
         exit(EXIT_FAILURE);
     }
     return now;
@@ -104,7 +110,7 @@ static size_t tb_bench_module_index(const char *name)
 {
     for (size_t index = 0; index < TB_BENCH_MODULE_COUNT; index++)
     {
-        if (strcmp(tb_bench_modules[index].name, name) == 0)
+        if (tb_str_equal(tb_bench_modules[index].name, name))
         {
             return index;
         }
@@ -134,6 +140,18 @@ size_t tb_bench_size(const tb_bench *bench, size_t full_size)
         return TB_BENCH_QUICK_SIZE;
     }
     return full_size;
+}
+
+/* Prints one result. The time is written from whole numbers, to two decimal
+ * places, because badger/fmt.h does not convert floating point yet. */
+static void tb_bench_print_result(const char *module, const tb_bench_case *measured,
+                                  double nanoseconds)
+{
+    const uint64_t parts = (uint64_t)(nanoseconds * TB_BENCH_PARTS_PER_NANOSECOND + 0.5);
+
+    (void)tb_fmt_print("%s\t%s\t%s\t%" PRIu64 ".%02" PRIu64 "\n", module, measured->name,
+                       measured->variant, parts / TB_BENCH_PARTS_PER_NANOSECOND,
+                       parts % TB_BENCH_PARTS_PER_NANOSECOND);
 }
 
 void tb_bench_measure(tb_bench *bench, const char *module, const tb_bench_case *cases, size_t count)
@@ -176,9 +194,9 @@ void tb_bench_measure(tb_bench *bench, const char *module, const tb_bench_case *
         const double nanoseconds =
             fastest[index] * TB_BENCH_NANOSECONDS_PER_SECOND / cases[index].operations;
 
-        printf("%s\t%s\t%s\t%.2f\n", module, cases[index].name, cases[index].variant, nanoseconds);
+        tb_bench_print_result(module, &cases[index], nanoseconds);
     }
-    (void)fflush(stdout);
+    (void)tb_fmt_flush();
     bench->case_count += count;
 }
 
@@ -204,24 +222,23 @@ uint64_t tb_bench_random(uint64_t *state)
  * The command line.
  * ------------------------------------------------------------------------- */
 
-static void tb_bench_print_usage(FILE *stream)
+static void tb_bench_print_usage(tb_bench_print *print)
 {
-    fputs("usage: tb_bench [--quick] [--repeats N] [module ...]\n"
-          "\n"
-          "Times the operations of the engine's foundation modules. Each line of\n"
-          "output is a module, a case, who performed it, and the nanoseconds one\n"
-          "operation took in the fastest run, separated by tabs.\n"
-          "\n"
-          "  --quick      run every case once at a small size, to check that it runs\n"
-          "  --repeats N  run every case N times and report the fastest (default 9)\n"
-          "\n"
-          "modules:",
-          stream);
+    (void)print("usage: tb_bench [--quick] [--repeats N] [module ...]\n"
+                "\n"
+                "Times the operations of the engine's foundation modules. Each line of\n"
+                "output is a module, a case, who performed it, and the nanoseconds one\n"
+                "operation took in the fastest run, separated by tabs.\n"
+                "\n"
+                "  --quick      run every case once at a small size, to check that it runs\n"
+                "  --repeats N  run every case N times and report the fastest (default 9)\n"
+                "\n"
+                "modules:");
     for (size_t index = 0; index < TB_BENCH_MODULE_COUNT; index++)
     {
-        fprintf(stream, " %s", tb_bench_modules[index].name);
+        (void)print(" %s", tb_bench_modules[index].name);
     }
-    fputs("\n", stream);
+    (void)print("\n");
 }
 
 /* Reads the count after --repeats. Returns false when it is not a number of
@@ -252,23 +269,23 @@ static bool tb_bench_parse(tb_bench *bench, int argument_count, char **arguments
         const char *const argument = arguments[position];
         size_t module = {0};
 
-        if (strcmp(argument, "--help") == 0)
+        if (tb_str_equal(argument, "--help"))
         {
             *wants_help = true;
             continue;
         }
-        if (strcmp(argument, "--quick") == 0)
+        if (tb_str_equal(argument, "--quick"))
         {
             bench->is_quick = true;
             continue;
         }
-        if (strcmp(argument, "--repeats") == 0)
+        if (tb_str_equal(argument, "--repeats"))
         {
             position++;
             if (position >= argument_count ||
                 !tb_bench_parse_repeats(arguments[position], &bench->repeats))
             {
-                fputs("tb_bench: --repeats needs a number of at least 1\n", stderr);
+                (void)tb_fmt_print_error("tb_bench: --repeats needs a number of at least 1\n");
                 return false;
             }
             has_repeats = true;
@@ -277,7 +294,7 @@ static bool tb_bench_parse(tb_bench *bench, int argument_count, char **arguments
         module = tb_bench_module_index(argument);
         if (module == TB_BENCH_MODULE_COUNT)
         {
-            fprintf(stderr, "tb_bench: there is no option or module named %s\n", argument);
+            (void)tb_fmt_print_error("tb_bench: there is no option or module named %s\n", argument);
             return false;
         }
         bench->is_wanted[module] = true;
@@ -297,19 +314,19 @@ int tb_bench_main(int argument_count, char **arguments)
 
     if (!tb_bench_parse(&bench, argument_count, arguments, &wants_help))
     {
-        tb_bench_print_usage(stderr);
+        tb_bench_print_usage(tb_fmt_print_error);
         return EXIT_FAILURE;
     }
     if (wants_help)
     {
-        tb_bench_print_usage(stdout);
+        tb_bench_print_usage(tb_fmt_print);
         return EXIT_SUCCESS;
     }
     for (size_t index = 0; index < TB_BENCH_MODULE_COUNT; index++)
     {
         tb_bench_modules[index].function(&bench);
     }
-    fprintf(stderr, "tb_bench: %zu cases, checksum %016" PRIx64 "\n", bench.case_count,
-            tb_bench_kept);
+    (void)tb_fmt_print_error("tb_bench: %zu cases, checksum %016" PRIx64 "\n", bench.case_count,
+                             tb_bench_kept);
     return EXIT_SUCCESS;
 }

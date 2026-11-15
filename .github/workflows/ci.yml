@@ -86,7 +86,7 @@ jobs:
           if-no-files-found: error
 
   format:
-    name: C formatting and source checks
+    name: C formatting
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
@@ -95,7 +95,16 @@ jobs:
           persist-credentials: false
       - name: Check with the runner's preinstalled clang-format 22
         run: cmake -DTB_FORMAT_MODE=check -DTB_CLANG_FORMAT=clang-format-22 -P cmake/Format.cmake
-      - name: Check that C code allocates only through badger/memory.h
-        run: |
-          python3 tools/check_allocations.py --self-test
-          python3 tools/check_allocations.py
+
+  foundation:
+    name: Foundation layer use
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check the checker against sources with known answers
+        run: python3 tools/check_foundation.py --self-test
+      - name: Check that C code uses the foundation layer, not the C library it replaces
+        run: python3 tools/check_foundation.py
