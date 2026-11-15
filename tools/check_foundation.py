@@ -108,7 +108,7 @@ TIMING = rule('badger/platform.h', 'docs/platforms.md', {
 })
 
 ATOMICS = rule('badger/platform.h', 'docs/platforms.md', {
-    'tb_platform_atomic_size and its functions':
+    'tb_platform_atomic_size, tb_platform_atomic_u32, or tb_platform_atomic_pointer':
         '_Atomic <stdatomic.h> Interlocked* _Interlocked* __atomic_* __sync_*',
 })
 

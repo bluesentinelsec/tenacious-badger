@@ -2,7 +2,7 @@
 
 The binding architecture is in [AGENTS.md](../AGENTS.md). The existing
 [vision.md](vision.md) is an earlier draft. Only the clock,
-abnormal-termination, atomic-counter, and thread interfaces exist so far; the
+abnormal-termination, atomic-value, and thread interfaces exist so far; the
 other platform services and rendering backends are still planned. No renderer, window, vendor SDK, or game loop is implemented.
 
 ## Clock
@@ -70,13 +70,31 @@ the planned system-information interface and will hook in here.
 A child process checks in CI that a failed assertion reports its location and
 ends the process promptly on every platform.
 
-## Atomic counter
+## Atomic values
 
-Public declaration: `include/badger/platform.h`, `tb_platform_atomic_size` with
-`tb_platform_atomic_size_add`, `tb_platform_atomic_size_subtract`, and
-`tb_platform_atomic_size_load`. A `size_t` that any thread may update without a
-lock; every operation is sequentially consistent. The allocation functions
-count live blocks with it.
+Public declaration: `include/badger/platform.h`. A value that any thread may
+read and write without a lock. Every operation is one indivisible step, and
+all of them are sequentially consistent: the threads agree on one order in
+which they happened.
+
+| Type | Holds | Operations |
+| --- | --- | --- |
+| `tb_platform_atomic_size` | A `size_t` | `_add`, `_subtract`, `_load` |
+| `tb_platform_atomic_u32` | A `uint32_t` | `_load`, `_store`, `_exchange`, `_compare_exchange` |
+| `tb_platform_atomic_pointer` | A `void *` | `_load`, `_store`, `_exchange`, `_compare_exchange` |
+
+Zero-initialize one, then touch it only through its functions once it is
+shared. The allocation functions count live blocks with the first.
+
+**Compare and exchange** writes a value only where the caller's expected value
+still is, and otherwise reports what it found. It is the strong form: it fails
+only when the value differs. With pointers, finding the expected address does
+not prove that nothing happened in between, because an object can be released
+and another allocated in its place.
+
+**The pointer functions move a pointer and nothing else.** When the object it
+points to may be released, while another thread may still be reading it, is
+for the caller to arrange.
 
 | Platform | Selected implementation | Current behavior |
 | --- | --- | --- |
@@ -86,8 +104,8 @@ count live blocks with it.
 
 It is a platform interface because MSVC does not offer C11 `<stdatomic.h>` in
 C17 mode without an experimental switch. It is implemented on all three
-platforms: every allocation depends on it. Atomic values of other types, and
-the operations that exchange and compare them, are planned.
+platforms: every allocation depends on it. Weaker orderings, and arithmetic on
+the 32-bit value, wait for the code that needs them.
 
 ## Threads, mutexes, and condition variables
 
