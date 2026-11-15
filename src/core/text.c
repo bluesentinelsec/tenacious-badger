@@ -76,9 +76,16 @@ tb_text tb_text_sub(tb_text text, size_t begin, size_t end)
 
 tb_text tb_text_trim(tb_text text, tb_text set)
 {
-    const size_t leading = tb_text_span(text, 0, TB_TEXT_END, set);
-    const size_t trailing = tb_text_rspan(text, leading, TB_TEXT_END, set);
+    tb_byte_set members = {0};
+    size_t leading = {0};
+    size_t trailing = {0};
 
+    TB_ASSERT_MSG(tb_text_is_valid(text), "a text with a length must have bytes");
+    TB_ASSERT_MSG(tb_text_is_valid(set), "a text with a length must have bytes");
+    /* The set is built once for both ends. */
+    tb_byte_set_add(&members, set.bytes, set.length);
+    leading = tb_bytes_span(text.bytes, 0, text.length, &members);
+    trailing = tb_bytes_rspan(text.bytes, leading, text.length, &members);
     return tb_text_sub(text, leading, text.length - trailing);
 }
 
@@ -151,7 +158,7 @@ size_t tb_text_find_any(tb_text text, size_t begin, size_t end, tb_text set)
 
     TB_ASSERT_MSG(tb_text_is_valid(set), "a text with a length must have bytes");
     end = tb_text_range_end(text, begin, end);
-    members = tb_byte_set_of(set.bytes, set.length);
+    tb_byte_set_add(&members, set.bytes, set.length);
     return tb_bytes_find_any(text.bytes, begin, end, &members);
 }
 
@@ -161,7 +168,7 @@ size_t tb_text_rfind_any(tb_text text, size_t begin, size_t end, tb_text set)
 
     TB_ASSERT_MSG(tb_text_is_valid(set), "a text with a length must have bytes");
     end = tb_text_range_end(text, begin, end);
-    members = tb_byte_set_of(set.bytes, set.length);
+    tb_byte_set_add(&members, set.bytes, set.length);
     return tb_bytes_rfind_any(text.bytes, begin, end, &members);
 }
 
@@ -185,7 +192,7 @@ size_t tb_text_span(tb_text text, size_t begin, size_t end, tb_text set)
 
     TB_ASSERT_MSG(tb_text_is_valid(set), "a text with a length must have bytes");
     end = tb_text_range_end(text, begin, end);
-    members = tb_byte_set_of(set.bytes, set.length);
+    tb_byte_set_add(&members, set.bytes, set.length);
     return tb_bytes_span(text.bytes, begin, end, &members);
 }
 
@@ -195,7 +202,7 @@ size_t tb_text_rspan(tb_text text, size_t begin, size_t end, tb_text set)
 
     TB_ASSERT_MSG(tb_text_is_valid(set), "a text with a length must have bytes");
     end = tb_text_range_end(text, begin, end);
-    members = tb_byte_set_of(set.bytes, set.length);
+    tb_byte_set_add(&members, set.bytes, set.length);
     return tb_bytes_rspan(text.bytes, begin, end, &members);
 }
 
