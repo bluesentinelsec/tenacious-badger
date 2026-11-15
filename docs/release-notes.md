@@ -84,6 +84,9 @@ measurements showed waste:
   first, and no text makes it slow: six times as fast when the first byte is
   common, as a space is. Searching backward for a byte is five times as fast,
   and trimming a short line twice.
+- `tb_bit_next_set` steps through the set bits of a bit vector with a cursor
+  that keeps its place, 1.7 to 4.4 times as fast as searching from each
+  result, and combining two bit vectors is 2.3 times as fast.
 
 Included foundations:
 

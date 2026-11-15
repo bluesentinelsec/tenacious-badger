@@ -130,12 +130,8 @@ TB_API void tb_bit_flip(tb_bit *bits, size_t begin, size_t end);
 /**
  * @brief Find the first set bit at or after a position.
  *
- * To visit every set bit, start at 0 and continue from one past each result:
- *
- * @code
- * for (size_t index = tb_bit_find_set(bits, 0); index != TB_BIT_NOT_FOUND;
- *      index = tb_bit_find_set(bits, index + 1))
- * @endcode
+ * To visit every set bit, use tb_bit_next_set(), which keeps its place from
+ * one bit to the next.
  *
  * @param bits Required non-null.
  * @param from Where to start looking; at most the length.
@@ -152,6 +148,49 @@ TB_API size_t tb_bit_find_set(const tb_bit *bits, size_t from);
  * there on is set.
  */
 TB_API size_t tb_bit_find_clear(const tb_bit *bits, size_t from);
+
+/**
+ * @brief Where a walk over the set bits of a vector has got to.
+ *
+ * Start one as `{0}` and pass it to every call of tb_bit_next_set(). Its
+ * members belong to that function.
+ */
+typedef struct tb_bit_cursor
+{
+    size_t next_word;   /**< Private: the word the walk takes next. */
+    uint64_t remaining; /**< Private: set bits of the current word not yet returned. */
+} tb_bit_cursor;
+
+/**
+ * @brief Step through the set bits of a vector, from the lowest to the highest.
+ *
+ * @code
+ * tb_bit_cursor cursor = {0};
+ * size_t index = 0;
+ *
+ * while (tb_bit_next_set(visible, &cursor, &index))
+ * {
+ *     draw(objects[index]);
+ * }
+ * @endcode
+ *
+ * This is the way to visit every set bit. It passes over 64 clear bits at a
+ * step and does not look for its place again between two bits, as a loop of
+ * tb_bit_find_set() calls must.
+ *
+ * The vector must not change between the first call and the last; unlike a
+ * contract violation elsewhere, that mistake is not detected. To change bits
+ * while walking them, use tb_bit_find_set().
+ *
+ * @param bits Required non-null.
+ * @param[in,out] cursor Where the walk has got to; required non-null. Start
+ * it as `{0}` and pass it to every call.
+ * @param[out] index Receives the number of the next set bit; required
+ * non-null. Left untouched when there are no more.
+ * @return true when `index` was filled in; false when every set bit has been
+ * returned.
+ */
+TB_API bool tb_bit_next_set(const tb_bit *bits, tb_bit_cursor *cursor, size_t *index);
 
 /**
  * @brief Called by tb_bit_visit() for each bit.
