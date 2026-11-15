@@ -18,14 +18,18 @@
 
 #define TB_BYTES_NOT_FOUND SIZE_MAX
 
-/* Which of the 256 byte values belong to a set. */
+/* Which of the 256 byte values belong to a set. Start one empty, with `{0}`,
+ * and add its members with tb_byte_set_add(). */
 typedef struct tb_byte_set
 {
     bool has[256];
 } tb_byte_set;
 
-/* The set of `length` bytes, which may repeat and may include zero. */
-tb_byte_set tb_byte_set_of(const char *members, size_t length);
+/* Adds `length` bytes to a set; they may repeat and may include zero. The set
+ * is filled where it is: a set is searched for far more often in a few bytes
+ * than in many, and returning one by value copied its 256 flags for every
+ * search. */
+void tb_byte_set_add(tb_byte_set *set, const char *members, size_t length);
 
 /* Three-way comparison of two byte ranges as unsigned bytes: negative, zero,
  * or positive as the left sorts before, equal to, or after the right. A range

@@ -293,6 +293,352 @@ TB_TEST(core_text, a_search_stays_inside_a_text_that_is_part_of_a_longer_string)
     TB_TEST_EXPECT(tb_text_ends_with(empty, empty));
 }
 
+/* --- searches against the obvious way of doing them ----------------------------
+ *
+ * The engine's searches take shortcuts: a word at a time, the rarest byte of a
+ * pattern first, a rolling hash when that goes badly. These are the same
+ * searches written one byte at a time, to compare them with. */
+
+static bool plain_set_has(tb_text set, char byte)
+{
+    for (size_t index = 0; index < set.length; index++)
+    {
+        if (set.bytes[index] == byte)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool plain_matches(tb_text text, size_t start, size_t end, tb_text pattern)
+{
+    if (pattern.length > end - start)
+    {
+        return false;
+    }
+    for (size_t index = 0; index < pattern.length; index++)
+    {
+        if (text.bytes[start + index] != pattern.bytes[index])
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+static size_t plain_find(tb_text text, size_t begin, size_t end, tb_text pattern)
+{
+    for (size_t start = begin; start <= end; start++)
+    {
+        if (plain_matches(text, start, end, pattern))
+        {
+            return start;
+        }
+    }
+    return TB_TEXT_NOT_FOUND;
+}
+
+static size_t plain_rfind(tb_text text, size_t begin, size_t end, tb_text pattern)
+{
+    for (size_t start = end + 1; start > begin; start--)
+    {
+        if (plain_matches(text, start - 1, end, pattern))
+        {
+            return start - 1;
+        }
+    }
+    return TB_TEXT_NOT_FOUND;
+}
+
+static size_t plain_find_any(tb_text text, size_t begin, size_t end, tb_text set)
+{
+    for (size_t index = begin; index < end; index++)
+    {
+        if (plain_set_has(set, text.bytes[index]))
+        {
+            return index;
+        }
+    }
+    return TB_TEXT_NOT_FOUND;
+}
+
+static size_t plain_rfind_any(tb_text text, size_t begin, size_t end, tb_text set)
+{
+    for (size_t index = end; index > begin; index--)
+    {
+        if (plain_set_has(set, text.bytes[index - 1]))
+        {
+            return index - 1;
+        }
+    }
+    return TB_TEXT_NOT_FOUND;
+}
+
+static size_t plain_span(tb_text text, size_t begin, size_t end, tb_text set)
+{
+    size_t index = begin;
+
+    while (index < end && plain_set_has(set, text.bytes[index]))
+    {
+        index++;
+    }
+    return index - begin;
+}
+
+static size_t plain_rspan(tb_text text, size_t begin, size_t end, tb_text set)
+{
+    size_t index = end;
+
+    while (index > begin && plain_set_has(set, text.bytes[index - 1]))
+    {
+        index--;
+    }
+    return end - index;
+}
+
+/* Fills a buffer with bytes drawn from the first `alphabet_size` of `alphabet`.
+ * A small alphabet makes texts in which everything nearly matches. */
+static void fill_from_alphabet(char *buffer, size_t length, const char *alphabet,
+                               size_t alphabet_size)
+{
+    for (size_t index = 0; index < length; index++)
+    {
+        buffer[index] = alphabet[tb_test_random_below(alphabet_size)];
+    }
+}
+
+TB_TEST(core_text, random_searches_agree_with_searches_one_byte_at_a_time)
+{
+    enum
+    {
+        ROUND_COUNT = 4000,
+        LONGEST_TEXT = 300,
+        LONGEST_PATTERN = 40,
+        LARGEST_SET = 6
+    };
+    /* Letters common and rare, a blank, a zero byte, and bytes above 127,
+     * which are in the upper words of a set of bytes. */
+    static const char alphabet[] = {'a', 'b', ' ', 'e', 'z', '\0', 'Q', '\x80', '\xC3', '\xFF'};
+    static const size_t alphabet_sizes[] = {1, 2, 3, sizeof(alphabet)};
+
+    for (size_t round = 0; round < ROUND_COUNT; round++)
+    {
+        char bytes[LONGEST_TEXT] = {0};
+        char pattern_bytes[LONGEST_PATTERN] = {0};
+        char set_bytes[LARGEST_SET] = {0};
+        const size_t alphabet_size =
+            alphabet_sizes[tb_test_random_below(TB_TEST_COUNT_OF(alphabet_sizes))];
+        const size_t length = (size_t)tb_test_random_below(LONGEST_TEXT + 1);
+        const size_t begin = (size_t)tb_test_random_below(length + 1);
+        const size_t end = begin + (size_t)tb_test_random_below(length - begin + 1);
+        const tb_text text = tb_text_make(bytes, length);
+        tb_text pattern = {0};
+        tb_text set = {0};
+        char byte = {0};
+
+        fill_from_alphabet(bytes, length, alphabet, alphabet_size);
+        if (tb_test_random_below(2) == 0 && end > begin)
+        {
+            /* A pattern that is in the range, wherever it starts and ends. */
+            const size_t start = begin + (size_t)tb_test_random_below(end - begin);
+            size_t pattern_length = (size_t)tb_test_random_below(end - start + 1);
+
+            if (pattern_length > LONGEST_PATTERN)
+            {
+                pattern_length = LONGEST_PATTERN;
+            }
+            pattern = tb_text_make(bytes + start, pattern_length);
+        }
+        else
+        {
+            const size_t pattern_length = (size_t)tb_test_random_below(LONGEST_PATTERN + 1);
+
+            fill_from_alphabet(pattern_bytes, pattern_length, alphabet, alphabet_size);
+            pattern = tb_text_make(pattern_bytes, pattern_length);
+        }
+        set = tb_text_make(set_bytes, (size_t)tb_test_random_below(LARGEST_SET + 1));
+        fill_from_alphabet(set_bytes, set.length, alphabet, sizeof(alphabet));
+        byte = alphabet[tb_test_random_below(sizeof(alphabet))];
+
+        TB_TEST_CONTEXT("round %zu: %zu bytes of %zu kinds, range %zu to %zu, pattern of %zu",
+                        round, length, alphabet_size, begin, end, pattern.length);
+        TB_TEST_EXPECT_UINT(tb_text_find(text, begin, end, pattern), ==,
+                            plain_find(text, begin, end, pattern));
+        TB_TEST_EXPECT_UINT(tb_text_rfind(text, begin, end, pattern), ==,
+                            plain_rfind(text, begin, end, pattern));
+        TB_TEST_EXPECT_UINT(tb_text_find_char(text, begin, end, byte), ==,
+                            plain_find(text, begin, end, tb_text_make(&byte, 1)));
+        TB_TEST_EXPECT_UINT(tb_text_rfind_char(text, begin, end, byte), ==,
+                            plain_rfind(text, begin, end, tb_text_make(&byte, 1)));
+        TB_TEST_EXPECT_UINT(tb_text_find_any(text, begin, end, set), ==,
+                            plain_find_any(text, begin, end, set));
+        TB_TEST_EXPECT_UINT(tb_text_rfind_any(text, begin, end, set), ==,
+                            plain_rfind_any(text, begin, end, set));
+        TB_TEST_EXPECT_UINT(tb_text_span(text, begin, end, set), ==,
+                            plain_span(text, begin, end, set));
+        TB_TEST_EXPECT_UINT(tb_text_rspan(text, begin, end, set), ==,
+                            plain_rspan(text, begin, end, set));
+    }
+}
+
+/* A backward search for a byte reads eight bytes at a time. Every length up
+ * to a few words, with the byte at every place and at none, makes it start,
+ * stop, and finish on every boundary. */
+TB_TEST(core_text, a_byte_is_found_from_the_end_wherever_it_is)
+{
+    enum
+    {
+        LONGEST = 40
+    };
+
+    for (size_t length = 0; length <= LONGEST; length++)
+    {
+        char bytes[LONGEST + 2] = {0};
+        /* The text starts one byte into the buffer, after a byte that must
+         * not be found. */
+        const tb_text text = tb_text_make(bytes + 1, length);
+
+        memset(bytes, '.', sizeof(bytes));
+        bytes[0] = '#';
+        bytes[length + 1] = '#';
+        TB_TEST_CONTEXT("%zu bytes without the byte", length);
+        TB_TEST_EXPECT_UINT(tb_text_rfind_char(text, 0, TB_TEXT_END, '#'), ==, TB_TEXT_NOT_FOUND);
+        for (size_t place = 0; place < length; place++)
+        {
+            bytes[1 + place] = '#';
+            TB_TEST_CONTEXT("%zu bytes with the byte at %zu", length, place);
+            TB_TEST_EXPECT_UINT(tb_text_rfind_char(text, 0, TB_TEXT_END, '#'), ==, place);
+            /* An earlier one as well: the later one is the one found. */
+            bytes[1] = '#';
+            TB_TEST_EXPECT_UINT(tb_text_rfind_char(text, 0, TB_TEXT_END, '#'), ==, place);
+            /* A range that ends before it finds the earlier one, or nothing. */
+            TB_TEST_EXPECT_UINT(tb_text_rfind_char(text, 0, place, '#'), ==,
+                                place == 0 ? TB_TEXT_NOT_FOUND : 0);
+            bytes[1] = '.';
+            bytes[1 + place] = '.';
+        }
+    }
+}
+
+/* Writes the text of `length` letters that a number spells: bit `index` of
+ * the number chooses between 'a' and 'b' for byte `index`. */
+static void spell(char *bytes, size_t length, size_t number)
+{
+    for (size_t index = 0; index < length; index++)
+    {
+        bytes[index] = ((number >> index) & 1u) != 0 ? 'b' : 'a';
+    }
+}
+
+/* Every text of up to seven letters from two, every range of it, and every
+ * pattern of up to three: small enough to try them all, and every way a
+ * match can lie against the ends of a range is among them. */
+TB_TEST(core_text, every_small_pattern_search_agrees_with_a_search_one_byte_at_a_time)
+{
+    enum
+    {
+        LONGEST_TEXT = 7,
+        LONGEST_PATTERN = 3
+    };
+
+    for (size_t length = 0; length <= LONGEST_TEXT; length++)
+    {
+        for (size_t number = 0; number < ((size_t)1 << length); number++)
+        {
+            char bytes[LONGEST_TEXT + 1] = {0};
+            const tb_text text = tb_text_make(bytes, length);
+
+            spell(bytes, length, number);
+            for (size_t pattern_length = 0; pattern_length <= LONGEST_PATTERN; pattern_length++)
+            {
+                for (size_t code = 0; code < ((size_t)1 << pattern_length); code++)
+                {
+                    char pattern_bytes[LONGEST_PATTERN + 1] = {0};
+                    const tb_text pattern = tb_text_make(pattern_bytes, pattern_length);
+
+                    spell(pattern_bytes, pattern_length, code);
+                    for (size_t begin = 0; begin <= length; begin++)
+                    {
+                        for (size_t end = begin; end <= length; end++)
+                        {
+                            TB_TEST_CONTEXT("\"%s\" from %zu to %zu, looking for \"%s\"", bytes,
+                                            begin, end, pattern_bytes);
+                            TB_TEST_EXPECT_UINT(tb_text_find(text, begin, end, pattern), ==,
+                                                plain_find(text, begin, end, pattern));
+                            TB_TEST_EXPECT_UINT(tb_text_rfind(text, begin, end, pattern), ==,
+                                                plain_rfind(text, begin, end, pattern));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/* When a search has turned to its rolling hash, a stretch of text with the
+ * hash of the pattern is a candidate, not a match. These two words have the
+ * same hash under it (multiply by 16,777,619 and add the next byte, in 32
+ * bits), found by trying random words until two agreed. */
+TB_TEST(core_text, a_stretch_with_the_hash_of_the_pattern_is_not_a_match)
+{
+    const tb_text pattern = TB_TEXT("lxvzrwmy");
+    /* The run of 'z', the pattern's rarest letter, is one false candidate
+     * after another, which is what turns the search to the rolling hash
+     * before it reaches the word with the pattern's hash. */
+    const tb_text without = TB_TEXT("zzzzzzzzzzzzzzzz wussuccl and no more");
+    const tb_text with = TB_TEXT("zzzzzzzzzzzzzzzz wussuccl lxvzrwmy");
+
+    TB_TEST_EXPECT_UINT(tb_text_find(without, 0, TB_TEXT_END, pattern), ==, TB_TEXT_NOT_FOUND);
+    TB_TEST_EXPECT_UINT(tb_text_find(with, 0, TB_TEXT_END, pattern), ==, 26);
+    /* The other way round as well. */
+    TB_TEST_EXPECT_UINT(tb_text_find(with, 0, TB_TEXT_END, TB_TEXT("wussuccl")), ==, 17);
+}
+
+/* Text in which every place nearly matches is what makes a search slow that
+ * compares at every candidate: here the search gives that up for a rolling
+ * hash. The answers must be the same either way. */
+TB_TEST(core_text, a_pattern_is_found_among_near_misses)
+{
+    enum
+    {
+        RUN_LENGTH = 32,
+        RUN_COUNT = 200,
+        LENGTH = RUN_LENGTH * RUN_COUNT
+    };
+    static char bytes[LENGTH + RUN_LENGTH] = {0};
+    char pattern_bytes[RUN_LENGTH] = {0};
+    const tb_text pattern = tb_text_make(pattern_bytes, RUN_LENGTH);
+    const tb_text misses = tb_text_make(bytes, LENGTH);
+    const tb_text with_a_match = tb_text_make(bytes, LENGTH + RUN_LENGTH);
+
+    /* Runs of 31 'a' and a 'b': the pattern of 32 'a' fits nowhere. */
+    memset(bytes, 'a', sizeof(bytes));
+    for (size_t run = 0; run < RUN_COUNT; run++)
+    {
+        bytes[run * RUN_LENGTH + RUN_LENGTH - 1] = 'b';
+    }
+    memset(pattern_bytes, 'a', sizeof(pattern_bytes));
+    TB_TEST_EXPECT_UINT(tb_text_find(misses, 0, TB_TEXT_END, pattern), ==, TB_TEXT_NOT_FOUND);
+    TB_TEST_EXPECT_UINT(tb_text_rfind(misses, 0, TB_TEXT_END, pattern), ==, TB_TEXT_NOT_FOUND);
+
+    /* With 32 more 'a' after the last 'b', it fits there and only there, at
+     * the very end. */
+    TB_TEST_EXPECT_UINT(tb_text_find(with_a_match, 0, TB_TEXT_END, pattern), ==, LENGTH);
+    TB_TEST_EXPECT_UINT(tb_text_find(with_a_match, 0, LENGTH + RUN_LENGTH - 1, pattern), ==,
+                        TB_TEXT_NOT_FOUND);
+    TB_TEST_EXPECT_UINT(tb_text_find(with_a_match, 17, TB_TEXT_END, pattern), ==, LENGTH);
+
+    /* A match in the middle is found though the search has given up its
+     * first method long before it: the 'b' that ends run 100 becomes an 'a',
+     * and the pattern fits from the start of that run. */
+    bytes[100 * RUN_LENGTH + RUN_LENGTH - 1] = 'a';
+    TB_TEST_EXPECT_UINT(tb_text_find(misses, 0, TB_TEXT_END, pattern), ==, 100 * RUN_LENGTH);
+    TB_TEST_EXPECT_UINT(tb_text_find(misses, 100 * RUN_LENGTH + 1, TB_TEXT_END, pattern), ==,
+                        100 * RUN_LENGTH + 1);
+    bytes[100 * RUN_LENGTH + RUN_LENGTH - 1] = 'b';
+}
+
 /* --- texts with bytes of their own -------------------------------------------- */
 
 TB_TEST(core_text, copy_and_to_cstr_give_a_text_a_life_of_its_own)

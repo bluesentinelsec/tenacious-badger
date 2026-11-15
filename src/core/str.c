@@ -102,7 +102,7 @@ size_t tb_str_find_any(const char *string, size_t begin, size_t end, const char 
 
     TB_ASSERT(set != NULL);
     end = tb_str_range_end(string, begin, end);
-    members = tb_byte_set_of(set, strlen(set));
+    tb_byte_set_add(&members, set, strlen(set));
     return tb_bytes_find_any(string, begin, end, &members);
 }
 
@@ -112,7 +112,7 @@ size_t tb_str_rfind_any(const char *string, size_t begin, size_t end, const char
 
     TB_ASSERT(set != NULL);
     end = tb_str_range_end(string, begin, end);
-    members = tb_byte_set_of(set, strlen(set));
+    tb_byte_set_add(&members, set, strlen(set));
     return tb_bytes_rfind_any(string, begin, end, &members);
 }
 
@@ -136,7 +136,7 @@ size_t tb_str_span(const char *string, size_t begin, size_t end, const char *set
 
     TB_ASSERT(set != NULL);
     end = tb_str_range_end(string, begin, end);
-    members = tb_byte_set_of(set, strlen(set));
+    tb_byte_set_add(&members, set, strlen(set));
     return tb_bytes_span(string, begin, end, &members);
 }
 
@@ -146,7 +146,7 @@ size_t tb_str_rspan(const char *string, size_t begin, size_t end, const char *se
 
     TB_ASSERT(set != NULL);
     end = tb_str_range_end(string, begin, end);
-    members = tb_byte_set_of(set, strlen(set));
+    tb_byte_set_add(&members, set, strlen(set));
     return tb_bytes_rspan(string, begin, end, &members);
 }
 

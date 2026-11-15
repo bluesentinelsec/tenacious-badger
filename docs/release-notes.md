@@ -80,6 +80,10 @@ measurements showed waste:
   at a time, and `tb_fmt_string` formats short text once, not twice: both are
   1.7 times as fast. A custom conversion is now called once for a new string
   shorter than 256 bytes.
+- Searching text for a pattern looks for the pattern's rarest byte, not its
+  first, and no text makes it slow: six times as fast when the first byte is
+  common, as a space is. Searching backward for a byte is five times as fast,
+  and trimming a short line twice.
 
 Included foundations:
 
