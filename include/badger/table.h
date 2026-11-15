@@ -27,7 +27,11 @@
  * destroyed, or keep them in an arena with the table.
  *
  * **Order.** Entries are visited in no particular order, and the order changes
- * as the table grows.
+ * as the table grows. With keys compared by address the order follows the
+ * addresses, so it can differ from one run of the program to the next. Code
+ * that must do the same thing in every run, a simulation that is replayed for
+ * one, must not let the order of a table reach its results: sort the entries,
+ * or keep the order it needs in an array.
  *
  * **Memory.** A table gets all of its memory from the allocator it was created
  * with (allocator.h). Growing fails fast; tb_table_try_reserve() is the one

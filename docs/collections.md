@@ -335,7 +335,11 @@ table holds is the one from the first put; a later put of an equal string
 replaces the value only.
 
 **Going through the entries** is in no particular order, and the order changes
-when the table grows. The simplest way needs no callback:
+when the table grows. With keys compared by address it follows the addresses,
+which can differ from one run of the program to the next: code that must do
+the same thing in every run, such as a simulation that is replayed, sorts the
+entries or keeps the order it needs in an array. The simplest way to go
+through them needs no callback:
 
 ```c
 size_t cursor = 0;

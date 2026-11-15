@@ -229,6 +229,57 @@ TB_TEST(core_table, put_stores_a_value_and_returns_the_one_it_replaced)
     }
 }
 
+/* --- how often the caller's functions run ------------------------------------- */
+
+static size_t counted_hash_calls = 0;
+
+static uint64_t counted_hash(const void *key)
+{
+    counted_hash_calls++;
+    return tb_hash_pointer(key);
+}
+
+/* Hashing can be the most expensive part of adding a key, a long string for
+ * one, so put must not do it more than once: not for a new key, not for a key
+ * that is already there, and not when the key makes the table grow. */
+TB_TEST(core_table, put_hashes_its_key_exactly_once)
+{
+    enum
+    {
+        KEY_COUNT = 200
+    };
+    tb_table *const table = tb_table_create(NULL, 0, counted_hash, same_address);
+    size_t capacity_before = 0;
+    size_t growths = 0;
+
+    for (size_t number = 0; number < KEY_COUNT; number++)
+    {
+        TB_TEST_CONTEXT("key %zu", number);
+        capacity_before = tb_table_capacity(table);
+        counted_hash_calls = 0;
+        TB_TEST_EXPECT_POINTER(tb_table_put(table, key_of(number), value_of(number)), ==, NULL);
+        TB_TEST_EXPECT_UINT(counted_hash_calls, ==, 1);
+        if (tb_table_capacity(table) != capacity_before)
+        {
+            growths++;
+        }
+
+        counted_hash_calls = 0;
+        TB_TEST_EXPECT_POINTER(tb_table_put(table, key_of(number), value_of(number + 1)), ==,
+                               value_of(number));
+        TB_TEST_EXPECT_UINT(counted_hash_calls, ==, 1);
+    }
+    /* The count held while the table grew, which this many keys make it do
+     * several times. */
+    TB_TEST_EXPECT_UINT(growths, >=, 4);
+    TB_TEST_EXPECT_UINT(tb_table_length(table), ==, KEY_COUNT);
+    for (size_t number = 0; number < KEY_COUNT; number++)
+    {
+        TB_TEST_EXPECT_POINTER(tb_table_get(table, key_of(number)), ==, value_of(number + 1));
+    }
+    tb_table_destroy(table);
+}
+
 TB_TEST(core_table, a_null_key_and_a_null_value_are_a_key_and_a_value)
 {
     tb_table *const table = tb_table_create(NULL, 0, NULL, NULL);
