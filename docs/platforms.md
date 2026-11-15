@@ -2,8 +2,8 @@
 
 The binding architecture is in [AGENTS.md](../AGENTS.md). The existing
 [vision.md](vision.md) is an earlier draft. Only the clock,
-abnormal-termination, and atomic-counter interfaces exist so far; the other
-platform services and rendering backends are still planned. No renderer, window, vendor SDK, or game loop is implemented.
+abnormal-termination, atomic-counter, and thread interfaces exist so far; the
+other platform services and rendering backends are still planned. No renderer, window, vendor SDK, or game loop is implemented.
 
 ## Clock
 
@@ -86,8 +86,78 @@ count live blocks with it.
 
 It is a platform interface because MSVC does not offer C11 `<stdatomic.h>` in
 C17 mode without an experimental switch. It is implemented on all three
-platforms: every allocation depends on it. It is the first piece of the planned
-threading interface, which will grow the remaining atomic types and operations.
+platforms: every allocation depends on it. Atomic values of other types, and
+the operations that exchange and compare them, are planned.
+
+## Threads, mutexes, and condition variables
+
+Public declaration: `include/badger/thread.h`.
+
+| | Functions |
+| --- | --- |
+| A thread | `tb_thread_create`, `tb_thread_join`, `tb_thread_current_id` |
+| A mutex | `tb_mutex_lock`, `tb_mutex_try_lock`, `tb_mutex_unlock` |
+| A condition variable | `tb_condition_wait`, `tb_condition_wait_for`, `tb_condition_wake_one`, `tb_condition_wake_all` |
+
+**A mutex and a condition variable are plain objects.** The caller puts one in
+a structure or makes it a global, zero-initializes it, and uses it. They hold
+no system resource, so there is nothing to create or destroy, and a global one
+is ready before any code runs. The engine's allocator can therefore guard
+itself with one.
+
+```c
+static tb_mutex table_lock = {0};
+
+tb_mutex_lock(&table_lock);
+/* ... */
+tb_mutex_unlock(&table_lock);
+```
+
+**A mutex is not recursive.** A thread that locks one it already holds never
+returns. There is no reader/writer form yet.
+
+**A wait can end with nobody having woken it.** Look at the state the mutex
+guards, in a loop, before going on. `tb_condition_wait_for` adds a time limit,
+counted on the engine's [clock](#clock): it reports the limit only when at
+least that long has passed, whatever the system's own timer does.
+
+**A variable for each thread is the C keyword `_Thread_local`.** MSVC, GCC,
+Clang, and AppleClang all provide it, so it needs no interface of its own. It
+starts at zero in every new thread. Nothing runs when a thread ends: a thread
+that gives its variable something to release must release it before it
+returns.
+
+**A thread has the system's default stack**, which is usually 1 MB on Windows,
+8 MB on Linux, and 512 KB on macOS. Stack sizes, names, priorities, and processor
+affinity are left for the job system to ask for.
+
+| Platform | Selected implementation | Thread | Mutex | Condition variable |
+| --- | --- | --- | --- | --- |
+| Windows | `src/platform/win32/thread.c` | `CreateThread` | Slim reader/writer lock, held exclusively | `SleepConditionVariableSRW` |
+| Linux / Steam Deck | `src/platform/posix/thread.c`, `src/platform/linux/condition.c` | `pthread_create` | `pthread_mutex_t` | `pthread_cond_t` on `CLOCK_MONOTONIC` |
+| macOS | `src/platform/posix/thread.c`, `src/platform/macos/condition.c` | `pthread_create` | `pthread_mutex_t` | `pthread_cond_t`, timed with `pthread_cond_timedwait_relative_np` |
+
+This interface is implemented on all three platforms, not stubbed. A lock that
+ends the process guards nothing, so a stub would take the tests of every
+module that locks off Linux and macOS.
+
+Linux and macOS share one implementation of POSIX threads. They differ only in
+how a condition variable waits for a limited time by a clock that is never
+set, and each supplies that part.
+
+The Windows objects are ready when they are all zeros. The POSIX ones have to
+be made by a function, so on Linux and macOS the first word of a `tb_mutex` or
+`tb_condition` records whether that has happened, and the first thread to use
+the object makes it. That is why the two types are larger there: 72 and 56
+bytes, against 8 and 8 on Windows. `badger/thread_storage.h`, which the build
+selects as it selects `badger/api.h`, tells the public header the size.
+
+A system call that fails, such as one that cannot start another thread, ends
+the process with a diagnostic that names the interface (`platform.thread`),
+the function, and the platform. Joining a thread twice does the same.
+
+On Linux the thread functions must be part of the C library, as they are from
+glibc 2.34 on; the build links no separate thread library.
 
 ## Future interfaces and capabilities
 
@@ -97,9 +167,10 @@ have subprocess tests. A fatal stub prints its interface, function, platform,
 the native API it will use, and the next action, then exits with failure; a
 CTest script launches it in a child process and checks both the exit status
 and the diagnostic. No interface is stubbed at present. Planned services
-include windowing/events, input, sleep and frame pacing, threads, virtual
-memory, files, dynamic libraries, audio devices, and system/crash information. Native APIs and future RHI backends are catalogued in
-the binding vision; their implementation is outside this bootstrap milestone.
+include windowing/events, input, sleep and frame pacing, virtual memory, files,
+dynamic libraries, audio devices, and system/crash information. Native APIs
+and future RHI backends are catalogued in the binding vision; their
+implementation is outside this bootstrap milestone.
 
 An unimplemented required interface is fatal. An optional hardware capability
 or missing vendor redistributable must instead report itself unavailable and

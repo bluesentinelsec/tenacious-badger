@@ -25,20 +25,16 @@
 #define PATIENCE_NANOSECONDS (UINT64_C(20) * NANOSECONDS_PER_SECOND)
 
 /* Waits on a condition until `*is_true`, which the mutex guards. Returns
- * false when it gave up waiting. */
+ * false when a wait reached its limit instead: nothing woke the thread in
+ * all the time a wake could take, whatever has become true since. */
 static bool wait_until(tb_condition *condition, tb_mutex *mutex, const bool *is_true)
 {
-    const uint64_t start = tb_platform_clock_nanoseconds();
-    uint64_t elapsed = 0;
-
     while (!*is_true)
     {
-        if (elapsed >= PATIENCE_NANOSECONDS)
+        if (!tb_condition_wait_for(condition, mutex, PATIENCE_NANOSECONDS))
         {
             return false;
         }
-        (void)tb_condition_wait_for(condition, mutex, PATIENCE_NANOSECONDS - elapsed);
-        elapsed = tb_platform_clock_nanoseconds() - start;
     }
     return true;
 }
@@ -552,19 +548,26 @@ TB_TEST(platform_condition, a_wait_with_a_time_limit_lasts_at_least_the_limit)
 
 typedef struct limited_waiter
 {
-    tb_mutex lock; /* Guards the fields below. */
-    tb_condition wake;
+    tb_mutex lock;        /* Guards the fields below. */
+    tb_condition arrival; /* Woken when `is_waiting` becomes true. */
+    tb_condition wake;    /* Where the waiter waits. */
+    bool is_waiting;      /* The waiter is waiting on `wake`. */
     bool is_time_to_wake;
-    bool was_woken;  /* The waiter saw `is_time_to_wake` before its limit. */
-    uint64_t waited; /* Nanoseconds the waiter spent. */
+    bool was_woken;  /* The wait ended before its limit. */
+    uint64_t waited; /* Nanoseconds the waiter spent waiting. */
 } limited_waiter;
 
 static void wait_with_a_long_limit(void *argument)
 {
     limited_waiter *const waiter = argument;
-    const uint64_t start = tb_platform_clock_nanoseconds();
+    uint64_t start = {0};
 
     tb_mutex_lock(&waiter->lock);
+    waiter->is_waiting = true;
+    tb_condition_wake_one(&waiter->arrival);
+    /* The lock is held until the wait gives it up, so whoever sees the flag
+     * is certain that this thread is waiting. */
+    start = tb_platform_clock_nanoseconds();
     waiter->was_woken = wait_until(&waiter->wake, &waiter->lock, &waiter->is_time_to_wake);
     waiter->waited = tb_platform_clock_nanoseconds() - start;
     tb_mutex_unlock(&waiter->lock);
@@ -577,6 +580,10 @@ TB_TEST(platform_condition, a_wait_with_a_time_limit_ends_when_it_is_woken)
 
     tb_thread_create(&thread, wait_with_a_long_limit, &waiter);
     tb_mutex_lock(&waiter.lock);
+    while (!waiter.is_waiting)
+    {
+        tb_condition_wait(&waiter.arrival, &waiter.lock);
+    }
     waiter.is_time_to_wake = true;
     tb_mutex_unlock(&waiter.lock);
     tb_condition_wake_one(&waiter.wake);

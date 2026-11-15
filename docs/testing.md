@@ -153,6 +153,20 @@ A trap leaves the code under test with a non-local jump. Nothing after the
 failing statement runs and nothing it acquired is released, so keep trap bodies
 to the one call that violates the contract.
 
+## Threads in tests
+
+The checks are for the thread that runs the case. A thread that a case starts
+with `tb_thread_create` must not call `TB_TEST_EXPECT` or any other check: it
+records what it saw in memory that the case gave it, and the case checks the
+record after `tb_thread_join`. Join every thread before a `TB_TEST_REQUIRE`
+or `TB_TEST_FAIL` can end the case, because ending it leaves the function
+whose variables the threads are using.
+
+A wait that broken code would never end hangs the whole run. Give such a wait
+a time limit with `tb_condition_wait_for`, generous enough that no working
+machine reaches it, and fail the case when it is reached.
+`tests/platform/thread_test.c` shows the pattern.
+
 ## Adding tests
 
 To add a case, write a `TB_TEST` in a test source. To add a test source, list

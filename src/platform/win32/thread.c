@@ -149,9 +149,9 @@ bool tb_condition_wait_for(tb_condition *condition, tb_mutex *mutex, uint64_t na
     const uint64_t start = tb_platform_clock_nanoseconds();
     uint64_t elapsed = 0;
 
-    /* The system counts a wait in ticks of its timer and may end one a tick
-     * early, and a limit beyond 49 days is waited for in parts. The clock
-     * decides when the limit has passed. */
+    /* The system counts a wait in ticks of its timer and sometimes ends one
+     * a fraction of a millisecond early, and a limit beyond 49 days is waited
+     * for in parts. The clock decides when the limit has passed. */
     while (elapsed < nanoseconds)
     {
         const DWORD milliseconds = tb_win32_wait_milliseconds(nanoseconds - elapsed);
