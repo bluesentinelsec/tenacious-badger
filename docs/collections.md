@@ -7,6 +7,7 @@ The engine's general-purpose containers. Each has one public header under
 | --- | --- | --- |
 | [Dynamic array](#dynamic-array) | `array.h` | Elements of one type, in order, stored contiguously. The default choice. |
 | [Bit vector](#bit-vector) | `bit.h` | One bit for each of a fixed number of things, with set operations. |
+| [Ring](#ring) | `ring.h` | A queue: elements added and removed at both ends in constant time. |
 
 ## What they have in common
 
@@ -136,3 +137,58 @@ for (size_t index = tb_bit_find_set(visible, 0); index != TB_BIT_NOT_FOUND;
     draw(objects[index]);
 }
 ```
+
+## Ring
+
+`tb_ring` is a sequence that grows and shrinks at both ends: the collection for
+queues. Events waiting to be handled, commands waiting to run, and the last N
+samples of a measurement all go in at one end and come out at the other. Both
+ends take constant time, because the elements live in a circular buffer whose
+start travels around it; nothing between the ends is ever moved.
+
+```c
+tb_ring *const pending = TB_RING_CREATE(NULL, event);
+
+TB_RING_PUSH_BACK(pending, event, incoming);
+while (tb_ring_length(pending) > 0)
+{
+    event next = {0};
+
+    tb_ring_pop_front(pending, &next);
+    handle(&next);
+}
+```
+
+| Need | Use |
+| --- | --- |
+| Create, destroy | `TB_RING_CREATE(allocator, type)`, `tb_ring_destroy(ring)` |
+| Add at an end | `TB_RING_PUSH_BACK(ring, type, value)`, `TB_RING_PUSH_FRONT(ring, type, value)` |
+| Remove from an end | `tb_ring_pop_front(ring, &element)`, `tb_ring_pop_back(ring, &element)` |
+| Read or write by index | `TB_RING_AT(ring, type, index)`, `tb_ring_get`, `tb_ring_put` |
+| Add or remove in the middle | `tb_ring_insert(ring, index, &element)`, `tb_ring_remove(ring, index, &element)` |
+| Rotate | `tb_ring_rotate_left(ring, count)`, `tb_ring_rotate_right(ring, count)` |
+| Control the storage | `tb_ring_reserve`, `tb_ring_try_reserve`, `tb_ring_shrink_to_fit`, `tb_ring_clear` |
+
+**Index 0 is the front.** Elements are numbered from the front, wherever they
+are in the buffer. `tb_ring_push_front` makes the new element index 0 and raises
+every other index by one.
+
+**The elements are not one block.** The sequence may wrap from the end of the
+buffer to its start, so a ring has no pointer to all of its elements. Use a
+dynamic array when the elements must be contiguous, and a ring when they come
+and go at both ends.
+
+**A queue that stays short never allocates again.** Once the buffer is large
+enough for the longest the queue gets, elements go round it indefinitely.
+Reserve that length up front to do all the allocation at startup.
+
+**Inserting and removing in the middle** move the elements on the shorter side
+of the index, so the cost depends on the distance from the nearer end.
+
+**Rotating left** moves the front element to the back, `count` times: the
+element that was at index `count` becomes index 0. A full ring rotates by moving
+its start, without touching an element. A ring of clients rotated left by one
+gives the next client its turn.
+
+**A ring is not a queue between threads.** It has no lock. A bounded queue for
+handing work from one thread to another is a different structure.
