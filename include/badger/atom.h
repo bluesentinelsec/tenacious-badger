@@ -30,6 +30,10 @@
  *
  * **Memory.** A table gets all of its memory from the allocator it was created
  * with (allocator.h). Running out fails fast, as everywhere in the engine.
+ * Atoms are not allocated one by one: they share blocks, the first of about a
+ * kilobyte and each later one twice the size of the last, up to 64 KiB, so a
+ * table with a few names takes little and a table with a million makes few
+ * allocations. An atom much longer than the others gets a block of its own.
  *
  * @par Threading
  * Externally synchronized: the caller serializes every call that names the

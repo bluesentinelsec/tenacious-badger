@@ -428,6 +428,17 @@ TB_TEST(core_atom, random_strings_agree_with_a_list_of_everything_interned)
 
 /* --- memory ------------------------------------------------------------------- */
 
+/* The sizes below follow from how atoms are laid out. An atom takes a header
+ * of 16 bytes, its bytes, and a terminator, rounded up to a multiple of 8: the
+ * decimal digits of a small number take 24 bytes. A block starts with 16 bytes
+ * of its own. The first block is 1,024 bytes and each one after it is twice
+ * the size of the last, up to 65,536. */
+enum
+{
+    SMALL_ATOM_SIZE = 24,
+    BLOCK_HEADER_SIZE = 16
+};
+
 TB_TEST(core_atom, all_memory_comes_from_the_allocator_and_goes_back_to_it)
 {
     tb_test_allocator tracker = {0};
@@ -440,8 +451,9 @@ TB_TEST(core_atom, all_memory_comes_from_the_allocator_and_goes_back_to_it)
 
         TB_TEST_EXPECT(tb_test_allocator_owns(&tracker, atom, tb_atom_length(atom) + 1));
     }
-    /* The table, its slots, and one block for each atom. */
-    TB_TEST_EXPECT_UINT(tracker.live_block_count, ==, 502);
+    /* The table, its slots, and four blocks: blocks of 1,024, 2,048, 4,096,
+     * and 8,192 bytes hold 42, 84, 170, and 340 of these atoms. */
+    TB_TEST_EXPECT_UINT(tracker.live_block_count, ==, 6);
     tb_atom_table_destroy(table);
     TB_TEST_EXPECT_STRING(tracker.first_violation, ==, "none");
     TB_TEST_EXPECT_UINT(tracker.live_block_count, ==, 0);
@@ -454,37 +466,189 @@ TB_TEST(core_atom, the_table_doubles_when_it_would_pass_three_quarters_full)
      * thirteenth of 16 slots, the twenty-fifth of 32, and so on. Growing later
      * makes every search longer; growing sooner or by more wastes memory. */
     static const size_t growing_atoms[] = {1, 13, 25, 49, 97, 193};
+    /* The atoms that need a new block: the first, and then the one after
+     * each block is full, with 42 in the first block and 84 in the second. */
+    static const size_t block_atoms[] = {1, 43, 127};
     tb_test_allocator tracker = {0};
     const tb_allocator allocator = tb_test_allocator_start(&tracker);
     tb_atom_table *const table = tb_atom_table_create(&allocator);
     size_t next_growth = {0};
+    size_t next_block = {0};
 
     for (size_t number = 1; number <= 200; number++)
     {
-        const size_t blocks_before = tracker.allocation_count;
-        size_t expected_blocks = 1;
+        const size_t allocations_before = tracker.allocation_count;
+        size_t expected_allocations = 0;
 
         (void)tb_atom_int(table, (long long)number);
         if (next_growth < TB_TEST_COUNT_OF(growing_atoms) && number == growing_atoms[next_growth])
         {
-            /* The atom, and the new slots. */
-            expected_blocks = 2;
+            expected_allocations++;
             next_growth++;
         }
+        if (next_block < TB_TEST_COUNT_OF(block_atoms) && number == block_atoms[next_block])
+        {
+            expected_allocations++;
+            next_block++;
+        }
         TB_TEST_CONTEXT("atom %zu", number);
-        TB_TEST_EXPECT_UINT(tracker.allocation_count - blocks_before, ==, expected_blocks);
+        TB_TEST_EXPECT_UINT(tracker.allocation_count - allocations_before, ==,
+                            expected_allocations);
     }
-    /* The slots that were outgrown went back: the table, its slots, and the
-     * atoms are all that is left. */
-    TB_TEST_EXPECT_UINT(tracker.live_block_count, ==, 202);
+    /* The slots that were outgrown went back: the table, its slots, and three
+     * blocks of atoms are all that is left. */
+    TB_TEST_EXPECT_UINT(tracker.live_block_count, ==, 5);
     tb_atom_table_destroy(table);
     TB_TEST_EXPECT_STRING(tracker.first_violation, ==, "none");
     TB_TEST_EXPECT_UINT(tracker.live_block_count, ==, 0);
 }
 
-static void intern_a_new_string(void *context)
+/* A table of many atoms must take few blocks, and a table of few atoms a
+ * small one. Blocks that did not grow would be 239 for these atoms; blocks
+ * that grew without limit would be 8. */
+TB_TEST(core_atom, blocks_double_in_size_up_to_a_limit)
 {
-    (void)tb_atom_string(context, "one more");
+    tb_test_allocator tracker = {0};
+    const tb_allocator allocator = tb_test_allocator_start(&tracker);
+    tb_atom_table *const table = tb_atom_table_create(&allocator);
+
+    (void)tb_atom_int(table, 0);
+    /* The table, its first slots, and a first block of 1,024 bytes. */
+    TB_TEST_EXPECT_UINT(tracker.live_block_count, ==, 3);
+    TB_TEST_EXPECT_UINT(tracker.live_byte_count, <, 2048);
+    for (int value = 1; value < 10000; value++)
+    {
+        (void)tb_atom_int(table, value);
+    }
+    /* Seven blocks from 1,024 to 65,536 bytes hold the first 5,412 of these
+     * atoms, and two more of 65,536 the rest: nine, with the table and its
+     * slots. */
+    TB_TEST_EXPECT_UINT(tracker.live_block_count, ==, 11);
+    tb_atom_table_destroy(table);
+    TB_TEST_EXPECT_STRING(tracker.first_violation, ==, "none");
+    TB_TEST_EXPECT_UINT(tracker.live_block_count, ==, 0);
+}
+
+/* A name much longer than the others, long enough to need memory of its own
+ * wherever the table has got to. */
+enum
+{
+    LONG_NAME_LENGTH = 3000
+};
+
+static const char *long_name(void)
+{
+    static char name[LONG_NAME_LENGTH + 1] = {0};
+
+    memset(name, 'n', LONG_NAME_LENGTH);
+    return name;
+}
+
+TB_TEST(core_atom, a_long_atom_gets_a_block_of_its_own_and_the_shared_block_carries_on)
+{
+    tb_test_allocator tracker = {0};
+    const tb_allocator allocator = tb_test_allocator_start(&tracker);
+    tb_atom_table *const table = tb_atom_table_create(&allocator);
+    char medium[500] = {0};
+    const char *first = NULL;
+    const char *second = NULL;
+    const char *third = NULL;
+    const char *fourth = NULL;
+    const char *long_atom = NULL;
+    size_t allocations = {0};
+    size_t bytes = {0};
+
+    memset(medium, 'm', sizeof(medium));
+    first = tb_atom_string(table, "a");
+    allocations = tracker.allocation_count;
+    bytes = tracker.live_byte_count;
+
+    /* The long atom does not fit in what is left of the first block and is
+     * more than a quarter of the next one, so it gets a block of exactly its
+     * size: 16 bytes of block, 16 of header, 3,001 of name rounded up to 3,008. */
+    long_atom = tb_atom_new(table, long_name(), LONG_NAME_LENGTH);
+    expect_atom(long_atom, long_name(), LONG_NAME_LENGTH);
+    TB_TEST_EXPECT_UINT(tracker.allocation_count - allocations, ==, 1);
+    TB_TEST_EXPECT_UINT(tracker.live_byte_count - bytes, ==, BLOCK_HEADER_SIZE + 16 + 3008);
+
+    /* The first block was not given up for it: the next atoms follow the
+     * first one there, each rounded up to a multiple of 8 bytes. */
+    second = tb_atom_string(table, "b");
+    TB_TEST_EXPECT_POINTER(second, ==, first + SMALL_ATOM_SIZE);
+    third = tb_atom_new(table, medium, 400);
+    TB_TEST_EXPECT_POINTER(third, ==, second + SMALL_ATOM_SIZE);
+    fourth = tb_atom_new(table, medium, 500);
+    TB_TEST_EXPECT_POINTER(fourth, ==, third + 16 + 408);
+    TB_TEST_EXPECT_UINT(tracker.allocation_count - allocations, ==, 1);
+
+    /* Sixteen bytes are left in the first block. An atom that does not fit
+     * and is no more than a quarter of the next block starts that block,
+     * which is twice the size of the first, and the atom after it follows. */
+    bytes = tracker.live_byte_count;
+    first = tb_atom_string(table, "c");
+    TB_TEST_EXPECT_UINT(tracker.allocation_count - allocations, ==, 2);
+    TB_TEST_EXPECT_UINT(tracker.live_byte_count - bytes, ==, 2048);
+    second = tb_atom_string(table, "d");
+    TB_TEST_EXPECT_POINTER(second, ==, first + SMALL_ATOM_SIZE);
+    TB_TEST_EXPECT_UINT(tracker.allocation_count - allocations, ==, 2);
+
+    TB_TEST_EXPECT_UINT(tb_atom_table_count(table), ==, 7);
+    expect_atom(long_atom, long_name(), LONG_NAME_LENGTH);
+    expect_atom(third, medium, 400);
+    expect_atom(fourth, medium, 500);
+    tb_atom_table_destroy(table);
+    TB_TEST_EXPECT_STRING(tracker.first_violation, ==, "none");
+    TB_TEST_EXPECT_UINT(tracker.live_block_count, ==, 0);
+}
+
+/* Where the line falls between an atom that shares a block and one that gets
+ * its own. An atom of `length` bytes takes `length + 17` bytes rounded up to
+ * a multiple of 8. */
+TB_TEST(core_atom, an_atom_gets_its_own_block_only_past_a_quarter_of_the_next_one)
+{
+    tb_test_allocator tracker = {0};
+    const tb_allocator allocator = tb_test_allocator_start(&tracker);
+    tb_atom_table *const table = tb_atom_table_create(&allocator);
+    char bytes[1600] = {0};
+    const char *first = NULL;
+    const char *exact = NULL;
+    size_t allocations = {0};
+    size_t live_bytes = {0};
+
+    memset(bytes, 'q', sizeof(bytes));
+    first = tb_atom_string(table, "a");
+    allocations = tracker.allocation_count;
+
+    /* 984 bytes are left in the first block. An atom of exactly that size
+     * fits, however large a part of the next block it would be. */
+    exact = tb_atom_new(table, bytes, 984 - 17);
+    TB_TEST_EXPECT_POINTER(exact, ==, first + SMALL_ATOM_SIZE);
+    TB_TEST_EXPECT_UINT(tracker.allocation_count - allocations, ==, 0);
+
+    /* The first block is full and the next will be 2,048 bytes. An atom of
+     * exactly a quarter of that, 512 bytes, starts it. */
+    live_bytes = tracker.live_byte_count;
+    (void)tb_atom_new(table, bytes, 512 - 17);
+    TB_TEST_EXPECT_UINT(tracker.allocation_count - allocations, ==, 1);
+    TB_TEST_EXPECT_UINT(tracker.live_byte_count - live_bytes, ==, 2048);
+
+    /* 1,520 bytes are left in that block and the next will be 4,096. An atom
+     * of 1,600 does not fit and is more than a quarter of 4,096, so it gets a
+     * block of its own, of its size and the 16 bytes every block starts with. */
+    live_bytes = tracker.live_byte_count;
+    (void)tb_atom_new(table, bytes, 1600 - 17);
+    TB_TEST_EXPECT_UINT(tracker.allocation_count - allocations, ==, 2);
+    TB_TEST_EXPECT_UINT(tracker.live_byte_count - live_bytes, ==, BLOCK_HEADER_SIZE + 1600);
+
+    TB_TEST_EXPECT_UINT(tb_atom_table_count(table), ==, 4);
+    tb_atom_table_destroy(table);
+    TB_TEST_EXPECT_STRING(tracker.first_violation, ==, "none");
+    TB_TEST_EXPECT_UINT(tracker.live_block_count, ==, 0);
+}
+
+static void intern_the_long_name(void *context)
+{
+    (void)tb_atom_new(context, long_name(), LONG_NAME_LENGTH);
 }
 
 static void create_a_table(void *context)
@@ -506,7 +670,7 @@ TB_TEST(core_atom, an_exhausted_allocator_ends_interning_and_leaves_the_table_in
     }
     live_blocks = tracker.live_block_count;
     tb_test_allocator_fail_after(&tracker, 0);
-    TB_TEST_EXPECT_TRAP(intern_a_new_string, table, "out of memory");
+    TB_TEST_EXPECT_TRAP(intern_the_long_name, table, "out of memory");
     TB_TEST_EXPECT_TRAP(create_a_table, &allocator, "out of memory");
     /* An atom that exists needs no memory to be found. */
     TB_TEST_EXPECT_POINTER(tb_atom_int(table, 7), ==, atoms[7]);
@@ -518,8 +682,8 @@ TB_TEST(core_atom, an_exhausted_allocator_ends_interning_and_leaves_the_table_in
     {
         TB_TEST_EXPECT_POINTER(tb_atom_int(table, value), ==, atoms[value]);
     }
-    TB_TEST_EXPECT_POINTER(tb_atom_find(table, "one more", 8), ==, NULL);
-    TB_TEST_EXPECT_STRING(tb_atom_string(table, "one more"), ==, "one more");
+    TB_TEST_EXPECT_POINTER(tb_atom_find(table, long_name(), LONG_NAME_LENGTH), ==, NULL);
+    expect_atom(tb_atom_new(table, long_name(), LONG_NAME_LENGTH), long_name(), LONG_NAME_LENGTH);
     tb_atom_table_destroy(table);
     TB_TEST_EXPECT_STRING(tracker.first_violation, ==, "none");
     TB_TEST_EXPECT_UINT(tracker.live_block_count, ==, 0);
@@ -533,8 +697,8 @@ TB_TEST(core_atom, running_out_of_memory_after_the_table_grew_leaves_no_atom_beh
     const char *atoms[12] = {0};
     size_t live_blocks = {0};
 
-    /* Twelve atoms fill the first slots, so the next one needs two blocks:
-     * larger slots, and the atom. */
+    /* Twelve atoms fill the first slots, so the long one after them needs two
+     * allocations: larger slots, and a block for itself. */
     for (int value = 0; value < 12; value++)
     {
         atoms[value] = tb_atom_int(table, value);
@@ -542,9 +706,10 @@ TB_TEST(core_atom, running_out_of_memory_after_the_table_grew_leaves_no_atom_beh
     live_blocks = tracker.live_block_count;
     /* The first of the two is supplied and the second refused. The table
      * must have asked for the slots first: they replace the old ones, where
-     * an atom allocated first would be a block that nothing refers to. */
+     * a block for the atom allocated first would hold an atom that no slot
+     * refers to. */
     tb_test_allocator_fail_after(&tracker, 1);
-    TB_TEST_EXPECT_TRAP(intern_a_new_string, table, "out of memory");
+    TB_TEST_EXPECT_TRAP(intern_the_long_name, table, "out of memory");
     tb_test_allocator_stop_failing(&tracker);
 
     TB_TEST_EXPECT_UINT(tracker.live_block_count, ==, live_blocks);
@@ -553,8 +718,8 @@ TB_TEST(core_atom, running_out_of_memory_after_the_table_grew_leaves_no_atom_beh
     {
         TB_TEST_EXPECT_POINTER(tb_atom_int(table, value), ==, atoms[value]);
     }
-    TB_TEST_EXPECT_POINTER(tb_atom_find(table, "one more", 8), ==, NULL);
-    TB_TEST_EXPECT_STRING(tb_atom_string(table, "one more"), ==, "one more");
+    TB_TEST_EXPECT_POINTER(tb_atom_find(table, long_name(), LONG_NAME_LENGTH), ==, NULL);
+    expect_atom(tb_atom_new(table, long_name(), LONG_NAME_LENGTH), long_name(), LONG_NAME_LENGTH);
     tb_atom_table_destroy(table);
     TB_TEST_EXPECT_STRING(tracker.first_violation, ==, "none");
     TB_TEST_EXPECT_UINT(tracker.live_block_count, ==, 0);
