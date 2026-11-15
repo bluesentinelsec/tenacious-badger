@@ -343,4 +343,4 @@ suppression.
 - A scratch arena for each thread, which needs thread-local storage from the
   platform threading interface (#36).
 - Arenas that reserve address space and commit it as they grow, which need the
-  platform memory interface.
+  platform memory interface (#38).
