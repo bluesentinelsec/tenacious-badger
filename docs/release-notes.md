@@ -73,6 +73,9 @@ measurements showed waste:
   identifier hashes in less than half the time and a long key in a fifteenth,
   which makes every table and set keyed by strings, and every atom, faster.
   The values of `tb_hash_bytes` and `tb_hash_string` changed with it.
+- An atom table carves its atoms from shared blocks and searches once for a
+  new name: interning a new name is 1.6 to 3 times as fast, and destroying a
+  table of 100,000 atoms 16 times.
 
 Included foundations:
 

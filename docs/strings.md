@@ -311,7 +311,9 @@ The atom of a text is `tb_atom_new(table, text.bytes, text.length)`.
 **Atoms live as long as their table.** They are never released one by one, so
 an atom can be kept anywhere without counting references. Destroying the table
 releases them all. Give a table an arena, and the arena releases everything at
-once.
+once. Atoms share blocks of memory that start at a kilobyte and double up to
+64 KiB, so interning a new name seldom reaches the allocator and a table of any
+size is released in a few steps.
 
 **Each table is its own world.** Equal strings interned in two tables are two
 different pointers. Compare atoms only with atoms of the same table.
