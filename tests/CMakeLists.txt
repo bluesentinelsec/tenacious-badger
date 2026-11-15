@@ -15,6 +15,7 @@ set(TB_TEST_CASE_SOURCES
     core/list_test.c
     core/memory_test.c
     core/ring_test.c
+    core/set_test.c
     core/size_test.c
     core/str_test.c
     core/sum_test.c

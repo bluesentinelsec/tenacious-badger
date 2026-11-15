@@ -17,7 +17,7 @@ The foundation layer so far, one public header per module under
 | `memory.h` | [Memory allocation](memory.md) that fails fast, with a replaceable allocator |
 | `arena.h` | [Arenas](memory.md#arenas) for objects that share a lifetime |
 | `allocator.h` | [Allocators chosen per object](memory.md#choosing-the-allocator-of-one-object) |
-| `array.h`, `bit.h`, `ring.h`, `list.h`, `table.h` | [Collections](collections.md): a dynamic array, a bit vector, a ring, an intrusive list, and a hash table |
+| `array.h`, `bit.h`, `ring.h`, `list.h`, `table.h`, `set.h` | [Collections](collections.md): a dynamic array, a bit vector, a ring, an intrusive list, a hash table, and a set |
 | `str.h`, `text.h`, `fmt.h`, `atom.h`, `hash.h` | [Strings](strings.md): C strings, text values, formatted output, atoms, and hash functions |
 | `platform.h` | Three native platform interfaces: time, abort, and an atomic counter |
 
