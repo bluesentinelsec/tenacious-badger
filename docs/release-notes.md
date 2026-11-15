@@ -42,6 +42,8 @@ The first collections are in place, each taking the allocator it uses:
   the next set or clear bit, and the set operations.
 - `badger/ring.h`: a queue that adds and removes at both ends in constant time,
   with indexed access and rotation.
+- `badger/list.h`: an intrusive doubly linked list, whose elements join and
+  leave in constant time without allocation.
 
 Included foundations:
 

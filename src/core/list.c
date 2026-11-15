@@ -1,0 +1,220 @@
+/* The list is circular through its head: the head's next is the front
+ * element, its previous the back element, and both are the head itself when
+ * the list is empty. No operation has a special case for an end. */
+#include "badger/list.h"
+
+#include "badger/assert.h"
+
+/* Joins a link in between two neighbors that are next to each other. */
+static void tb_list_link_between(tb_list_link *link, tb_list_link *previous, tb_list_link *next)
+{
+    TB_ASSERT(link != NULL);
+    TB_ASSERT_MSG(link->next == NULL && link->previous == NULL,
+                  "the link must not be in a list already");
+    link->previous = previous;
+    link->next = next;
+    previous->next = link;
+    next->previous = link;
+}
+
+/* A list that was only zero-initialized has no links at all. One that was
+ * initialized always has both, so one of them tells the two apart. */
+static bool tb_list_is_initialized(const tb_list *list)
+{
+    return list->head.next != NULL;
+}
+
+void tb_list_init(tb_list *list)
+{
+    TB_ASSERT(list != NULL);
+    list->head.next = &list->head;
+    list->head.previous = &list->head;
+}
+
+/* ---------------------------------------------------------------------------
+ * Adding and removing.
+ * ------------------------------------------------------------------------- */
+
+void tb_list_push_front(tb_list *list, tb_list_link *link)
+{
+    TB_ASSERT(list != NULL);
+    TB_ASSERT_MSG(tb_list_is_initialized(list), "the list must be initialized");
+    tb_list_link_between(link, &list->head, list->head.next);
+}
+
+void tb_list_push_back(tb_list *list, tb_list_link *link)
+{
+    TB_ASSERT(list != NULL);
+    TB_ASSERT_MSG(tb_list_is_initialized(list), "the list must be initialized");
+    tb_list_link_between(link, list->head.previous, &list->head);
+}
+
+void tb_list_insert_before(tb_list_link *position, tb_list_link *link)
+{
+    TB_ASSERT(position != NULL);
+    TB_ASSERT_MSG(tb_list_link_is_linked(position), "the position must be in a list");
+    tb_list_link_between(link, position->previous, position);
+}
+
+void tb_list_insert_after(tb_list_link *position, tb_list_link *link)
+{
+    TB_ASSERT(position != NULL);
+    TB_ASSERT_MSG(tb_list_link_is_linked(position), "the position must be in a list");
+    tb_list_link_between(link, position, position->next);
+}
+
+void tb_list_remove(tb_list_link *link)
+{
+    TB_ASSERT(link != NULL);
+    TB_ASSERT_MSG(tb_list_link_is_linked(link), "the link must be in a list");
+    link->previous->next = link->next;
+    link->next->previous = link->previous;
+    link->next = NULL;
+    link->previous = NULL;
+}
+
+tb_list_link *tb_list_pop_front(tb_list *list)
+{
+    tb_list_link *const link = tb_list_first(list);
+
+    if (link != NULL)
+    {
+        tb_list_remove(link);
+    }
+    return link;
+}
+
+tb_list_link *tb_list_pop_back(tb_list *list)
+{
+    tb_list_link *const link = tb_list_last(list);
+
+    if (link != NULL)
+    {
+        tb_list_remove(link);
+    }
+    return link;
+}
+
+bool tb_list_link_is_linked(const tb_list_link *link)
+{
+    TB_ASSERT(link != NULL);
+    return link->next != NULL;
+}
+
+/* ---------------------------------------------------------------------------
+ * Walking a list.
+ * ------------------------------------------------------------------------- */
+
+bool tb_list_is_empty(const tb_list *list)
+{
+    TB_ASSERT(list != NULL);
+    TB_ASSERT_MSG(tb_list_is_initialized(list), "the list must be initialized");
+    return list->head.next == &list->head;
+}
+
+/* A neighbor of a link as an element: NULL when it is the head, which is not
+ * an element. */
+static tb_list_link *tb_list_element(const tb_list *list, tb_list_link *neighbor)
+{
+    if (neighbor == &list->head)
+    {
+        return NULL;
+    }
+    return neighbor;
+}
+
+tb_list_link *tb_list_first(const tb_list *list)
+{
+    TB_ASSERT(list != NULL);
+    TB_ASSERT_MSG(tb_list_is_initialized(list), "the list must be initialized");
+    return tb_list_element(list, list->head.next);
+}
+
+tb_list_link *tb_list_last(const tb_list *list)
+{
+    TB_ASSERT(list != NULL);
+    TB_ASSERT_MSG(tb_list_is_initialized(list), "the list must be initialized");
+    return tb_list_element(list, list->head.previous);
+}
+
+tb_list_link *tb_list_next(const tb_list *list, const tb_list_link *link)
+{
+    TB_ASSERT(list != NULL);
+    TB_ASSERT(link != NULL);
+    TB_ASSERT_MSG(tb_list_link_is_linked(link), "the link must be in a list");
+    return tb_list_element(list, link->next);
+}
+
+tb_list_link *tb_list_previous(const tb_list *list, const tb_list_link *link)
+{
+    TB_ASSERT(list != NULL);
+    TB_ASSERT(link != NULL);
+    TB_ASSERT_MSG(tb_list_link_is_linked(link), "the link must be in a list");
+    return tb_list_element(list, link->previous);
+}
+
+size_t tb_list_length(const tb_list *list)
+{
+    return tb_list_to_array(list, NULL, 0);
+}
+
+size_t tb_list_to_array(const tb_list *list, tb_list_link **links, size_t capacity)
+{
+    size_t count = {0};
+
+    TB_ASSERT(links != NULL || capacity == 0);
+    for (tb_list_link *link = tb_list_first(list); link != NULL; link = tb_list_next(list, link))
+    {
+        if (count < capacity)
+        {
+            links[count] = link;
+        }
+        count++;
+    }
+    return count;
+}
+
+/* ---------------------------------------------------------------------------
+ * Whole lists.
+ * ------------------------------------------------------------------------- */
+
+void tb_list_append(tb_list *list, tb_list *other)
+{
+    tb_list_link *first = NULL;
+    tb_list_link *last = NULL;
+
+    TB_ASSERT(list != NULL);
+    TB_ASSERT(other != NULL);
+    TB_ASSERT_MSG(list != other, "a list cannot be appended to itself");
+    TB_ASSERT_MSG(tb_list_is_initialized(list), "the list must be initialized");
+    if (tb_list_is_empty(other))
+    {
+        return;
+    }
+    first = other->head.next;
+    last = other->head.previous;
+    first->previous = list->head.previous;
+    list->head.previous->next = first;
+    last->next = &list->head;
+    list->head.previous = last;
+    tb_list_init(other);
+}
+
+void tb_list_reverse(tb_list *list)
+{
+    tb_list_link *link = NULL;
+
+    TB_ASSERT(list != NULL);
+    TB_ASSERT_MSG(tb_list_is_initialized(list), "the list must be initialized");
+    /* Swapping the two pointers of every link, the head included, reverses
+     * the direction of the whole circle. */
+    link = &list->head;
+    do
+    {
+        tb_list_link *const next = link->next;
+
+        link->next = link->previous;
+        link->previous = next;
+        link = next;
+    } while (link != &list->head);
+}
