@@ -8,6 +8,7 @@ The engine's general-purpose containers. Each has one public header under
 | [Dynamic array](#dynamic-array) | `array.h` | Elements of one type, in order, stored contiguously. The default choice. |
 | [Bit vector](#bit-vector) | `bit.h` | One bit for each of a fixed number of things, with set operations. |
 | [Ring](#ring) | `ring.h` | A queue: elements added and removed at both ends in constant time. |
+| [List](#list) | `list.h` | Membership: objects that join and leave sets in constant time, without allocation. |
 
 ## What they have in common
 
@@ -31,6 +32,9 @@ The engine's general-purpose containers. Each has one public header under
   not conditions to handle.
 - **No locks.** A collection is externally synchronized: the caller serializes
   every call that names the same object.
+
+The [list](#list) differs in one way: it is intrusive. It owns no memory, takes
+no allocator, and is initialized in place instead of created.
 
 ## Dynamic array
 
@@ -192,3 +196,82 @@ gives the next client its turn.
 
 **A ring is not a queue between threads.** It has no lock. A bounded queue for
 handing work from one thread to another is a different structure.
+
+## List
+
+`tb_list` is an intrusive doubly linked list: the links live inside the
+elements. An element joins a list by embedding a `tb_list_link` in its own
+structure, so the list allocates nothing and takes no allocator. Adding and
+removing an element rewrites a few pointers, and removal needs only the element
+itself, not a search for it.
+
+```c
+typedef struct projectile
+{
+    vector position;
+    tb_list_link link; /* membership of the active or the free list */
+} projectile;
+
+tb_list active = TB_LIST_INIT(active);
+
+tb_list_push_back(&active, &shot->link);
+for (tb_list_link *link = tb_list_first(&active); link != NULL;
+     link = tb_list_next(&active, link))
+{
+    projectile *const each = TB_LIST_ENTRY(link, projectile, link);
+    ...
+}
+tb_list_remove(&shot->link); /* constant time, from wherever it is */
+```
+
+| Need | Use |
+| --- | --- |
+| Make a list empty | `TB_LIST_INIT(list)`, `tb_list_init(&list)` |
+| Add at an end | `tb_list_push_front(&list, &link)`, `tb_list_push_back(&list, &link)` |
+| Add next to an element | `tb_list_insert_before(&position, &link)`, `tb_list_insert_after(&position, &link)` |
+| Remove an element | `tb_list_remove(&link)` |
+| Remove from an end | `tb_list_pop_front(&list)`, `tb_list_pop_back(&list)` |
+| Walk | `tb_list_first`, `tb_list_last`, `tb_list_next`, `tb_list_previous` |
+| Get the element of a link | `TB_LIST_ENTRY(link, type, member)` |
+| Measure | `tb_list_is_empty(&list)`, `tb_list_length(&list)`, `tb_list_link_is_linked(&link)` |
+| Whole lists | `tb_list_append(&list, &other)`, `tb_list_reverse(&list)`, `tb_list_to_array(&list, links, capacity)` |
+
+**Use it for membership, not storage.** A list suits objects that move between
+sets: projectiles between "active" and "free", entities waiting on an event.
+Walking a list follows pointers through memory, which is slow for anything
+visited every frame. Values that are stored and scanned belong in a dynamic
+array.
+
+**One link, one list.** A link is in at most one list at a time. An element that
+must be in several lists at once embeds one link for each, and `TB_LIST_ENTRY`
+names which.
+
+**Initialize before use.** A list is made empty with `TB_LIST_INIT` or
+`tb_list_init`; a zero-initialized `tb_list` is not a valid list. A link starts
+zero-initialized, which means "in no list", and `tb_list_remove` returns it to
+that state. Builds with assertions use this to catch a link added to a list
+twice, removed twice, or used with a list that was never initialized.
+
+**The list borrows its elements.** Remove an element before releasing or
+reusing its memory. Do not move or copy a `tb_list` while it has elements: they
+point back at it.
+
+**Removing while walking.** Take the next link before removing the current one:
+
+```c
+tb_list_link *link = tb_list_first(&active);
+
+while (link != NULL)
+{
+    tb_list_link *const next = tb_list_next(&active, link);
+
+    if (has_expired(TB_LIST_ENTRY(link, projectile, link)))
+    {
+        tb_list_remove(link);
+    }
+    link = next;
+}
+```
+
+**The length is counted.** `tb_list_length` walks the list. A caller that needs
+the length often keeps its own count.
