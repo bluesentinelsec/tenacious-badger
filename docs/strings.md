@@ -6,6 +6,7 @@ under `include/badger/`, which is its API reference.
 | Module | Header | Use it for |
 | --- | --- | --- |
 | [C strings](#c-strings) | `str.h` | Searching, comparing, and building NUL-terminated strings. |
+| [Formatting](#formatting) | `fmt.h` | printf-style output to a buffer, a new string, a stream, or any function. |
 
 ## What they have in common
 
@@ -100,3 +101,102 @@ TB_STR_END, "/\\")` finds the first separator of either kind, and
 so the length must be what it was when the string was built. A string that was
 shortened by writing a terminator into it is released with `tb_allocator_free`
 and its original size, or was allocated in an arena and is not released at all.
+
+## Formatting
+
+`fmt.h` is printf-style formatting that writes anywhere and can be taught new
+conversions. Logging, the console, error messages, and string building all go
+through it. It does not use the C library's printf, so a format produces the
+same bytes on every platform and never depends on the process locale.
+
+```c
+char label[32] = {0};
+char *message = NULL;
+
+(void)tb_fmt_buffer(label, sizeof(label), "%s #%03d", name, index);
+message = tb_fmt_string(NULL, "loaded %zu of %zu assets", loaded, total);
+tb_fmt_print("%s\n", message);
+tb_str_free(NULL, message);
+```
+
+| Destination | Function |
+| --- | --- |
+| A buffer you supply | `tb_fmt_buffer(buffer, size, format, ...)` |
+| A new string | `tb_fmt_string(allocator, format, ...)` |
+| Standard output, standard error | `tb_fmt_print(format, ...)`, `tb_fmt_print_error(format, ...)` |
+| Any function that accepts bytes | `tb_fmt_write(sink, context, format, ...)` |
+
+Each has a form that takes a `va_list`, with a `v` after `tb_fmt_`, for writing
+your own formatting functions.
+
+**A buffer is never overrun and always terminated.** `tb_fmt_buffer` returns
+the length of the whole output, so `length < size` means it fit, and the same
+call with a size of 0 measures without writing.
+
+**A new string is exactly as long as its text**, from whichever allocator you
+choose. Release it with `tb_str_free`, or format into an arena.
+
+### Format strings
+
+A conversion is `%`, then optional flags, width, precision, and length, then a
+conversion character, as in C.
+
+| Conversion | Argument | Output |
+| --- | --- | --- |
+| `%d`, `%i` | signed integer | decimal |
+| `%u` | unsigned integer | decimal |
+| `%x`, `%X` | unsigned integer | hexadecimal; `#` adds `0x` or `0X` |
+| `%o` | unsigned integer | octal; `#` adds a leading `0` |
+| `%c` | `int` | the byte with that value |
+| `%s` | `const char *` | the string; `(null)` for a null pointer |
+| `%p` | `void *` | `0x` and the address in hexadecimal, the same on every platform |
+| `%%` | none | a percent sign |
+
+| Part | Values |
+| --- | --- |
+| Flags | `-` left-justify, `+` always show a sign, space, `0` pad with zeros, `#` alternate form |
+| Width | a number, or `*` to take an `int` argument |
+| Precision | `.` and a number, or `.*`: least digits of an integer, most bytes of a string |
+| Length | `hh`, `h`, `l`, `ll`, `j`, `z`, `t`, for the integer conversions |
+
+The integer, character, and string conversions behave exactly as the C standard
+specifies for printf; the tests compare them with the C library on tens of
+thousands of random formats.
+
+**Floating point is not converted yet.** `%f`, `%e`, `%g`, and `%a` are
+reserved for a conversion that is correct and the same on every platform, which
+is a project of its own (#49). Until then they are invalid.
+
+**A format string is part of the program.** An unknown conversion, or a format
+that ends inside one, is a contract violation: it fails an assertion, and in
+builds without assertions is written out as it stands. Never pass text from
+outside the program as a format; pass it as an argument to `"%s"`.
+
+**No compile-time checking.** Compilers can check printf formats only against
+the conversions they know, which would reject the ones a program registers.
+Format calls are therefore not checked by the compiler; the assertion catches
+an invalid format the first time it runs.
+
+### Conversions of your own
+
+`tb_fmt_register` adds a conversion character for a type of your own:
+
+```c
+static void format_vector(tb_fmt_output *output, const tb_fmt_spec *spec, va_list *arguments)
+{
+    const vector *const value = va_arg(*arguments, const vector *);
+    char text[64] = {0};
+    const size_t length = tb_fmt_buffer(text, sizeof(text), "(%d, %d)", value->x, value->y);
+
+    tb_fmt_put_padded(output, spec, text, length);
+}
+
+(void)tb_fmt_register('V', format_vector);
+tb_fmt_print("moved to %V\n", &position);
+```
+
+The conversion takes its own arguments with `va_arg`, reads the flags, width,
+and precision from the spec, and writes with `tb_fmt_put` or
+`tb_fmt_put_padded`. Any ASCII letter that C does not already use in a
+conversion can be registered. Register conversions during single-threaded
+startup; formatting itself is thread-safe.
