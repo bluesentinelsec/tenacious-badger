@@ -114,7 +114,9 @@ Code can now run on several threads. `badger/thread.h` starts and joins
 threads and provides a mutex and a condition variable, on Windows, Linux, and
 macOS. A mutex or a condition variable is a plain object that is ready when it
 is zero-initialized and needs no destruction, so one can be a global or a
-field of any structure. A wait can be given a time limit.
+field of any structure. A wait can be given a time limit. For code that must
+not lock, `badger/platform.h` adds an atomic 32-bit value and an atomic
+pointer, each with load, store, exchange, and compare-and-exchange.
 
 Included foundations:
 

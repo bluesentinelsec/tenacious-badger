@@ -19,7 +19,8 @@ The foundation layer so far, one public header per module under
 | `allocator.h` | [Allocators chosen per object](memory.md#choosing-the-allocator-of-one-object) |
 | `array.h`, `bit.h`, `ring.h`, `list.h`, `table.h`, `set.h` | [Collections](collections.md): a dynamic array, a bit vector, a ring, an intrusive list, a hash table, and a set |
 | `str.h`, `text.h`, `fmt.h`, `atom.h`, `hash.h` | [Strings](strings.md): C strings, text values, formatted output, atoms, and hash functions |
-| `platform.h` | Three native platform interfaces: time, abort, and an atomic counter |
+| `platform.h` | [Native platform interfaces](platforms.md): the clock, abort, and atomic values |
+| `thread.h` | [Threads, mutexes, and condition variables](platforms.md#threads-mutexes-and-condition-variables) |
 
 `burrow` calls the shared library and prints `2 + 3 = 5`. Rendering, windowing,
 gameplay, vendor integrations, and the other planned modules remain future work.
@@ -206,7 +207,7 @@ replaces:
 | `assert`, `static_assert`, `_Static_assert`, `<assert.h>` | `TB_ASSERT`, `TB_ASSERT_MSG`, `TB_STATIC_ASSERT` | `assert.h` |
 | `abort` | `TB_ASSERT`, or `tb_platform_abort` after reporting | [`platform.h`](platforms.md#abnormal-termination) |
 | `timespec_get`, `clock_gettime`, `QueryPerformanceCounter`, `mach_absolute_time`, and other native clocks | `tb_platform_clock_nanoseconds` | [`platform.h`](platforms.md#clock) |
-| `<stdatomic.h>`, `_Atomic`, `Interlocked...`, `__atomic_...`, `__sync_...` | `tb_platform_atomic_size` | [`platform.h`](platforms.md#atomic-counter) |
+| `<stdatomic.h>`, `_Atomic`, `Interlocked...`, `__atomic_...`, `__sync_...` | `tb_platform_atomic_size`, `tb_platform_atomic_u32`, `tb_platform_atomic_pointer` | [`platform.h`](platforms.md#atomic-values) |
 | `<pthread.h>`, `<threads.h>`, `pthread_...`, `thrd_...`, `mtx_...`, `cnd_...`, `CreateThread`, the Win32 lock and condition variable functions | `tb_thread`, `tb_mutex`, `tb_condition` | [`thread.h`](platforms.md#threads-mutexes-and-condition-variables) |
 | `thread_local`, `__thread`, `tss_...`, `TlsAlloc` and its relatives | The C keyword `_Thread_local` | [`thread.h`](platforms.md#threads-mutexes-and-condition-variables) |
 | `<search.h>` | `tb_table`, `tb_set`, `tb_list` | [`table.h`](collections.md) |
