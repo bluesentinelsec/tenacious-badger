@@ -2,7 +2,7 @@
 CMAKE ?= cmake
 CTEST ?= ctest
 
-.PHONY: debug release test sanitizer fmt check-format doc tags clean
+.PHONY: debug release test sanitizer thread-sanitizer fmt check-format doc tags clean
 
 debug:
 	$(CMAKE) --preset debug
@@ -21,6 +21,11 @@ sanitizer:
 	$(CMAKE) --build --preset sanitizer
 	$(CTEST) --preset sanitizer
 
+thread-sanitizer:
+	$(CMAKE) --preset thread-sanitizer
+	$(CMAKE) --build --preset thread-sanitizer
+	$(CTEST) --preset thread-sanitizer
+
 fmt:
 	$(CMAKE) -DTB_FORMAT_MODE=write -P cmake/Format.cmake
 
@@ -35,4 +40,4 @@ tags:
 	ctags
 
 clean:
-	$(CMAKE) -E rm -rf build/debug build/release build/sanitizer
+	$(CMAKE) -E rm -rf build/debug build/release build/sanitizer build/thread-sanitizer
