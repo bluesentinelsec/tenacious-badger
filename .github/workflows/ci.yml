@@ -85,6 +85,22 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  default-adapter:
+    name: Default platform adapter
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Configure the engine as an unsupported platform would be, with the default adapter
+        run: >
+          cmake -S . -B build/default-adapter -DCMAKE_BUILD_TYPE=Debug
+          -DTB_USE_DEFAULT_PLATFORM_ADAPTER=ON
+          -DTB_BUILD_BURROW=OFF -DTB_BUILD_TESTS=OFF -DTB_BUILD_BENCHMARKS=OFF
+      - name: Build the shared and static libraries
+        run: cmake --build build/default-adapter --parallel
+
   format:
     name: C formatting
     runs-on: ubuntu-26.04

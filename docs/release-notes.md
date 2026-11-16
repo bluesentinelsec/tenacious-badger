@@ -118,6 +118,12 @@ field of any structure. A wait can be given a time limit. For code that must
 not lock, `badger/platform.h` adds an atomic 32-bit value and an atomic
 pointer, each with load, store, exchange, and compare-and-exchange.
 
+Windows, Linux, and macOS each implement every platform interface. Any other
+platform now fails by design: configuring the build stops with a message that
+names the platform and says how to port to it, and a default adapter, built
+only on request with `-DTB_USE_DEFAULT_PLATFORM_ADAPTER=ON`, reports "not
+implemented" from every function and ends the process.
+
 Included foundations:
 
 - `badger` dynamic library and `badger_static` static library with the same

@@ -1,0 +1,14 @@
+/** @file thread_storage.h
+ * @brief Build-selected sizes of the synchronization objects on a platform
+ * with no adapter, where they hold nothing.
+ */
+#ifndef TB_THREAD_STORAGE_H
+#define TB_THREAD_STORAGE_H
+
+/** @brief Pointer-sized words in a tb_mutex: the fewest an array can have. */
+#define TB_MUTEX_STORAGE_WORDS 1
+
+/** @brief Pointer-sized words in a tb_condition: the fewest an array can have. */
+#define TB_CONDITION_STORAGE_WORDS 1
+
+#endif

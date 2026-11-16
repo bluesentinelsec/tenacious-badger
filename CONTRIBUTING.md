@@ -13,8 +13,10 @@ Keep reusable behavior in the `badger` library, and keep `burrow` thin. List
 translation units explicitly in component CMake files; build inputs are never
 found by globbing. Formatting and the source checks find C sources and headers
 by themselves in `benchmarks`, `cmake`, `include`, `src`, and `tests`.
-Every new platform interface needs a Windows adapter and compiling Linux/macOS
-implementations or fatal stubs. Document public APIs with Doxygen, including
+Every new platform interface is implemented in the Windows, Linux, and macOS
+adapters in one change, and gains a "not implemented" default for any other
+platform; [docs/platforms.md](docs/platforms.md#future-interfaces-and-capabilities)
+lists the steps. Document public APIs with Doxygen, including
 their threading, ownership, valid-input, and failure contracts.
 
 Before review:

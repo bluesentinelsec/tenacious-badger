@@ -5,6 +5,10 @@ The binding architecture is in [AGENTS.md](../AGENTS.md). The existing
 abnormal-termination, atomic-value, and thread interfaces exist so far; the
 other platform services and rendering backends are still planned. No renderer, window, vendor SDK, or game loop is implemented.
 
+Every interface is implemented on Windows, Linux, and macOS.
+[Any other platform](#unsupported-platforms) stops the build, and reports
+"not implemented" if it is built anyway.
+
 ## Clock
 
 Public declaration: `include/badger/platform.h`,
@@ -21,9 +25,8 @@ thread.
 | Linux / Steam Deck | `src/platform/linux/time.c` | `clock_gettime(CLOCK_MONOTONIC)` | Stops |
 | macOS | `src/platform/macos/time.c` | `clock_gettime_nsec_np(CLOCK_UPTIME_RAW)`, the counter that `mach_absolute_time` reads | Stops |
 
-This interface is implemented on all three platforms, not stubbed: the
-benchmarks time with it everywhere, and each adapter is one call to the system.
-A native clock that cannot be read ends the process with a diagnostic that
+The benchmarks time with it everywhere, and each adapter is one call to the
+system. A native clock that cannot be read ends the process with a diagnostic that
 names the interface (`platform.time`), the function, and the platform.
 
 Only the Windows counter has a frequency of its own, 10 MHz on current
@@ -63,8 +66,8 @@ waits on an error dialog, runs no exit handlers, and does not return.
 | Linux / Steam Deck | `src/platform/linux/abort.c` | Calls `abort()`: `SIGABRT`, and a core dump where the system is configured for one. |
 | macOS | `src/platform/macos/abort.c` | Calls `abort()`: `SIGABRT`, and a crash report where the system is configured for one. |
 
-This interface is implemented on all three platforms, not stubbed: a fatal stub
-itself needs a way to end the process. Crash dumps and stack traces belong to
+Reporting any failure needs a way to end the process, so this is also the one
+function that the [default adapter](#unsupported-platforms) implements. Crash dumps and stack traces belong to
 the planned system-information interface and will hook in here.
 
 A child process checks in CI that a failed assertion reports its location and
@@ -103,8 +106,7 @@ for the caller to arrange.
 | macOS | `src/platform/macos/atomic.c` | The compiler's atomic builtins (AppleClang). |
 
 It is a platform interface because MSVC does not offer C11 `<stdatomic.h>` in
-C17 mode without an experimental switch. It is implemented on all three
-platforms: every allocation depends on it. Weaker orderings, and arithmetic on
+C17 mode without an experimental switch. Every allocation depends on it. Weaker orderings, and arithmetic on
 the 32-bit value, wait for the code that needs them.
 
 ## Threads, mutexes, and condition variables
@@ -155,10 +157,6 @@ affinity are left for the job system to ask for.
 | Linux / Steam Deck | `src/platform/posix/thread.c`, `src/platform/linux/condition.c` | `pthread_create` | `pthread_mutex_t` | `pthread_cond_t` on `CLOCK_MONOTONIC` |
 | macOS | `src/platform/posix/thread.c`, `src/platform/macos/condition.c` | `pthread_create` | `pthread_mutex_t` | `pthread_cond_t`, timed with `pthread_cond_timedwait_relative_np` |
 
-This interface is implemented on all three platforms, not stubbed. A lock that
-ends the process guards nothing, so a stub would take the tests of every
-module that locks off Linux and macOS.
-
 Linux and macOS share one implementation of POSIX threads. They differ only in
 how a condition variable waits for a limited time by a clock that is never
 set, and each supplies that part.
@@ -177,22 +175,85 @@ the function, and the platform. Joining a thread twice does the same.
 On Linux the thread functions must be part of the C library, as they are from
 glibc 2.34 on; the build links no separate thread library.
 
+## Unsupported platforms
+
+Windows, Linux, and macOS are the supported platforms, and each implements
+every interface above. Any other platform fails in two places.
+
+**The build stops.** Configuring for another system ends with an error that
+names it and says what to do:
+
+```
+Tenacious Badger does not support the platform 'Haiku'. It supports Windows,
+Linux, and macOS.
+
+To port it, add a platform adapter in src/platform/<name>/ that implements
+every platform interface, and choose it in cmake/PlatformAdapter.cmake;
+docs/platforms.md describes the interfaces.
+
+To build before the adapter is finished, configure with
+-DTB_USE_DEFAULT_PLATFORM_ADAPTER=ON. Every function of the default adapter
+reports "not implemented" and ends the process.
+```
+
+**The default adapter reports "not implemented".** `src/platform/default/`
+holds every function of every platform interface, in standard C, so it
+compiles anywhere. Each one prints the interface, the function, the platform,
+and the next step to the standard error stream, then ends the process with a
+failure status:
+
+```
+platform.thread: tb_mutex_lock on Haiku: not implemented; add a platform adapter for Haiku under src/platform/
+```
+
+A port starts from it. The engine then builds for the new platform at once,
+and runs until the first call that the port has not written yet, which says
+which one it was. None of the functions pretends: a lock that did nothing
+would let every thread in, and an atomic operation written in plain C would
+work until two threads met in it.
+
+`tb_platform_abort` is the exception. Standard C can end a process, and the
+report of every other function depends on it, so the default adapter
+implements it with `_Exit`.
+
+| | With the default adapter |
+| --- | --- |
+| Selected by | `-DTB_USE_DEFAULT_PLATFORM_ADAPTER=ON`, on any system |
+| `badger/api.h` | `TB_API` adds nothing; a port that builds a shared library supplies its own |
+| `tb_mutex`, `tb_condition` | One pointer-sized word each, unused |
+
+CTest probes the default adapter on every supported platform
+(`tests/platform/default_probe.c`, `tests/ExpectPlatformDefault.cmake`). The
+script reads the functions from the public headers and runs each in a child
+process, so a function that is added to an interface without its default, or
+without a probe, fails the test. `tests/ExpectPlatformSelection.cmake` checks
+which adapter each system gets, and that any other system stops the build
+with the message above. CI also builds the engine with the default adapter on
+Linux.
+
 ## Future interfaces and capabilities
 
-For each new platform interface, add its public contract and all three adapters
-together. Linux/macOS adapters may initially be fatal stubs, but must compile and
-have subprocess tests. A fatal stub prints its interface, function, platform,
-the native API it will use, and the next action, then exits with failure; a
-CTest script launches it in a child process and checks both the exit status
-and the diagnostic. No interface is stubbed at present. Planned services
-include windowing/events, input, sleep and frame pacing, virtual memory, files,
-dynamic libraries, audio devices, and system/crash information. Native APIs
-and future RHI backends are catalogued in the binding vision; their
-implementation is outside this bootstrap milestone.
+For each new platform interface, add in one change:
 
-An unimplemented required interface is fatal. An optional hardware capability
-or missing vendor redistributable must instead report itself unavailable and
-allow the engine's documented fallback. Do not introduce vendor headers,
+- its public contract, in a header under `include/badger/`;
+- an implementation in all three adapters, `src/platform/win32/`,
+  `src/platform/linux/`, and `src/platform/macos/`, with tests that run on
+  each;
+- each function in the default adapter, `src/platform/default/`, with a case
+  in `tests/platform/default_probe.c`;
+- a new header in `TB_PLATFORM_INTERFACE_HEADERS` in `tests/CMakeLists.txt`,
+  which is the list the default adapter is checked against.
+
+No interface is implemented on fewer than the three platforms. Planned
+services include windowing/events, input, sleep and frame pacing, virtual
+memory, files, dynamic libraries, audio devices, and system/crash information.
+Native APIs and future RHI backends are catalogued in the binding vision.
+
+A rendering backend or a vendor plugin is not a platform interface. One that
+is not written yet reports "not implemented" when it is selected, in the same
+form, on a platform that is otherwise supported. An optional hardware
+capability or missing vendor redistributable must instead report itself
+unavailable and allow the engine's documented fallback. Do not introduce vendor headers,
 redistributables, SDKs, or platform packages without the author's approval.
 
 ## Builds
