@@ -13,7 +13,8 @@ from package_desktop import ROOT, require, run, verify_windows_signatures
 
 
 def verify(prefix, metadata):
-    for header in ['api.h', 'assert.h', 'core.h', 'memory.h', 'platform.h', 'version.h']:
+    for header in ['api.h', 'assert.h', 'core.h', 'memory.h', 'platform.h', 'thread.h',
+                   'thread_storage.h', 'version.h']:
         require((prefix / 'include/badger' / header).is_file(), f'Missing public header: {header}')
     require((prefix / 'lib/cmake/TenaciousBadger/TenaciousBadgerConfig.cmake').is_file(),
             'Missing relocatable CMake package')

@@ -1,0 +1,13 @@
+/** @file thread_storage.h
+ * @brief Build-selected sizes of the Windows synchronization objects.
+ */
+#ifndef TB_THREAD_STORAGE_H
+#define TB_THREAD_STORAGE_H
+
+/** @brief Pointer-sized words in a tb_mutex: a slim reader/writer lock. */
+#define TB_MUTEX_STORAGE_WORDS 1
+
+/** @brief Pointer-sized words in a tb_condition: a condition variable. */
+#define TB_CONDITION_STORAGE_WORDS 1
+
+#endif

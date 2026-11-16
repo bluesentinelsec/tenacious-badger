@@ -207,6 +207,8 @@ replaces:
 | `abort` | `TB_ASSERT`, or `tb_platform_abort` after reporting | [`platform.h`](platforms.md#abnormal-termination) |
 | `timespec_get`, `clock_gettime`, `QueryPerformanceCounter`, `mach_absolute_time`, and other native clocks | `tb_platform_clock_nanoseconds` | [`platform.h`](platforms.md#clock) |
 | `<stdatomic.h>`, `_Atomic`, `Interlocked...`, `__atomic_...`, `__sync_...` | `tb_platform_atomic_size` | [`platform.h`](platforms.md#atomic-counter) |
+| `<pthread.h>`, `<threads.h>`, `pthread_...`, `thrd_...`, `mtx_...`, `cnd_...`, `CreateThread`, the Win32 lock and condition variable functions | `tb_thread`, `tb_mutex`, `tb_condition` | [`thread.h`](platforms.md#threads-mutexes-and-condition-variables) |
+| `thread_local`, `__thread`, `tss_...`, `TlsAlloc` and its relatives | The C keyword `_Thread_local` | [`thread.h`](platforms.md#threads-mutexes-and-condition-variables) |
 | `<search.h>` | `tb_table`, `tb_set`, `tb_list` | [`table.h`](collections.md) |
 
 `python tools/check_foundation.py --list` prints every name. The check reads
@@ -236,7 +238,7 @@ in-source suppression. The table holds three kinds of entry:
 
 - The module that implements the replacement: `src/core/memory.c` on `malloc`,
   `src/core/str.c` on `strlen`, `src/core/fmt.c` on `fflush`, and
-  `src/platform/` on the native clocks, atomics, and `abort`. The platform
+  `src/platform/` on the native clocks, atomics, threads, locks, and `abort`. The platform
   adapters are the layer beneath the foundation modules, built and tested
   without them, so an adapter also reports a failure with `fputs`.
 - A benchmark or test that sets a module beside the C library on purpose: the

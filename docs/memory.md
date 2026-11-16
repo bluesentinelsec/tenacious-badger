@@ -409,7 +409,8 @@ them, how exceptions are granted, and what the check does not report.
 
 - A debugging allocator that records call sites and detects overruns in
   individual blocks (#31).
-- A scratch arena for each thread, which needs thread-local storage from the
-  platform threading interface (#36).
+- A scratch arena for each thread. A variable for each thread is available
+  ([platforms.md](platforms.md#threads-mutexes-and-condition-variables)); the
+  arena itself is not written.
 - Arenas that reserve address space and commit it as they grow, which need the
   platform memory interface (#38).

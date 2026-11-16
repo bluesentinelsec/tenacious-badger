@@ -110,6 +110,12 @@ reads a monotonic clock in nanoseconds on Windows, Linux, and macOS. It
 replaces `tb_platform_ticks`, whose ticks had no stated length and which ended
 the process on Linux and macOS. `tb_bench` times with it.
 
+Code can now run on several threads. `badger/thread.h` starts and joins
+threads and provides a mutex and a condition variable, on Windows, Linux, and
+macOS. A mutex or a condition variable is a plain object that is ready when it
+is zero-initialized and needs no destruction, so one can be a global or a
+field of any structure. A wait can be given a time limit.
+
 Included foundations:
 
 - `badger` dynamic library and `badger_static` static library with the same
@@ -118,6 +124,7 @@ Included foundations:
 - `tb_bench`, an in-house benchmark of the foundation modules, run at a small
   size by the tests on every platform.
 - A monotonic clock in nanoseconds, native on Windows, Linux, and macOS.
+- Threads, mutexes, and condition variables, native on the same three.
 - Debug/Release CI, formatting, and standalone sanitizer tests on all three OSes.
 - Native desktop exports with icons, metadata, relative library paths, and
   extraction-and-launch checks in CI.

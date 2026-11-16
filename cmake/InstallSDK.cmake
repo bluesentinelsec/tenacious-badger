@@ -4,6 +4,7 @@ install(TARGETS badger badger_static EXPORT TenaciousBadgerTargets
     RUNTIME DESTINATION bin LIBRARY DESTINATION lib ARCHIVE DESTINATION lib)
 install(DIRECTORY "${PROJECT_SOURCE_DIR}/include/badger" DESTINATION include)
 install(FILES "${PROJECT_BINARY_DIR}/generated/badger/api.h"
+    "${PROJECT_BINARY_DIR}/generated/badger/thread_storage.h"
     "${PROJECT_BINARY_DIR}/generated/badger/version.h" DESTINATION include/badger)
 install(FILES "${PROJECT_SOURCE_DIR}/LICENSE" "${PROJECT_SOURCE_DIR}/NOTICE"
     DESTINATION .)
