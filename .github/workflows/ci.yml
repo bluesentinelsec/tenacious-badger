@@ -53,7 +53,7 @@ jobs:
         run: cmake -S . -B build/ci -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
       - name: Build
         run: cmake --build build/ci --config ${{ matrix.build_type }} --parallel
-      - name: Test shared library, consumer, and native adapter or fatal stub
+      - name: Test shared library, consumer, and native adapter
         run: ctest --test-dir build/ci -C ${{ matrix.build_type }} --output-on-failure --no-tests=error
       - name: Install the dynamic/static SDK and public headers
         run: cmake --install build/ci --config ${{ matrix.build_type }} --prefix stage/sdk

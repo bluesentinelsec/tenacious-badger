@@ -5,5 +5,3 @@ set(TB_PLATFORM_SOURCES
     CACHE INTERNAL "Selected platform adapter sources")
 target_sources(badger PRIVATE ${TB_PLATFORM_SOURCES})
 target_sources(badger_static PRIVATE ${TB_PLATFORM_SOURCES})
-set(TB_STUB_PLATFORM "macos" CACHE INTERNAL "Fatal stub platform")
-set(TB_STUB_API "mach_absolute_time" CACHE INTERNAL "Planned native time API")

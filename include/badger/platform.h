@@ -10,15 +10,23 @@
 #include <stdint.h>
 
 /**
- * @brief Read the native monotonic performance counter in opaque ticks.
- * @return Counter value on Windows. The epoch and tick period are unspecified;
- * use values only to compare readings during the current process lifetime.
- * @par Errors Native counter failure terminates with a diagnostic. Linux and
- * macOS terminate with a fatal-stub diagnostic naming the planned native API.
+ * @brief Read the monotonic clock, in nanoseconds.
+ *
+ * The clock counts from a moment that is fixed while the process runs and is
+ * otherwise unspecified, so one reading means nothing alone: subtract an
+ * earlier reading from a later one for the time between them. It never goes
+ * backward, and a change to the date or the time of day does not move it.
+ * Whether it advances while the system is suspended depends on the platform.
+ *
+ * @return Nanoseconds since the clock's starting moment. Readings are as fine
+ * as the native counter, typically 100 nanoseconds or finer. The count does
+ * not wrap for more than 500 years.
+ * @par Errors A native clock that cannot be read ends the process with a
+ * diagnostic.
  * @par Ownership No allocations or caller-owned resources.
  * @par Threading Thread-safe; no shared mutable engine state.
  */
-TB_API uint64_t tb_platform_ticks(void);
+TB_API uint64_t tb_platform_clock_nanoseconds(void);
 
 /**
  * @brief End the process abnormally, at once.

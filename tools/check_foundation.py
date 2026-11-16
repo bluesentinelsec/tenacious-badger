@@ -101,10 +101,10 @@ FAILURES = rule('badger/assert.h', 'include/badger/assert.h', {
 })
 
 TIMING = rule('badger/platform.h', 'docs/platforms.md', {
-    'tb_platform_ticks':
-        'timespec_get clock_gettime gettimeofday QueryPerformanceCounter '
-        'QueryPerformanceFrequency GetTickCount GetTickCount64 mach_absolute_time '
-        'mach_continuous_time',
+    'tb_platform_clock_nanoseconds':
+        'timespec_get clock_gettime clock_gettime_nsec_np gettimeofday '
+        'QueryPerformanceCounter QueryPerformanceFrequency GetTickCount GetTickCount64 '
+        'mach_absolute_time mach_continuous_time',
 })
 
 ATOMICS = rule('badger/platform.h', 'docs/platforms.md', {
@@ -150,9 +150,6 @@ AUTHORIZED = {
     'benchmarks/core/text_bench.c': (
         {'strstr', 'strrchr', 'strcspn'},
         'measures the C library beside badger/str.h'),
-    'benchmarks/harness/tb_bench.c': (
-        {'timespec_get'},
-        'tb_platform_ticks has no stated period, and is a fatal stub on Linux and macOS'),
 
     # Tests that check a module against the C library, which shares no code
     # with it.
@@ -165,6 +162,9 @@ AUTHORIZED = {
     'tests/core/text_test.c': (
         {'strlen'},
         'checks badger/text.h against the C library'),
+    'tests/platform/time_test.c': (
+        {'timespec_get'},
+        'checks the engine clock against the C library'),
 
     # The test framework cannot link the engine, so it cannot use the
     # foundation. Its allocations stay confined to one file.
@@ -400,8 +400,11 @@ def self_test():
          ['assert', '_Static_assert', 'abort']),
         ('engine assertions', 'TB_ASSERT(x > 0); TB_STATIC_ASSERT(1, "one"); tb_platform_abort();',
          []),
-        ('clocks', 'timespec_get(&now, TIME_UTC); QueryPerformanceCounter(&counter);',
-         ['timespec_get', 'QueryPerformanceCounter']),
+        ('clocks',
+         'timespec_get(&now, TIME_UTC); QueryPerformanceCounter(&counter); '
+         'now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);',
+         ['timespec_get', 'QueryPerformanceCounter', 'clock_gettime_nsec_np']),
+        ('the engine clock', 'now = tb_platform_clock_nanoseconds();', []),
         ('atomic types and compiler functions',
          '_Atomic int n; __atomic_add_fetch(&n, 1, __ATOMIC_SEQ_CST); __sync_synchronize();',
          ['_Atomic', '__atomic_add_fetch', '__sync_synchronize']),

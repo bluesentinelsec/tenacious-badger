@@ -103,11 +103,11 @@ independent of `TB_ASSERT`, so they still run in Release, where assertions are
 compiled out; cases that need an active assertion skip themselves there. The
 framework has its own tests under `tests/framework/selftest/`.
 
-Integration tests exercise `burrow` through the shared library and probe the
-selected platform adapter. On Windows, the native performance counter must be
-monotonic. On Linux/macOS, a subprocess must exit with the exact fatal-stub
-message and name the planned native API. Another subprocess checks that a failed
-assertion reports its location and aborts.
+Integration tests exercise `burrow` through the shared library. The selected
+platform adapter has tests of its own, built without the rest of the engine:
+on every platform the clock must never go backward and must agree with the C
+library's clock about the length of an interval. A subprocess checks that a
+failed assertion reports its location and aborts.
 
 `TB_ENABLE_SANITIZERS=ON` adds standalone Debug test executables that compile the
 engine sources directly and link an instrumented copy of the test framework.
@@ -141,7 +141,7 @@ release validation:
   [use of the foundation layer](#the-foundation-check). Release jobs also
   package, extract, and launch each native desktop export.
 - [Sanitizers](../.github/workflows/sanitizers.yml): standalone Debug sanitizer tests
-  on the same four toolchains, including fatal-stub checks.
+  on the same four toolchains, including the platform adapter's tests.
 
 OS labels are explicitly pinned to `windows-2025-vs2026`, `macos-26`, and
 `ubuntu-26.04`, the current stable hosted images checked on November 12, 2026.
@@ -205,7 +205,7 @@ replaces:
 | `strcpy`, `strncpy`, `strcat`, `strncat`, `strtok`, and their relatives | `tb_str_dup`, `tb_str_sub`, `tb_str_cat`, `tb_str_join`, `tb_fmt_buffer` | [`str.h`](strings.md#c-strings) |
 | `assert`, `static_assert`, `_Static_assert`, `<assert.h>` | `TB_ASSERT`, `TB_ASSERT_MSG`, `TB_STATIC_ASSERT` | `assert.h` |
 | `abort` | `TB_ASSERT`, or `tb_platform_abort` after reporting | [`platform.h`](platforms.md#abnormal-termination) |
-| `timespec_get`, `clock_gettime`, `QueryPerformanceCounter`, `mach_absolute_time`, and other native clocks | `tb_platform_ticks` | [`platform.h`](platforms.md#time-counter) |
+| `timespec_get`, `clock_gettime`, `QueryPerformanceCounter`, `mach_absolute_time`, and other native clocks | `tb_platform_clock_nanoseconds` | [`platform.h`](platforms.md#clock) |
 | `<stdatomic.h>`, `_Atomic`, `Interlocked...`, `__atomic_...`, `__sync_...` | `tb_platform_atomic_size` | [`platform.h`](platforms.md#atomic-counter) |
 | `<search.h>` | `tb_table`, `tb_set`, `tb_list` | [`table.h`](collections.md) |
 
@@ -238,12 +238,11 @@ in-source suppression. The table holds three kinds of entry:
   `src/core/str.c` on `strlen`, `src/core/fmt.c` on `fflush`, and
   `src/platform/` on the native clocks, atomics, and `abort`. The platform
   adapters are the layer beneath the foundation modules, built and tested
-  without them, so a fatal stub also reports with `fputs`.
+  without them, so an adapter also reports a failure with `fputs`.
 - A benchmark or test that sets a module beside the C library on purpose: the
   `snprintf` and `strstr` columns of `tb_bench`, and the tests that check
-  formatting and strings against an implementation that shares no code with
-  them. `tb_bench` also reads the C clock, because `tb_platform_ticks` has no
-  stated period and is a fatal stub on Linux and macOS.
+  formatting, strings, and the clock against an implementation that shares no
+  code with them.
 - The test framework under `tests/framework/`, which cannot link the engine it
   tests.
 
