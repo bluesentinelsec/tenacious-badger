@@ -178,6 +178,11 @@ TB_API size_t tb_fmt_vprint_error(const char *format, va_list arguments);
  */
 TB_API bool tb_fmt_flush(void);
 
+/** @brief Flush standard error and report its sticky error state independently
+ * of stdout. Thread-safe; true only when stderr has accepted all output.
+ */
+TB_API bool tb_fmt_flush_error(void);
+
 /* -------------------------------------------------------------------------
  * Adding conversions.
  * ------------------------------------------------------------------------- */

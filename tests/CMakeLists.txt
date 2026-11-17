@@ -15,6 +15,7 @@ set(TB_TEST_CASE_SOURCES
     core/fs_test.c
     core/hash_test.c
     core/list_test.c
+    core/log_test.c
     core/memory_test.c
     core/memory_debug_test.c
     core/path_test.c
@@ -82,7 +83,7 @@ endfunction()
 # child process and checks the outcome.
 tb_add_tests(tb_probe NO_CTEST
     SOURCES core/assert_probe.c core/fmt_probe.c core/memory_probe.c
-        core/memory_debug_probe.c core/fmt_failure_probe.c platform/virtual_memory_probe.c support/support_probe.c
+        core/memory_debug_probe.c core/fmt_failure_probe.c core/log_probe.c platform/virtual_memory_probe.c support/support_probe.c
     LIBRARIES TenaciousBadger::badger)
 function(tb_add_probe_test name script)
     add_test(NAME ${name}
@@ -98,6 +99,9 @@ tb_add_probe_test(core_memory_debug.reports_and_aborts ExpectMemoryDebug.cmake)
 # Checks of the source text. They run with the tests so that a violation fails
 # locally, before it fails in CI.
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(NAME core_log.stderr_output_and_failure
+    COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tools/log_sink_test.py"
+        "$<TARGET_FILE:tb_probe>")
 add_test(NAME platform_memory.inaccessible_pages_fault
     COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tools/virtual_memory_fault_test.py"
         "$<TARGET_FILE:tb_probe>")
