@@ -95,10 +95,17 @@ void tb_bench_atomic(tb_bench *bench)
          .run = run_compare_exchange,
          .threads = ATOMIC_CONTENDERS},
     };
-    tb_bench_case others[2] = {
+    /* Threads that only read one value do not get in each other's way,
+     * unless reading it writes to it. */
+    tb_bench_case loads[2] = {
         {.name = "load an atomic size", .variant = "badger", .run = run_load},
-        {.name = "exchange an atomic pointer", .variant = "badger", .run = run_exchange},
+        {.name = "load an atomic size on 8 threads at once",
+         .variant = "badger",
+         .run = run_load,
+         .threads = ATOMIC_CONTENDERS},
     };
+    tb_bench_case exchange = {
+        .name = "exchange an atomic pointer", .variant = "badger", .run = run_exchange};
 
     alone.operations = tb_bench_size(bench, ATOMIC_OPERATIONS_ALONE);
     contended.operations = tb_bench_size(bench, ATOMIC_OPERATIONS_CONTENDED);
@@ -110,12 +117,14 @@ void tb_bench_atomic(tb_bench *bench)
     changes[0].context = &alone;
     changes[1].operations = (double)contended.operations;
     changes[1].context = &contended;
-    for (size_t index = 0; index < 2; index++)
-    {
-        others[index].operations = (double)alone.operations;
-        others[index].context = &alone;
-    }
+    loads[0].operations = (double)alone.operations;
+    loads[0].context = &alone;
+    loads[1].operations = (double)contended.operations;
+    loads[1].context = &contended;
+    exchange.operations = (double)alone.operations;
+    exchange.context = &alone;
     tb_bench_measure(bench, "atomic", additions, 2);
     tb_bench_measure(bench, "atomic", changes, 2);
-    tb_bench_measure(bench, "atomic", others, 2);
+    tb_bench_measure(bench, "atomic", loads, 2);
+    tb_bench_measure(bench, "atomic", &exchange, 1);
 }

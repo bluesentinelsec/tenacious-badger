@@ -22,7 +22,7 @@ size_t tb_platform_atomic_size_subtract(tb_platform_atomic_size *atomic, size_t 
     tb_default_not_implemented(TB_DEFAULT_ATOMIC_INTERFACE, "tb_platform_atomic_size_subtract");
 }
 
-size_t tb_platform_atomic_size_load(tb_platform_atomic_size *atomic)
+size_t tb_platform_atomic_size_load(const tb_platform_atomic_size *atomic)
 {
     (void)atomic;
     tb_default_not_implemented(TB_DEFAULT_ATOMIC_INTERFACE, "tb_platform_atomic_size_load");
@@ -52,7 +52,7 @@ bool tb_platform_atomic_size_compare_exchange(tb_platform_atomic_size *atomic, s
                                "tb_platform_atomic_size_compare_exchange");
 }
 
-uint32_t tb_platform_atomic_u32_load(tb_platform_atomic_u32 *atomic)
+uint32_t tb_platform_atomic_u32_load(const tb_platform_atomic_u32 *atomic)
 {
     (void)atomic;
     tb_default_not_implemented(TB_DEFAULT_ATOMIC_INTERFACE, "tb_platform_atomic_u32_load");
@@ -82,7 +82,7 @@ bool tb_platform_atomic_u32_compare_exchange(tb_platform_atomic_u32 *atomic, uin
                                "tb_platform_atomic_u32_compare_exchange");
 }
 
-void *tb_platform_atomic_pointer_load(tb_platform_atomic_pointer *atomic)
+void *tb_platform_atomic_pointer_load(const tb_platform_atomic_pointer *atomic)
 {
     (void)atomic;
     tb_default_not_implemented(TB_DEFAULT_ATOMIC_INTERFACE, "tb_platform_atomic_pointer_load");

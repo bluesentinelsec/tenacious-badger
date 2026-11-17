@@ -154,6 +154,12 @@ only known from experiments that were not kept: a mutex with and without
 contention, a turn passed between two threads, the atomic operations, and
 allocation from eight threads at once beside the C library's.
 
+Reading an atomic value on Windows no longer writes to it. A load took 6
+nanoseconds, and took the value's cache line from every other thread that
+was reading it, so that eight threads reading one value each waited 70 to
+165 nanoseconds. A load now takes 0.8 nanoseconds, and 1.3 with eight
+threads reading at once.
+
 The job system has its first piece, which is internal: the queue that a
 worker thread keeps its tasks in and that idle workers steal from, with no
 lock. An atomic size can now be stored, exchanged, and
