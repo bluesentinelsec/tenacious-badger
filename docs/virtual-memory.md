@@ -43,3 +43,27 @@ adapter reports every function as not implemented on unsupported platforms.
 Native references: [Windows page management](https://learn.microsoft.com/en-us/windows/win32/memory/working-with-pages),
 [Linux mmap](https://man7.org/linux/man-pages/man2/mmap.2.html), and Apple's
 [XNU superpage definitions](https://github.com/apple-oss-distributions/xnu/blob/main/osfmk/mach/vm_statistics.h).
+
+## Reserved arenas
+
+`tb_arena_create_reserved` reserves one stable range (64 MiB by default), commits
+one bookkeeping page initially, and commits additional pages as allocations
+reach them. Objects never move. A final inaccessible guard page catches overruns
+past the usable range. The maximum reservation includes bookkeeping, excludes
+the guard, and rounds up to native pages. Exhaustion and commit failure return
+NULL from the try APIs without changing existing objects, marks, or accounting.
+The ordinary allocation APIs terminate on failure.
+
+Reset invalidates all objects and decommits pages above a configurable retention
+limit (64 KiB by default, rounded to pages, with one bookkeeping page minimum).
+Rewind preserves commitment for reuse. If decommit fails, reset restores access
+and retains those pages; failure to restore access is fatal. Capacity and
+remaining space describe virtual payload space, whereas reserved/committed size
+queries include bookkeeping. Reservations are separate from core heap counters.
+Destroy releases the complete mapping; a native release failure is fatal.
+
+A reserved arena supports the existing allocator adapter, marks, checked sizes,
+debug fills, and sanitizer poisoning. Its owner must serialize access. Tests
+exercise randomized allocation/rewind/reset sequences, stable aligned addresses,
+commit failures at successive boundaries, trim failure recovery, guard and
+trimmed-page faults, and ASan reports after reset/rewind.

@@ -3,7 +3,8 @@ import signal
 import subprocess
 import sys
 
-for case in ('reserved_page', 'decommitted_page'):
+for case in ('reserved_page', 'decommitted_page', 'reserved_arena_guard',
+             'trimmed_arena_page'):
     completed = subprocess.run([sys.argv[1], f'platform_memory_fault.{case}'],
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                timeout=20)

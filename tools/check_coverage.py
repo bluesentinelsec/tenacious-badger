@@ -8,6 +8,7 @@ import tempfile
 
 build = Path(sys.argv[1]).resolve()
 groups = {
+    'arena': ['src/core/arena.c'],
     'memory_debug': ['src/core/memory_debug.c'],
     'utf8': ['src/core/utf8.c'],
     'path': ['src/core/path.c'],
