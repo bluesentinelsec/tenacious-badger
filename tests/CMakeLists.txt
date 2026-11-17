@@ -45,6 +45,22 @@ endfunction()
 
 tb_add_tests(tb_tests SOURCES ${TB_TEST_CASE_SOURCES} LIBRARIES TenaciousBadger::badger)
 
+# What a module keeps to itself is not in the engine library's interface, so
+# tb_tests cannot reach it. The cases that test it are built from the engine's
+# sources in place of linking the library: tb_internal_tests. A source of the
+# engine is named here as it is named within the engine, such as
+# "jobs/deque.h".
+set(TB_INTERNAL_TEST_CASE_SOURCES
+    jobs/deque_test.c)
+set(TB_ENGINE_SOURCES ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES} ${TB_JOBS_SOURCES})
+
+# The arguments go to tb_add_tests.
+function(tb_add_internal_tests target)
+    tb_add_tests(${target} SOURCES ${TB_INTERNAL_TEST_CASE_SOURCES} ${ARGN})
+    target_sources(${target} PRIVATE ${TB_ENGINE_SOURCES})
+    target_include_directories(${target} PRIVATE "${PROJECT_SOURCE_DIR}/src")
+endfunction()
+
 # Some behaviors cannot be cases of tb_tests because they end the process or
 # must fail: the framework's own failure reports (framework/selftest/fixture),
 # the engine's default handling of fatal conditions, and the test support's
@@ -88,6 +104,9 @@ function(tb_make_standalone target)
         "${PROJECT_SOURCE_DIR}/include" "${PROJECT_BINARY_DIR}/generated")
     target_compile_definitions(${target} PRIVATE TB_STATIC)
 endfunction()
+
+tb_add_internal_tests(tb_internal_tests)
+tb_make_standalone(tb_internal_tests)
 
 # The platform adapters are the layer beneath the foundation modules. Their
 # tests are built from the selected adapter's sources and nothing else of the
@@ -168,15 +187,19 @@ if(TB_SANITIZER)
     tb_add_tests(tb_tests_sanitized
         SUFFIX ".sanitized" FRAMEWORK tb_test_sanitized
         SOURCES ${TB_TEST_CASE_SOURCES})
-    target_sources(tb_tests_sanitized PRIVATE ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES})
+    target_sources(tb_tests_sanitized PRIVATE ${TB_ENGINE_SOURCES})
     tb_make_standalone_sanitized(tb_tests_sanitized)
+
+    tb_add_internal_tests(tb_internal_tests_sanitized
+        SUFFIX ".sanitized" FRAMEWORK tb_test_sanitized)
+    tb_make_standalone_sanitized(tb_internal_tests_sanitized)
 
     if(TB_SANITIZER STREQUAL "address")
         # Touching memory that an arena has released must end the process with a
         # sanitizer report, so it is probed from outside like the other fatal paths.
         tb_add_tests(tb_probe_sanitized NO_CTEST FRAMEWORK tb_test_sanitized
             SOURCES core/arena_probe.c)
-        target_sources(tb_probe_sanitized PRIVATE ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES})
+        target_sources(tb_probe_sanitized PRIVATE ${TB_ENGINE_SOURCES})
         tb_make_standalone_sanitized(tb_probe_sanitized)
         add_test(NAME core_arena.released_memory_is_reported.sanitized
             COMMAND "${CMAKE_COMMAND}" "-DTB_PROBE=$<TARGET_FILE:tb_probe_sanitized>"
