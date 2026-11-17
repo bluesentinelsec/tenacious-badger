@@ -31,8 +31,9 @@ tb_add_test_executable(tb_test_fixture NO_CTEST
 tb_configure_target(tb_test_fixture)
 tb_test_add_scenarios(tb_test_fixture "")
 
-if(TB_ENABLE_SANITIZERS)
+if(TB_SANITIZER STREQUAL "address")
     # The failure paths leave cases with non-local jumps; run them instrumented.
+    # They run on one thread, so ThreadSanitizer has nothing to find in them.
     tb_add_test_executable(tb_test_fixture_sanitized NO_CTEST
         FRAMEWORK tb_test_sanitized
         MAIN fixture/fixture_main.c

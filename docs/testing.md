@@ -324,7 +324,8 @@ can use checks. The after hook runs however the body ended.
 
 `TB_ENABLE_SANITIZERS=ON` (the `sanitizer` preset) builds instrumented copies of
 the test executable, the framework, and the engine sources under test. Their
-CTest names end in `.sanitized`.
+CTest names end in `.sanitized`. They run under AddressSanitizer, and under
+UndefinedBehaviorSanitizer as well on GCC and Clang.
 
 Those targets are compiled with `TB_SANITIZE_ADDRESS` defined. Engine code uses
 it to tell AddressSanitizer about memory it manages itself, such as the unused
@@ -336,6 +337,46 @@ probe: `tb_probe_sanitized` holds cases that misuse memory on purpose, and a
 CTest script runs each in a child process and checks for the report.
 `tests/core/arena_probe.c` and `tests/ExpectArenaPoison.cmake` are the example
 to follow.
+
+### Data races
+
+AddressSanitizer does not see a data race: two threads that touch the same
+memory, at least one of them writing, with nothing to order them. A test of
+threaded code that passes has shown only that the race did no harm on that
+run. ThreadSanitizer finds the race itself, whether or not the threads met.
+
+`TB_ENABLE_THREAD_SANITIZER=ON` (the `thread-sanitizer` preset) builds the same
+standalone executables with ThreadSanitizer in place of the other sanitizers;
+the two cannot instrument one executable, so each has a build directory of its
+own. Every case of `tb_tests` and of the platform adapter's tests runs under
+it, with the same `.sanitized` names.
+
+| Compiler | ThreadSanitizer |
+| --- | --- |
+| GCC and Clang on Linux | Yes; CI runs both on every pull request |
+| AppleClang on macOS | Yes; CI runs it on every pull request |
+| MSVC | None. The option stops the configuration with a message. |
+
+**Windows is not covered.** The Windows adapter's locks and atomic operations
+are never run under a race detector. What is covered there is everything
+above the adapters: the same engine code runs under ThreadSanitizer on Linux
+and macOS, on their adapters.
+
+A report ends the run with a failure. A case that expects one is a probe, as
+with the other sanitizer: `tests/platform/race_probe.c` races on purpose, and
+`tests/ExpectDataRace.cmake` checks that the race is reported. The same probe
+repeats the work behind a mutex, an atomic value, the start and end of a
+thread, and an atomic pointer, and the script checks that none of those is
+reported: the sanitizer must understand the engine's own synchronization for
+its silence about the real tests to mean anything.
+
+Targets built this way are compiled with `TB_SANITIZE_THREAD` defined, for a
+case that must leave out what the sanitizer cannot run.
+
+To keep a threaded test free of races of its own, follow
+[Threads in tests](#threads-in-tests): a thread writes only to memory that the
+case gave it, and the case reads that memory after joining the thread, or
+under the lock that the thread wrote it under.
 
 ## Testing the framework
 

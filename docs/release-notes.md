@@ -124,6 +124,12 @@ names the platform and says how to port to it, and a default adapter, built
 only on request with `-DTB_USE_DEFAULT_PLATFORM_ADAPTER=ON`, reports "not
 implemented" from every function and ends the process.
 
+The tests run under ThreadSanitizer in CI, on Linux with GCC and Clang and on
+macOS, so a data race in the engine or in a platform adapter fails the build
+whether or not it did harm on that run. `-DTB_ENABLE_THREAD_SANITIZER=ON`, or
+the `thread-sanitizer` preset, builds them locally. MSVC has no
+ThreadSanitizer, so the Windows adapter is not covered.
+
 Included foundations:
 
 - `badger` dynamic library and `badger_static` static library with the same

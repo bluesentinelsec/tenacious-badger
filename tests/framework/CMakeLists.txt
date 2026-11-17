@@ -43,7 +43,7 @@ function(tb_test_add_framework_library target)
 endfunction()
 
 tb_test_add_framework_library(tb_test)
-if(TB_ENABLE_SANITIZERS)
+if(TB_SANITIZER)
     # Standalone sanitizer executables link an instrumented copy, so the
     # framework's own code is checked along with the code under test.
     tb_test_add_framework_library(tb_test_sanitized)

@@ -137,9 +137,11 @@ add_test(NAME platform_default.every_function_reports_not_implemented
 add_test(NAME platform_selection.an_unsupported_platform_stops_the_build
     COMMAND "${CMAKE_COMMAND}" -P "${CMAKE_CURRENT_SOURCE_DIR}/ExpectPlatformSelection.cmake")
 
-if(TB_ENABLE_SANITIZERS)
+if(TB_SANITIZER)
     # Compile engine sources into standalone test executables. The shipping
-    # shared library and burrow never acquire sanitizer dependencies.
+    # shared library and burrow never acquire sanitizer dependencies. The
+    # build has one kind of sanitizer, address or thread (cmake/Sanitizers.cmake),
+    # and the same executables are built for either.
     function(tb_make_standalone_sanitized target)
         tb_make_standalone(${target})
         tb_enable_sanitizers(${target})
@@ -151,17 +153,35 @@ if(TB_ENABLE_SANITIZERS)
     target_sources(tb_tests_sanitized PRIVATE ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES})
     tb_make_standalone_sanitized(tb_tests_sanitized)
 
-    # Touching memory that an arena has released must end the process with a
-    # sanitizer report, so it is probed from outside like the other fatal paths.
-    tb_add_tests(tb_probe_sanitized NO_CTEST FRAMEWORK tb_test_sanitized
-        SOURCES core/arena_probe.c)
-    target_sources(tb_probe_sanitized PRIVATE ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES})
-    tb_make_standalone_sanitized(tb_probe_sanitized)
-    add_test(NAME core_arena.released_memory_is_reported.sanitized
-        COMMAND "${CMAKE_COMMAND}" "-DTB_PROBE=$<TARGET_FILE:tb_probe_sanitized>"
-            -P "${CMAKE_CURRENT_SOURCE_DIR}/ExpectArenaPoison.cmake")
+    if(TB_SANITIZER STREQUAL "address")
+        # Touching memory that an arena has released must end the process with a
+        # sanitizer report, so it is probed from outside like the other fatal paths.
+        tb_add_tests(tb_probe_sanitized NO_CTEST FRAMEWORK tb_test_sanitized
+            SOURCES core/arena_probe.c)
+        target_sources(tb_probe_sanitized PRIVATE ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES})
+        tb_make_standalone_sanitized(tb_probe_sanitized)
+        add_test(NAME core_arena.released_memory_is_reported.sanitized
+            COMMAND "${CMAKE_COMMAND}" "-DTB_PROBE=$<TARGET_FILE:tb_probe_sanitized>"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/ExpectArenaPoison.cmake")
+    endif()
 
     tb_add_platform_tests(tb_platform_tests_sanitized
         SUFFIX ".sanitized" FRAMEWORK tb_test_sanitized)
     tb_enable_sanitizers(tb_platform_tests_sanitized)
+
+    if(TB_SANITIZER STREQUAL "thread")
+        # A run that reports no data race proves nothing unless the sanitizer
+        # can see one. This probe races on purpose, and repeats the race behind
+        # each thing the engine offers to prevent it; a script checks that the
+        # first is reported and the others are not.
+        tb_add_test_executable(tb_race_probe_sanitized NO_CTEST FRAMEWORK tb_test_sanitized
+            SOURCES platform/race_probe.c)
+        target_sources(tb_race_probe_sanitized PRIVATE ${TB_PLATFORM_SOURCES})
+        tb_configure_target(tb_race_probe_sanitized)
+        tb_make_standalone(tb_race_probe_sanitized)
+        tb_enable_sanitizers(tb_race_probe_sanitized)
+        add_test(NAME platform_race.a_data_race_is_reported_and_synchronized_access_is_not.sanitized
+            COMMAND "${CMAKE_COMMAND}" "-DTB_PROBE=$<TARGET_FILE:tb_race_probe_sanitized>"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/ExpectDataRace.cmake")
+    endif()
 endif()

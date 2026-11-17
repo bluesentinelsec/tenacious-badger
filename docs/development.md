@@ -75,13 +75,14 @@ With Ninja available, use the committed presets:
 make test
 make release
 make sanitizer
+make thread-sanitizer
 make fmt
 make check-format
 ```
 
 The equivalent portable commands are `cmake --preset debug`,
-`cmake --build --preset debug`, and `ctest --preset debug`; substitute `release`
-or `sanitizer` for the other configurations. On Windows, run `build.bat test`,
+`cmake --build --preset debug`, and `ctest --preset debug`; substitute `release`,
+`sanitizer`, or `thread-sanitizer` for the other configurations. On Windows, run `build.bat test`,
 `build.bat release`, or `build.bat sanitizer` from an **x64 Native Tools Command
 Prompt** so Ninja can find MSVC and the sanitizer runtime.
 
@@ -117,6 +118,12 @@ engine sources directly and link an instrumented copy of the test framework.
 MSVC uses AddressSanitizer; GCC and Clang use AddressSanitizer plus
 UndefinedBehaviorSanitizer. The shipping library and `burrow` remain free of
 sanitizer instrumentation. Use Debug when running these tests.
+
+`TB_ENABLE_THREAD_SANITIZER=ON` builds the same executables with
+ThreadSanitizer instead, which finds data races. It needs GCC or Clang, so it
+runs on Linux and macOS; MSVC has no ThreadSanitizer, and the option stops the
+configuration there with a message. The two options cannot be on together.
+[Testing](testing.md#sanitizers) has the details.
 `TB_BUILD_TESTS=OFF` and `TB_BUILD_BENCHMARKS=OFF` build only the library and
 consumer.
 
@@ -145,7 +152,8 @@ release validation:
   package, extract, and launch each native desktop export. One job builds the
   engine with the [default platform adapter](platforms.md#unsupported-platforms).
 - [Sanitizers](../.github/workflows/sanitizers.yml): standalone Debug sanitizer tests
-  on the same four toolchains, including the platform adapter's tests.
+  on the same four toolchains, including the platform adapter's tests, and the
+  same tests under ThreadSanitizer on Linux with GCC and Clang and on macOS.
 
 OS labels are explicitly pinned to `windows-2025-vs2026`, `macos-26`, and
 `ubuntu-26.04`, the current stable hosted images checked on November 12, 2026.
