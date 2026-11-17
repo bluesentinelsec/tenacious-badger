@@ -172,6 +172,9 @@ AUTHORIZED = {
         'and tested without them'),
 
     # Benchmarks that measure the C library beside the module that replaces it.
+    'benchmarks/core/memory_bench.c': (
+        {'malloc', 'free'},
+        'measures the C library beside badger/memory.h'),
     'benchmarks/core/fmt_bench.c': (
         {'snprintf'},
         'measures the C library beside badger/fmt.h'),

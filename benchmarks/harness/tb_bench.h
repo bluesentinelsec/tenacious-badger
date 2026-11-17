@@ -31,6 +31,13 @@
  * machine falls on all of them alike. Put the cases that will be compared
  * with each other, an engine function and the C library's, in one call.
  *
+ * **A case can run on several threads at once.** Set `threads`, and the
+ * harness starts that many, holds them until all are ready, lets them go
+ * together, and times until the last has finished. `operations` is then what
+ * one thread performs, so the result is the time one thread took for one of
+ * its operations while the others were at work: the same as the one-thread
+ * time where threads do not get in each other's way, and more where they do.
+ *
  * **Quick mode keeps the benchmarks alive.** With `--quick` every case runs
  * once at a small size. CTest runs that, so a benchmark that stops compiling
  * or crashes fails the tests on every platform. No test depends on a timing.
@@ -61,7 +68,23 @@ typedef struct tb_bench_case
     tb_bench_function *run;      /**< The timed run. Required. */
     tb_bench_function *teardown; /**< Runs after every timed run; may be NULL. */
     void *context;               /**< Passed to the three functions; may be NULL. */
+    /** Threads that each perform `run` at the same time, up to
+     * TB_BENCH_THREADS_MAX; 0 or 1 for the calling thread alone. With more
+     * than one, `operations` counts what one of them performs, `run` is
+     * given the same `context` on every thread, and `setup` and `teardown`
+     * still run once, on the calling thread. */
+    size_t threads;
 } tb_bench_case;
+
+/** @brief Most threads that a case can ask for. */
+#define TB_BENCH_THREADS_MAX ((size_t)64)
+
+/**
+ * @brief Which of a case's threads is calling: 0 for the first, up to one
+ * less than the case's `threads`. Always 0 in a case that runs on the calling
+ * thread alone. For a `run` function whose threads have different parts.
+ */
+size_t tb_bench_thread_number(void);
 
 /**
  * @brief Time a group of cases and print a line for each.
@@ -99,6 +122,7 @@ size_t tb_bench_size(const tb_bench *bench, size_t full_size);
  * @brief Use a result, so that the compiler cannot remove the work that
  * produced it. The values are summed and the sum is printed at the end.
  * @param value Any result of the timed work.
+ * @par Threading Thread-safe; the threads of a case may each call it.
  */
 void tb_bench_keep(uint64_t value);
 
@@ -127,6 +151,8 @@ int tb_bench_main(int argument_count, char **arguments);
 void tb_bench_array(tb_bench *bench);
 /** @brief Benchmarks of badger/atom.h. */
 void tb_bench_atom(tb_bench *bench);
+/** @brief Benchmarks of the atomic values of badger/platform.h. */
+void tb_bench_atomic(tb_bench *bench);
 /** @brief Benchmarks of badger/bit.h. */
 void tb_bench_bit(tb_bench *bench);
 /** @brief Benchmarks of badger/fmt.h. */
@@ -141,5 +167,7 @@ void tb_bench_ring(tb_bench *bench);
 void tb_bench_table(tb_bench *bench);
 /** @brief Benchmarks of the searches of badger/str.h and badger/text.h. */
 void tb_bench_text(tb_bench *bench);
+/** @brief Benchmarks of the mutex and the condition variable of badger/thread.h. */
+void tb_bench_thread(tb_bench *bench);
 
 #endif

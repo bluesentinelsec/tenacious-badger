@@ -4,6 +4,7 @@
 #include "badger/fmt.h"
 #include "badger/platform.h"
 #include "badger/str.h"
+#include "badger/thread.h"
 
 #include <inttypes.h>
 #include <stdlib.h>
@@ -32,9 +33,10 @@ typedef struct tb_bench_module
 } tb_bench_module;
 
 static const tb_bench_module tb_bench_modules[] = {
-    {"array", tb_bench_array}, {"atom", tb_bench_atom},   {"bit", tb_bench_bit},
-    {"fmt", tb_bench_fmt},     {"hash", tb_bench_hash},   {"memory", tb_bench_memory},
-    {"ring", tb_bench_ring},   {"table", tb_bench_table}, {"text", tb_bench_text},
+    {"array", tb_bench_array},   {"atom", tb_bench_atom},     {"atomic", tb_bench_atomic},
+    {"bit", tb_bench_bit},       {"fmt", tb_bench_fmt},       {"hash", tb_bench_hash},
+    {"memory", tb_bench_memory}, {"ring", tb_bench_ring},     {"table", tb_bench_table},
+    {"text", tb_bench_text},     {"thread", tb_bench_thread},
 };
 
 #define TB_BENCH_MODULE_COUNT (sizeof(tb_bench_modules) / sizeof(tb_bench_modules[0]))
@@ -49,31 +51,128 @@ struct tb_bench
 };
 
 /* Sum of everything given to tb_bench_keep(). Printing it at the end is what
- * makes the results of the timed work needed. */
-static uint64_t tb_bench_kept = 0;
+ * makes the results of the timed work needed. The threads of a case add to
+ * it at the same time. */
+static tb_platform_atomic_size tb_bench_kept = {0};
+
+/* Which of a case's threads the calling thread is. */
+static _Thread_local size_t tb_bench_thread_index = 0;
 
 /* ---------------------------------------------------------------------------
  * Measuring.
  * ------------------------------------------------------------------------- */
 
+/* The threads of a case that runs on several. They gather at a gate, so
+ * that starting them is not timed and none runs before the others can. */
+typedef struct tb_bench_team
+{
+    const tb_bench_case *measured;
+    tb_mutex lock;         /* Guards the fields below. */
+    tb_condition changed;  /* Woken when one of them changes. */
+    size_t ready_count;    /* Threads waiting at the gate. */
+    size_t finished_count; /* Threads whose run has ended. */
+    bool is_open;          /* The threads may run. */
+} tb_bench_team;
+
+typedef struct tb_bench_member
+{
+    tb_bench_team *team;
+    size_t number; /* 0 for the first thread of the team. */
+    tb_thread thread;
+} tb_bench_member;
+
+static void tb_bench_run_member(void *argument)
+{
+    const tb_bench_member *const member = argument;
+    tb_bench_team *const team = member->team;
+
+    tb_bench_thread_index = member->number;
+    tb_mutex_lock(&team->lock);
+    team->ready_count++;
+    tb_condition_wake_all(&team->changed);
+    while (!team->is_open)
+    {
+        tb_condition_wait(&team->changed, &team->lock);
+    }
+    tb_mutex_unlock(&team->lock);
+
+    team->measured->run(team->measured->context);
+
+    tb_mutex_lock(&team->lock);
+    team->finished_count++;
+    tb_condition_wake_all(&team->changed);
+    tb_mutex_unlock(&team->lock);
+}
+
+/* Nanoseconds from the moment the threads of a case are let go until the
+ * last of them has finished its run. */
+static uint64_t tb_bench_time_team(const tb_bench_case *measured)
+{
+    const tb_thread_options options = {.name = "tb_bench",
+                                       .stack_size = TB_THREAD_STACK_SIZE_DEFAULT};
+    tb_bench_team team = {.measured = measured};
+    tb_bench_member members[TB_BENCH_THREADS_MAX] = {0};
+    uint64_t start = {0};
+    uint64_t end = {0};
+
+    for (size_t index = 0; index < measured->threads; index++)
+    {
+        members[index].team = &team;
+        members[index].number = index;
+        tb_thread_create_with_options(&members[index].thread, &options, tb_bench_run_member,
+                                      &members[index]);
+    }
+    tb_mutex_lock(&team.lock);
+    while (team.ready_count < measured->threads)
+    {
+        tb_condition_wait(&team.changed, &team.lock);
+    }
+    start = tb_platform_clock_nanoseconds();
+    team.is_open = true;
+    tb_condition_wake_all(&team.changed);
+    while (team.finished_count < measured->threads)
+    {
+        tb_condition_wait(&team.changed, &team.lock);
+    }
+    end = tb_platform_clock_nanoseconds();
+    tb_mutex_unlock(&team.lock);
+    for (size_t index = 0; index < measured->threads; index++)
+    {
+        tb_thread_join(&members[index].thread);
+    }
+    return end - start;
+}
+
 /* Nanoseconds that one run of a case took. */
 static uint64_t tb_bench_time_once(const tb_bench_case *measured)
 {
-    uint64_t start = {0};
-    uint64_t end = {0};
+    uint64_t nanoseconds = {0};
 
     if (measured->setup != NULL)
     {
         measured->setup(measured->context);
     }
-    start = tb_platform_clock_nanoseconds();
-    measured->run(measured->context);
-    end = tb_platform_clock_nanoseconds();
+    if (measured->threads > 1)
+    {
+        nanoseconds = tb_bench_time_team(measured);
+    }
+    else
+    {
+        const uint64_t start = tb_platform_clock_nanoseconds();
+
+        measured->run(measured->context);
+        nanoseconds = tb_platform_clock_nanoseconds() - start;
+    }
     if (measured->teardown != NULL)
     {
         measured->teardown(measured->context);
     }
-    return end - start;
+    return nanoseconds;
+}
+
+size_t tb_bench_thread_number(void)
+{
+    return tb_bench_thread_index;
 }
 
 /* Index of a module in tb_bench_modules, or TB_BENCH_MODULE_COUNT. */
@@ -144,6 +243,8 @@ void tb_bench_measure(tb_bench *bench, const char *module, const tb_bench_case *
         TB_ASSERT(cases[index].variant != NULL);
         TB_ASSERT(cases[index].run != NULL);
         TB_ASSERT_MSG(cases[index].operations > 0, "a case performs at least one operation");
+        TB_ASSERT_MSG(cases[index].threads <= TB_BENCH_THREADS_MAX,
+                      "a case runs on at most TB_BENCH_THREADS_MAX threads");
         fastest[index] = UINT64_MAX;
     }
     /* Round after round, each case once: a slow spell of the machine then
@@ -171,7 +272,9 @@ void tb_bench_measure(tb_bench *bench, const char *module, const tb_bench_case *
 
 void tb_bench_keep(uint64_t value)
 {
-    tb_bench_kept += value;
+    /* The sum only has to depend on every value; where a size is narrower
+     * than the value, the low bits do. */
+    (void)tb_platform_atomic_size_add(&tb_bench_kept, (size_t)value);
 }
 
 uint64_t tb_bench_random(uint64_t *state)
@@ -296,6 +399,6 @@ int tb_bench_main(int argument_count, char **arguments)
         tb_bench_modules[index].function(&bench);
     }
     (void)tb_fmt_print_error("tb_bench: %zu cases, checksum %016" PRIx64 "\n", bench.case_count,
-                             tb_bench_kept);
+                             (uint64_t)tb_platform_atomic_size_load(&tb_bench_kept));
     return EXIT_SUCCESS;
 }
