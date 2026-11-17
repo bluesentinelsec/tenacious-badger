@@ -476,8 +476,7 @@ The regression suite compares counts with a randomized model, tests faults
 as traps and child-process diagnostics, checks concurrent callers and failed
 underlying allocations, and repeats the existing memory tests with checking
 installed. Sanitizer probes independently detect the same before/after-buffer
-writes without the checker. CI requires at least 80% line coverage of the
-checker implementation.
+writes without the checker.
 
 ## Not here yet
 

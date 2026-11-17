@@ -31,5 +31,6 @@ against writers outside the logger.
 Tests cover all severity thresholds, category filters, invalid UTF-8, format
 bounds, recursive callbacks, failure/recovery, native file ownership and exact
 output, concurrent writers with configuration replacement, and stderr failures.
-The logging source has an 80% line-coverage gate and runs under ASan/UBSan/TSan
-where supported, alongside Debug and Release tests on all three platforms.
+The logging source runs under ASan/UBSan/TSan where supported, alongside Debug
+and Release tests on all three platforms, and is held to the
+[coverage](testing.md#coverage) that every source of the engine is.

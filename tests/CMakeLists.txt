@@ -117,6 +117,8 @@ add_test(NAME source_checks.foundation_self_test
     COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/check_foundation.py" --self-test)
 add_test(NAME source_checks.analyzer_driver_self_test
     COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/analyze_with_clang.py" --self-test)
+add_test(NAME source_checks.coverage_self_test
+    COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/check_coverage.py" --self-test)
 add_test(NAME source_checks.text
     COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/check_text.py")
 add_test(NAME source_checks.text_self_test
@@ -124,6 +126,9 @@ add_test(NAME source_checks.text_self_test
 
 if(TARGET burrow)
     add_test(NAME burrow.smoke COMMAND burrow)
+    add_test(NAME burrow.fails_when_its_output_cannot_be_written
+        COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tools/burrow_output_test.py"
+            "$<TARGET_FILE:burrow>")
     set_tests_properties(burrow.smoke PROPERTIES PASS_REGULAR_EXPRESSION "2 \\+ 3 = 5")
 endif()
 

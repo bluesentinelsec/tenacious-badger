@@ -1,5 +1,6 @@
 function(tb_configure_target target)
     tb_sign_windows_target(${target})
+    tb_cover_target(${target})
     set_target_properties(${target} PROPERTIES
         C_STANDARD 17 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
     if(MSVC)

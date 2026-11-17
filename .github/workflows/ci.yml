@@ -10,6 +10,13 @@ on:
 permissions:
   contents: read
 
+# A push to a pull request makes the runs of its earlier commits pointless:
+# they are cancelled, so that the new one does not wait behind them. Runs on
+# main are never cancelled, so that every commit there is checked.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     name: ${{ matrix.platform }} / ${{ matrix.compiler }} / ${{ matrix.build_type }}
@@ -179,21 +186,67 @@ jobs:
       - name: Check that no tracked text file begins with a byte-order mark
         run: python3 tools/check_text.py
 
-  memory-coverage:
-    name: Foundation coverage
-    runs-on: ubuntu-26.04
-    timeout-minutes: 5
+  coverage:
+    name: Coverage / ${{ matrix.platform }} / ${{ matrix.compiler }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: Linux
+            os: ubuntu-26.04
+            compiler: GCC
+            cc: gcc
+            gcov: gcov
+          - platform: macOS
+            os: macos-26
+            compiler: AppleClang
+            cc: clang
+            gcov: xcrun llvm-cov gcov
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Build with the runner's GCC coverage instrumentation
+      - name: Check the coverage check against reports with known answers
+        run: python3 tools/check_coverage.py --self-test
+      - name: Build with the compiler's coverage instrumentation
         run: >
           cmake -S . -B build/coverage -DCMAKE_BUILD_TYPE=Debug
-          -DCMAKE_C_COMPILER=gcc -DCMAKE_C_FLAGS=--coverage
-          -DCMAKE_SHARED_LINKER_FLAGS=--coverage -DCMAKE_EXE_LINKER_FLAGS=--coverage
-          -DTB_BUILD_BURROW=OFF -DTB_BUILD_BENCHMARKS=OFF
-      - run: cmake --build build/coverage --target tb_tests tb_probe tb_memory_checked_tests tb_internal_tests tb_platform_tests --parallel
-      - run: ctest --test-dir build/coverage -R "core_|platform_files|platform_memory" --output-on-failure --timeout 60
-      - name: Require 80 percent line coverage of the checked foundation modules
-        run: python3 tools/check_coverage.py build/coverage
+          -DCMAKE_C_COMPILER=${{ matrix.cc }} -DTB_ENABLE_COVERAGE=ON
+          -DTB_BUILD_BENCHMARKS=OFF
+      - run: cmake --build build/coverage --parallel
+      - name: Run every test
+        run: ctest --test-dir build/coverage --output-on-failure --timeout 120 --no-tests=error
+      - name: Require 80 percent of the lines of every engine source to be run
+        run: python3 tools/check_coverage.py build/coverage --gcov "${{ matrix.gcov }}"
+
+  coverage-windows:
+    name: Coverage / Windows / MSVC
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 20
+    env:
+      CMAKE_GENERATOR: Visual Studio 18 2026
+      CMAKE_GENERATOR_PLATFORM: x64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: cmake -S . -B build/coverage -DTB_BUILD_BENCHMARKS=OFF -DTB_WINDOWS_SELF_SIGN=OFF
+      - run: cmake --build build/coverage --config Debug --parallel
+      # MSVC has no coverage flag. The collector that ships with Visual Studio
+      # watches the tests as they run and needs nothing from the build. It
+      # moves functions to do so, which fails the two cases that compare the
+      # addresses of functions; whether the tests pass is the business of the
+      # ordinary jobs, and here only what they ran is looked at.
+      - name: Run every test under the Visual Studio coverage collector
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $collector = & $vswhere -latest -find "**\Microsoft.CodeCoverage.Console.exe" | Select-Object -First 1
+          if (-not $collector) { throw "Visual Studio on this runner has no Microsoft.CodeCoverage.Console.exe" }
+          & $collector collect -o build\coverage\coverage.xml -f cobertura ctest --test-dir build/coverage -C Debug --timeout 300
+          if (-not (Test-Path build\coverage\coverage.xml)) { throw "The collector wrote no report" }
+          exit 0
+      - name: Require 80 percent of the lines of every engine source to be run
+        run: python tools/check_coverage.py --cobertura build/coverage/coverage.xml
