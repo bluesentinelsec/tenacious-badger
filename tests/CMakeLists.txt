@@ -92,6 +92,8 @@ tb_add_probe_test(core_memory_debug.reports_and_aborts ExpectMemoryDebug.cmake)
 # Checks of the source text. They run with the tests so that a violation fails
 # locally, before it fails in CI.
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(NAME packaging.child_python_uses_the_running_interpreter
+    COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tools/package_sdk_test.py")
 add_test(NAME source_checks.foundation
     COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/check_foundation.py")
 add_test(NAME source_checks.foundation_self_test
