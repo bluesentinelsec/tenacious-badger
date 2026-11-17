@@ -168,6 +168,40 @@ not, the finding is suppressed on the one statement it names, with the reason
 beside it, and the pull request says so: a suppression needs the same
 approval as any other warning that is silenced.
 
+## Link-time optimization
+
+Release builds of the shared library are optimized across source files at
+link time, where the toolchain supports it (`INTERPROCEDURAL_OPTIMIZATION`
+in `src/CMakeLists.txt`). The static library is not: an archive meant for
+link-time optimization can only be linked by the same version of the same
+compiler, and the SDK gives that archive to others.
+
+It is kept on, with one measured cost. `tb_bench`, Release, MSVC 19.50,
+i9-14900HX, the library built with and without it, run in turn three times;
+nanoseconds an operation:
+
+| Case | Without | With |
+| --- | --- | --- |
+| Hash a 64-bit integer | 0.88 to 0.90 | 0.88 to 0.90 |
+| Table of 1,000 pointers: remove one key and add another | 19.1 to 20.0 | 15.3 to 15.9 |
+| Table of 1,000,000 pointers: remove one key and add another | 76.5 to 77.0 | 85.4 to 86.7 |
+
+Small operations that cross source files are faster with it, as they were
+when it was turned on (#76). The table of a million entries is 12% slower,
+and the cause is not in the code of the table. The disassembly of
+`tb_table_put` and `tb_table_remove` in the two libraries differs only in
+that the optimized one computes the hash in place, where the other calls a
+function for it: the loops that search and that close a gap are the same
+instruction for instruction, and the optimized functions are the shorter.
+At a million entries every operation waits for memory that is not in a
+cache, and what decides its speed then is how the processor overlaps those
+waits, which a difference outside the loops can change. Telling which needs
+the processor's own counters, and a profiler that reads them needs rights
+that the development machine does not give. The cost is in one benchmark of
+a size the engine has no use for yet, and the gain is in every call that
+crosses a source file. The "benchmarks against the base" job of CI will show
+whether a change moves either.
+
 ## Benchmarks
 
 `tb_bench` times the public operations of the foundation modules and prints
