@@ -173,5 +173,17 @@ void tb_bench_text(tb_bench *bench);
 void tb_bench_thread(tb_bench *bench);
 /** @brief Benchmarks of the clock, the sleep, and the wait of badger/platform.h. */
 void tb_bench_time(tb_bench *bench);
+/** @brief Benchmarks of whole files in badger/fs.h, beside the C library's streams. */
+void tb_bench_fs(tb_bench *bench);
+/** @brief Benchmarks of badger/log.h. */
+void tb_bench_log(tb_bench *bench);
+/** @brief Benchmarks of the checking functions of badger/memory_debug.h. */
+void tb_bench_memory_debug(tb_bench *bench);
+/** @brief Benchmarks of badger/path.h. */
+void tb_bench_path(tb_bench *bench);
+/** @brief Benchmarks of badger/utf8.h. */
+void tb_bench_utf8(tb_bench *bench);
+/** @brief Benchmarks of badger/virtual_memory.h and of arenas that reserve. */
+void tb_bench_vm(tb_bench *bench);
 
 #endif

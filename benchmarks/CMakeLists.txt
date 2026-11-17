@@ -7,12 +7,15 @@ add_executable(tb_bench
     core/array_bench.c
     core/atom_bench.c
     core/bit_bench.c
+    core/diagnostics_bench.c
     core/fmt_bench.c
+    core/fs_bench.c
     core/hash_bench.c
     core/memory_bench.c
     core/ring_bench.c
     core/table_bench.c
     core/text_bench.c
+    core/text_units_bench.c
     jobs/jobs_bench.c
     platform/atomic_bench.c
     platform/thread_bench.c

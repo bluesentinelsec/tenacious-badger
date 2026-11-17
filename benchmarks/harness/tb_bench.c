@@ -33,11 +33,25 @@ typedef struct tb_bench_module
 } tb_bench_module;
 
 static const tb_bench_module tb_bench_modules[] = {
-    {"array", tb_bench_array}, {"atom", tb_bench_atom},     {"atomic", tb_bench_atomic},
-    {"bit", tb_bench_bit},     {"fmt", tb_bench_fmt},       {"hash", tb_bench_hash},
-    {"jobs", tb_bench_jobs},   {"memory", tb_bench_memory}, {"ring", tb_bench_ring},
-    {"table", tb_bench_table}, {"text", tb_bench_text},     {"thread", tb_bench_thread},
+    {"array", tb_bench_array},
+    {"atom", tb_bench_atom},
+    {"atomic", tb_bench_atomic},
+    {"bit", tb_bench_bit},
+    {"fmt", tb_bench_fmt},
+    {"fs", tb_bench_fs},
+    {"hash", tb_bench_hash},
+    {"jobs", tb_bench_jobs},
+    {"log", tb_bench_log},
+    {"memory", tb_bench_memory},
+    {"memory_debug", tb_bench_memory_debug},
+    {"path", tb_bench_path},
+    {"ring", tb_bench_ring},
+    {"table", tb_bench_table},
+    {"text", tb_bench_text},
+    {"thread", tb_bench_thread},
     {"time", tb_bench_time},
+    {"utf8", tb_bench_utf8},
+    {"vm", tb_bench_vm},
 };
 
 #define TB_BENCH_MODULE_COUNT (sizeof(tb_bench_modules) / sizeof(tb_bench_modules[0]))
