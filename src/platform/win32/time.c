@@ -1,3 +1,4 @@
+#include "badger/fatal.h"
 #include "badger/platform.h"
 
 #include "../shared/wait.h"
@@ -6,8 +7,6 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
-
-#include <stdio.h>
 
 /* At the usual frequency a count is a whole number of nanoseconds. */
 #define TB_WIN32_NANOSECONDS_PER_USUAL_COUNT                                                       \
@@ -37,8 +36,7 @@ uint64_t tb_win32_counter_to_nanoseconds(uint64_t count, uint64_t counts_per_sec
  */
 static _Noreturn void tb_win32_clock_fail(const char *diagnostic)
 {
-    fputs(diagnostic, stderr);
-    tb_platform_abort();
+    tb_fatal_message(diagnostic);
 }
 /* coverage-on */
 

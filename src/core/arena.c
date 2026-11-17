@@ -13,6 +13,7 @@
 #include "badger/platform.h"
 
 #include "badger/assert.h"
+#include "badger/fatal.h"
 #include "badger/memory.h"
 #include "badger/size.h"
 #include "memory_internal.h"
@@ -174,9 +175,7 @@ static bool tb_arena_ensure_committed(tb_arena *arena, const unsigned char *end)
 }
 static _Noreturn void tb_arena_release_failed(void)
 {
-    (void)tb_fmt_print_error("badger: could not release reserved arena address space\n");
-    (void)tb_fmt_flush();
-    tb_platform_abort();
+    tb_fatal_message("badger: could not release reserved arena address space");
 }
 
 /* ---------------------------------------------------------------------------

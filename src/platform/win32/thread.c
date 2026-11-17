@@ -1,4 +1,5 @@
 #include "badger/thread.h"
+#include "badger/fatal.h"
 
 #include "../shared/name.h"
 #include "badger/assert.h"
@@ -8,8 +9,6 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
-
-#include <stdio.h>
 
 #define TB_WIN32_NANOSECONDS_PER_MILLISECOND UINT64_C(1000000)
 
@@ -33,8 +32,7 @@ TB_STATIC_ASSERT(TB_WIN32_WAIT_MILLISECONDS_MAX < INFINITE,
 
 static _Noreturn void tb_win32_thread_fail(const char *diagnostic)
 {
-    fputs(diagnostic, stderr);
-    tb_platform_abort();
+    tb_fatal_message(diagnostic);
 }
 
 static SRWLOCK *tb_win32_lock(tb_mutex *mutex)

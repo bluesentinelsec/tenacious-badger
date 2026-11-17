@@ -2,13 +2,13 @@
 #define _DARWIN_C_SOURCE
 
 #include "badger/system.h"
+#include "badger/fatal.h"
 
 #include "badger/assert.h"
 #include "badger/platform.h"
 
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <sys/sysctl.h>
 #include <sys/types.h>
 
@@ -46,10 +46,9 @@ void tb_system_get_processors(tb_system_processors *processors)
     /* coverage-off: every macOS has this value */
     if (!tb_macos_read_count("hw.logicalcpu", &logical_count))
     {
-        fputs("platform.system: tb_system_get_processors on macos: sysctlbyname(hw.logicalcpu) "
-              "failed\n",
-              stderr);
-        tb_platform_abort();
+        tb_fatal_message(
+            "platform.system: tb_system_get_processors on macos: sysctlbyname(hw.logicalcpu) "
+            "failed\n");
     }
     /* coverage-on */
     /* coverage-off: needs a Mac whose system does not say how many cores it has */

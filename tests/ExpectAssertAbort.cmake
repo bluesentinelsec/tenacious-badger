@@ -47,3 +47,7 @@ set(expected
 if(NOT diagnostic MATCHES "${expected}")
     message(FATAL_ERROR "Unexpected assertion diagnostic, wanted ${expected}: ${report}")
 endif()
+# It is reported as every fatal condition is: with the call stack.
+if(NOT diagnostic MATCHES "\n    #0 [^\n]*\n    #1 ")
+    message(FATAL_ERROR "A failed assertion must be reported with its call stack: ${report}")
+endif()

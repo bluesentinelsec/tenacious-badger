@@ -4,10 +4,10 @@
 
 #include "../posix/condition_native.h"
 
+#include "badger/fatal.h"
 #include "badger/platform.h"
 
 #include <errno.h>
-#include <stdio.h>
 #include <time.h>
 
 #define TB_LINUX_NANOSECONDS_PER_SECOND UINT64_C(1000000000)
@@ -19,8 +19,7 @@
 /* coverage-off: runs only when a system call below fails, which no test can arrange */
 static _Noreturn void tb_linux_condition_fail(const char *diagnostic)
 {
-    fputs(diagnostic, stderr);
-    tb_platform_abort();
+    tb_fatal_message(diagnostic);
 }
 /* coverage-on */
 

@@ -204,6 +204,15 @@ is given a thread's value as the thread ends. And `tb_thread_relax` and
 first while it looks for work, which made submitting a job and waiting for it
 about a sixth faster.
 
+Every fatal error now says how the program got there. A failed assertion,
+exhausted memory, a memory fault, and a system call that the engine cannot do
+without each used to write a line of its own to stderr and end the process.
+They all go through `tb_fatal` in `badger/fatal.h` now, which writes the
+message and the call stack, and whose handler an application can replace to
+put the report in its own log. `badger/stack.h` is what captures the stack
+and names its addresses: functions, files and lines on Windows where the
+`.pdb` files are present, modules and exported functions on Linux and macOS.
+
 A thread can wait for time to pass. `tb_platform_sleep` sleeps for at least a
 number of nanoseconds, and `tb_platform_wait_until` waits for a reading of
 the clock as exactly as the clock is, which is what holds a frame loop to a
