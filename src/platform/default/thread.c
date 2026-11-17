@@ -150,3 +150,13 @@ void tb_thread_yield(void)
 {
     tb_default_not_implemented(TB_DEFAULT_THREAD_INTERFACE, "tb_thread_yield");
 }
+
+bool tb_thread_can_be_confined(void)
+{
+    tb_default_not_implemented(TB_DEFAULT_THREAD_INTERFACE, "tb_thread_can_be_confined");
+}
+
+size_t tb_thread_current_processor(void)
+{
+    tb_default_not_implemented(TB_DEFAULT_THREAD_INTERFACE, "tb_thread_current_processor");
+}

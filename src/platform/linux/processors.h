@@ -48,6 +48,25 @@ bool tb_linux_cpu_list_parse(const char *text, tb_linux_cpu_set *set);
  * fit. `context` is the pointer given beside the function. */
 typedef bool tb_linux_read_file(void *context, const char *path, char *buffer, size_t capacity);
 
+/* The number of members of `set` below `cpu`: the place of `cpu` in the list
+ * of the set's members, when it is one. */
+size_t tb_linux_cpu_set_rank(const tb_linux_cpu_set *set, size_t cpu);
+
+/* The member of `set` at `place` in the list of its members, from zero; or
+ * TB_LINUX_CPU_LIMIT when the set has no more members than `place`. */
+size_t tb_linux_cpu_set_nth(const tb_linux_cpu_set *set, size_t place);
+
+/* Lists the processors among `allowed`, which is not empty, in the order of
+ * their numbers, from what the kernel's files say about them, as
+ * tb_system_list_processors() describes. The place of a processor in the list
+ * is its rank in `allowed`. Writes at most `capacity` to `list`, which may be
+ * NULL when `capacity` is 0, and the counts to `counts` when it is not NULL.
+ * Returns how many processors there are. `allowed` and `read` are required
+ * non-null. */
+size_t tb_linux_list_processors(const tb_linux_cpu_set *allowed, tb_linux_read_file *read,
+                                void *context, tb_system_processor *list, size_t capacity,
+                                tb_system_processors *counts);
+
 /* Counts the processors among `allowed`, which is not empty, from what the
  * kernel's files say about them. `read` is given paths under /sys. A file
  * that cannot be read is something the system does not say, and the counts
@@ -55,5 +74,11 @@ typedef bool tb_linux_read_file(void *context, const char *path, char *buffer, s
  * but `context` are required non-null. */
 void tb_linux_count_processors(const tb_linux_cpu_set *allowed, tb_linux_read_file *read,
                                void *context, tb_system_processors *processors);
+
+/* The processors that this process may use. False when the system's set of
+ * them cannot be read. Unlike the rest of this header it asks the system: it
+ * is defined in system.c, for the thread functions, which confine a thread by
+ * places in this set. */
+bool tb_linux_read_process_processors(tb_linux_cpu_set *allowed);
 
 #endif

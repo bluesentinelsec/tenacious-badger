@@ -6,8 +6,11 @@
 #include "../posix/thread_native.h"
 
 #include "../shared/name.h"
+#include "processors.h"
 
 #include <pthread.h>
+#include <sched.h>
+#include <stdint.h>
 #include <sys/resource.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -58,4 +61,66 @@ size_t tb_posix_thread_read_name(char *buffer, size_t capacity)
         kept[0] = '\0';
     }
     return tb_platform_copy_name(buffer, capacity, kept);
+}
+
+/* ---------------------------------------------------------------------------
+ * Processors, by their places in the list of the processors that the process
+ * may use.
+ * ------------------------------------------------------------------------- */
+
+void tb_posix_thread_confine(pthread_attr_t *attributes, const size_t *processors, size_t count)
+{
+    tb_linux_cpu_set allowed = {0};
+    cpu_set_t native;
+    bool has_any = false;
+
+    CPU_ZERO(&native);
+    if (!tb_linux_read_process_processors(&allowed))
+    {
+        /* coverage-off: needs a machine with more processors than the set of allowed ones has room
+         * for */
+        return;
+        /* coverage-on */
+    }
+    /* The list is in the order of the system's numbers, so a place in it is
+     * the processor of that rank among the allowed ones. */
+    for (size_t index = 0; index < count; index++)
+    {
+        const size_t cpu = tb_linux_cpu_set_nth(&allowed, processors[index]);
+
+        if (cpu < TB_LINUX_CPU_LIMIT)
+        {
+            CPU_SET(cpu, &native);
+            has_any = true;
+        }
+    }
+    /* The system refuses a set with no processor the process may use; the
+     * thread then runs where it would have anyway. */
+    if (has_any)
+    {
+        (void)pthread_attr_setaffinity_np(attributes, sizeof(native), &native);
+    }
+}
+
+bool tb_posix_thread_can_be_confined(void)
+{
+    return true;
+}
+
+size_t tb_posix_thread_current_processor(void)
+{
+    tb_linux_cpu_set allowed = {0};
+    const int cpu = sched_getcpu();
+
+    /* coverage-off: sched_getcpu fails only on a kernel older than any the engine supports */
+    if (cpu < 0)
+    {
+        return SIZE_MAX;
+    }
+    /* coverage-on */
+    if (!tb_linux_read_process_processors(&allowed) || !tb_linux_cpu_set_has(&allowed, (size_t)cpu))
+    {
+        return SIZE_MAX;
+    }
+    return tb_linux_cpu_set_rank(&allowed, (size_t)cpu);
 }

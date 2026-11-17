@@ -168,3 +168,63 @@ TB_TEST(platform_win32_processors, no_allowed_processor_still_counts_one)
     add_the_laptop(&nothing_allowed);
     expect_counts(&nothing_allowed, 1, 1, 1);
 }
+
+/* The same tally that counts, lists: each allowed processor in the order the
+ * system describes the cores, its place in its group, its core among the
+ * allowed cores, and its class. */
+TB_TEST(platform_win32_processors, the_processors_are_listed_core_by_core)
+{
+    tb_win32_processor list[40] = {{0}};
+    tb_win32_processor_tally tally = {.list = list, .list_capacity = 40};
+
+    add_the_laptop(&tally);
+    TB_TEST_REQUIRE_UINT(tally.logical_count, ==, 32);
+    for (size_t place = 0; place < 32; place++)
+    {
+        size_t core = place / 2;
+        uint8_t efficiency_class = PERFORMANCE_CLASS;
+
+        TB_TEST_CONTEXT("processor %zu", place);
+        if (place >= 16)
+        {
+            core = place - 8;
+            efficiency_class = EFFICIENT_CLASS;
+        }
+        TB_TEST_EXPECT_UINT(list[place].group, ==, 0);
+        TB_TEST_EXPECT_UINT(list[place].number, ==, place);
+        TB_TEST_EXPECT_UINT(list[place].core, ==, core);
+        TB_TEST_EXPECT_UINT(list[place].efficiency_class, ==, efficiency_class);
+    }
+}
+
+/* Confined to the second processor of each of two fast cores and to two
+ * efficient cores, in group 1 of a machine of two groups: four processors,
+ * on four cores, numbered from zero. Nothing is written past the room. */
+TB_TEST(platform_win32_processors, a_confined_process_lists_only_what_it_may_use)
+{
+    tb_win32_processor list[3] = {{0}};
+    tb_win32_processor_tally tally = {
+        .affinity = {.is_limited = true, .group = 1, .mask = UINT64_C(0x3000A)},
+        .list = list,
+        .list_capacity = 3};
+
+    add_the_laptop(&tally);
+    for (size_t core = 0; core < LAPTOP_FAST_CORE_COUNT; core++)
+    {
+        tb_win32_processors_add_core(&tally, PERFORMANCE_CLASS, 1, UINT64_C(3) << (core * 2));
+    }
+    for (size_t core = 0; core < LAPTOP_EFFICIENT_CORE_COUNT; core++)
+    {
+        tb_win32_processors_add_core(&tally, EFFICIENT_CLASS, 1,
+                                     UINT64_C(1) << (LAPTOP_FAST_CORE_COUNT * 2 + core));
+    }
+    TB_TEST_REQUIRE_UINT(tally.logical_count, ==, 4);
+    TB_TEST_EXPECT_UINT(list[0].group, ==, 1);
+    TB_TEST_EXPECT_UINT(list[0].number, ==, 1);
+    TB_TEST_EXPECT_UINT(list[0].core, ==, 0);
+    TB_TEST_EXPECT_UINT(list[1].number, ==, 3);
+    TB_TEST_EXPECT_UINT(list[1].core, ==, 1);
+    TB_TEST_EXPECT_UINT(list[2].number, ==, 16);
+    TB_TEST_EXPECT_UINT(list[2].core, ==, 2);
+    TB_TEST_EXPECT_UINT(list[2].efficiency_class, ==, EFFICIENT_CLASS);
+}

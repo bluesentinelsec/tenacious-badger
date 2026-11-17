@@ -215,6 +215,13 @@ put the report in its own log. `badger/stack.h` is what captures the stack
 and names its addresses: functions, files and lines on Windows where the
 `.pdb` files are present, modules and exported functions on Linux and macOS.
 
+`tb_system_list_processors` lists the processors that the process may use,
+with the core of each and whether it is of the fastest kind, and a thread can
+be confined to some of them by their places in that list
+(`tb_thread_options::processors`), on Windows and Linux.
+`tb_thread_current_processor` says where a thread is running. macOS decides
+for itself where a thread runs; `tb_thread_can_be_confined` says so.
+
 A thread can wait for time to pass. `tb_platform_sleep` sleeps for at least a
 number of nanoseconds, and `tb_platform_wait_until` waits for a reading of
 the clock as exactly as the clock is, which is what holds a frame loop to a

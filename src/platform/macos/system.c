@@ -70,3 +70,20 @@ void tb_system_get_processors(tb_system_processors *processors)
     processors->core_count = core_count;
     processors->performance_core_count = performance_core_count;
 }
+
+/* macOS says how many processors and cores there are, and of each kind, but
+ * not which processor is which. Each is listed as a core of its own, of the
+ * fastest kind; threads cannot be confined here, so nothing is lost. */
+size_t tb_system_list_processors(tb_system_processor *processors, size_t capacity)
+{
+    tb_system_processors counts = {0};
+
+    TB_ASSERT(processors != NULL || capacity == 0);
+    tb_system_get_processors(&counts);
+    for (size_t index = 0; index < counts.logical_count && index < capacity; index++)
+    {
+        processors[index].core = index;
+        processors[index].is_performance = true;
+    }
+    return counts.logical_count;
+}

@@ -260,6 +260,8 @@ void tb_thread_create_with_options(tb_thread *thread, const tb_thread_options *o
     TB_ASSERT_MSG(thread->native == 0, "the thread object holds no thread that is not joined");
     TB_ASSERT_MSG(options == NULL || tb_posix_is_priority(options->priority),
                   "the priority is one of tb_thread_priority");
+    TB_ASSERT_MSG(options == NULL || options->processors != NULL || options->processor_count == 0,
+                  "processors are named when there is a count of them");
     if (options != NULL)
     {
         name = options->name;
@@ -274,6 +276,10 @@ void tb_thread_create_with_options(tb_thread *thread, const tb_thread_options *o
     {
         tb_posix_thread_fail("platform.thread: tb_thread_create on posix: pthread_attr_init "
                              "failed\n");
+    }
+    if (options != NULL && options->processor_count != 0)
+    {
+        tb_posix_thread_confine(&attributes, options->processors, options->processor_count);
     }
     if (stack_size != 0)
     {
@@ -526,4 +532,18 @@ void tb_thread_relax(void)
 void tb_thread_yield(void)
 {
     (void)sched_yield();
+}
+
+/* ---------------------------------------------------------------------------
+ * Processors.
+ * ------------------------------------------------------------------------- */
+
+bool tb_thread_can_be_confined(void)
+{
+    return tb_posix_thread_can_be_confined();
+}
+
+size_t tb_thread_current_processor(void)
+{
+    return tb_posix_thread_current_processor();
 }

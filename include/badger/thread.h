@@ -103,6 +103,20 @@ typedef struct tb_thread_options
     size_t stack_size;
     /** One of tb_thread_priority. */
     tb_thread_priority priority;
+    /** The processors that the thread may run on, by their places in the
+     * list of tb_system_list_processors(); NULL, with a count of 0, to let it
+     * run on any the process may use. Borrowed for the call. A place that is
+     * not in the list when the thread is made is left out, and with none
+     * left the thread may run anywhere. On Windows a thread runs within one
+     * group of processors, that of the first processor named, and the ones
+     * in other groups are left out. Where threads cannot be confined
+     * (tb_thread_can_be_confined()), this is ignored.
+     *
+     * Confining a thread is seldom faster: the system's scheduler knows
+     * which processors are busy and which are fast. Measure before using it. */
+    const size_t *processors;
+    /** How many places `processors` holds. */
+    size_t processor_count;
 } tb_thread_options;
 
 /**
@@ -203,6 +217,31 @@ TB_API uint64_t tb_thread_current_id(void);
  * @par Threading Thread-safe.
  */
 TB_API size_t tb_thread_current_name(char *buffer, size_t capacity);
+
+/**
+ * @brief Whether a thread can be confined to some processors here.
+ *
+ * True on Windows and Linux. False on macOS, which decides where a thread
+ * runs by itself; there tb_thread_options::processors is ignored. That is an
+ * unavailable capability, not an error.
+ *
+ * @par Threading Thread-safe.
+ */
+TB_API bool tb_thread_can_be_confined(void);
+
+/**
+ * @brief The processor that the calling thread is running on, by its place in
+ * the list of tb_system_list_processors().
+ *
+ * It may be another by the time the caller looks, unless the thread is
+ * confined to one. It asks the system for the list, and is for tests and
+ * diagnostics, not for a loop.
+ *
+ * @return The place, or SIZE_MAX where the system does not say (macOS), or
+ * where the processor is not one that the process may use.
+ * @par Threading Thread-safe.
+ */
+TB_API size_t tb_thread_current_processor(void);
 
 /* -------------------------------------------------------------------------
  * Mutexes.

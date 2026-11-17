@@ -4,6 +4,7 @@
 #include "../shared/name.h"
 #include "badger/assert.h"
 #include "badger/platform.h"
+#include "processors.h"
 #include "thread_wait.h"
 
 #define WIN32_LEAN_AND_MEAN
@@ -163,6 +164,44 @@ void tb_thread_create(tb_thread *thread, tb_thread_function *entry, void *argume
     tb_thread_create_with_options(thread, NULL, entry, argument);
 }
 
+/* Confines a thread that has not started to the processors at these places
+ * of tb_system_list_processors(): those of them in the group of the first
+ * one that is in the list. A thread runs within one group. */
+static void tb_win32_confine(HANDLE handle, const size_t *processors, size_t count)
+{
+    uint8_t fastest_class = 0;
+    size_t listed = 0;
+    tb_win32_processor *const list = tb_win32_new_processor_list(&listed, &fastest_class);
+    GROUP_AFFINITY affinity = {0};
+    bool has_group = false;
+
+    for (size_t index = 0; index < count; index++)
+    {
+        const size_t place = processors[index];
+
+        if (place >= listed)
+        {
+            continue;
+        }
+        if (!has_group)
+        {
+            affinity.Group = list[place].group;
+            has_group = true;
+        }
+        if (list[place].group == affinity.Group)
+        {
+            affinity.Mask |= (KAFFINITY)1 << list[place].number;
+        }
+    }
+    /* The system refuses a mask with no processor the process may use; the
+     * thread then runs where it would have anyway. */
+    if (has_group)
+    {
+        (void)SetThreadGroupAffinity(handle, &affinity, NULL);
+    }
+    tb_win32_free_processor_list(list);
+}
+
 void tb_thread_create_with_options(tb_thread *thread, const tb_thread_options *options,
                                    tb_thread_function *entry, void *argument)
 {
@@ -177,6 +216,8 @@ void tb_thread_create_with_options(tb_thread *thread, const tb_thread_options *o
     TB_ASSERT_MSG(thread->native == 0, "the thread object holds no thread that is not joined");
     TB_ASSERT_MSG(options == NULL || tb_win32_is_priority(options->priority),
                   "the priority is one of tb_thread_priority");
+    TB_ASSERT_MSG(options == NULL || options->processors != NULL || options->processor_count == 0,
+                  "processors are named when there is a count of them");
     if (options != NULL)
     {
         name = options->name;
@@ -193,12 +234,22 @@ void tb_thread_create_with_options(tb_thread *thread, const tb_thread_options *o
          * committed at the start, not how large the stack can grow. */
         flags = STACK_SIZE_PARAM_IS_A_RESERVATION;
     }
+    if (options != NULL && options->processor_count != 0)
+    {
+        /* Confined before it runs a single instruction of its own. */
+        flags |= CREATE_SUSPENDED;
+    }
     handle = CreateThread(NULL, stack_size, tb_win32_thread_entry, thread, flags, NULL);
     if (handle == NULL)
     {
         tb_win32_thread_fail("platform.thread: tb_thread_create on win32: CreateThread failed\n");
     }
     thread->native = (uintptr_t)handle;
+    if ((flags & CREATE_SUSPENDED) != 0)
+    {
+        tb_win32_confine(handle, options->processors, options->processor_count);
+        (void)ResumeThread(handle);
+    }
 }
 
 void tb_thread_join(tb_thread *thread)
@@ -448,4 +499,34 @@ void tb_thread_relax(void)
 void tb_thread_yield(void)
 {
     (void)SwitchToThread();
+}
+
+/* ---------------------------------------------------------------------------
+ * Processors.
+ * ------------------------------------------------------------------------- */
+
+bool tb_thread_can_be_confined(void)
+{
+    return true;
+}
+
+size_t tb_thread_current_processor(void)
+{
+    PROCESSOR_NUMBER current = {0};
+    uint8_t fastest_class = 0;
+    size_t listed = 0;
+    size_t place = SIZE_MAX;
+    tb_win32_processor *list = NULL;
+
+    GetCurrentProcessorNumberEx(&current);
+    list = tb_win32_new_processor_list(&listed, &fastest_class);
+    for (size_t index = 0; index < listed && place == SIZE_MAX; index++)
+    {
+        if (list[index].group == current.Group && list[index].number == current.Number)
+        {
+            place = index;
+        }
+    }
+    tb_win32_free_processor_list(list);
+    return place;
 }
