@@ -94,7 +94,12 @@ endfunction()
 # engine, which keeps the adapters free of the modules above them and lets a
 # test call a function that is private to an adapter.
 set(TB_PLATFORM_TEST_SOURCES
-    platform/atomic_test.c platform/thread_test.c platform/time_test.c)
+    platform/atomic_test.c platform/contract_test.c platform/thread_test.c
+    platform/time_test.c)
+# An adapter reports a broken contract through tb_assert_fail(), which the
+# core defines. Executables built from an adapter alone get it from here, as
+# a trap of the test framework.
+set(TB_PLATFORM_TEST_SUPPORT_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/support/platform_assert.c")
 set(TB_PLATFORM_PRIVATE_DIRECTORY "")
 if(WIN32)
     list(APPEND TB_PLATFORM_TEST_SOURCES
@@ -105,7 +110,7 @@ endif()
 # The arguments go to tb_add_test_executable.
 function(tb_add_platform_tests target)
     tb_add_test_executable(${target} SOURCES ${TB_PLATFORM_TEST_SOURCES} ${ARGN})
-    target_sources(${target} PRIVATE ${TB_PLATFORM_SOURCES})
+    target_sources(${target} PRIVATE ${TB_PLATFORM_SOURCES} ${TB_PLATFORM_TEST_SUPPORT_SOURCES})
     if(TB_PLATFORM_PRIVATE_DIRECTORY)
         target_include_directories(${target} PRIVATE "${TB_PLATFORM_PRIVATE_DIRECTORY}")
     endif()
@@ -176,7 +181,8 @@ if(TB_SANITIZER)
         # first is reported and the others are not.
         tb_add_test_executable(tb_race_probe_sanitized NO_CTEST FRAMEWORK tb_test_sanitized
             SOURCES platform/race_probe.c)
-        target_sources(tb_race_probe_sanitized PRIVATE ${TB_PLATFORM_SOURCES})
+        target_sources(tb_race_probe_sanitized PRIVATE
+            ${TB_PLATFORM_SOURCES} ${TB_PLATFORM_TEST_SUPPORT_SOURCES})
         tb_configure_target(tb_race_probe_sanitized)
         tb_make_standalone(tb_race_probe_sanitized)
         tb_enable_sanitizers(tb_race_probe_sanitized)

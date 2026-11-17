@@ -6,8 +6,9 @@
 #define TB_THREAD_STORAGE_H
 
 /** @brief Pointer-sized words in a tb_mutex: one that records whether the
- * system's mutex has been made, and the mutex, 64 bytes at its largest. */
-#define TB_MUTEX_STORAGE_WORDS 9
+ * system's mutex has been made, the mutex, 64 bytes at its largest, and the
+ * thread that holds it, which builds with assertions record. */
+#define TB_MUTEX_STORAGE_WORDS 10
 
 /** @brief Pointer-sized words in a tb_condition: one that records whether the
  * system's condition variable has been made, and the variable, 48 bytes. */

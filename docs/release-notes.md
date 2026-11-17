@@ -130,6 +130,14 @@ whether or not it did harm on that run. `-DTB_ENABLE_THREAD_SANITIZER=ON`, or
 the `thread-sanitizer` preset, builds them locally. MSVC has no
 ThreadSanitizer, so the Windows adapter is not covered.
 
+The thread and atomic functions check their contracts in builds with
+assertions, the same on every platform. A null pointer, unlocking a mutex
+that the calling thread does not hold, locking one twice, waiting on a
+condition without holding the mutex, and joining a thread that is not there
+each fail an assertion where they were undefined behavior before. A mutex
+records which thread holds it for this, and is one pointer larger in every
+build.
+
 Included foundations:
 
 - `badger` dynamic library and `badger_static` static library with the same

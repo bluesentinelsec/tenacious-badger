@@ -15,19 +15,27 @@
 /* A tb_mutex and a tb_condition are ready when they are all zeros, but the
  * system's objects are not: they have to be made by a function. The first
  * word of each therefore records how far the making has got, and the
- * system's object lies in the words after it. */
+ * system's object lies in the words after it. The last word of a tb_mutex is
+ * for the thread that holds it. */
 #define TB_POSIX_UNSTARTED ((uintptr_t)0)
 #define TB_POSIX_STARTING ((uintptr_t)1)
 #define TB_POSIX_READY ((uintptr_t)2)
 
-#define TB_POSIX_NATIVE_BYTES(words) (sizeof(uintptr_t) * ((size_t)(words) - 1))
+#define TB_POSIX_STATE_WORD 0
+#define TB_POSIX_NATIVE_WORD 1
+#define TB_POSIX_MUTEX_OWNER_WORD (TB_MUTEX_STORAGE_WORDS - 1)
 
-TB_STATIC_ASSERT(sizeof(pthread_mutex_t) <= TB_POSIX_NATIVE_BYTES(TB_MUTEX_STORAGE_WORDS),
-                 "a tb_mutex has room for a pthread_mutex_t");
+/* Bytes for the system's object in storage of `words` words, of which
+ * `other_words` hold something else. */
+#define TB_POSIX_NATIVE_BYTES(words, other_words)                                                  \
+    (sizeof(uintptr_t) * ((size_t)(words) - (size_t)(other_words)))
+
+TB_STATIC_ASSERT(sizeof(pthread_mutex_t) <= TB_POSIX_NATIVE_BYTES(TB_MUTEX_STORAGE_WORDS, 2),
+                 "a tb_mutex has room for a pthread_mutex_t, its state, and its holder");
 TB_STATIC_ASSERT(_Alignof(pthread_mutex_t) <= _Alignof(uintptr_t),
                  "a tb_mutex is aligned for a pthread_mutex_t");
-TB_STATIC_ASSERT(sizeof(pthread_cond_t) <= TB_POSIX_NATIVE_BYTES(TB_CONDITION_STORAGE_WORDS),
-                 "a tb_condition has room for a pthread_cond_t");
+TB_STATIC_ASSERT(sizeof(pthread_cond_t) <= TB_POSIX_NATIVE_BYTES(TB_CONDITION_STORAGE_WORDS, 1),
+                 "a tb_condition has room for a pthread_cond_t and its state");
 TB_STATIC_ASSERT(_Alignof(pthread_cond_t) <= _Alignof(uintptr_t),
                  "a tb_condition is aligned for a pthread_cond_t");
 TB_STATIC_ASSERT(sizeof(pthread_t) <= sizeof(uintptr_t), "a pthread_t fits in tb_thread");
@@ -74,8 +82,8 @@ static void tb_posix_finish_start(uintptr_t *state)
 
 static pthread_mutex_t *tb_posix_mutex(tb_mutex *mutex)
 {
-    uintptr_t *const state = &mutex->storage[0];
-    pthread_mutex_t *const native = (pthread_mutex_t *)&mutex->storage[1];
+    uintptr_t *const state = &mutex->storage[TB_POSIX_STATE_WORD];
+    pthread_mutex_t *const native = (pthread_mutex_t *)&mutex->storage[TB_POSIX_NATIVE_WORD];
 
     if (tb_posix_is_ready(state))
     {
@@ -94,8 +102,8 @@ static pthread_mutex_t *tb_posix_mutex(tb_mutex *mutex)
 
 static pthread_cond_t *tb_posix_condition(tb_condition *condition)
 {
-    uintptr_t *const state = &condition->storage[0];
-    pthread_cond_t *const native = (pthread_cond_t *)&condition->storage[1];
+    uintptr_t *const state = &condition->storage[TB_POSIX_STATE_WORD];
+    pthread_cond_t *const native = (pthread_cond_t *)&condition->storage[TB_POSIX_NATIVE_WORD];
 
     if (tb_posix_is_ready(state))
     {
@@ -107,6 +115,56 @@ static pthread_cond_t *tb_posix_condition(tb_condition *condition)
         tb_posix_finish_start(state);
     }
     return native;
+}
+
+/* ---------------------------------------------------------------------------
+ * Who holds a mutex.
+ *
+ * What the system does with a mutex that is unlocked by the wrong thread,
+ * locked twice, or waited on without being held is undefined, and differs
+ * between Linux and macOS. A build with assertions therefore records the
+ * holder, the thread's identifier or zero, and fails an assertion instead.
+ * A build without assertions keeps the word and never touches it, so that a
+ * tb_mutex is the same size in both.
+ *
+ * A thread reads the word of a mutex it does not hold, to see that it is not
+ * the holder, so the word is read and written as one step.
+ * ------------------------------------------------------------------------- */
+
+static uintptr_t tb_posix_calling_thread(void)
+{
+    return (uintptr_t)pthread_self();
+}
+
+static bool tb_posix_caller_holds(tb_mutex *mutex)
+{
+    const uintptr_t owner =
+        __atomic_load_n(&mutex->storage[TB_POSIX_MUTEX_OWNER_WORD], __ATOMIC_SEQ_CST);
+
+    return owner == tb_posix_calling_thread();
+}
+
+/* Records that the calling thread now holds the mutex. Call it only while
+ * that is so. */
+static void tb_posix_note_held(tb_mutex *mutex)
+{
+#if TB_ASSERT_ENABLED
+    __atomic_store_n(&mutex->storage[TB_POSIX_MUTEX_OWNER_WORD], tb_posix_calling_thread(),
+                     __ATOMIC_SEQ_CST);
+#else
+    (void)mutex;
+#endif
+}
+
+/* Records that nobody holds the mutex. Call it while the calling thread
+ * still does, just before it gives the mutex up. */
+static void tb_posix_note_released(tb_mutex *mutex)
+{
+#if TB_ASSERT_ENABLED
+    __atomic_store_n(&mutex->storage[TB_POSIX_MUTEX_OWNER_WORD], (uintptr_t)0, __ATOMIC_SEQ_CST);
+#else
+    (void)mutex;
+#endif
 }
 
 /* ---------------------------------------------------------------------------
@@ -125,6 +183,9 @@ void tb_thread_create(tb_thread *thread, tb_thread_function *entry, void *argume
 {
     pthread_t native = {0};
 
+    TB_ASSERT(thread != NULL);
+    TB_ASSERT(entry != NULL);
+    TB_ASSERT_MSG(thread->native == 0, "the thread object holds no thread that is not joined");
     thread->entry = entry;
     thread->argument = argument;
     if (pthread_create(&native, NULL, tb_posix_thread_entry, thread) != 0)
@@ -137,6 +198,9 @@ void tb_thread_create(tb_thread *thread, tb_thread_function *entry, void *argume
 
 void tb_thread_join(tb_thread *thread)
 {
+    TB_ASSERT(thread != NULL);
+    TB_ASSERT_MSG(thread->native != 0, "the thread was created and is not joined yet");
+    /* A build without assertions still refuses, with a diagnostic. */
     if (thread->native == 0)
     {
         tb_posix_thread_fail("platform.thread: tb_thread_join on posix: the thread was not "
@@ -162,17 +226,23 @@ uint64_t tb_thread_current_id(void)
 
 void tb_mutex_lock(tb_mutex *mutex)
 {
+    TB_ASSERT(mutex != NULL);
+    TB_ASSERT_MSG(!tb_posix_caller_holds(mutex),
+                  "the calling thread does not hold the mutex already");
     if (pthread_mutex_lock(tb_posix_mutex(mutex)) != 0)
     {
         tb_posix_thread_fail("platform.thread: tb_mutex_lock on posix: pthread_mutex_lock "
                              "failed\n");
     }
+    tb_posix_note_held(mutex);
 }
 
 bool tb_mutex_try_lock(tb_mutex *mutex)
 {
-    const int error = pthread_mutex_trylock(tb_posix_mutex(mutex));
+    int error = 0;
 
+    TB_ASSERT(mutex != NULL);
+    error = pthread_mutex_trylock(tb_posix_mutex(mutex));
     if (error == EBUSY)
     {
         return false;
@@ -182,11 +252,17 @@ bool tb_mutex_try_lock(tb_mutex *mutex)
         tb_posix_thread_fail("platform.thread: tb_mutex_try_lock on posix: pthread_mutex_trylock "
                              "failed\n");
     }
+    tb_posix_note_held(mutex);
     return true;
 }
 
 void tb_mutex_unlock(tb_mutex *mutex)
 {
+    TB_ASSERT(mutex != NULL);
+    TB_ASSERT_MSG(tb_posix_caller_holds(mutex), "the calling thread holds the mutex");
+    /* Cleared before the lock is given up: afterwards the word belongs to
+     * the next holder. */
+    tb_posix_note_released(mutex);
     if (pthread_mutex_unlock(tb_posix_mutex(mutex)) != 0)
     {
         tb_posix_thread_fail("platform.thread: tb_mutex_unlock on posix: pthread_mutex_unlock "
@@ -200,36 +276,58 @@ void tb_mutex_unlock(tb_mutex *mutex)
 
 void tb_condition_wait(tb_condition *condition, tb_mutex *mutex)
 {
+    TB_ASSERT(condition != NULL);
+    TB_ASSERT(mutex != NULL);
+    TB_ASSERT_MSG(tb_posix_caller_holds(mutex), "the calling thread holds the mutex");
     if (pthread_cond_wait(tb_posix_condition(condition), tb_posix_mutex(mutex)) != 0)
     {
         tb_posix_thread_fail("platform.thread: tb_condition_wait on posix: pthread_cond_wait "
                              "failed\n");
     }
+    /* The wait gave the mutex up, and whoever took it meanwhile recorded
+     * itself. The record is not cleared before the wait: until the mutex is
+     * taken again it names this thread, which is asleep and cannot be misled
+     * by it. */
+    tb_posix_note_held(mutex);
 }
 
 bool tb_condition_wait_for(tb_condition *condition, tb_mutex *mutex, uint64_t nanoseconds)
 {
-    pthread_cond_t *const native_condition = tb_posix_condition(condition);
-    pthread_mutex_t *const native_mutex = tb_posix_mutex(mutex);
-    const uint64_t start = tb_platform_clock_nanoseconds();
+    pthread_cond_t *native_condition = NULL;
+    pthread_mutex_t *native_mutex = NULL;
+    uint64_t start = 0;
     uint64_t elapsed = 0;
+    bool ended_early = false;
 
+    TB_ASSERT(condition != NULL);
+    TB_ASSERT(mutex != NULL);
+    TB_ASSERT_MSG(tb_posix_caller_holds(mutex), "the calling thread holds the mutex");
+    native_condition = tb_posix_condition(condition);
+    native_mutex = tb_posix_mutex(mutex);
+    start = tb_platform_clock_nanoseconds();
     /* The system may count the limit on another clock than the engine's, and
      * waits for a very long one in parts. The engine's clock decides when the
      * limit has passed. */
-    while (elapsed < nanoseconds)
+    while (elapsed < nanoseconds && !ended_early)
     {
         if (tb_posix_condition_wait_up_to(native_condition, native_mutex, nanoseconds - elapsed))
         {
-            return true;
+            ended_early = true;
         }
-        elapsed = tb_platform_clock_nanoseconds() - start;
+        else
+        {
+            elapsed = tb_platform_clock_nanoseconds() - start;
+        }
     }
-    return false;
+    /* As after tb_condition_wait(): whoever held the mutex meanwhile
+     * recorded itself. */
+    tb_posix_note_held(mutex);
+    return ended_early;
 }
 
 void tb_condition_wake_one(tb_condition *condition)
 {
+    TB_ASSERT(condition != NULL);
     if (pthread_cond_signal(tb_posix_condition(condition)) != 0)
     {
         tb_posix_thread_fail("platform.thread: tb_condition_wake_one on posix: "
@@ -239,6 +337,7 @@ void tb_condition_wake_one(tb_condition *condition)
 
 void tb_condition_wake_all(tb_condition *condition)
 {
+    TB_ASSERT(condition != NULL);
     if (pthread_cond_broadcast(tb_posix_condition(condition)) != 0)
     {
         tb_posix_thread_fail("platform.thread: tb_condition_wake_all on posix: "
