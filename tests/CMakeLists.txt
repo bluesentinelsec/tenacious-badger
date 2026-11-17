@@ -205,8 +205,7 @@ if(TB_SANITIZER)
     tb_make_standalone_sanitized(tb_internal_tests_sanitized)
 
     if(TB_SANITIZER STREQUAL "address")
-        # Touching memory that an arena has released must end the process with a
-        # sanitizer report, so it is probed from outside like the other fatal paths.
+        # The same buffer overruns are detected independently by ASan.
         tb_add_tests(tb_memory_raw_probe_sanitized NO_CTEST FRAMEWORK tb_test_sanitized
             SOURCES core/memory_debug_probe.c)
         target_sources(tb_memory_raw_probe_sanitized PRIVATE ${TB_ENGINE_SOURCES})
@@ -216,6 +215,7 @@ if(TB_SANITIZER)
             COMMAND "${CMAKE_COMMAND}" "-DTB_PROBE=$<TARGET_FILE:tb_memory_raw_probe_sanitized>"
                 -DTB_RAW=ON -P "${CMAKE_CURRENT_SOURCE_DIR}/ExpectMemoryDebug.cmake")
 
+        # Touching memory that an arena has released must end with a report.
         tb_add_tests(tb_probe_sanitized NO_CTEST FRAMEWORK tb_test_sanitized
             SOURCES core/arena_probe.c)
         target_sources(tb_probe_sanitized PRIVATE ${TB_ENGINE_SOURCES})

@@ -1184,10 +1184,10 @@ TB_TEST(core_memory_debug, source_locations_survive_resize_and_are_thread_local)
     previous = tb_memory_debug_set_site((tb_memory_debug_site){"allocation.c", 42});
     TB_TEST_EXPECT_POINTER(previous.file, ==, NULL);
     block = checking.malloc_function(16);
-    (void)tb_memory_debug_set_site(previous);
-    block = checking.realloc_function(block, 32);
     tb_thread_create(&thread, allocate_under_a_label_of_its_own, &worker);
     tb_thread_join(&thread);
+    (void)tb_memory_debug_set_site(previous);
+    block = checking.realloc_function(block, 32);
     tb_memory_debug_visit(see_block, &all);
     TB_TEST_REQUIRE_UINT(all.count, ==, 2);
     TB_TEST_EXPECT_STRING(all.blocks[0].file, ==, "allocation.c");

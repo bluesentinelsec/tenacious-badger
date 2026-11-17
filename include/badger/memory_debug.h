@@ -66,7 +66,11 @@
  * @brief Get the checking functions, to install with tb_memory_set_functions().
  *
  * They may also be called directly, which checks the blocks of one part of a
- * program and leaves the rest alone.
+ * program and leaves the rest alone. Direct zero-byte allocations remain
+ * distinct live blocks; resizing to zero preserves a live block. Direct free
+ * or resize of NULL is a foreign-pointer fault (the engine filters NULL).
+ * An allocation failure or size overflow returns NULL without losing a live
+ * block. Free and resize require a block returned by these functions.
  *
  * @param[out] functions Required non-null; receives the four functions.
  * @par Threading Thread-safe.
