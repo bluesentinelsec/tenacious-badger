@@ -18,5 +18,7 @@ void tb_platform_abort(void)
      * runs no exit handlers, as the interface promises, and unlike abort()
      * it never waits on an error dialog. A debugger does not stop here: a
      * platform's own adapter adds that. */
+    /* coverage-off: the process ends on this line, after its counts were written */
     _Exit(EXIT_FAILURE);
+    /* coverage-on */
 }

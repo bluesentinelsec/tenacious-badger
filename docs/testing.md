@@ -387,6 +387,68 @@ To keep a threaded test free of races of its own, follow
 case gave it, and the case reads that memory after joining the thread, or
 under the lock that the thread wrote it under.
 
+## Coverage
+
+Every source under `src/` must have at least 80% of its lines of code run by
+the tests. CI measures it on each platform, so that each platform adapter is
+measured where it is compiled, and fails on any file under the bar. No list of
+files is kept: a new source is held to the bar from the change that adds it.
+
+| Platform | Instrumented by | Read by |
+| --- | --- | --- |
+| Linux, GCC | `--coverage` | `gcov` |
+| macOS, AppleClang | `--coverage` | `llvm-cov gcov` |
+| Windows, MSVC | nothing: the tests run under `Microsoft.CodeCoverage.Console`, which ships with Visual Studio | its Cobertura report |
+
+`TB_ENABLE_COVERAGE=ON` adds the flag for GCC and Clang. To measure locally:
+
+```sh
+cmake -S . -B build/coverage -DCMAKE_BUILD_TYPE=Debug -DTB_ENABLE_COVERAGE=ON
+cmake --build build/coverage --parallel
+ctest --test-dir build/coverage
+python3 tools/check_coverage.py build/coverage                         # GCC
+python3 tools/check_coverage.py build/coverage --gcov "llvm-cov gcov"  # Clang
+```
+
+On Windows, from a developer prompt and with any Debug build:
+
+```bat
+Microsoft.CodeCoverage.Console collect -o coverage.xml -f cobertura ctest --preset debug
+python tools\check_coverage.py --cobertura coverage.xml
+```
+
+The check prints a line for every source: its lines of code, how many ran,
+and the lines that did not when the file is under the bar.
+
+**Fatal errors are counted.** A process writes its counts when it exits, and
+a process that the engine ends through `tb_platform_abort()` does not exit in
+that sense. In a coverage build each adapter's abort writes the counts first,
+so the lines on the way to a fatal error, which the tests run in child
+processes, are counted like any others.
+
+**Lines that no test can reach are marked, with the reason.** Some lines
+handle a failure of the operating system that a test cannot arrange: a clock
+that cannot be read, a condition variable that cannot be made. They are left
+out of the count between two comments:
+
+```c
+/* coverage-off: pthread_cond_init fails only when the system is out of memory */
+if (error != 0)
+{
+    tb_linux_condition_fail("...");
+}
+/* coverage-on */
+```
+
+The reason is required, and the check prints how many lines each file leaves
+out, so that an exclusion is seen in review and in every run. A line that a
+test could reach is not marked: it is tested.
+
+**Two cases fail under the Windows collector**, which moves functions to
+watch them, and so breaks a comparison of the addresses of two functions. The
+Windows coverage job therefore looks only at what the tests ran; whether they
+pass is decided by the ordinary jobs.
+
 ## Testing the framework
 
 The framework is tested in `tests/framework/selftest/`:

@@ -191,7 +191,9 @@ release validation:
   package, extract, and launch each native desktop export. One job builds the
   engine with the [default platform adapter](platforms.md#unsupported-platforms),
   and four run [static analysis](#static-analysis) with the analyzer of each
-  compiler.
+  compiler. Three measure [coverage](testing.md#coverage), one on each
+  platform, and fail when the tests run less than 80% of the lines of any
+  source of the engine.
 - [Sanitizers](../.github/workflows/sanitizers.yml): standalone Debug sanitizer tests
   on the same four toolchains, including the platform adapter's tests, and the
   same tests under ThreadSanitizer on Linux with GCC and Clang and on macOS.
