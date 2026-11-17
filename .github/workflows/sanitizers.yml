@@ -10,6 +10,13 @@ on:
 permissions:
   contents: read
 
+# A push to a pull request makes the runs of its earlier commits pointless:
+# they are cancelled, so that the new one does not wait behind them. Runs on
+# main are never cancelled, so that every commit there is checked.
+concurrency:
+  group: sanitizers-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   sanitizer:
     name: ${{ matrix.os }} / ${{ matrix.compiler }}
