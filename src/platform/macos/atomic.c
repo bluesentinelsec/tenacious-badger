@@ -17,7 +17,7 @@ size_t tb_platform_atomic_size_subtract(tb_platform_atomic_size *atomic, size_t 
     return __atomic_sub_fetch(&atomic->value, amount, __ATOMIC_SEQ_CST);
 }
 
-size_t tb_platform_atomic_size_load(tb_platform_atomic_size *atomic)
+size_t tb_platform_atomic_size_load(const tb_platform_atomic_size *atomic)
 {
     TB_ASSERT(atomic != NULL);
     return __atomic_load_n(&atomic->value, __ATOMIC_SEQ_CST);
@@ -45,7 +45,7 @@ bool tb_platform_atomic_size_compare_exchange(tb_platform_atomic_size *atomic, s
                                        __ATOMIC_SEQ_CST);
 }
 
-uint32_t tb_platform_atomic_u32_load(tb_platform_atomic_u32 *atomic)
+uint32_t tb_platform_atomic_u32_load(const tb_platform_atomic_u32 *atomic)
 {
     TB_ASSERT(atomic != NULL);
     return __atomic_load_n(&atomic->value, __ATOMIC_SEQ_CST);
@@ -73,7 +73,7 @@ bool tb_platform_atomic_u32_compare_exchange(tb_platform_atomic_u32 *atomic, uin
                                        __ATOMIC_SEQ_CST);
 }
 
-void *tb_platform_atomic_pointer_load(tb_platform_atomic_pointer *atomic)
+void *tb_platform_atomic_pointer_load(const tb_platform_atomic_pointer *atomic)
 {
     TB_ASSERT(atomic != NULL);
     return __atomic_load_n(&atomic->value, __ATOMIC_SEQ_CST);

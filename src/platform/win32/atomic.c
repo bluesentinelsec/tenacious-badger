@@ -40,7 +40,7 @@ size_t tb_platform_atomic_size_subtract(tb_platform_atomic_size *atomic, size_t 
  * from every other thread that is reading it. Threads that only look at a
  * value, as a thief looks at the ends of another worker's queue, would then
  * get in each other's way as much as threads that change it. */
-size_t tb_platform_atomic_size_load(tb_platform_atomic_size *atomic)
+size_t tb_platform_atomic_size_load(const tb_platform_atomic_size *atomic)
 {
     TB_ASSERT(atomic != NULL);
     return (size_t)ReadSizeTAcquire(&atomic->value);
@@ -91,10 +91,11 @@ static LONG *tb_win32_atomic_long(tb_platform_atomic_u32 *atomic)
     return (LONG *)&atomic->value;
 }
 
-uint32_t tb_platform_atomic_u32_load(tb_platform_atomic_u32 *atomic)
+uint32_t tb_platform_atomic_u32_load(const tb_platform_atomic_u32 *atomic)
 {
     TB_ASSERT(atomic != NULL);
-    return (uint32_t)ReadAcquire(tb_win32_atomic_long(atomic));
+    /* Read as the signed value that the interlocked functions write. */
+    return (uint32_t)ReadAcquire((const LONG *)&atomic->value);
 }
 
 void tb_platform_atomic_u32_store(tb_platform_atomic_u32 *atomic, uint32_t value)
@@ -127,7 +128,7 @@ bool tb_platform_atomic_u32_compare_exchange(tb_platform_atomic_u32 *atomic, uin
     return false;
 }
 
-void *tb_platform_atomic_pointer_load(tb_platform_atomic_pointer *atomic)
+void *tb_platform_atomic_pointer_load(const tb_platform_atomic_pointer *atomic)
 {
     TB_ASSERT(atomic != NULL);
     return ReadPointerAcquire(&atomic->value);

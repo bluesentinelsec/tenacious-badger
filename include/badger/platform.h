@@ -77,12 +77,13 @@ TB_API size_t tb_platform_atomic_size_add(tb_platform_atomic_size *atomic, size_
 TB_API size_t tb_platform_atomic_size_subtract(tb_platform_atomic_size *atomic, size_t amount);
 
 /**
- * @brief Read an atomic value.
+ * @brief Read an atomic value. Nothing is written, so the value may be part
+ * of an object that the caller has only for reading.
  * @param atomic Required non-null.
  * @return The value at some instant during the call.
  * @par Threading Thread-safe; sequentially consistent.
  */
-TB_API size_t tb_platform_atomic_size_load(tb_platform_atomic_size *atomic);
+TB_API size_t tb_platform_atomic_size_load(const tb_platform_atomic_size *atomic);
 
 /**
  * @brief Write an atomic value.
@@ -137,7 +138,7 @@ typedef struct tb_platform_atomic_u32
  * @return The value at some instant during the call.
  * @par Threading Thread-safe; sequentially consistent.
  */
-TB_API uint32_t tb_platform_atomic_u32_load(tb_platform_atomic_u32 *atomic);
+TB_API uint32_t tb_platform_atomic_u32_load(const tb_platform_atomic_u32 *atomic);
 
 /**
  * @brief Write an atomic value.
@@ -207,7 +208,7 @@ typedef struct tb_platform_atomic_pointer
  * @return The pointer at some instant during the call; may be NULL.
  * @par Threading Thread-safe; sequentially consistent.
  */
-TB_API void *tb_platform_atomic_pointer_load(tb_platform_atomic_pointer *atomic);
+TB_API void *tb_platform_atomic_pointer_load(const tb_platform_atomic_pointer *atomic);
 
 /**
  * @brief Write an atomic pointer.
