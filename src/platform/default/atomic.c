@@ -28,6 +28,30 @@ size_t tb_platform_atomic_size_load(tb_platform_atomic_size *atomic)
     tb_default_not_implemented(TB_DEFAULT_ATOMIC_INTERFACE, "tb_platform_atomic_size_load");
 }
 
+void tb_platform_atomic_size_store(tb_platform_atomic_size *atomic, size_t value)
+{
+    (void)atomic;
+    (void)value;
+    tb_default_not_implemented(TB_DEFAULT_ATOMIC_INTERFACE, "tb_platform_atomic_size_store");
+}
+
+size_t tb_platform_atomic_size_exchange(tb_platform_atomic_size *atomic, size_t value)
+{
+    (void)atomic;
+    (void)value;
+    tb_default_not_implemented(TB_DEFAULT_ATOMIC_INTERFACE, "tb_platform_atomic_size_exchange");
+}
+
+bool tb_platform_atomic_size_compare_exchange(tb_platform_atomic_size *atomic, size_t *expected,
+                                              size_t desired)
+{
+    (void)atomic;
+    (void)expected;
+    (void)desired;
+    tb_default_not_implemented(TB_DEFAULT_ATOMIC_INTERFACE,
+                               "tb_platform_atomic_size_compare_exchange");
+}
+
 uint32_t tb_platform_atomic_u32_load(tb_platform_atomic_u32 *atomic)
 {
     (void)atomic;

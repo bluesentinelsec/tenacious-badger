@@ -8,6 +8,7 @@
 
 TB_STATIC_ASSERT(sizeof(size_t) == sizeof(SIZE_T), "size_t and SIZE_T must be the same type size");
 TB_STATIC_ASSERT(sizeof(uint32_t) == sizeof(LONG), "uint32_t and LONG must be the same size");
+TB_STATIC_ASSERT(sizeof(size_t) == sizeof(PVOID), "a size_t is exchanged as a pointer is");
 
 size_t tb_platform_atomic_size_add(tb_platform_atomic_size *atomic, size_t amount)
 {
@@ -29,6 +30,44 @@ size_t tb_platform_atomic_size_load(tb_platform_atomic_size *atomic)
 {
     TB_ASSERT(atomic != NULL);
     return (size_t)InterlockedExchangeAddSizeT(&atomic->value, 0);
+}
+
+/* The system has no exchange for a SIZE_T by that name. A pointer is the
+ * same size on every Windows, and its exchange moves the same bits. */
+static PVOID *tb_win32_atomic_size_as_pointer(tb_platform_atomic_size *atomic)
+{
+    return (PVOID *)&atomic->value;
+}
+
+void tb_platform_atomic_size_store(tb_platform_atomic_size *atomic, size_t value)
+{
+    TB_ASSERT(atomic != NULL);
+    (void)InterlockedExchangePointer(tb_win32_atomic_size_as_pointer(atomic), (PVOID)value);
+}
+
+size_t tb_platform_atomic_size_exchange(tb_platform_atomic_size *atomic, size_t value)
+{
+    TB_ASSERT(atomic != NULL);
+    return (size_t)InterlockedExchangePointer(tb_win32_atomic_size_as_pointer(atomic),
+                                              (PVOID)value);
+}
+
+bool tb_platform_atomic_size_compare_exchange(tb_platform_atomic_size *atomic, size_t *expected,
+                                              size_t desired)
+{
+    size_t found = 0;
+
+    TB_ASSERT(atomic != NULL);
+    TB_ASSERT(expected != NULL);
+    /* The interlocked function returns the value it found, written or not. */
+    found = (size_t)InterlockedCompareExchangePointer(tb_win32_atomic_size_as_pointer(atomic),
+                                                      (PVOID)desired, (PVOID)*expected);
+    if (found == *expected)
+    {
+        return true;
+    }
+    *expected = found;
+    return false;
 }
 
 /* The interlocked functions for 32 bits take a signed value. The bits are the

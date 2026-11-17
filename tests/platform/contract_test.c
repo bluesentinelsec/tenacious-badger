@@ -60,6 +60,34 @@ static void size_load_null(void *context)
     (void)tb_platform_atomic_size_load(NULL);
 }
 
+static void size_store_null(void *context)
+{
+    (void)context;
+    tb_platform_atomic_size_store(NULL, 1);
+}
+
+static void size_exchange_null(void *context)
+{
+    (void)context;
+    (void)tb_platform_atomic_size_exchange(NULL, 1);
+}
+
+static void size_compare_exchange_null(void *context)
+{
+    size_t expected = 0;
+
+    (void)context;
+    (void)tb_platform_atomic_size_compare_exchange(NULL, &expected, 1);
+}
+
+static void size_compare_exchange_null_expected(void *context)
+{
+    tb_platform_atomic_size atomic = {0};
+
+    (void)context;
+    (void)tb_platform_atomic_size_compare_exchange(&atomic, NULL, 1);
+}
+
 static void u32_load_null(void *context)
 {
     (void)context;
@@ -213,6 +241,12 @@ static const null_case null_cases[] = {
     {"tb_platform_atomic_size_add(NULL, 1)", size_add_null, "atomic != NULL"},
     {"tb_platform_atomic_size_subtract(NULL, 1)", size_subtract_null, "atomic != NULL"},
     {"tb_platform_atomic_size_load(NULL)", size_load_null, "atomic != NULL"},
+    {"tb_platform_atomic_size_store(NULL, 1)", size_store_null, "atomic != NULL"},
+    {"tb_platform_atomic_size_exchange(NULL, 1)", size_exchange_null, "atomic != NULL"},
+    {"tb_platform_atomic_size_compare_exchange(NULL, &expected, 1)", size_compare_exchange_null,
+     "atomic != NULL"},
+    {"tb_platform_atomic_size_compare_exchange(&atomic, NULL, 1)",
+     size_compare_exchange_null_expected, "expected != NULL"},
     {"tb_platform_atomic_u32_load(NULL)", u32_load_null, "atomic != NULL"},
     {"tb_platform_atomic_u32_store(NULL, 1)", u32_store_null, "atomic != NULL"},
     {"tb_platform_atomic_u32_exchange(NULL, 1)", u32_exchange_null, "atomic != NULL"},

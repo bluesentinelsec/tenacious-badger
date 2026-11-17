@@ -77,6 +77,95 @@ TB_TEST(platform_atomic_size, no_addition_is_lost_between_threads)
     TB_TEST_EXPECT_UINT(tb_platform_atomic_size_load(&atomic), ==, THREAD_COUNT * ROUND_COUNT * 2);
 }
 
+/* Values at the ends of the range and on both sides of the top bit, of the
+ * whole size and of its lower half. */
+static const size_t size_values[] = {
+    0, 1, (size_t)UINT32_MAX, SIZE_MAX / 2, SIZE_MAX / 2 + 1, SIZE_MAX - 1, SIZE_MAX,
+};
+
+TB_TEST(platform_atomic_size, stores_loads_and_exchanges_every_value)
+{
+    tb_platform_atomic_size atomic = {0};
+    size_t previous = 0;
+
+    for (size_t index = 0; index < TB_TEST_COUNT_OF(size_values); index++)
+    {
+        TB_TEST_CONTEXT("value %zu", index);
+        tb_platform_atomic_size_store(&atomic, size_values[index]);
+        TB_TEST_EXPECT_HEX(tb_platform_atomic_size_load(&atomic), ==, size_values[index]);
+        TB_TEST_EXPECT_HEX(atomic.value, ==, size_values[index]);
+    }
+    tb_platform_atomic_size_store(&atomic, 0);
+    for (size_t index = 0; index < TB_TEST_COUNT_OF(size_values); index++)
+    {
+        TB_TEST_CONTEXT("value %zu", index);
+        TB_TEST_EXPECT_HEX(tb_platform_atomic_size_exchange(&atomic, size_values[index]), ==,
+                           previous);
+        TB_TEST_EXPECT_HEX(tb_platform_atomic_size_load(&atomic), ==, size_values[index]);
+        previous = size_values[index];
+    }
+}
+
+TB_TEST(platform_atomic_size, compare_exchange_writes_only_over_the_expected_value)
+{
+    for (size_t held = 0; held < TB_TEST_COUNT_OF(size_values); held++)
+    {
+        for (size_t guess = 0; guess < TB_TEST_COUNT_OF(size_values); guess++)
+        {
+            /* A value that is neither the one held nor the one expected. */
+            const size_t desired = 0x12345678;
+            tb_platform_atomic_size atomic = {.value = size_values[held]};
+            size_t expected = size_values[guess];
+            const bool is_as_expected = held == guess;
+            const bool was_written =
+                tb_platform_atomic_size_compare_exchange(&atomic, &expected, desired);
+
+            TB_TEST_CONTEXT("holding value %zu, expecting value %zu", held, guess);
+            TB_TEST_EXPECT(was_written == is_as_expected);
+            /* Either way, `expected` ends as the value that was found. */
+            TB_TEST_EXPECT_HEX(expected, ==, size_values[held]);
+            if (was_written)
+            {
+                TB_TEST_EXPECT_HEX(tb_platform_atomic_size_load(&atomic), ==, desired);
+            }
+            else
+            {
+                TB_TEST_EXPECT_HEX(tb_platform_atomic_size_load(&atomic), ==, size_values[held]);
+            }
+        }
+    }
+}
+
+/* Adds three as a change that is computed from a reading: read, compute, and
+ * write only if no other thread wrote in between. */
+static void add_three_by_compare_exchange(void *argument)
+{
+    tb_platform_atomic_size *const atomic = *(tb_platform_atomic_size **)argument;
+
+    for (size_t round = 0; round < ROUND_COUNT; round++)
+    {
+        size_t seen = tb_platform_atomic_size_load(atomic);
+
+        while (!tb_platform_atomic_size_compare_exchange(atomic, &seen, seen + 3))
+        {
+            /* `seen` now holds what another thread wrote. */
+        }
+    }
+}
+
+TB_TEST(platform_atomic_size, compare_exchange_loses_no_change_between_threads)
+{
+    tb_platform_atomic_size atomic = {0};
+    tb_platform_atomic_size *arguments[THREAD_COUNT] = {0};
+
+    for (size_t index = 0; index < THREAD_COUNT; index++)
+    {
+        arguments[index] = &atomic;
+    }
+    run_on_threads(add_three_by_compare_exchange, arguments, sizeof(arguments[0]));
+    TB_TEST_EXPECT_UINT(tb_platform_atomic_size_load(&atomic), ==, THREAD_COUNT * ROUND_COUNT * 3);
+}
+
 /* ---------------------------------------------------------------------------
  * A 32-bit value.
  * ------------------------------------------------------------------------- */
