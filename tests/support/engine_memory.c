@@ -2,6 +2,7 @@
 
 #include "badger/fmt.h"
 #include "badger/memory.h"
+#include "badger/memory_debug.h"
 #include "tb_test.h"
 
 /* Capacity of the trap message built from a failed allocation. */
@@ -63,6 +64,15 @@ static void tb_engine_test_free(void *memory)
     tb_engine_test_original_memory.free_function(memory);
 }
 
+bool tb_engine_test_is_checking_memory(void)
+{
+#ifdef TB_TEST_CHECK_MEMORY
+    return true;
+#else
+    return false;
+#endif
+}
+
 void tb_engine_test_install_memory_functions(void)
 {
     const tb_memory_functions functions = {.malloc_function = tb_engine_test_malloc,
@@ -70,7 +80,14 @@ void tb_engine_test_install_memory_functions(void)
                                            .realloc_function = tb_engine_test_realloc,
                                            .free_function = tb_engine_test_free};
 
-    tb_memory_get_original_functions(&tb_engine_test_original_memory);
+    if (tb_engine_test_is_checking_memory())
+    {
+        tb_memory_debug_get_functions(&tb_engine_test_original_memory);
+    }
+    else
+    {
+        tb_memory_get_original_functions(&tb_engine_test_original_memory);
+    }
     if (!tb_memory_set_functions(&functions))
     {
         /* Fails the calling case, or ends the process when no case is running. */

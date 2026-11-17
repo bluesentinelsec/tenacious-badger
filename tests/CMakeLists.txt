@@ -14,6 +14,7 @@ set(TB_TEST_CASE_SOURCES
     core/hash_test.c
     core/list_test.c
     core/memory_test.c
+    core/memory_debug_test.c
     core/ring_test.c
     core/set_test.c
     core/size_test.c
@@ -47,6 +48,11 @@ endfunction()
 
 tb_add_tests(tb_tests SOURCES ${TB_TEST_CASE_SOURCES} LIBRARIES TenaciousBadger::badger)
 
+# Repeat the allocation contracts with the checking functions installed.
+tb_add_tests(tb_memory_checked_tests SUFFIX ".checked"
+    SOURCES core/memory_test.c LIBRARIES TenaciousBadger::badger)
+target_compile_definitions(tb_memory_checked_tests PRIVATE TB_TEST_CHECK_MEMORY)
+
 # What a module keeps to itself is not in the engine library's interface, so
 # tb_tests cannot reach it. The cases that test it are built from the engine's
 # sources in place of linking the library: tb_internal_tests. A source of the
@@ -69,7 +75,8 @@ endfunction()
 # own checks. tb_probe holds those cases; a script per topic runs them in a
 # child process and checks the outcome.
 tb_add_tests(tb_probe NO_CTEST
-    SOURCES core/assert_probe.c core/fmt_probe.c core/memory_probe.c support/support_probe.c
+    SOURCES core/assert_probe.c core/fmt_probe.c core/memory_probe.c
+        core/memory_debug_probe.c support/support_probe.c
     LIBRARIES TenaciousBadger::badger)
 function(tb_add_probe_test name script)
     add_test(NAME ${name}
@@ -80,6 +87,7 @@ tb_add_probe_test(core_assert.default_handler_reports_and_aborts ExpectAssertAbo
 tb_add_probe_test(core_fmt.prints_to_the_standard_streams ExpectFormattedOutput.cmake)
 tb_add_probe_test(core_memory.default_handler_reports_and_aborts ExpectOutOfMemoryAbort.cmake)
 tb_add_probe_test(test_support.leaks_and_failure_injection ExpectTestSupport.cmake)
+tb_add_probe_test(core_memory_debug.reports_and_aborts ExpectMemoryDebug.cmake)
 
 # Checks of the source text. They run with the tests so that a violation fails
 # locally, before it fails in CI.
@@ -197,8 +205,17 @@ if(TB_SANITIZER)
     tb_make_standalone_sanitized(tb_internal_tests_sanitized)
 
     if(TB_SANITIZER STREQUAL "address")
-        # Touching memory that an arena has released must end the process with a
-        # sanitizer report, so it is probed from outside like the other fatal paths.
+        # The same buffer overruns are detected independently by ASan.
+        tb_add_tests(tb_memory_raw_probe_sanitized NO_CTEST FRAMEWORK tb_test_sanitized
+            SOURCES core/memory_debug_probe.c)
+        target_sources(tb_memory_raw_probe_sanitized PRIVATE ${TB_ENGINE_SOURCES})
+        target_compile_definitions(tb_memory_raw_probe_sanitized PRIVATE TB_MEMORY_PROBE_RAW)
+        tb_make_standalone_sanitized(tb_memory_raw_probe_sanitized)
+        add_test(NAME core_memory_debug.sanitizer_agrees_on_overruns.sanitized
+            COMMAND "${CMAKE_COMMAND}" "-DTB_PROBE=$<TARGET_FILE:tb_memory_raw_probe_sanitized>"
+                -DTB_RAW=ON -P "${CMAKE_CURRENT_SOURCE_DIR}/ExpectMemoryDebug.cmake")
+
+        # Touching memory that an arena has released must end with a report.
         tb_add_tests(tb_probe_sanitized NO_CTEST FRAMEWORK tb_test_sanitized
             SOURCES core/arena_probe.c)
         target_sources(tb_probe_sanitized PRIVATE ${TB_ENGINE_SOURCES})

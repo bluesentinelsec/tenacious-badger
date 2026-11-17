@@ -18,6 +18,11 @@ ends the process through a replaceable handler. The `tb_try_*` forms return NULL
 for callers that can recover. An application can supply its own allocator with
 `tb_memory_set_functions`.
 
+Optional checking memory functions in `badger/memory_debug.h` detect invalid
+frees and damaged guard bytes, report live allocations by module and annotated
+source location, and count current and peak bytes and blocks. They compose
+with a caller's allocator and serialize bookkeeping across threads.
+
 Sizes are computed safely with `badger/size.h`: `tb_size_add` and
 `tb_size_multiply` report overflow instead of wrapping, and `tb_size_grow`
 chooses the next capacity of a buffer that grows by doubling.
