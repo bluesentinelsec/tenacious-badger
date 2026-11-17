@@ -12,6 +12,8 @@ size_t tb_native_vm_large_page_size(void)
     return 0;
 #endif
 }
+/* coverage-off: Apple silicon has no large pages to ask for, so on the Macs that run the tests
+ * nothing calls this */
 void *tb_native_vm_allocate_large(size_t size)
 {
 #if defined(__x86_64__)
@@ -24,3 +26,4 @@ void *tb_native_vm_allocate_large(size_t size)
     return NULL;
 #endif
 }
+/* coverage-on */
