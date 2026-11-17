@@ -316,3 +316,35 @@ TB_TEST(platform_default, tb_fs_native_style)
 {
     (void)tb_fs_native_style();
 }
+
+#include "badger/virtual_memory.h"
+
+TB_TEST(platform_default, tb_vm_get_info)
+{
+    (void)tb_vm_get_info();
+}
+
+TB_TEST(platform_default, tb_vm_reserve)
+{
+    (void)tb_vm_reserve(0, NULL);
+}
+
+TB_TEST(platform_default, tb_vm_commit)
+{
+    (void)tb_vm_commit(NULL, 0, 0);
+}
+
+TB_TEST(platform_default, tb_vm_decommit)
+{
+    (void)tb_vm_decommit(NULL, 0, 0);
+}
+
+TB_TEST(platform_default, tb_vm_release)
+{
+    (void)tb_vm_release(NULL);
+}
+
+TB_TEST(platform_default, tb_vm_allocate_large)
+{
+    (void)tb_vm_allocate_large(0, NULL);
+}

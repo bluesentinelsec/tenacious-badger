@@ -12,6 +12,8 @@ groups = {
     'utf8': ['src/core/utf8.c'],
     'path': ['src/core/path.c'],
     'files': ['src/core/fs.c'],
+    'virtual_memory': ['src/platform/posix/virtual_memory.c',
+                       'src/platform/linux/virtual_memory.c'],
     'native_files': ['src/platform/posix/fs.c', 'src/platform/shared/fs.c',
                      'src/platform/linux/fs_location.c'],
 }

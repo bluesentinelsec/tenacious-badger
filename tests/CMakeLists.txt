@@ -80,7 +80,7 @@ endfunction()
 # child process and checks the outcome.
 tb_add_tests(tb_probe NO_CTEST
     SOURCES core/assert_probe.c core/fmt_probe.c core/memory_probe.c
-        core/memory_debug_probe.c core/fmt_failure_probe.c support/support_probe.c
+        core/memory_debug_probe.c core/fmt_failure_probe.c platform/virtual_memory_probe.c support/support_probe.c
     LIBRARIES TenaciousBadger::badger)
 function(tb_add_probe_test name script)
     add_test(NAME ${name}
@@ -96,6 +96,9 @@ tb_add_probe_test(core_memory_debug.reports_and_aborts ExpectMemoryDebug.cmake)
 # Checks of the source text. They run with the tests so that a violation fails
 # locally, before it fails in CI.
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(NAME platform_memory.inaccessible_pages_fault
+    COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tools/virtual_memory_fault_test.py"
+        "$<TARGET_FILE:tb_probe>")
 add_test(NAME core_fmt.failed_standard_streams_are_reported
     COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tools/stream_failure_test.py"
         "$<TARGET_FILE:tb_probe>")
@@ -132,7 +135,7 @@ tb_make_standalone(tb_internal_tests)
 # engine, which keeps the adapters free of the modules above them and lets a
 # test call a function that is private to an adapter.
 set(TB_PLATFORM_TEST_SOURCES
-    platform/fs_test.c
+    platform/fs_test.c platform/virtual_memory_test.c
     platform/atomic_test.c platform/contract_test.c platform/name_test.c
     platform/system_test.c platform/thread_options_test.c platform/thread_test.c
     platform/time_test.c)
@@ -182,6 +185,7 @@ target_include_directories(tb_platform_default_probe PRIVATE
 tb_configure_target(tb_platform_default_probe)
 tb_make_standalone(tb_platform_default_probe)
 set(TB_PLATFORM_INTERFACE_HEADERS
+    "${PROJECT_SOURCE_DIR}/include/badger/virtual_memory.h"
     "${PROJECT_SOURCE_DIR}/include/badger/file.h"
     "${PROJECT_SOURCE_DIR}/include/badger/platform.h"
     "${PROJECT_SOURCE_DIR}/include/badger/system.h"

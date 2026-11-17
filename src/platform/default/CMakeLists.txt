@@ -2,6 +2,7 @@
 # adapter of its own. It is standard C, so it compiles anywhere, and each of
 # its functions reports "not implemented" and ends the process.
 set(TB_PLATFORM_DEFAULT_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/virtual_memory.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/fs.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/abort.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/atomic.c"
