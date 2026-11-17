@@ -5,13 +5,11 @@ that they take from one another. [AGENTS.md](../AGENTS.md) puts it first among
 the engine's parallel machinery: ECS systems, render-graph recording, culling,
 and asset decoding are all to be tasks.
 
-It is being built in pieces. This page describes what exists.
-
-| Piece | State |
+| Piece | Where |
 | --- | --- |
-| The scheduler: workers, dependencies, priorities | Here: `include/badger/jobs.h` |
-| The queue that a worker keeps its work in | Here: `src/jobs/deque.h`, private |
-| Loops whose iterations run in parallel | Next |
+| The scheduler: workers, dependencies, priorities | `include/badger/jobs.h` |
+| Loops whose iterations run in parallel | `tb_jobs_for`, in the same header |
+| The queue that a worker keeps its work in | `src/jobs/deque.h`, private |
 
 ## The scheduler
 
@@ -186,6 +184,58 @@ cache lines whatever the scheduler does.
 **A job should be worth its cost.** At these numbers a job that does less
 than a microsecond of work is mostly overhead. Give a job a batch of small
 items, not one.
+
+## Loops
+
+Most parallel work in an engine is one function applied to a range: the
+chunks of an archetype, the objects to cull, the rows of an image.
+`tb_jobs_for` runs the iterations of such a loop on the workers and on the
+calling thread, and returns when all of them are done.
+
+```c
+static void scale_some(void *argument, size_t first, size_t count)
+{
+    float *const values = argument;
+
+    for (size_t index = first; index < first + count; index++)
+    {
+        values[index] *= 2.0f;
+    }
+}
+
+tb_jobs_for(jobs, value_count, 0, scale_some, values);
+```
+
+**The body is given a range, not one iteration**, so that its call is paid
+for once for many. The iterations `0` to `count - 1` are divided into ranges
+of at most `grain` iterations, and every iteration is in exactly one.
+
+**Ranges are handed out as threads become free.** The loop keeps a count of
+the iterations given out so far, and each thread that takes part claims the
+next range by moving it on. A thread that gets slow iterations therefore does
+not hold the others up, and nothing is decided in advance about which thread
+does what. The calling thread takes part, and so does a job for each worker.
+
+**The grain is the most iterations in one range.** With `0` the scheduler
+chooses about four ranges for each thread. Choose it yourself when you know
+what an iteration costs: a range should be worth a microsecond or more of
+work, and there should be several ranges for each thread.
+
+**The ranges run in no particular order, at the same time.** The body must
+not depend on the order, and iterations in different ranges must not write
+the same memory. To gather a result, give each range its own place to put it,
+or add it up with an atomic value.
+
+**A loop may run inside a job, and inside the body of another loop.** It
+waits by running jobs, as every wait in the scheduler does.
+
+| `tb_bench jobs`, nanoseconds for each iteration | Plain loop | `tb_jobs_for` on 8 threads | |
+| --- | --- | --- | --- |
+| Add up numbers, 4,000,000 iterations | 0.15 | 0.035 | 4.3 times as fast |
+| 32 steps of arithmetic, 1,000,000 iterations | 25.3 | 4.4 | 5.7 times as fast |
+
+Release, MSVC 19.50, i9-14900HX, on the eight performance cores. The first
+loop is limited by how fast memory can be read, which eight threads share.
 
 ## The queue that workers steal from
 

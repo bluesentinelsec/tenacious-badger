@@ -167,7 +167,8 @@ job may wait for the jobs it submitted. A handle to a job that has finished
 is harmless, and nothing has to release one. Workers keep their jobs in
 queues of their own, with no lock, and idle workers steal from them. An
 atomic size can now be stored, exchanged, and compared-and-exchanged, which
-those queues need.
+those queues need. `tb_jobs_for` runs the iterations of a loop on every
+thread, handing out ranges of them as threads become free.
 
 Included foundations:
 
