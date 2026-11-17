@@ -200,8 +200,16 @@ TB_TEST(platform_system, a_confined_thread_runs_where_it_was_put)
 
     if (!tb_thread_can_be_confined())
     {
+        const tb_thread_options options = {.processors = first_and_last, .processor_count = 2};
+        placed self = {0};
+        tb_thread thread = {0};
+
+        /* The option is ignored, and the thread runs all the same. */
+        tb_thread_create_with_options(&thread, &options, look_where_it_runs, &self);
+        tb_thread_join(&thread);
+        TB_TEST_EXPECT_UINT(self.looks, ==, 64);
         TB_TEST_EXPECT_UINT(tb_thread_current_processor(), ==, SIZE_MAX);
-        TB_TEST_SKIP("threads cannot be confined on this platform");
+        return;
     }
     TB_TEST_CONTEXT("the first processor");
     expect_confined(&first_and_last[0], 1, &first_and_last[0], 1);
