@@ -59,6 +59,8 @@ jobs:
         run: cmake --install build/ci --config ${{ matrix.build_type }} --prefix stage/sdk
       - name: Invoke the installed shared library from Python ctypes
         run: python3 tests/ffi/ctypes_smoke.py --prefix stage/sdk
+      - name: Exercise foundation APIs through independent installed-SDK utilities
+        run: python3 tools/verify_foundation.py --prefix stage/sdk --configuration ${{ matrix.build_type }}
       - name: Configure an independent static-library consumer
         run: cmake -S tests/consumers/static -B build/static-consumer -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} "-DCMAKE_PREFIX_PATH=${{ github.workspace }}/stage/sdk"
       - name: Build the independent static-library consumer

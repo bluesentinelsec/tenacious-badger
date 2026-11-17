@@ -272,3 +272,9 @@ ends when its reason does.
 The scaffold was created with `cppboot --name tenacious-badger --shared --no-git
 --no-fmt --no-codespaces`, then adapted to C17. Its Apache-2.0
 [license](../LICENSE) is retained.
+
+Foundation APIs are also checked together by an independent C17 file-copy
+utility built against the installed shared and static SDKs. CI runs its Unicode,
+binary I/O, reserved-arena, logging, and replacement scenarios in Debug and
+Release, and reruns them against the extracted SDK archive. See the
+[consumer example](../tests/consumers/foundation/README.md).

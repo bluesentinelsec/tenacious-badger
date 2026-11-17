@@ -11,6 +11,7 @@ import tempfile
 import zipfile
 
 from package_desktop import ROOT, require, run, verify_windows_signatures
+from verify_foundation import verify_foundation
 
 
 def verify(prefix, metadata):
@@ -84,6 +85,7 @@ def main():
                 with zipfile.ZipFile(archive) as stream:
                     stream.extractall(extracted)
             verify(Path(extracted) / name, metadata)
+            verify_foundation(Path(extracted) / name, arguments.configuration)
     with archive.open('rb') as stream:
         digest = hashlib.file_digest(stream, 'sha256').hexdigest()
     archive.with_name(archive.name + '.sha256').write_text(f'{digest}  {archive.name}\n')
