@@ -23,14 +23,13 @@ size_t tb_platform_copy_name(char *destination, size_t capacity, const char *nam
         {
             length++;
         }
-        /* Cut short: the byte after the cut continues a character, so the
-         * cut is inside that character, and the whole of it is dropped. */
-        if (name[length] != '\0')
+        /* When the byte after the last one kept continues a character, the
+         * name was cut inside that character, and the whole of it is
+         * dropped. After a name that fits comes its terminator, which
+         * continues nothing. */
+        while (length > 0 && tb_platform_is_continuation(name[length]))
         {
-            while (length > 0 && tb_platform_is_continuation(name[length]))
-            {
-                length--;
-            }
+            length--;
         }
     }
     for (size_t index = 0; index < length; index++)

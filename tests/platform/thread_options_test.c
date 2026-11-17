@@ -241,6 +241,9 @@ TB_TEST(platform_thread_options, a_thread_runs_at_every_priority)
         tb_thread_create_with_options(&thread, &options, record_the_run, &record);
         tb_thread_join(&thread);
         TB_TEST_EXPECT(record.has_run);
+        /* A joined thread is zeroed, and keeps nothing of what it was given. */
+        TB_TEST_EXPECT_UINT((unsigned char)thread.name[0], ==, 0);
+        TB_TEST_EXPECT_INT((int)thread.priority, ==, (int)TB_THREAD_PRIORITY_NORMAL);
     }
 }
 

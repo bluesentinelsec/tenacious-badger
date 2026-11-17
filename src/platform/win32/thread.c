@@ -168,6 +168,8 @@ void tb_thread_create(tb_thread *thread, tb_thread_function *entry, void *argume
 void tb_thread_create_with_options(tb_thread *thread, const tb_thread_options *options,
                                    tb_thread_function *entry, void *argument)
 {
+    const char *name = NULL;
+    tb_thread_priority priority = TB_THREAD_PRIORITY_NORMAL;
     HANDLE handle = NULL;
     SIZE_T stack_size = 0;
     DWORD flags = 0;
@@ -177,16 +179,16 @@ void tb_thread_create_with_options(tb_thread *thread, const tb_thread_options *o
     TB_ASSERT_MSG(thread->native == 0, "the thread object holds no thread that is not joined");
     TB_ASSERT_MSG(options == NULL || tb_win32_is_priority(options->priority),
                   "the priority is one of tb_thread_priority");
-    thread->entry = entry;
-    thread->argument = argument;
-    thread->name[0] = '\0';
-    thread->priority = TB_THREAD_PRIORITY_NORMAL;
     if (options != NULL)
     {
-        (void)tb_platform_copy_name(thread->name, sizeof(thread->name), options->name);
-        thread->priority = options->priority;
+        name = options->name;
+        priority = options->priority;
         stack_size = options->stack_size;
     }
+    thread->entry = entry;
+    thread->argument = argument;
+    (void)tb_platform_copy_name(thread->name, sizeof(thread->name), name);
+    thread->priority = priority;
     if (stack_size != 0)
     {
         /* Without this the size is how much of the default stack is

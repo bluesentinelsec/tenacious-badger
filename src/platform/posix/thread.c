@@ -249,6 +249,9 @@ void tb_thread_create(tb_thread *thread, tb_thread_function *entry, void *argume
 void tb_thread_create_with_options(tb_thread *thread, const tb_thread_options *options,
                                    tb_thread_function *entry, void *argument)
 {
+    const char *name = NULL;
+    tb_thread_priority priority = TB_THREAD_PRIORITY_NORMAL;
+    size_t stack_size = 0;
     pthread_attr_t attributes = {0};
     pthread_t native = {0};
     int error = 0;
@@ -258,23 +261,24 @@ void tb_thread_create_with_options(tb_thread *thread, const tb_thread_options *o
     TB_ASSERT_MSG(thread->native == 0, "the thread object holds no thread that is not joined");
     TB_ASSERT_MSG(options == NULL || tb_posix_is_priority(options->priority),
                   "the priority is one of tb_thread_priority");
+    if (options != NULL)
+    {
+        name = options->name;
+        priority = options->priority;
+        stack_size = options->stack_size;
+    }
     thread->entry = entry;
     thread->argument = argument;
-    thread->name[0] = '\0';
-    thread->priority = TB_THREAD_PRIORITY_NORMAL;
+    (void)tb_platform_copy_name(thread->name, sizeof(thread->name), name);
+    thread->priority = priority;
     if (pthread_attr_init(&attributes) != 0)
     {
         tb_posix_thread_fail("platform.thread: tb_thread_create on posix: pthread_attr_init "
                              "failed\n");
     }
-    if (options != NULL)
+    if (stack_size != 0)
     {
-        (void)tb_platform_copy_name(thread->name, sizeof(thread->name), options->name);
-        thread->priority = options->priority;
-    }
-    if (options != NULL && options->stack_size != 0)
-    {
-        if (pthread_attr_setstacksize(&attributes, tb_posix_stack_size(options->stack_size)) != 0)
+        if (pthread_attr_setstacksize(&attributes, tb_posix_stack_size(stack_size)) != 0)
         {
             tb_posix_thread_fail("platform.thread: tb_thread_create on posix: the system "
                                  "refused the stack size\n");
