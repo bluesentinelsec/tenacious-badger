@@ -35,10 +35,32 @@
  * table with a few names takes little and a table with a million makes few
  * allocations. An atom much longer than the others gets a block of its own.
  *
+ * **A shared table can be used from every thread at once.** A table from
+ * tb_atom_table_create_shared() synchronizes itself, so that modules and
+ * worker threads can intern into one table of names:
+ *
+ * @code
+ * tb_atom_table *const names = tb_atom_table_create_shared(NULL);
+ *
+ * // On any thread, at any time:
+ * const char *const name = tb_atom_string(names, "r_fov");
+ * @endcode
+ *
+ * Equal bytes give the same pointer whichever threads intern them, and
+ * however many do so at the same moment. Finding an atom that exists takes
+ * no lock, so threads that look up names that are already there do not wait
+ * for one another; only a name that is new takes the table's lock while it
+ * is added. A shared table keeps the arrays that it outgrows until it is
+ * destroyed, which costs it about twice the memory for slots of a table that
+ * is not shared.
+ *
  * @par Threading
- * Externally synchronized: the caller serializes every call that names the
- * same table. Using atoms that already exist (comparing them, reading their
- * bytes, tb_atom_length(), tb_atom_hash()) needs no synchronization.
+ * A table from tb_atom_table_create() is externally synchronized: the caller
+ * serializes every call that names it. A table from
+ * tb_atom_table_create_shared() is thread-safe, except that creating and
+ * destroying it are for one thread, with no other thread using the table.
+ * Using atoms that already exist (comparing them, reading their bytes,
+ * tb_atom_length(), tb_atom_hash()) needs no synchronization in either.
  */
 #ifndef TB_ATOM_H
 #define TB_ATOM_H
@@ -63,6 +85,21 @@ typedef struct tb_atom_table tb_atom_table;
  * @par Errors Exhaustion calls the memory failure handler and ends the process.
  */
 TB_API tb_atom_table *tb_atom_table_create(const tb_allocator *allocator);
+
+/**
+ * @brief Create an empty table that any number of threads may use at once.
+ *
+ * Every function that takes a table works on it, with the same results.
+ *
+ * @param allocator Where the table and its atoms get their memory, or NULL
+ * for the engine's heap. It is copied. The table calls it only while it
+ * holds its own lock, so an allocator that nothing else uses need not be
+ * thread-safe.
+ * @return The table; never NULL.
+ * @par Errors Exhaustion calls the memory failure handler and ends the process.
+ * @par Threading Thread-safe; tables are independent of one another.
+ */
+TB_API tb_atom_table *tb_atom_table_create_shared(const tb_allocator *allocator);
 
 /**
  * @brief Destroy a table and every atom in it.

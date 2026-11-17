@@ -304,6 +304,7 @@ tb_atom_table_destroy(names); /* every atom goes with it */
 | Need | Use |
 | --- | --- |
 | A table of atoms | `tb_atom_table_create(allocator)`, `tb_atom_table_destroy(table)` |
+| A table that every thread may use at once | `tb_atom_table_create_shared(allocator)` |
 | The atom of a C string | `tb_atom_string(table, string)` |
 | The atom of any bytes | `tb_atom_new(table, bytes, length)` |
 | The atom of an integer, as decimal digits | `tb_atom_int(table, value)` |
@@ -330,9 +331,48 @@ different pointers. Compare atoms only with atoms of the same table.
 address as the key, and `tb_atom_hash` returns the hash of its bytes without
 reading them again.
 
-**Threading.** A table is externally synchronized: interning from several
-threads needs a lock around the table. Atoms that already exist can be
-compared and read from any thread.
+**Threading.** Atoms that already exist can be compared and read from any
+thread. A table from `tb_atom_table_create` is externally synchronized:
+interning from several threads needs a lock around it. A table from
+`tb_atom_table_create_shared` synchronizes itself, and every function works
+on it as on any table, so modules and worker threads can intern into one
+table of names:
+
+```c
+tb_atom_table *const names = tb_atom_table_create_shared(NULL);
+
+/* On any thread, at any time: */
+const char *const name = tb_atom_string(names, "r_fov");
+```
+
+Equal bytes give the same pointer whichever threads intern them, and however
+many do so at the same moment.
+
+**A shared table is searched without a lock.** Nothing that a search reads is
+ever changed or released while the table lives: an atom is complete before a
+slot points to it, a slot keeps its atom, and an array of slots that the table
+has outgrown is kept until the table is destroyed, for the threads that are
+still searching it. So threads that intern names that are already atoms, which
+is nearly every call, do not wait for one another. Only a name that is new
+takes the table's lock, looks once more for an atom that another thread added
+meanwhile, and adds it.
+
+| `tb_bench atom`, nanoseconds for each call, a table of 100,000 names | Not shared | Shared | Shared, on each of 8 threads at once |
+| --- | --- | --- | --- |
+| Intern a name that is an atom | 30 | 30 | 54 to 67 |
+| Intern a new name | 57 to 62 | 69 to 72 | 850 to 990 |
+
+Release, MSVC 19.50, i9-14900HX, on the eight performance cores. Looking a
+name up costs a shared table nothing, and eight threads together look up
+about four times as many as one. New names are another matter: the eight wait
+in line for one lock, and together add fewer in a second than one thread
+alone. Share a table for names that are looked up far more often than they
+are made, which is what atoms are for.
+
+The kept arrays cost a shared table about twice the memory for slots of a
+table that is not shared. Its allocator is called only under the table's
+lock, so an allocator that nothing else uses need not be thread-safe. Creating
+and destroying a shared table are still for one thread.
 
 ### Hashing
 

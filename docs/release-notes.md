@@ -170,6 +170,14 @@ atomic size can now be stored, exchanged, and compared-and-exchanged, which
 those queues need. `tb_jobs_for` runs the iterations of a loop on every
 thread, handing out ranges of them as threads become free.
 
+A table of atoms can be shared between threads.
+`tb_atom_table_create_shared` makes one that synchronizes itself: equal bytes
+give the same pointer whichever threads intern them. A name that is already
+an atom is found without a lock, at the cost it has in a table that is not
+shared, so threads that look names up do not wait for one another; only a new
+name takes the table's lock. Interning a new name into a small table that is
+not shared costs 18 nanoseconds where it cost 14.
+
 Included foundations:
 
 - `badger` dynamic library and `badger_static` static library with the same
