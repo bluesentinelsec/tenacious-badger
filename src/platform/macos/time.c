@@ -25,12 +25,14 @@ uint64_t tb_platform_clock_nanoseconds(void)
      * is asleep. The function returns zero when it fails. */
     const uint64_t now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
 
+    /* coverage-off: the clock exists on every macOS the engine supports */
     if (now == 0)
     {
         tb_fatal_message(
             "platform.time: tb_platform_clock_nanoseconds on macos: clock_gettime_nsec_np "
             "failed\n");
     }
+    /* coverage-on */
     return now;
 }
 

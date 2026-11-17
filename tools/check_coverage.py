@@ -19,7 +19,11 @@ reads the compiler's notes: `gcov` for GCC, which is the default, and
 
 MSVC has no such flag. On Windows the tests are run under
 Microsoft.CodeCoverage.Console, which ships with Visual Studio and writes a
-report in the Cobertura format; `--cobertura` reads it.
+report in the Cobertura format; `--cobertura` reads it. MSVC gives the brace
+that closes a function a line of code of its own, even in a function that
+never returns, where no test can reach it. A line that holds nothing but a
+closing brace is therefore not counted from such a report; GCC and Clang do
+not count one either.
 
 Lines that no test can reach
 ----------------------------
@@ -155,17 +159,34 @@ def engine_source(path, root, base):
     return None
 
 
-def collect_cobertura(text, root):
+def closing_braces(text):
+    """The lines of a source that hold nothing but a closing brace."""
+    return {number for number, row in enumerate(text.splitlines(), start=1)
+            if row.strip() == '}'}
+
+
+def read_source(root, name):
+    path = root / name
+    if not path.is_file():
+        return ''
+    return path.read_text(encoding='utf-8')
+
+
+def collect_cobertura(text, root, read=read_source):
     """The same from a Cobertura report: every line of every class, by its file."""
     sources = {}
+    braces = {}
     for entry in xml.etree.ElementTree.fromstring(text).iter('class'):
         name = engine_source(entry.get('filename', ''), root, root)
         if name is None:
             continue
+        if name not in braces:
+            braces[name] = closing_braces(read(root, name))
         merged = sources.setdefault(name, {})
         for line in entry.iter('line'):
             number = int(line.get('number'))
-            merged[number] = merged.get(number, False) or int(line.get('hits')) > 0
+            if number not in braces[name]:
+                merged[number] = merged.get(number, False) or int(line.get('hits')) > 0
     return sources
 
 
@@ -262,7 +283,11 @@ def self_test():
         (measure({1: True, 2: False, 3: False, 4: True}, {3}), (3, 2, [2])),
         (measure({}, set()), (0, 0, [])),
         (ranges([1, 2, 3, 7, 9, 10]), '1-3, 7, 9-10'),
-        (collect_cobertura(cobertura, root), {'src/core/x.c': {4: True, 5: False, 9: True}}),
+        (collect_cobertura(cobertura, root, lambda root, name: ''),
+         {'src/core/x.c': {4: True, 5: False, 9: True}}),
+        (collect_cobertura(cobertura, root, lambda root, name: 'a\nb\nc\nd\n    }\n'),
+         {'src/core/x.c': {4: True, 9: True}}),
+        (closing_braces('void f(void)\n{\n    g();\n}\n  } \nx = {0};\n} else {\n'), {4, 5}),
         (engine_source(root / 'tests' / 'x.c', root, root), None),
         (engine_source('src/jobs/x.c', root, root), 'src/jobs/x.c'),
         (engine_source(root / 'src' / 'core' / 'x.h', root, root), None),

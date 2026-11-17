@@ -19,6 +19,8 @@ static bool tb_macos_read_count(const char *name, size_t *count)
     int32_t value = 0;
     size_t size = sizeof(value);
 
+    /* coverage-off: the values asked for below exist on the Macs that run the tests, and are counts
+     */
     if (sysctlbyname(name, &value, &size, NULL, 0) != 0)
     {
         return false;
@@ -27,6 +29,7 @@ static bool tb_macos_read_count(const char *name, size_t *count)
     {
         return false;
     }
+    /* coverage-on */
     *count = (size_t)value;
     return true;
 }
@@ -40,23 +43,29 @@ void tb_system_get_processors(tb_system_processors *processors)
     TB_ASSERT(processors != NULL);
     /* macOS does not confine a process to some processors, so what the
      * system has available is what the process may use. */
+    /* coverage-off: every macOS has this value */
     if (!tb_macos_read_count("hw.logicalcpu", &logical_count))
     {
         tb_fatal_message(
             "platform.system: tb_system_get_processors on macos: sysctlbyname(hw.logicalcpu) "
             "failed\n");
     }
+    /* coverage-on */
+    /* coverage-off: needs a Mac whose system does not say how many cores it has */
     if (!tb_macos_read_count("hw.physicalcpu", &core_count) || core_count > logical_count)
     {
         core_count = logical_count;
     }
+    /* coverage-on */
     /* Performance level 0 is the fastest kind of core. Machines whose cores
      * are all alike, and systems before macOS 12, do not have the value. */
+    /* coverage-off: needs a Mac with cores of one kind, or a system from before macOS 12 */
     if (!tb_macos_read_count("hw.perflevel0.physicalcpu", &performance_core_count) ||
         performance_core_count > core_count)
     {
         performance_core_count = core_count;
     }
+    /* coverage-on */
     processors->logical_count = logical_count;
     processors->core_count = core_count;
     processors->performance_core_count = performance_core_count;
