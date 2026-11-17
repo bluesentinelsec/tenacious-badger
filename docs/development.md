@@ -244,6 +244,14 @@ registering it.
 Those directories are named in `cmake/FormatSources.cmake`. The check fails when
 git tracks a C source or header outside them; add the new directory there.
 
+## The contract check
+
+`tools/check_contracts.py` reads every header under `include/badger/` and
+fails on a public function that states no
+[threading contract](conventions.md#threading): thread-safe, stage-owned, or
+externally synchronized. CI runs it with the foundation check, and it is the
+`source_checks.contracts` test.
+
 ## The foundation check
 
 The foundation modules give the engine one implementation of allocation,

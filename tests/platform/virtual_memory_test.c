@@ -1,4 +1,5 @@
 #include "badger/assert.h"
+#include "badger/thread.h"
 #include "badger/virtual_memory.h"
 #include "tb_test.h"
 #include <stdint.h>
@@ -151,5 +152,80 @@ TB_TEST(platform_memory, pointer_and_ownership_contracts_are_asserted)
     for (size_t choice = {0}; choice < 6; choice++)
     {
         TB_TEST_EXPECT_TRAP(invalid_vm_contract, &choice, "assertion failed");
+    }
+}
+
+#define REGION_THREAD_COUNT 8
+#define REGION_ROUNDS ((size_t)40)
+#define REGION_PAGES ((size_t)16)
+
+typedef struct region_user
+{
+    size_t number;      /* Which of the threads this is, from 0. */
+    size_t wrong_count; /* Calls that failed, and bytes that were not what was written. */
+} region_user;
+
+/* Reserves, commits, writes, decommits, and releases a region of its own,
+ * over and over. */
+static void use_a_region_of_its_own(void *argument)
+{
+    region_user *const self = argument;
+    const tb_vm_info info = tb_vm_get_info();
+    const size_t size = REGION_PAGES * info.page_size;
+    const unsigned char fill = (unsigned char)(0x40 + self->number);
+
+    for (size_t round = 0; round < REGION_ROUNDS; round++)
+    {
+        tb_vm_region region = {0};
+        unsigned char *bytes = NULL;
+
+        if (tb_vm_reserve(size, &region) != TB_VM_OK || tb_vm_commit(&region, 0, size) != TB_VM_OK)
+        {
+            self->wrong_count++;
+            return;
+        }
+        bytes = region.address;
+        memset(bytes, fill, size);
+        if (tb_vm_decommit(&region, info.page_size, info.page_size) != TB_VM_OK ||
+            tb_vm_commit(&region, info.page_size, info.page_size) != TB_VM_OK)
+        {
+            self->wrong_count++;
+        }
+        /* The pages on either side of the one that was given back and taken
+         * again still hold what this thread wrote, whatever the others do. */
+        if (bytes[0] != fill || bytes[info.page_size - 1] != fill ||
+            bytes[2 * info.page_size] != fill || bytes[size - 1] != fill)
+        {
+            self->wrong_count++;
+        }
+        if (tb_vm_release(&region) != TB_VM_OK)
+        {
+            self->wrong_count++;
+        }
+    }
+}
+
+/* Regions are independent of one another: eight threads each use their own
+ * at the same time. What they share is the system's address space, and under
+ * ThreadSanitizer this case shows that the adapter keeps nothing else between
+ * them. */
+TB_TEST(platform_memory, every_thread_can_use_a_region_of_its_own)
+{
+    region_user users[REGION_THREAD_COUNT] = {0};
+    tb_thread threads[REGION_THREAD_COUNT] = {0};
+
+    for (size_t index = 0; index < REGION_THREAD_COUNT; index++)
+    {
+        users[index].number = index;
+        tb_thread_create(&threads[index], use_a_region_of_its_own, &users[index]);
+    }
+    for (size_t index = 0; index < REGION_THREAD_COUNT; index++)
+    {
+        tb_thread_join(&threads[index]);
+    }
+    for (size_t index = 0; index < REGION_THREAD_COUNT; index++)
+    {
+        TB_TEST_CONTEXT("thread %zu", index);
+        TB_TEST_EXPECT_UINT(users[index].wrong_count, ==, 0);
     }
 }
