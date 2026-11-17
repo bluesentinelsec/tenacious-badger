@@ -137,6 +137,35 @@ configuration there with a message. The two options cannot be on together.
 `TB_BUILD_TESTS=OFF` and `TB_BUILD_BENCHMARKS=OFF` build only the library and
 consumer.
 
+## Static analysis
+
+Each compiler ships an analyzer that follows the paths through a function,
+including the ones no test takes, and reports a null pointer that may be
+dereferenced, memory that may be read past its end, or a resource that may
+leak. `TB_ENABLE_STATIC_ANALYSIS=ON` runs it over the engine's own targets:
+the two libraries and `burrow`. A finding fails the build, as a warning does.
+
+```sh
+cmake --preset analyze
+cmake --build --preset analyze
+```
+
+| Compiler | Analyzer | How it runs |
+| --- | --- | --- |
+| MSVC | `/analyze` | As it compiles: the build is the analysis |
+| GCC | `-fanalyzer` | As it compiles |
+| Clang, AppleClang | `clang --analyze` | The `tb_analyze` target, which runs `tools/analyze_with_clang.py` over the compilation database and compiles nothing: add `--target tb_analyze` |
+
+An adapter is analyzed where it is compiled: the Windows adapter by MSVC, the
+Linux adapter by GCC and Clang, the macOS adapter by AppleClang. The tests are
+not analyzed. They violate contracts on purpose, and the sanitizers watch
+them as they run.
+
+A finding is fixed in the code. Where the code is right and the analyzer is
+not, the finding is suppressed on the one statement it names, with the reason
+beside it, and the pull request says so: a suppression needs the same
+approval as any other warning that is silenced.
+
 ## Benchmarks
 
 `tb_bench` times the public operations of the foundation modules and prints
@@ -160,7 +189,9 @@ release validation:
   separately with the runner's preinstalled clang-format 22, and so is
   [use of the foundation layer](#the-foundation-check). Release jobs also
   package, extract, and launch each native desktop export. One job builds the
-  engine with the [default platform adapter](platforms.md#unsupported-platforms).
+  engine with the [default platform adapter](platforms.md#unsupported-platforms),
+  and four run [static analysis](#static-analysis) with the analyzer of each
+  compiler.
 - [Sanitizers](../.github/workflows/sanitizers.yml): standalone Debug sanitizer tests
   on the same four toolchains, including the platform adapter's tests, and the
   same tests under ThreadSanitizer on Linux with GCC and Clang and on macOS.

@@ -56,5 +56,9 @@ void tb_assert_fail(const char *expression, const char *message, const char *fil
 
 bool tb_assert_library_enabled(void)
 {
-    return TB_ASSERT_ENABLED != 0;
+#if TB_ASSERT_ENABLED
+    return true;
+#else
+    return false;
+#endif
 }

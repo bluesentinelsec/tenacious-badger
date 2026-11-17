@@ -194,7 +194,7 @@ static void tb_fmt_put_integer(tb_fmt_output *output, const tb_fmt_spec *spec,
     char digits[TB_FMT_DIGIT_CAPACITY] = {0};
     char prefix[3] = {0};
     char *const digits_end = digits + sizeof(digits);
-    const char *first_digit = digits_end;
+    const char *first_digit = NULL;
     size_t digit_count = {0};
     size_t prefix_length = {0};
     size_t zero_count = {0};
