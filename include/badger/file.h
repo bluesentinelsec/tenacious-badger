@@ -188,4 +188,6 @@ TB_API tb_fs_result tb_fs_temp_file(tb_path_view directory, char *path, size_t c
  * @param path Required output path. @param capacity Bytes including NUL, as temp_file.
  * @return Status; no object created on NO_SPACE. */
 TB_API tb_fs_result tb_fs_temp_directory(tb_path_view directory, char *path, size_t capacity);
+/** @brief Return this adapter's native path syntax. Thread-safe, no resources. */
+TB_API tb_path_style tb_fs_native_style(void);
 #endif

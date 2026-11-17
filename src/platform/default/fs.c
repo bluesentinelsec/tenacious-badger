@@ -137,3 +137,8 @@ tb_fs_result tb_fs_temp_directory(tb_path_view directory, char *path, size_t cap
     (void)capacity;
     tb_default_not_implemented("platform.files", "tb_fs_temp_directory");
 }
+
+tb_path_style tb_fs_native_style(void)
+{
+    tb_default_not_implemented("platform.files", "tb_fs_native_style");
+}

@@ -173,7 +173,9 @@ static tb_fs_result tb_fs_temp(tb_path_view directory, char *path, size_t capaci
         int written = {0};
         stamp = tb_platform_clock_nanoseconds();
         serial = tb_platform_atomic_size_add(&counter, 1);
-        written = snprintf(candidate, needed, "%s/tb-%016" PRIx64 "-%016zx", parent, stamp, serial);
+        written = snprintf(candidate, needed, "%s%stb-%016" PRIx64 "-%016zx", parent,
+                           length > 0 && tb_native_fs_separator(parent[length - 1]) ? "" : "/",
+                           stamp, serial);
         if (written < 0 || (size_t)written >= needed)
         {
             result = TB_FS_TOO_LARGE;

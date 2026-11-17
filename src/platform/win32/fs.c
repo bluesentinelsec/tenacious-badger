@@ -767,3 +767,12 @@ cleanup:
     free(wide);
     return result;
 }
+
+tb_path_style tb_fs_native_style(void)
+{
+    return TB_PATH_WINDOWS;
+}
+bool tb_native_fs_separator(char byte)
+{
+    return byte == '/' || byte == '\\';
+}

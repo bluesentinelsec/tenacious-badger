@@ -290,3 +290,183 @@ TB_TEST(platform_files, locations_validate_text_and_never_partially_write)
     TB_TEST_EXPECT_INT(path[0], ==, 42);
     TB_TEST_EXPECT_UINT(file.value, ==, 0);
 }
+
+TB_TEST(platform_files, failures_preserve_outputs_and_case_behavior_is_native)
+{
+    char root[32768] = {0};
+    char path[32768] = {0};
+    char other[32768] = {0};
+    char nested[32768] = {0};
+    tb_file file = {0};
+    tb_directory directory = {0};
+    size_t transferred = {0};
+    char byte = {0};
+    tb_fs_info info = {0};
+    TB_TEST_REQUIRE_UINT(tb_fs_temp_directory((tb_path_view){0}, root, sizeof(root)), ==, TB_FS_OK);
+    child_name(path, sizeof(path), root, "missing/child");
+    child_name(other, sizeof(other), root, "another/child");
+    TB_TEST_EXPECT_UINT(tb_file_open(path_view(path), TB_FILE_WRITE | TB_FILE_CREATE, &file), ==,
+                        TB_FS_NOT_FOUND);
+    TB_TEST_EXPECT_UINT(tb_fs_make_directory(path_view(path)), ==, TB_FS_NOT_FOUND);
+    TB_TEST_EXPECT_UINT(tb_directory_open(path_view(path), &directory), ==, TB_FS_NOT_FOUND);
+    TB_TEST_EXPECT_UINT(tb_fs_rename(path_view(path), path_view(other)), ==, TB_FS_NOT_FOUND);
+    TB_TEST_EXPECT_UINT(tb_fs_temp_directory(path_view(path), nested, sizeof(nested)), ==,
+                        TB_FS_NOT_FOUND);
+    info.size = 123;
+    TB_TEST_EXPECT_UINT(tb_fs_query(path_view(path), &info), ==, TB_FS_NOT_FOUND);
+    TB_TEST_EXPECT_UINT(info.size, ==, 123);
+    child_name(path, sizeof(path), root, "COM10");
+    TB_TEST_REQUIRE_UINT(tb_file_open(path_view(path), TB_FILE_WRITE | TB_FILE_CREATE, &file), ==,
+                         TB_FS_OK);
+    TB_TEST_EXPECT(tb_file_read(&file, &byte, 1, &transferred) != TB_FS_OK);
+    TB_TEST_EXPECT_UINT(transferred, ==, 0);
+    TB_TEST_REQUIRE_UINT(tb_file_close(&file), ==, TB_FS_OK);
+    TB_TEST_REQUIRE_UINT(tb_file_open(path_view(path), TB_FILE_READ, &file), ==, TB_FS_OK);
+    TB_TEST_EXPECT(tb_file_write(&file, &byte, 1, &transferred) != TB_FS_OK);
+    TB_TEST_EXPECT_UINT(transferred, ==, 0);
+    TB_TEST_REQUIRE_UINT(tb_file_close(&file), ==, TB_FS_OK);
+    TB_TEST_EXPECT_UINT(tb_fs_rename(path_view(path), path_view(other)), ==, TB_FS_NOT_FOUND);
+    child_name(nested, sizeof(nested), path, "child");
+    {
+        tb_fs_result result = {0};
+        result = tb_fs_query(path_view(nested), &info);
+        TB_TEST_EXPECT(result == TB_FS_NOT_DIRECTORY || result == TB_FS_NOT_FOUND);
+    }
+    child_name(other, sizeof(other), root, "com10");
+    {
+        tb_fs_result result = {0};
+        result = tb_file_open(path_view(other), TB_FILE_WRITE | TB_FILE_CREATE | TB_FILE_EXCLUSIVE,
+                              &file);
+        TB_TEST_REQUIRE(result == TB_FS_OK || result == TB_FS_EXISTS);
+        if (result == TB_FS_OK)
+        {
+            TB_TEST_EXPECT_UINT(tb_file_close(&file), ==, TB_FS_OK);
+            TB_TEST_EXPECT_UINT(tb_fs_remove(path_view(other)), ==, TB_FS_OK);
+        }
+    }
+    TB_TEST_EXPECT_UINT(tb_fs_remove(path_view(path)), ==, TB_FS_OK);
+    TB_TEST_EXPECT_UINT(tb_fs_remove(path_view(root)), ==, TB_FS_OK);
+}
+
+TB_TEST(platform_files, windows_reserved_names_and_extended_paths)
+{
+    static const char *const reserved[] = {"NUL",   "con.txt",  "PRN",     "a/AUX.log",
+                                           "COM1",  "LPT9.txt", "foo:bar", "name.",
+                                           "name ", "a?b",      "a*b",     "//./disk"};
+    char root[32768] = {0};
+    char extended[32768] = {0};
+    char file_path[32768] = {0};
+    tb_fs_info info = {0};
+    tb_file file = {0};
+    if (tb_fs_native_style() != TB_PATH_WINDOWS)
+    {
+        TB_TEST_SKIP("Windows namespace rules");
+    }
+    for (size_t index = {0}; index < TB_TEST_COUNT_OF(reserved); index++)
+    {
+        TB_TEST_EXPECT_UINT(tb_fs_query(path_view(reserved[index]), &info), ==, TB_FS_INVALID);
+    }
+    TB_TEST_REQUIRE_UINT(tb_fs_temp_directory((tb_path_view){0}, root, sizeof(root)), ==, TB_FS_OK);
+    TB_TEST_REQUIRE_INT(root[1], ==, ':');
+    memcpy(extended, "//?/", 4);
+    memcpy(extended + 4, root, path_view(root).length + 1);
+    TB_TEST_EXPECT_UINT(tb_fs_query(path_view(extended), &info), ==, TB_FS_OK);
+    TB_TEST_REQUIRE_UINT(tb_fs_temp_file(path_view(extended), file_path, sizeof(file_path), &file),
+                         ==, TB_FS_OK);
+    TB_TEST_EXPECT_UINT(tb_file_close(&file), ==, TB_FS_OK);
+    TB_TEST_EXPECT_UINT(tb_fs_remove(path_view(file_path)), ==, TB_FS_OK);
+    TB_TEST_EXPECT_UINT(tb_fs_remove(path_view(root)), ==, TB_FS_OK);
+}
+
+static void invalid_file_contract(void *context)
+{
+    size_t choice = {0};
+    size_t count = {0};
+    uint64_t position = {0};
+    tb_file file = {0};
+    tb_directory directory = {0};
+    char byte = {0};
+    choice = *(const size_t *)context;
+    switch (choice)
+    {
+    case 0:
+        (void)tb_file_open(path_view("x"), TB_FILE_READ, NULL);
+        break;
+    case 1:
+        (void)tb_file_open((tb_path_view){NULL, 1}, TB_FILE_READ, &file);
+        break;
+    case 2:
+        (void)tb_file_read(&file, &byte, 1, &count);
+        break;
+    case 3:
+        (void)tb_file_read(&file, &byte, 1, NULL);
+        break;
+    case 4:
+        (void)tb_file_read(&file, NULL, 1, &count);
+        break;
+    case 5:
+        (void)tb_file_write(&file, &byte, 1, &count);
+        break;
+    case 6:
+        (void)tb_file_write(&file, NULL, 1, &count);
+        break;
+    case 7:
+        (void)tb_file_write(&file, &byte, 1, NULL);
+        break;
+    case 8:
+        (void)tb_file_seek(&file, 0, TB_FILE_START, &position);
+        break;
+    case 9:
+        (void)tb_file_seek(&file, 0, TB_FILE_START, NULL);
+        break;
+    case 10:
+        (void)tb_file_size(&file, NULL);
+        break;
+    case 11:
+        (void)tb_file_size(&file, &position);
+        break;
+    case 12:
+        (void)tb_file_flush(&file);
+        break;
+    case 13:
+        (void)tb_file_close(NULL);
+        break;
+    case 14:
+        (void)tb_fs_query(path_view("x"), NULL);
+        break;
+    case 15:
+        (void)tb_directory_open(path_view("x"), NULL);
+        break;
+    case 16:
+        (void)tb_directory_next(&directory, &byte, 1, &count);
+        break;
+    case 17:
+        (void)tb_directory_close(NULL);
+        break;
+    case 18:
+        (void)tb_fs_get_location(TB_FS_TEMP, NULL, 1, &count);
+        break;
+    case 19:
+        (void)tb_fs_get_location(TB_FS_TEMP, &byte, 1, NULL);
+        break;
+    case 20:
+        (void)tb_fs_temp_file((tb_path_view){0}, &byte, 1, NULL);
+        break;
+    case 21:
+        (void)tb_fs_temp_directory((tb_path_view){0}, NULL, 0);
+        break;
+    default:
+        break;
+    }
+}
+TB_TEST(platform_files, required_pointers_and_handle_lifetimes_are_contracts)
+{
+    if (!tb_assert_library_enabled())
+    {
+        TB_TEST_SKIP("assertions disabled");
+    }
+    for (size_t choice = {0}; choice < 22; choice++)
+    {
+        TB_TEST_EXPECT_TRAP(invalid_file_contract, &choice, "assertion failed");
+    }
+}

@@ -9,4 +9,5 @@ tb_fs_result tb_native_fs_output(const char *text, char *destination, size_t cap
                                  size_t *required);
 /* Platform-specific, owned C heap string for the shared bounded wrapper. */
 tb_fs_result tb_native_fs_location(tb_fs_location location, char **path);
+bool tb_native_fs_separator(char byte);
 #endif

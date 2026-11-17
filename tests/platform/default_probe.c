@@ -311,3 +311,8 @@ TB_TEST(platform_default, tb_fs_temp_directory)
 {
     (void)tb_fs_temp_directory((tb_path_view){0}, NULL, 0);
 }
+
+TB_TEST(platform_default, tb_fs_native_style)
+{
+    (void)tb_fs_native_style();
+}
