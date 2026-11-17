@@ -170,6 +170,7 @@ publishes verified native exports after all tagged-build checks pass.
 
 - `include/badger/`: documented public C APIs, with `tb_` / `TB_` prefixes.
 - `src/core/`: platform-independent library logic.
+- `src/jobs/`: the [job system](jobs.md), which runs work on every core.
 - `src/platform/{win32,linux,macos}/`: CMake-selected native implementations.
 - `src/platform/default/`: the adapter for [any other platform](platforms.md#unsupported-platforms),
   whose every function reports "not implemented".

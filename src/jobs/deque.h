@@ -63,13 +63,16 @@ bool tb_job_deque_push(tb_job_deque *deque, void *item);
  * a last item that a thief took first. For the owning thread. */
 void *tb_job_deque_pop(tb_job_deque *deque);
 
-/* Takes the oldest item, or returns NULL when the queue was seen empty. Each
- * item is returned once, to the owner or to one thief. Thread-safe. */
+/* Takes the oldest item. Returns NULL when the queue was seen empty, and
+ * also when another thread took the item this one was after: a thief that
+ * loses goes on to look elsewhere, which serves it better than trying the
+ * same queue again at once. Each item is returned once, to the owner or to
+ * one thief. Thread-safe. */
 void *tb_job_deque_steal(tb_job_deque *deque);
 
 /* How many items the queue holds. From any thread but the owner it is a
- * moment's reading that may already be wrong; it never exceeds the capacity.
- * Thread-safe. */
+ * moment's reading that may already be wrong, and it is for telling an empty
+ * queue from one that has something. Thread-safe. */
 size_t tb_job_deque_count(tb_job_deque *deque);
 
 #endif

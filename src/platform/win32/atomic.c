@@ -26,10 +26,24 @@ size_t tb_platform_atomic_size_subtract(tb_platform_atomic_size *atomic, size_t 
     return (size_t)InterlockedExchangeAddSizeT(&atomic->value, negated) + negated;
 }
 
+/* A load is a read, and writes nothing.
+ *
+ * Every other operation here is an interlocked one, which on every Windows
+ * processor is a full barrier: a write is in memory, for every thread to
+ * see, before the thread that made it goes on. A read that the compiler may
+ * not move or drop is then in step with them, and that is what the system's
+ * "acquire" reads are: a plain read on x86, and a read with a barrier on
+ * Arm.
+ *
+ * An interlocked operation that changes nothing would give the same answer.
+ * It is a write to the processor, though, which takes the cache line away
+ * from every other thread that is reading it. Threads that only look at a
+ * value, as a thief looks at the ends of another worker's queue, would then
+ * get in each other's way as much as threads that change it. */
 size_t tb_platform_atomic_size_load(tb_platform_atomic_size *atomic)
 {
     TB_ASSERT(atomic != NULL);
-    return (size_t)InterlockedExchangeAddSizeT(&atomic->value, 0);
+    return (size_t)ReadSizeTAcquire(&atomic->value);
 }
 
 /* The system has no exchange for a SIZE_T by that name. A pointer is the
@@ -80,8 +94,7 @@ static LONG *tb_win32_atomic_long(tb_platform_atomic_u32 *atomic)
 uint32_t tb_platform_atomic_u32_load(tb_platform_atomic_u32 *atomic)
 {
     TB_ASSERT(atomic != NULL);
-    /* Adding zero reads the value in step with the other operations. */
-    return (uint32_t)InterlockedExchangeAdd(tb_win32_atomic_long(atomic), 0);
+    return (uint32_t)ReadAcquire(tb_win32_atomic_long(atomic));
 }
 
 void tb_platform_atomic_u32_store(tb_platform_atomic_u32 *atomic, uint32_t value)
@@ -117,9 +130,7 @@ bool tb_platform_atomic_u32_compare_exchange(tb_platform_atomic_u32 *atomic, uin
 void *tb_platform_atomic_pointer_load(tb_platform_atomic_pointer *atomic)
 {
     TB_ASSERT(atomic != NULL);
-    /* Writes NULL only where NULL already is, so it changes nothing, and
-     * returns what is there in step with the other operations. */
-    return InterlockedCompareExchangePointer(&atomic->value, NULL, NULL);
+    return ReadPointerAcquire(&atomic->value);
 }
 
 void tb_platform_atomic_pointer_store(tb_platform_atomic_pointer *atomic, void *value)
