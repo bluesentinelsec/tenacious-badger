@@ -32,11 +32,14 @@ uint64_t tb_win32_counter_to_nanoseconds(uint64_t count, uint64_t counts_per_sec
            rest * TB_WIN32_NANOSECONDS_PER_SECOND / counts_per_second;
 }
 
+/* coverage-off: runs only when the performance counter fails, which Windows documents it never does
+ */
 static _Noreturn void tb_win32_clock_fail(const char *diagnostic)
 {
     fputs(diagnostic, stderr);
     tb_platform_abort();
 }
+/* coverage-on */
 
 uint64_t tb_platform_clock_nanoseconds(void)
 {
@@ -45,6 +48,7 @@ uint64_t tb_platform_clock_nanoseconds(void)
 
     /* The frequency is fixed when the system starts, and reading it costs
      * less than reading the counter, so nothing is kept between calls. */
+    /* coverage-off: as above, and no machine has a counter that fast */
     if (!QueryPerformanceFrequency(&frequency) || frequency.QuadPart <= 0)
     {
         tb_win32_clock_fail("platform.time: tb_platform_clock_nanoseconds on win32: "
@@ -60,6 +64,7 @@ uint64_t tb_platform_clock_nanoseconds(void)
         tb_win32_clock_fail("platform.time: tb_platform_clock_nanoseconds on win32: "
                             "QueryPerformanceCounter failed\n");
     }
+    /* coverage-on */
     return tb_win32_counter_to_nanoseconds((uint64_t)counter.QuadPart,
                                            (uint64_t)frequency.QuadPart);
 }

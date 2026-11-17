@@ -14,11 +14,13 @@ uint64_t tb_platform_clock_nanoseconds(void)
 
     /* CLOCK_MONOTONIC counts from an unspecified moment, is never set, and
      * stops while the system is suspended. */
+    /* coverage-off: the monotonic clock exists on every Linux the engine supports */
     if (clock_gettime(CLOCK_MONOTONIC, &now) != 0)
     {
         fputs("platform.time: tb_platform_clock_nanoseconds on linux: clock_gettime failed\n",
               stderr);
         tb_platform_abort();
     }
+    /* coverage-on */
     return (uint64_t)now.tv_sec * TB_LINUX_NANOSECONDS_PER_SECOND + (uint64_t)now.tv_nsec;
 }

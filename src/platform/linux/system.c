@@ -39,6 +39,7 @@ static bool tb_linux_read_system_file(void *context, const char *path, char *buf
 /* Used when the system's set of allowed processors cannot be read, which is
  * so on a machine with more processors than the set has room for: the
  * processors that are online, taken to be cores of one kind. */
+/* coverage-off: needs a machine with more processors than the set of allowed ones has room for */
 static void tb_linux_count_online_processors(tb_system_processors *processors)
 {
     const long online = sysconf(_SC_NPROCESSORS_ONLN);
@@ -52,6 +53,7 @@ static void tb_linux_count_online_processors(tb_system_processors *processors)
     processors->core_count = count;
     processors->performance_core_count = count;
 }
+/* coverage-on */
 
 void tb_system_get_processors(tb_system_processors *processors)
 {
@@ -64,11 +66,13 @@ void tb_system_get_processors(tb_system_processors *processors)
     /* Linux confines threads, not processes. The first thread of the process
      * stands for it: the limits that a container or a launcher sets are its
      * limits, and every thread starts with them. */
+    /* coverage-off: as above: the set cannot be read only on such a machine */
     if (sched_getaffinity(getpid(), sizeof(native), &native) != 0)
     {
         tb_linux_count_online_processors(processors);
         return;
     }
+    /* coverage-on */
     for (size_t cpu = 0; cpu < TB_LINUX_CPU_LIMIT; cpu++)
     {
         if (CPU_ISSET(cpu, &native))
@@ -77,10 +81,12 @@ void tb_system_get_processors(tb_system_processors *processors)
             allowed_count++;
         }
     }
+    /* coverage-off: a running thread is allowed on at least one processor */
     if (allowed_count == 0)
     {
         tb_linux_count_online_processors(processors);
         return;
     }
+    /* coverage-on */
     tb_linux_count_processors(&allowed, tb_linux_read_system_file, NULL, processors);
 }

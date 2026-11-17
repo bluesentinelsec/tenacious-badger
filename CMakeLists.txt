@@ -42,9 +42,12 @@ option(TB_USE_DEFAULT_PLATFORM_ADAPTER
     "Build with the platform adapter whose every function reports \"not implemented\"" OFF)
 option(TB_ENABLE_STATIC_ANALYSIS
     "Analyze every project-owned target with the compiler's static analyzer" OFF)
+option(TB_ENABLE_COVERAGE
+    "Record which lines of the engine the tests run, with the compiler's instrumentation" OFF)
 
 include(cmake/WindowsSigning.cmake)
 include(cmake/StaticAnalysis.cmake)
+include(cmake/Coverage.cmake)
 include(cmake/CompilerWarnings.cmake)
 include(cmake/Sanitizers.cmake)
 configure_file(cmake/version.h.in generated/badger/version.h @ONLY)

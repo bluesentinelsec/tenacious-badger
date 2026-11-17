@@ -1,19 +1,25 @@
 """Hold every source of the engine to a share of its lines being run by the tests.
 
     python tools/check_coverage.py <build directory> [--gcov "<command>"]
+    python tools/check_coverage.py --cobertura <report.xml>
     python tools/check_coverage.py --self-test
 
-The build directory is one that was compiled with `--coverage` by GCC or
-Clang and whose tests have been run. Every source under src/ that was compiled
-there is measured, a file at a time; none is listed here by hand, so a new
-source is held to the bar from the change that adds it.
+Every source under src/ that was compiled is measured, a file at a time; none
+is listed here by hand, so a new source is held to the bar from the change
+that adds it.
 
 A source is compiled into more than one program: the engine library, and the
 test programs that are built from the engine's sources. A line counts as run
 when any of them ran it.
 
-`--gcov` names the program that reads the compiler's notes: `gcov` for GCC,
-which is the default, and `llvm-cov gcov` for Clang.
+With GCC or Clang, the build directory is one that was compiled with
+`--coverage` and whose tests have been run. `--gcov` names the program that
+reads the compiler's notes: `gcov` for GCC, which is the default, and
+`llvm-cov gcov` for Clang.
+
+MSVC has no such flag. On Windows the tests are run under
+Microsoft.CodeCoverage.Console, which ships with Visual Studio and writes a
+report in the Cobertura format; `--cobertura` reads it.
 
 Lines that no test can reach
 ----------------------------
@@ -35,6 +41,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import xml.etree.ElementTree
 from pathlib import Path
 
 MINIMUM = 0.80
@@ -125,28 +132,47 @@ def collect(build, root, gcov):
             for reports in pool.map(lambda path: read_notes(gcov, path, scratch), notes):
                 for text in reports:
                     source, lines = parse_report(text)
-                    if source is None:
-                        continue
-                    path = Path(source)
-                    if not path.is_absolute():
-                        path = build / path
-                    try:
-                        name = path.resolve().relative_to(root).as_posix()
-                    except ValueError:
-                        continue
-                    if not name.startswith('src/') or not name.endswith('.c'):
+                    name = engine_source(source, root, build) if source else None
+                    if name is None:
                         continue
                     merged = sources.setdefault(name, {})
                     for number, ran in lines.items():
                         merged[number] = merged.get(number, False) or ran
-    return sources, len(notes)
+    return sources
 
 
-def check(build, root, gcov):
-    sources, notes_count = collect(build, root, gcov)
+def engine_source(path, root, base):
+    """The name of a source within the repository when it is one of the engine's, or None."""
+    path = Path(path)
+    if not path.is_absolute():
+        path = base / path
+    try:
+        name = path.resolve().relative_to(root).as_posix()
+    except ValueError:
+        return None
+    if name.startswith('src/') and name.endswith('.c'):
+        return name
+    return None
+
+
+def collect_cobertura(text, root):
+    """The same from a Cobertura report: every line of every class, by its file."""
+    sources = {}
+    for entry in xml.etree.ElementTree.fromstring(text).iter('class'):
+        name = engine_source(entry.get('filename', ''), root, root)
+        if name is None:
+            continue
+        merged = sources.setdefault(name, {})
+        for line in entry.iter('line'):
+            number = int(line.get('number'))
+            merged[number] = merged.get(number, False) or int(line.get('hits')) > 0
+    return sources
+
+
+def check(sources, root, where):
     if not sources:
-        sys.exit(f'{build} has coverage notes for no source under src/ ({notes_count} notes '
-                 'files): was it built with --coverage, and were the tests run?')
+        sys.exit(f'{where} has coverage of no source under src/: was the build instrumented, '
+                 'and were the tests run?')
     failed = []
     excluded_total = 0
     print(f'{"lines":>7} {"run":>7} {"share":>7} {"left out":>9}  source')
@@ -200,6 +226,25 @@ def self_test():
     return 0;
 }
 '''
+    root = Path(__file__).resolve().parent.parent
+    inside = root / 'src' / 'core' / 'x.c'
+    outside = root / 'tests' / 'core' / 'x_test.c'
+    # The same file appears once for each program it was compiled into, and
+    # its lines both under a method and under the class.
+    cobertura = f'''<?xml version="1.0"?>
+<coverage><packages>
+  <package name="badger"><classes>
+    <class filename="{inside}"><methods><method name="f"><lines>
+      <line number="4" hits="0"/><line number="5" hits="0"/>
+    </lines></method></methods><lines><line number="4" hits="0"/></lines></class>
+    <class filename="{outside}"><lines><line number="1" hits="3"/></lines></class>
+  </classes></package>
+  <package name="tb_internal_tests"><classes>
+    <class filename="{inside}"><lines>
+      <line number="4" hits="2"/><line number="9" hits="1"/>
+    </lines></class>
+  </classes></package>
+</packages></coverage>'''
     answers = [
         (parse_report(report), ('/work/src/core/x.c', {2: True, 3: True, 4: True, 5: False,
                                                         6: False})),
@@ -217,6 +262,10 @@ def self_test():
         (measure({1: True, 2: False, 3: False, 4: True}, {3}), (3, 2, [2])),
         (measure({}, set()), (0, 0, [])),
         (ranges([1, 2, 3, 7, 9, 10]), '1-3, 7, 9-10'),
+        (collect_cobertura(cobertura, root), {'src/core/x.c': {4: True, 5: False, 9: True}}),
+        (engine_source(root / 'tests' / 'x.c', root, root), None),
+        (engine_source('src/jobs/x.c', root, root), 'src/jobs/x.c'),
+        (engine_source(root / 'src' / 'core' / 'x.h', root, root), None),
     ]
     wrong = [(actual, wanted) for actual, wanted in answers if actual != wanted]
     for actual, wanted in wrong:
@@ -231,6 +280,11 @@ def main():
             sys.exit(1)
         print('The coverage check gives the known answers.')
         return
+    root = Path(__file__).resolve().parent.parent
+    if len(arguments) == 2 and arguments[0] == '--cobertura':
+        text = Path(arguments[1]).read_text(encoding='utf-8-sig')
+        check(collect_cobertura(text, root), root, arguments[1])
+        return
     gcov = ['gcov']
     if '--gcov' in arguments:
         at = arguments.index('--gcov')
@@ -238,8 +292,8 @@ def main():
         del arguments[at:at + 2]
     if len(arguments) != 1:
         sys.exit(__doc__)
-    root = Path(__file__).resolve().parent.parent
-    check(Path(arguments[0]).resolve(), root, gcov)
+    build = Path(arguments[0]).resolve()
+    check(collect(build, root, gcov), root, build)
 
 
 main()

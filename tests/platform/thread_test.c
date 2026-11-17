@@ -592,3 +592,64 @@ TB_TEST(platform_condition, a_wait_with_a_time_limit_ends_when_it_is_woken)
     TB_TEST_EXPECT(waiter.was_woken);
     TB_TEST_EXPECT_UINT(waiter.waited, <, PATIENCE_NANOSECONDS);
 }
+
+typedef struct patient_waiter
+{
+    tb_mutex lock;        /* Guards the fields below. */
+    tb_condition arrival; /* Woken when `is_waiting` becomes true. */
+    tb_condition wake;    /* Where the waiter waits. */
+    uint64_t limit;       /* Nanoseconds that the waiter is prepared to wait. */
+    bool is_waiting;      /* The waiter is waiting on `wake`. */
+    bool is_time_to_wake;
+    bool was_woken; /* No wait ended at its limit. */
+} patient_waiter;
+
+static void wait_with_the_limit_it_was_given(void *argument)
+{
+    patient_waiter *const waiter = argument;
+
+    tb_mutex_lock(&waiter->lock);
+    waiter->is_waiting = true;
+    waiter->was_woken = true;
+    tb_condition_wake_one(&waiter->arrival);
+    /* Again after a wake that nobody sent, which a wait is allowed. */
+    while (!waiter->is_time_to_wake && waiter->was_woken)
+    {
+        waiter->was_woken = tb_condition_wait_for(&waiter->wake, &waiter->lock, waiter->limit);
+    }
+    tb_mutex_unlock(&waiter->lock);
+}
+
+/* A limit is any number of nanoseconds. An adapter turns it into a moment on
+ * the system's clock, and two things can go wrong on the way: the moment is
+ * later than the system's time can hold, and the nanoseconds of the limit
+ * and of the time now add up to more than a second. A wait with such a limit
+ * must still begin, and still end when it is woken. */
+TB_TEST(platform_condition, a_wait_with_any_limit_ends_when_it_is_woken)
+{
+    static const uint64_t limits[] = {
+        UINT64_MAX,                    /* 584 years. */
+        UINT64_C(4000000000000000000), /* 126 years, a whole number of seconds. */
+        UINT64_C(60999999999),         /* A minute, less a nanosecond: carries into the seconds. */
+        UINT64_C(60000000001),         /* A minute and a nanosecond: almost never carries. */
+    };
+
+    for (size_t index = 0; index < TB_TEST_COUNT_OF(limits); index++)
+    {
+        patient_waiter waiter = {.limit = limits[index]};
+        tb_thread thread = {0};
+
+        TB_TEST_CONTEXT("a limit of %llu nanoseconds", (unsigned long long)limits[index]);
+        tb_thread_create(&thread, wait_with_the_limit_it_was_given, &waiter);
+        tb_mutex_lock(&waiter.lock);
+        while (!waiter.is_waiting)
+        {
+            tb_condition_wait(&waiter.arrival, &waiter.lock);
+        }
+        waiter.is_time_to_wake = true;
+        tb_mutex_unlock(&waiter.lock);
+        tb_condition_wake_one(&waiter.wake);
+        tb_thread_join(&thread);
+        TB_TEST_EXPECT(waiter.was_woken);
+    }
+}

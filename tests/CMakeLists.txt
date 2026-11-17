@@ -126,6 +126,9 @@ add_test(NAME source_checks.text_self_test
 
 if(TARGET burrow)
     add_test(NAME burrow.smoke COMMAND burrow)
+    add_test(NAME burrow.fails_when_its_output_cannot_be_written
+        COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tools/burrow_output_test.py"
+            "$<TARGET_FILE:burrow>")
     set_tests_properties(burrow.smoke PROPERTIES PASS_REGULAR_EXPRESSION "2 \\+ 3 = 5")
 endif()
 
