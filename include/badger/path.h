@@ -1,4 +1,4 @@
-﻿/** @file path.h
+/** @file path.h
  * @brief Pure UTF-8 path operations with explicit Windows or POSIX rules.
  *
  * No filesystem access, case folding, percent decoding, or Unicode normalization.
@@ -28,12 +28,12 @@ typedef enum tb_path_style
 /** @brief Result of path processing. */
 typedef enum tb_path_result
 {
-    TB_PATH_OK,             /**< Operation succeeded. */
-    TB_PATH_INVALID,        /**< Invalid UTF-8, NUL, malformed root or unsupported namespace. */
-    TB_PATH_NO_SPACE,       /**< Destination is too small; required size is available. */
-    TB_PATH_DIFFERENT_ROOT, /**< Relative-path inputs do not have matching absolute roots. */
-    TB_PATH_ESCAPE,         /**< Rooted join received a rooted name or one escaping its root. */
-    TB_PATH_OVERFLOW        /**< A required size is not representable. */
+    TB_PATH_OK,               /**< Operation succeeded. */
+    TB_PATH_INVALID,          /**< Invalid UTF-8, NUL, malformed root or unsupported namespace. */
+    TB_PATH_BUFFER_TOO_SMALL, /**< Destination is too small; required size is available. */
+    TB_PATH_DIFFERENT_ROOT,   /**< Relative-path inputs do not have matching absolute roots. */
+    TB_PATH_ESCAPE,           /**< Rooted join received a rooted name or one escaping its root. */
+    TB_PATH_TOO_LARGE         /**< A required size is not representable. */
 } tb_path_result;
 /** @brief Borrowed byte range; NULL is allowed only when length is zero. */
 typedef struct tb_path_view
@@ -69,7 +69,7 @@ TB_API tb_path_result tb_path_parse(tb_path_style style, tb_path_view input, tb_
  * @param destination Output bytes, or NULL with capacity zero to measure.
  * @param capacity Bytes available, including the terminator.
  * @param[out] required Required pointer; receives bytes including the NUL on
- * success/NO_SPACE, zero on other errors.
+ * success/BUFFER_TOO_SMALL, zero on other errors.
  * @return A tb_path_result. Inputs may overlap destination. Empty input becomes
  * '.'. Trailing separators are removed except on roots. Leading parents are
  * retained for relative paths and clamped at rooted paths.
@@ -228,5 +228,11 @@ TB_API tb_path_result tb_path_to_native(tb_path_style style, tb_path_view input,
  */
 TB_API char *tb_path_to_native_new(const tb_allocator *allocator, tb_path_style style,
                                    tb_path_view input, tb_path_result *result);
+
+/** @brief Name a result, for a log or a message: "invalid path", "buffer too small".
+ * @param result Any value; one that is no result is named "unknown result".
+ * @return A string with static storage duration; never NULL.
+ * @par Threading Thread-safe. */
+TB_API const char *tb_path_result_name(tb_path_result result);
 
 #endif

@@ -23,6 +23,14 @@ The foundation layer so far, one public header per module under
 | `thread.h` | [Threads, mutexes, and condition variables](platforms.md#threads-mutexes-and-condition-variables) |
 | `system.h` | [The processors the process may run on](platforms.md#processors) |
 | `jobs.h` | [The job system](jobs.md): worker threads, jobs with dependencies and priorities, and loops that run on every thread |
+| `memory_debug.h` | [Memory functions that check how memory is used](memory.md) |
+| `virtual_memory.h` | [Reserved address space and committed pages](virtual-memory.md) |
+| `utf8.h`, `path.h` | UTF-8 and UTF-16 conversion, and [paths](paths.md) as text |
+| `fs.h`, `file.h` | [Files and directories](files.md): `fs.h` is the module's header, and includes the native interface in `file.h` |
+| `log.h` | [Logging](logging.md) with replaceable sinks |
+
+What these headers do the same way, such as how a function reports failure,
+is in [the conventions of the public API](conventions.md).
 
 `burrow` calls the shared library and prints `2 + 3 = 5`. Rendering, windowing,
 gameplay, vendor integrations, and the other planned modules remain future work.

@@ -1,4 +1,4 @@
-﻿#include "badger/utf8.h"
+#include "badger/utf8.h"
 #include "badger/assert.h"
 #include "badger/size.h"
 

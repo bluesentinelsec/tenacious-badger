@@ -7,7 +7,7 @@ All inputs are bounded UTF-8 views without embedded NUL. Parts returned by
 
 Builders have bounded and `_new` forms. A NULL destination with capacity zero
 measures the bytes required, including NUL. Insufficient capacity returns
-`TB_PATH_NO_SPACE` without changing the destination. Other errors set the
+`TB_PATH_BUFFER_TOO_SMALL` without changing the destination. Other errors set the
 required size to zero. Inputs may overlap the destination. Owned strings use
 the supplied allocator (NULL selects the heap) and are freed with `tb_str_free`
 using that allocator. Temporary storage uses the engine heap. Allocation

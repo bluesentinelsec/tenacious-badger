@@ -56,4 +56,9 @@ TB_API tb_fs_result tb_fs_replace_file(tb_path_view path, const void *bytes, siz
  * directory symlinks/reparse points are followed as native directory aliases.
  * This is a convenience operation, not a race-free security boundary. */
 TB_API tb_fs_result tb_fs_make_directories(tb_path_view path);
+/** @brief Name a result, for a log or a message: "not found", "access denied".
+ * @param result Any value; one that is no result is named "unknown result".
+ * @return A string with static storage duration; never NULL.
+ * @par Threading Thread-safe. */
+TB_API const char *tb_fs_result_name(tb_fs_result result);
 #endif

@@ -1,4 +1,4 @@
-﻿"""Make each standard stream refuse writes and check the engine notices."""
+"""Make each standard stream refuse writes and check the engine notices."""
 from pathlib import Path
 import subprocess
 import sys

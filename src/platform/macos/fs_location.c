@@ -26,7 +26,7 @@ tb_fs_result tb_native_fs_location(tb_fs_location location, char **path)
         (void)_NSGetExecutablePath(NULL, &needed);
         if (needed == 0)
         {
-            return TB_FS_IO;
+            return TB_FS_OS_ERROR;
         }
         name = malloc(needed);
         if (name == NULL)

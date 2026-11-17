@@ -19,6 +19,7 @@ set(TB_TEST_CASE_SOURCES
     core/memory_test.c
     core/memory_debug_test.c
     core/path_test.c
+    core/result_test.c
     core/ring_test.c
     core/set_test.c
     core/size_test.c
@@ -114,6 +115,10 @@ add_test(NAME source_checks.foundation
     COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/check_foundation.py")
 add_test(NAME source_checks.foundation_self_test
     COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/check_foundation.py" --self-test)
+add_test(NAME source_checks.text
+    COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/check_text.py")
+add_test(NAME source_checks.text_self_test
+    COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/check_text.py" --self-test)
 
 if(TARGET burrow)
     add_test(NAME burrow.smoke COMMAND burrow)

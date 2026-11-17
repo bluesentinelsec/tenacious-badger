@@ -39,6 +39,21 @@ with a final guard page and configurable reset trimming. The native virtual
 memory interface supports reserve, commit, decommit, release, and optional large
 pages on Windows, Linux, and macOS.
 
+Modules that report failure with a result now name the same condition the
+same way, and can name a result for a log: `tb_fs_result_name`,
+`tb_path_result_name`, `tb_vm_result_name`, and `tb_log_result_name`. Three
+results were renamed to the shared names, and one was split:
+
+| Was | Is |
+| --- | --- |
+| `TB_FS_IO` | `TB_FS_OS_ERROR` |
+| `TB_PATH_OVERFLOW` | `TB_PATH_TOO_LARGE` |
+| `TB_PATH_NO_SPACE` | `TB_PATH_BUFFER_TOO_SMALL` |
+| `TB_FS_NO_SPACE`, for a buffer that is too small | `TB_FS_BUFFER_TOO_SMALL` |
+
+`TB_FS_NO_SPACE` now means only a full disk or an exhausted quota. The
+conventions are written down in `docs/conventions.md`.
+
 Where one object gets its memory is chosen with `badger/allocator.h`. An
 allocator is a function and a context pointer, passed to the object that uses
 it: NULL selects the engine's heap, `tb_arena_allocator` an arena, and an

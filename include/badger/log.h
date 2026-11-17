@@ -123,4 +123,9 @@ TB_API bool tb_log_stderr_flush(void *context);
 TB_API bool tb_log_file_write(void *context, const tb_log_record *record);
 /** @brief Flush the required borrowed tb_file* context; never closes it. */
 TB_API bool tb_log_file_flush(void *context);
+/** @brief Name a result, for a message: "filtered", "sink failed".
+ * @param result Any value; one that is no result is named "unknown result".
+ * @return A string with static storage duration; never NULL.
+ * @par Threading Thread-safe. */
+TB_API const char *tb_log_result_name(tb_log_result result);
 #endif

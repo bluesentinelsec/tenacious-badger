@@ -1,4 +1,4 @@
-﻿#include "badger/assert.h"
+#include "badger/assert.h"
 #include "badger/path.h"
 #include "badger/str.h"
 #include "tb_test.h"
@@ -71,7 +71,7 @@ TB_TEST(core_path, normalization_covers_roots_and_dot_components)
             memset(output, 0x55, sizeof(output));
             TB_TEST_EXPECT_UINT(tb_path_normalize(rows[row].style, view(rows[row].input), output,
                                                   capacity, &required),
-                                ==, TB_PATH_NO_SPACE);
+                                ==, TB_PATH_BUFFER_TOO_SMALL);
             for (size_t byte = {0}; byte < sizeof(output); byte++)
             {
                 TB_TEST_REQUIRE_INT(output[byte], ==, 0x55);
@@ -444,8 +444,9 @@ TB_TEST(core_path, all_builders_measure_and_preserve_short_buffers)
                 expected = required;
             }
             TB_TEST_REQUIRE_UINT(required, ==, expected);
-            TB_TEST_REQUIRE_UINT(
-                status, ==, capacity == 0 || capacity >= expected ? TB_PATH_OK : TB_PATH_NO_SPACE);
+            TB_TEST_REQUIRE_UINT(status, ==,
+                                 capacity == 0 || capacity >= expected ? TB_PATH_OK
+                                                                       : TB_PATH_BUFFER_TOO_SMALL);
             if (capacity < expected)
             {
                 for (size_t byte = {0}; byte < sizeof(output); byte++)

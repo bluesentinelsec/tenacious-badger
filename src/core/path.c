@@ -1,4 +1,4 @@
-﻿#include "badger/path.h"
+#include "badger/path.h"
 #include "badger/assert.h"
 #include "badger/memory.h"
 #include "badger/size.h"
@@ -237,7 +237,7 @@ static char *tb_path_work(size_t length, tb_path_result *result)
     size_t capacity = {0};
     if (!tb_size_add(length, 3, &capacity))
     {
-        *result = TB_PATH_OVERFLOW;
+        *result = TB_PATH_TOO_LARGE;
         return NULL;
     }
     return tb_malloc(capacity);
@@ -385,7 +385,7 @@ static char *tb_path_combine(tb_path_style style, tb_path_view first, tb_path_vi
     }
     if (!tb_size_add(first.length, second.length, &length))
     {
-        *result = TB_PATH_OVERFLOW;
+        *result = TB_PATH_TOO_LARGE;
         return NULL;
     }
     joined = tb_path_work(length, result);
@@ -522,7 +522,7 @@ static char *tb_path_relative_work(tb_path_style style, const char *base, const 
     if (!tb_size_multiply(up, 3, &size) ||
         !tb_size_add(size, target_view.length - target_at, &size))
     {
-        *result = TB_PATH_OVERFLOW;
+        *result = TB_PATH_TOO_LARGE;
         return NULL;
     }
     output = tb_path_work(size, result);
@@ -673,7 +673,7 @@ static char *tb_path_build(tb_path_style style, tb_path_operation operation, tb_
         length = first.length - parts.extension.length;
         if (!tb_size_add(length, second.length, &size))
         {
-            *result = TB_PATH_OVERFLOW;
+            *result = TB_PATH_TOO_LARGE;
             break;
         }
         right = tb_path_work(size, result);
@@ -719,7 +719,7 @@ static tb_path_result tb_path_write(tb_path_style style, tb_path_operation opera
     {
         if (capacity < size)
         {
-            result = TB_PATH_NO_SPACE;
+            result = TB_PATH_BUFFER_TOO_SMALL;
         }
         else
         {
@@ -830,4 +830,24 @@ char *tb_path_replace_extension_new(const tb_allocator *allocator, tb_path_style
                                     tb_path_view first, tb_path_view second, tb_path_result *result)
 {
     return tb_path_owned(allocator, style, TB_PATH_EXTENSION, first, second, result);
+}
+
+const char *tb_path_result_name(tb_path_result result)
+{
+    switch (result)
+    {
+    case TB_PATH_OK:
+        return "ok";
+    case TB_PATH_INVALID:
+        return "invalid path";
+    case TB_PATH_BUFFER_TOO_SMALL:
+        return "buffer too small";
+    case TB_PATH_DIFFERENT_ROOT:
+        return "different roots";
+    case TB_PATH_ESCAPE:
+        return "path escapes its root";
+    case TB_PATH_TOO_LARGE:
+        return "too large";
+    }
+    return "unknown result";
 }

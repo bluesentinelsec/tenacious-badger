@@ -29,7 +29,13 @@ foreach(header IN LISTS headers)
             message(FATAL_ERROR
                 "${header}: no function name on the line of its TB_API: ${declaration}")
         endif()
-        list(APPEND functions "${CMAKE_MATCH_1}")
+        # A function that only names a result needs nothing from the
+        # platform: the engine implements it once, and no adapter does. The
+        # name is kept first: the next match replaces CMAKE_MATCH_1.
+        set(name "${CMAKE_MATCH_1}")
+        if(NOT name MATCHES "_result_name$")
+            list(APPEND functions "${name}")
+        endif()
     endforeach()
 endforeach()
 
@@ -58,4 +64,7 @@ foreach(function IN LISTS functions)
 endforeach()
 
 list(LENGTH functions function_count)
+if(function_count EQUAL 0)
+    message(FATAL_ERROR "No function of a platform interface was found, so nothing was checked.")
+endif()
 message(STATUS "Checked ${function_count} functions of the default platform adapter")
