@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import platform
 import shutil
+import sys
 import tarfile
 import tempfile
 import zipfile
@@ -23,7 +24,7 @@ def verify(prefix, metadata):
     require(metadata['publisher'] in (prefix / 'NOTICE').read_text(), 'Missing personal attribution')
     if platform.system() == 'Windows':
         verify_windows_signatures(prefix, metadata['publisher'])
-    run([shutil.which('python3') or shutil.which('python'), ROOT / 'tests/ffi/ctypes_smoke.py',
+    run([sys.executable, ROOT / 'tests/ffi/ctypes_smoke.py',
          '--prefix', prefix])
 
 
