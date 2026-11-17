@@ -158,6 +158,63 @@ jobs:
           cmake --build build/analyze --config Debug --parallel
           ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
 
+  benchmarks:
+    name: Benchmarks against the base / ${{ matrix.platform }} / ${{ matrix.compiler }}
+    # A comparison needs something to compare with: the branch that a pull
+    # request goes into.
+    if: github.event_name == 'pull_request'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: Linux
+            os: ubuntu-26.04
+            compiler: GCC
+            cc: gcc
+            program: bin/tb_bench
+          - platform: Windows
+            os: windows-2025-vs2026
+            compiler: MSVC
+            cc: cl
+            program: bin/tb_bench.exe
+    env:
+      CC: ${{ matrix.cc }}
+      CMAKE_GENERATOR: ${{ matrix.os == 'windows-2025-vs2026' && 'Visual Studio 18 2026' || 'Unix Makefiles' }}
+      CMAKE_GENERATOR_PLATFORM: ${{ matrix.os == 'windows-2025-vs2026' && 'x64' || '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          path: after
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: before
+      - name: Check the comparison against results with known answers
+        run: python3 after/tools/compare_benchmarks.py --self-test
+      # Both builds on this runner, so that the comparison is of the code and
+      # not of two machines.
+      - name: Build the benchmarks of the base and of the pull request
+        shell: bash
+        run: |
+          for tree in before after; do
+            cmake -S $tree -B build/$tree -DCMAKE_BUILD_TYPE=Release -DTB_BUILD_TESTS=OFF \
+              -DTB_BUILD_BURROW=OFF -DTB_WINDOWS_SELF_SIGN=OFF
+            cmake --build build/$tree --config Release --parallel --target tb_bench
+          done
+      # Run in turn, round after round, and the fastest of each case kept.
+      # Hosted runners are shared, so the job reports and does not fail; the
+      # report is on the page of the run.
+      - name: Compare
+        shell: bash
+        run: >
+          python3 after/tools/compare_benchmarks.py
+          --before build/before/${{ matrix.program }} --after build/after/${{ matrix.program }}
+          --rounds 3 --repeats 3 --margin 1.25 --summary "$GITHUB_STEP_SUMMARY"
+
   format:
     name: C formatting
     runs-on: ubuntu-26.04

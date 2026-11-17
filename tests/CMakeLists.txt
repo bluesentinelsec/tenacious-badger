@@ -124,6 +124,8 @@ add_test(NAME source_checks.contracts
     COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/check_contracts.py")
 add_test(NAME source_checks.contracts_self_test
     COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/check_contracts.py" --self-test)
+add_test(NAME source_checks.benchmark_comparison_self_test
+    COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/compare_benchmarks.py" --self-test)
 add_test(NAME source_checks.coverage_self_test
     COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/check_coverage.py" --self-test)
 add_test(NAME source_checks.text

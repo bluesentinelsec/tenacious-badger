@@ -222,6 +222,9 @@ AUTHORIZED = {
     'benchmarks/core/fmt_bench.c': (
         {'snprintf'},
         'measures the C library beside badger/fmt.h'),
+    'benchmarks/core/fs_bench.c': (
+        {'fopen', 'fclose', 'fread', 'fwrite'},
+        'measures the C library\'s streams beside badger/fs.h'),
     'benchmarks/core/text_bench.c': (
         {'strstr', 'strrchr', 'strcspn'},
         'measures the C library beside badger/str.h'),

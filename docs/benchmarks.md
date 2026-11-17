@@ -53,6 +53,37 @@ with a game running can halve the speed of a benchmark between two runs. If
 the numbers of one build change from run to run by more than a few percent,
 the machine is not quiet enough for small differences to mean anything.
 
+## Comparing two builds
+
+`tools/compare_benchmarks.py` does what the paragraph above asks: it runs two
+builds of `tb_bench` alternately, round after round, keeps the fastest time of
+each case, and lists the cases that are slower or faster by more than a
+margin, and the ones that are new or gone.
+
+```sh
+python3 tools/compare_benchmarks.py --before old/bin/tb_bench --after build/local-release/bin/tb_bench table fmt
+```
+
+| Option | Effect |
+| --- | --- |
+| `--rounds N` | Run each build `N` times in turn; the default is 3. |
+| `--repeats N` | Passed to `tb_bench`; the default is 3. |
+| `--margin R` | Report a case whose time changed by more than this ratio; the default is 1.25. |
+| `--summary FILE` | Append the report to a file as Markdown. |
+| `--fail-above R` | End with a failure status when a case is slower by more than this ratio. |
+| `--results A B` | Compare two saved outputs of `tb_bench` instead of running anything. |
+
+**CI compares every pull request with the branch it goes into.** The job
+"Benchmarks against the base" builds both on one runner, on Linux with GCC and
+on Windows with MSVC, and writes the comparison to the page of the run. It
+does not fail: a hosted runner is shared with other work, and one case in a
+hundred moves by a quarter between two runs of the same code. A change that
+was meant to be faster or slower says so in its pull request, with numbers
+from a quiet machine.
+
+No baseline is kept in the repository. A recorded number is a number from one
+machine at one time, and the next runner is another machine.
+
 ## Cases on several threads
 
 A case can run on several threads at once: eight threads that all want one
