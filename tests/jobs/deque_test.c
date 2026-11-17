@@ -16,7 +16,6 @@
 
 #include "badger/assert.h"
 #include "badger/memory.h"
-#include "badger/system.h"
 #include "badger/thread.h"
 
 #include "tb_test.h"
@@ -351,6 +350,17 @@ static void push_and_pop_as_the_owner(receiver *self, size_t pops_per_push_in_ei
                 receive(self, popped);
             }
         }
+        /* Give the first item to a thief before racing for the rest. A
+         * processor count does not promise that the OS will schedule a
+         * thief during a short owner loop, even on a many-core machine. */
+        if (number == 1)
+        {
+            while (tb_platform_atomic_size_load(&shared->received_count) == 0)
+            {
+                /* Wait for a thief to receive the first item. */
+            }
+            continue;
+        }
         /* A cheap sequence that does not repeat soon. */
         state = state * 6364136223846793005u + 1442695040888963407u;
         if ((state >> 61) < pops_per_push_in_eighths)
@@ -464,16 +474,6 @@ static void expect_every_item_once(const tally *result)
     TB_TEST_EXPECT_UINT(result->unknown_count, ==, 0);
 }
 
-/* Whether thieves can run while the owner does. On a machine with one
- * processor the owner may finish before any thief is given a turn. */
-static bool threads_run_at_the_same_time(void)
-{
-    tb_system_processors processors = {0};
-
-    tb_system_get_processors(&processors);
-    return processors.logical_count >= 2;
-}
-
 TB_TEST(jobs_deque, every_item_comes_out_once_with_thieves_at_work)
 {
     /* The owner pops half of what it pushes; the thieves take the rest. */
@@ -481,10 +481,7 @@ TB_TEST(jobs_deque, every_item_comes_out_once_with_thieves_at_work)
 
     expect_every_item_once(&result);
     /* Some of them were stolen, or this case showed nothing about thieves. */
-    if (threads_run_at_the_same_time())
-    {
-        TB_TEST_EXPECT_UINT(result.stolen_count, >, 0);
-    }
+    TB_TEST_EXPECT_UINT(result.stolen_count, >, 0);
 }
 
 /* An owner that never pops by choice leaves everything to the thieves, and
@@ -511,10 +508,7 @@ TB_TEST(jobs_deque, the_last_item_goes_to_the_owner_or_to_one_thief)
     const tally result = run_owner_and_thieves(1, SHARED_ITEM_COUNT / 4, 8);
 
     expect_every_item_once(&result);
-    if (threads_run_at_the_same_time())
-    {
-        TB_TEST_EXPECT_UINT(result.stolen_count, >, 0);
-    }
+    TB_TEST_EXPECT_UINT(result.stolen_count, >, 0);
 }
 
 /* ---------------------------------------------------------------------------
