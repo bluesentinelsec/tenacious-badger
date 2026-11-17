@@ -540,6 +540,11 @@ tb_fs_result tb_fs_rename(tb_path_view source, tb_path_view destination)
 {
     WCHAR *from = NULL;
     WCHAR *to = NULL;
+    HANDLE handle = INVALID_HANDLE_VALUE;
+    FILE_RENAME_INFO *information = NULL;
+    size_t length = {0};
+    size_t allocation = {0};
+    DWORD failure = {0};
     tb_fs_result result = {0};
     result = tb_fs_windows_path(source, &from);
     if (result != TB_FS_OK)
@@ -551,11 +556,52 @@ tb_fs_result tb_fs_rename(tb_path_view source, tb_path_view destination)
     {
         goto cleanup;
     }
-    if (!MoveFileExW(from, to, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+    while (to[length] != L'\0')
+    {
+        length++;
+    }
+    /* The path converter limits this to fewer than 32768 UTF-16 units. */
+    allocation = sizeof(*information) + length * sizeof(WCHAR);
+    information = malloc(allocation);
+    if (information == NULL)
+    {
+        result = TB_FS_NO_MEMORY;
+        goto cleanup;
+    }
+    *information = (FILE_RENAME_INFO){0};
+    information->Flags = FILE_RENAME_FLAG_REPLACE_IF_EXISTS | FILE_RENAME_FLAG_POSIX_SEMANTICS;
+    information->FileNameLength = (DWORD)(length * sizeof(WCHAR));
+    memcpy(information->FileName, to, (length + 1) * sizeof(WCHAR));
+    handle =
+        CreateFileW(from, DELETE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+                    OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, NULL);
+    if (handle == INVALID_HANDLE_VALUE)
     {
         result = tb_fs_last_error();
+        goto cleanup;
+    }
+    if (!SetFileInformationByHandle(handle, FileRenameInfoEx, information, (DWORD)allocation))
+    {
+        failure = GetLastError();
+        result = tb_fs_windows_error(failure);
+        /* Older/network filesystems can reject the extended information class.
+         * Their traditional rename may require all destination readers closed. */
+        if (failure == ERROR_INVALID_PARAMETER || failure == ERROR_NOT_SUPPORTED ||
+            failure == ERROR_INVALID_FUNCTION)
+        {
+            (void)CloseHandle(handle);
+            handle = INVALID_HANDLE_VALUE;
+            result = MoveFileExW(from, to, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)
+                         ? TB_FS_OK
+                         : tb_fs_last_error();
+        }
     }
 cleanup:
+    if (handle != INVALID_HANDLE_VALUE)
+    {
+        (void)CloseHandle(handle);
+    }
+    free(information);
     free(from);
     free(to);
     return result;

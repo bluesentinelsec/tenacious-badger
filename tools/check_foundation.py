@@ -152,7 +152,7 @@ FILES = rule('badger/file.h', 'docs/files.md', {
         'fseek fseeko ftell ftello lseek fsync SetFilePointerEx GetFileSizeEx FlushFileBuffers',
     'tb_fs_query, tb_fs_make_directory, tb_fs_remove, and tb_fs_rename':
         'lstat fstat mkdir rmdir unlink remove rename GetFileAttributesW GetFileAttributesExW '
-        'CreateDirectoryW RemoveDirectoryW DeleteFileW MoveFileExW',
+        'CreateDirectoryW RemoveDirectoryW DeleteFileW MoveFileExW SetFileInformationByHandle',
     'tb_directory_open, tb_directory_next, and tb_directory_close':
         'opendir readdir closedir FindFirstFileW FindNextFileW FindClose',
 })

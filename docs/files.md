@@ -61,3 +61,8 @@ Insufficient output capacity creates nothing and leaves the output untouched.
 Native contracts: Microsoft's [CreateFileW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew)
 and [long-path rules](https://learn.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation),
 and the Linux [fsync documentation](https://man7.org/linux/man-pages/man2/fsync.2.html).
+Windows replacement uses `SetFileInformationByHandle(FileRenameInfoEx)` with
+POSIX replacement semantics so existing readers retain the previous file and
+new opens see the replacement. Filesystems that reject this information class
+fall back to traditional native rename, which may require destination handles
+to be closed. See Microsoft's [rename information contract](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_rename_info).

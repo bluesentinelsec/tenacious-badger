@@ -470,3 +470,36 @@ TB_TEST(platform_files, required_pointers_and_handle_lifetimes_are_contracts)
         TB_TEST_EXPECT_TRAP(invalid_file_contract, &choice, "assertion failed");
     }
 }
+
+TB_TEST(platform_files, replacement_keeps_open_readers_on_the_previous_file)
+{
+    char root[32768] = {0};
+    char old_path[32768] = {0};
+    char new_path[32768] = {0};
+    tb_file old_file = {0};
+    tb_file new_file = {0};
+    size_t count = {0};
+    char byte = {0};
+    TB_TEST_REQUIRE_UINT(tb_fs_temp_directory((tb_path_view){0}, root, sizeof(root)), ==, TB_FS_OK);
+    TB_TEST_REQUIRE_UINT(tb_fs_temp_file(path_view(root), old_path, sizeof(old_path), &old_file),
+                         ==, TB_FS_OK);
+    TB_TEST_REQUIRE_UINT(tb_fs_temp_file(path_view(root), new_path, sizeof(new_path), &new_file),
+                         ==, TB_FS_OK);
+    TB_TEST_EXPECT_UINT(tb_file_write(&old_file, "o", 1, &count), ==, TB_FS_OK);
+    TB_TEST_EXPECT_UINT(tb_file_write(&new_file, "n", 1, &count), ==, TB_FS_OK);
+    TB_TEST_EXPECT_UINT(tb_file_close(&old_file), ==, TB_FS_OK);
+    TB_TEST_EXPECT_UINT(tb_file_close(&new_file), ==, TB_FS_OK);
+    TB_TEST_REQUIRE_UINT(tb_file_open(path_view(old_path), TB_FILE_READ, &old_file), ==, TB_FS_OK);
+    TB_TEST_REQUIRE_UINT(tb_fs_rename(path_view(new_path), path_view(old_path)), ==, TB_FS_OK);
+    TB_TEST_REQUIRE_UINT(tb_file_read(&old_file, &byte, 1, &count), ==, TB_FS_OK);
+    TB_TEST_EXPECT_UINT(count, ==, 1);
+    TB_TEST_EXPECT_INT(byte, ==, 'o');
+    TB_TEST_REQUIRE_UINT(tb_file_open(path_view(old_path), TB_FILE_READ, &new_file), ==, TB_FS_OK);
+    TB_TEST_REQUIRE_UINT(tb_file_read(&new_file, &byte, 1, &count), ==, TB_FS_OK);
+    TB_TEST_EXPECT_UINT(count, ==, 1);
+    TB_TEST_EXPECT_INT(byte, ==, 'n');
+    TB_TEST_EXPECT_UINT(tb_file_close(&old_file), ==, TB_FS_OK);
+    TB_TEST_EXPECT_UINT(tb_file_close(&new_file), ==, TB_FS_OK);
+    TB_TEST_EXPECT_UINT(tb_fs_remove(path_view(old_path)), ==, TB_FS_OK);
+    TB_TEST_EXPECT_UINT(tb_fs_remove(path_view(root)), ==, TB_FS_OK);
+}
