@@ -66,3 +66,26 @@ POSIX replacement semantics so existing readers retain the previous file and
 new opens see the replacement. Filesystems that reject this information class
 fall back to traditional native rename, which may require destination handles
 to be closed. See Microsoft's [rename information contract](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_rename_info).
+
+Whole-file operations live above the native adapter in `badger/fs.h`.
+`tb_fs_read_file` uses a supplied allocator, applies a maximum byte count, reads
+through short reads, and adds a convenience NUL after the binary payload.
+Release its owned result with `tb_fs_buffer_free`. A file that grows after the
+initial size query is still bounded by the limit. Allocation failure closes the
+handle, releases partial data, and leaves the output unchanged.
+
+`tb_fs_write_file` truncates immediately and can leave a partial file on error.
+`tb_fs_replace_file` instead creates a unique file in the destination's original
+parent directory, handles short writes, flushes and closes it, and only then
+renames it over the destination. It preserves the parent's spelling because
+lexically simplifying a symlink followed by `..` can change the directory.
+Failure before publication leaves the old file in place and attempts temporary
+cleanup. Replacement uses new-file permissions and does not preserve the old
+file's permissions, timestamps, or other metadata. The containing directory is
+not synced, so this provides atomic visibility, not power-loss durability.
+
+`tb_fs_make_directories` normalizes ordinary dot components lexically, creates
+missing prefixes, and accepts existing directories. Encountered links are
+rejected; directory races still require a separate containment design. It may
+leave directories it already created on failure. Path-normalization scratch
+storage follows the path module's fail-fast allocation contract.

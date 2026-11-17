@@ -226,3 +226,8 @@ available through `badger/utf8.h`, without allocation or locale dependencies.
 Pure UTF-8 path manipulation in `badger/path.h` supports Windows and POSIX
 syntax on every host, bounded and owned results, and lexical containment for
 rooted joins. See [path contracts](paths.md) before using it with external names.
+
+Native binary files and directories are available through `badger/file.h` on
+all desktop platforms. `badger/fs.h` adds bounded whole-file reads with custom
+allocators, recursive directory creation, and atomic replacement that preserves
+existing readers. See [file contracts](files.md) for ownership and durability.
