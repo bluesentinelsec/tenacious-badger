@@ -306,7 +306,7 @@ TB_TEST(core_utf8, conversion_measures_first_and_never_partially_writes)
         {
             for (size_t index = {0}; index < 9; index++)
             {
-                TB_TEST_EXPECT_UINT(narrow[index], ==, 0x55);
+                TB_TEST_EXPECT_INT(narrow[index], ==, 0x55);
             }
         }
     }
@@ -316,7 +316,7 @@ TB_TEST(core_utf8, conversion_measures_first_and_never_partially_writes)
         output[0] = 42;
         TB_TEST_EXPECT(!tb_utf8_from_utf16(invalid[row], 3, output, sizeof(output), &required));
         TB_TEST_EXPECT_UINT(required, ==, 0);
-        TB_TEST_EXPECT_UINT(output[0], ==, 42);
+        TB_TEST_EXPECT_INT(output[0], ==, 42);
     }
     TB_TEST_EXPECT(!tb_utf8_from_utf16(invalid[1], 1, NULL, 0, &required));
 }
