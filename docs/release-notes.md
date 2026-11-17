@@ -219,3 +219,6 @@ invocation, external static linking, and FetchContent consumption checks. See
 Archives include Apache-2.0 licensing, personal attribution to `bluesentinelsec`,
 launch instructions, and build metadata. Verify downloads using `SHA256SUMS`.
 Browser, Android, and iOS exports are planned for later milestones.
+
+Bounded UTF-8 validation, scalar navigation, and strict UTF-16 conversion are
+available through `badger/utf8.h`, without allocation or locale dependencies.
