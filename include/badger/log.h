@@ -10,6 +10,12 @@
  * Sink contexts and the optional category filter are borrowed until configure
  * returns after replacing them, or destroy returns. Configure waits for prior
  * callbacks. Sharing a sink across loggers requires caller synchronization.
+ *
+ * @par Threading
+ * Thread-safe: any number of threads may write to, flush, and configure the
+ * same logger. tb_log_destroy() is externally synchronized: it is called when
+ * no other thread uses the logger. The sink functions are called by a logger
+ * under its lock, and are externally synchronized for anyone else.
  */
 #ifndef TB_LOG_H
 #define TB_LOG_H

@@ -4,10 +4,15 @@
  * Paths are bounded UTF-8 without embedded NUL; NULL is valid only at length
  * zero, which is an invalid filename. Native path rules apply. No process
  * working directory is changed. Relative paths require callers to keep it
- * stable. Calls on distinct handles are thread-safe; a handle and its cursor
- * are externally synchronized. Close must not race any use. Handles are
- * move-only values: copying does not duplicate ownership. Zero means closed.
- * Native resource exhaustion is returned as TB_FS_NO_MEMORY.
+ * stable. Handles are move-only values: copying does not duplicate ownership.
+ * Zero means closed. Native resource exhaustion is returned as
+ * TB_FS_NO_MEMORY.
+ *
+ * @par Threading
+ * A function that takes paths and no handle is thread-safe. A handle is
+ * externally synchronized: the caller serializes every call that names the
+ * same file or directory handle, its cursor included, and closing a handle
+ * must not race any other use of it. Different handles are independent.
  */
 #ifndef TB_FILE_H
 #define TB_FILE_H

@@ -7,10 +7,14 @@
  * are recognized and retain literal '.' and '..' components. Device namespaces
  * are rejected. POSIX preserves exactly two leading slashes.
  *
- * All functions are thread-safe with synchronized input/output buffers and
- * allocators. Views are borrowed for a call; parsed views borrow the original
- * input. Builders use temporary heap storage and fail fast on allocation
- * failure. They never partially write a destination on an error.
+ * Views are borrowed for a call; parsed views borrow the original input.
+ * Builders use temporary heap storage and fail fast on allocation failure.
+ * They never partially write a destination on an error.
+ *
+ * @par Threading
+ * Thread-safe: no function keeps state. The caller ensures that an input is
+ * not changed and a destination is not used by another thread during a call,
+ * and that an allocator it gives is thread-safe.
  */
 #ifndef TB_PATH_H
 #define TB_PATH_H

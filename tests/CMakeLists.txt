@@ -27,6 +27,7 @@ set(TB_TEST_CASE_SOURCES
     core/sum_test.c
     core/table_test.c
     core/text_test.c
+    core/thread_safety_test.c
     core/utf8_test.c
     jobs/jobs_test.c
     jobs/loop_test.c
@@ -117,6 +118,10 @@ add_test(NAME source_checks.foundation_self_test
     COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/check_foundation.py" --self-test)
 add_test(NAME source_checks.analyzer_driver_self_test
     COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/analyze_with_clang.py" --self-test)
+add_test(NAME source_checks.contracts
+    COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/check_contracts.py")
+add_test(NAME source_checks.contracts_self_test
+    COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/check_contracts.py" --self-test)
 add_test(NAME source_checks.coverage_self_test
     COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/check_coverage.py" --self-test)
 add_test(NAME source_checks.text

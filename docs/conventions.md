@@ -87,6 +87,21 @@ Every public function documents one of three contracts, in these words:
 - *stage-owned*: called only from a documented stage or thread;
 - *externally synchronized*: the caller serializes access.
 
+A function states its contract under `@par Threading` in its own comment. A
+header whose functions nearly all have the same contract states it once,
+under `@par Threading` in the comment that opens the file, and a function
+with a different contract says so in its own. `tools/check_contracts.py`
+fails, in CI and as the `source_checks.contracts` test, on a public function
+that neither statement covers, or whose statement uses none of the three
+terms.
+
+The check reads the words; it cannot tell whether they are true. That is what
+tests under [ThreadSanitizer](testing.md#data-races) are for. A module that
+synchronizes itself has cases that use one object from several threads.
+Functions that keep no state, and objects that are documented as independent
+of one another, are used from eight threads at once in
+`tests/core/thread_safety_test.c`, each thread with data of its own.
+
 ## Text files
 
 Source and documentation are UTF-8 without a byte-order mark.

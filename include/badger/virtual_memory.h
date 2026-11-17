@@ -2,11 +2,16 @@
  * @brief Native address-space reservations and page commitment.
  *
  * Regions are exclusively owned, zero-initialized values. Do not copy ownership
- * or modify their fields. Distinct regions are thread-safe; all operations on
- * one region and accesses to affected pages are externally synchronized.
- * Reservations do not count as core heap allocations. POSIX commitment grants
- * access to demand-paged memory; overcommit can still exhaust physical memory
- * later. No executable mappings or implicit privilege changes are requested.
+ * or modify their fields. Reservations do not count as core heap allocations.
+ * POSIX commitment grants access to demand-paged memory; overcommit can still
+ * exhaust physical memory later. No executable mappings or implicit privilege
+ * changes are requested.
+ *
+ * @par Threading
+ * Externally synchronized: the caller serializes every call that names the
+ * same region, and every access to the pages that a call commits or
+ * decommits. Different regions are independent, and tb_vm_get_info() is
+ * thread-safe.
  */
 #ifndef TB_VIRTUAL_MEMORY_H
 #define TB_VIRTUAL_MEMORY_H
