@@ -220,14 +220,16 @@ void tb_condition_wait(tb_condition *condition, tb_mutex *mutex)
     TB_ASSERT(condition != NULL);
     TB_ASSERT(mutex != NULL);
     TB_ASSERT_MSG(tb_win32_caller_holds(mutex), "the calling thread holds the mutex");
-    /* The wait gives the mutex up and takes it again. */
-    tb_win32_note_released(mutex);
     if (!SleepConditionVariableSRW(tb_win32_condition(condition), tb_win32_lock(mutex), INFINITE,
                                    0))
     {
         tb_win32_thread_fail("platform.thread: tb_condition_wait on win32: "
                              "SleepConditionVariableSRW failed\n");
     }
+    /* The wait gave the mutex up, and whoever took it meanwhile recorded
+     * itself. The record is not cleared before the wait: until the mutex is
+     * taken again it names this thread, which is asleep and cannot be misled
+     * by it. */
     tb_win32_note_held(mutex);
 }
 
@@ -241,8 +243,6 @@ bool tb_condition_wait_for(tb_condition *condition, tb_mutex *mutex, uint64_t na
     TB_ASSERT(mutex != NULL);
     TB_ASSERT_MSG(tb_win32_caller_holds(mutex), "the calling thread holds the mutex");
     start = tb_platform_clock_nanoseconds();
-    /* Each wait gives the mutex up and takes it again. */
-    tb_win32_note_released(mutex);
     /* The system counts a wait in ticks of its timer and sometimes ends one
      * a fraction of a millisecond early, and a limit beyond 49 days is waited
      * for in parts. The clock decides when the limit has passed. */
@@ -265,6 +265,8 @@ bool tb_condition_wait_for(tb_condition *condition, tb_mutex *mutex, uint64_t na
             elapsed = tb_platform_clock_nanoseconds() - start;
         }
     }
+    /* As after tb_condition_wait(): whoever held the mutex meanwhile
+     * recorded itself. */
     tb_win32_note_held(mutex);
     return ended_early;
 }
