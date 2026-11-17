@@ -15,7 +15,8 @@ add_executable(tb_bench
     core/text_bench.c
     jobs/jobs_bench.c
     platform/atomic_bench.c
-    platform/thread_bench.c)
+    platform/thread_bench.c
+    platform/time_bench.c)
 target_include_directories(tb_bench PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/harness")
 # The shared library, as burrow uses it: the calls that are timed cross the
 # same boundary as the game's.

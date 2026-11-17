@@ -28,6 +28,16 @@ TB_TEST(platform_default, tb_platform_clock_nanoseconds)
     (void)tb_platform_clock_nanoseconds();
 }
 
+TB_TEST(platform_default, tb_platform_sleep)
+{
+    tb_platform_sleep(1);
+}
+
+TB_TEST(platform_default, tb_platform_wait_until)
+{
+    tb_platform_wait_until(1);
+}
+
 TB_TEST(platform_default, tb_platform_atomic_size_add)
 {
     tb_platform_atomic_size atomic = {0};

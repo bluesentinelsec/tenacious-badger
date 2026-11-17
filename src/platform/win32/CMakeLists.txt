@@ -11,6 +11,8 @@ set(TB_PLATFORM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/../shared/name.c"
     # A semaphore is built from the adapter's mutex and condition variable.
     "${CMAKE_CURRENT_SOURCE_DIR}/../shared/semaphore.c"
+    # Waiting for a moment is built from the adapter's sleep and clock.
+    "${CMAKE_CURRENT_SOURCE_DIR}/../shared/wait.c"
     CACHE INTERNAL "Selected platform adapter sources")
 target_sources(badger PRIVATE ${TB_PLATFORM_SOURCES})
 target_sources(badger_static PRIVATE ${TB_PLATFORM_SOURCES})

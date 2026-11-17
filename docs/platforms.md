@@ -42,6 +42,64 @@ library's clock says, within a tenth. On Windows the conversion is also
 checked against 128-bit arithmetic, at the frequencies counters have had and
 at random ones.
 
+### Sleeping and pacing
+
+Two functions make a thread wait for time to pass, and they differ in what
+they spend to be exact.
+
+| Need | Use |
+| --- | --- |
+| Let time pass and use no processor meanwhile | `tb_platform_sleep(nanoseconds)` |
+| Reach a moment exactly, as a frame loop must | `tb_platform_wait_until(deadline)` |
+
+`tb_platform_sleep` sleeps for at least the time asked and wakes when the
+system gets round to it. `tb_platform_wait_until` waits for a reading of the
+clock: it sleeps until shortly before, and then runs, watching the clock, to
+the moment itself. A frame loop adds the length of a frame to a deadline each
+frame and waits for it, so that a frame that wakes late does not make the
+next one late:
+
+```c
+uint64_t deadline = tb_platform_clock_nanoseconds();
+
+for (;;)
+{
+    run_a_frame();
+    deadline += frame_nanoseconds;
+    tb_platform_wait_until(deadline);
+}
+```
+
+| `tb_bench time`, what asking for a length of time gives | `tb_platform_sleep` | `tb_platform_wait_until` |
+| --- | --- | --- |
+| 100 microseconds | 551 to 571 µs | 100.000 µs |
+| 1 millisecond | 1.51 to 1.61 ms | 1.000000 ms |
+| A frame at 60 a second, 16.667 ms | 17.01 to 17.04 ms | 16.66701 ms |
+
+Release, MSVC 19.50, i9-14900HX, Windows 11; each figure is the average of 60.
+A sleep on Windows wakes about half a millisecond late whatever its length. A
+wait is as exact as the clock, and pays for it with a processor for the last
+stretch before its moment.
+
+| Platform | Sleep | How late it may wake, which a wait spends awake |
+| --- | --- | --- |
+| Windows | A waitable timer of high resolution, which is not bound to the 15.6 ms timer interrupt as `Sleep` is | 1 ms |
+| Linux / Steam Deck | `clock_nanosleep` to a moment on `CLOCK_MONOTONIC`, so that a signal does not shorten it | 200 µs |
+| macOS | `nanosleep`, repeated while the clock says there is time left | 1 ms |
+
+**A sleep cannot be ended early.** A thread that may have to be woken, such as
+a worker that must stop when the program does, waits on a condition or a
+semaphore with a time limit.
+
+**Pacing is the platform's wait and nothing more.** The engine has no pacer
+object: a deadline is a number that its owner adds to.
+
+The tests check that a sleep lasts at least as long as asked, that a wait
+never ends early, and that 120 paced frames end when 120 frame lengths have
+passed. They allow two seconds of lateness, because a hosted CI machine can
+keep a thread waiting for a processor that long; the figures above are what a
+machine with nothing else to do gives.
+
 CMake selects exactly one adapter. All OS-specific headers and native symbols
 stay in that adapter. The public visibility header is generated from the selected
 platform template; core code and public interfaces do not detect the OS.
@@ -481,8 +539,8 @@ For each new platform interface, add in one change:
   which is the list the default adapter is checked against.
 
 No interface is implemented on fewer than the three platforms. Planned
-services include windowing/events, input, sleep and frame pacing, virtual
-memory, files, dynamic libraries, audio devices, and system/crash information.
+services include windowing/events, input, asynchronous files, dynamic
+libraries, audio devices, and system/crash information.
 Native APIs and future RHI backends are catalogued in the binding vision.
 
 A rendering backend or a vendor plugin is not a platform interface. One that

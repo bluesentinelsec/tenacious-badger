@@ -171,5 +171,7 @@ void tb_bench_table(tb_bench *bench);
 void tb_bench_text(tb_bench *bench);
 /** @brief Benchmarks of the mutex and the condition variable of badger/thread.h. */
 void tb_bench_thread(tb_bench *bench);
+/** @brief Benchmarks of the clock, the sleep, and the wait of badger/platform.h. */
+void tb_bench_time(tb_bench *bench);
 
 #endif

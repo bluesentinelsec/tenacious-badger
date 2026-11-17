@@ -107,6 +107,9 @@ TIMING = rule('badger/platform.h', 'docs/platforms.md', {
         'timespec_get clock_gettime clock_gettime_nsec_np gettimeofday '
         'QueryPerformanceCounter QueryPerformanceFrequency GetTickCount GetTickCount64 '
         'mach_absolute_time mach_continuous_time',
+    'tb_platform_sleep, or tb_platform_wait_until to wait for a moment':
+        'Sleep SleepEx nanosleep clock_nanosleep usleep CreateWaitableTimerW '
+        'CreateWaitableTimerExW SetWaitableTimer mach_wait_until',
 })
 
 ATOMICS = rule('badger/platform.h', 'docs/platforms.md', {
@@ -129,8 +132,14 @@ THREADS = rule('badger/thread.h', 'docs/platforms.md', {
         'WakeAllConditionVariable',
     'the threads, mutexes, and condition variables of badger/thread.h':
         '<threads.h> <pthread.h> pthread_*',
-    'the C keyword _Thread_local':
-        'thread_local __thread tss_* TlsAlloc TlsGetValue TlsSetValue TlsFree',
+    'the C keyword _Thread_local, or tb_thread_local for a place made at run time':
+        'thread_local __thread tss_* TlsAlloc TlsGetValue TlsSetValue TlsFree '
+        'FlsAlloc FlsGetValue FlsSetValue FlsFree',
+    'tb_semaphore and its functions':
+        '<semaphore.h> sem_* CreateSemaphoreW CreateSemaphoreExW ReleaseSemaphore '
+        'dispatch_semaphore_*',
+    'tb_thread_relax in a loop that waits, and tb_thread_yield to give up a turn':
+        '_mm_pause YieldProcessor __builtin_ia32_pause sched_yield SwitchToThread',
 })
 
 PROCESSORS = rule('badger/system.h', 'docs/platforms.md', {
@@ -504,6 +513,18 @@ def self_test():
          'now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);',
          ['timespec_get', 'QueryPerformanceCounter', 'clock_gettime_nsec_np']),
         ('the engine clock', 'now = tb_platform_clock_nanoseconds();', []),
+        ('native sleeps', 'Sleep(10); nanosleep(&request, NULL); usleep(5); SleepEx(1, TRUE);',
+         ['Sleep', 'nanosleep', 'usleep', 'SleepEx']),
+        ('the engine sleep',
+         'tb_platform_sleep(10); tb_platform_wait_until(deadline); sleeper.is_asleep = true;', []),
+        ('native semaphores and hints for loops that wait',
+         'sem_wait(&s); ReleaseSemaphore(handle, 1, NULL); _mm_pause(); sched_yield(); '
+         'key = FlsAlloc(destroy); dispatch_semaphore_signal(d);',
+         ['sem_wait', 'ReleaseSemaphore', '_mm_pause', 'sched_yield', 'FlsAlloc',
+          'dispatch_semaphore_signal']),
+        ('the engine semaphore and hints',
+         'tb_semaphore_wait(&s); tb_thread_relax(); tb_thread_yield(); '
+         'tb_thread_local_set(&local, value);', []),
         ('counts of processors',
          'GetSystemInfo(&info); n = sysconf(_SC_NPROCESSORS_ONLN); sched_getaffinity(0, s, &set); '
          'n = get_nprocs();',

@@ -1,5 +1,6 @@
 #include "badger/platform.h"
 
+#include "../shared/wait.h"
 #include "counter.h"
 
 #define WIN32_LEAN_AND_MEAN
@@ -67,4 +68,88 @@ uint64_t tb_platform_clock_nanoseconds(void)
     /* coverage-on */
     return tb_win32_counter_to_nanoseconds((uint64_t)counter.QuadPart,
                                            (uint64_t)frequency.QuadPart);
+}
+
+/* ---------------------------------------------------------------------------
+ * Sleeping.
+ * ------------------------------------------------------------------------- */
+
+/* A timer that is not bound to the system's timer interrupt, which comes
+ * every 15.6 milliseconds unless something has asked for it more often.
+ * Windows 10 version 1803 and later have it; older SDK headers do not name
+ * it. */
+#ifndef CREATE_WAITABLE_TIMER_HIGH_RESOLUTION
+#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
+#endif
+
+/* A timer counts in units of 100 nanoseconds. */
+#define TB_WIN32_NANOSECONDS_PER_TIMER_UNIT UINT64_C(100)
+
+/* How late a sleep on a high-resolution timer may wake on a machine that is
+ * not busy. tb_platform_wait_until() stays awake for this long before its
+ * deadline. */
+#define TB_WIN32_SLEEP_SLACK_NANOSECONDS UINT64_C(1000000)
+
+/* Sleeps once on a timer of its own. The timer may fire a little before the
+ * time is up by the performance counter, so the caller looks at the clock. */
+static void tb_win32_sleep_once(uint64_t nanoseconds)
+{
+    HANDLE timer =
+        CreateWaitableTimerExW(NULL, NULL, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+    LARGE_INTEGER due = {0};
+    uint64_t units = nanoseconds / TB_WIN32_NANOSECONDS_PER_TIMER_UNIT;
+
+    /* coverage-off: needs a Windows from before 2018, or a process that is out of handles */
+    if (timer == NULL)
+    {
+        timer = CreateWaitableTimerExW(NULL, NULL, 0, TIMER_ALL_ACCESS);
+    }
+    if (timer == NULL)
+    {
+        tb_win32_clock_fail("platform.time: tb_platform_sleep on win32: "
+                            "CreateWaitableTimerExW failed\n");
+    }
+    /* coverage-on */
+    /* Rounded up to a whole unit, and no more than a timer can be given. */
+    if (nanoseconds % TB_WIN32_NANOSECONDS_PER_TIMER_UNIT != 0)
+    {
+        units++;
+    }
+    if (units > (uint64_t)INT64_MAX)
+    {
+        units = (uint64_t)INT64_MAX;
+    }
+    /* A negative time is a length of time from now. */
+    due.QuadPart = -(LONGLONG)units;
+    /* coverage-off: setting and waiting on a timer of this thread's own does not fail */
+    if (!SetWaitableTimer(timer, &due, 0, NULL, NULL, FALSE) ||
+        WaitForSingleObject(timer, INFINITE) != WAIT_OBJECT_0)
+    {
+        tb_win32_clock_fail("platform.time: tb_platform_sleep on win32: the timer could not "
+                            "be waited for\n");
+    }
+    /* coverage-on */
+    (void)CloseHandle(timer);
+}
+
+void tb_platform_sleep(uint64_t nanoseconds)
+{
+    uint64_t start = 0;
+    uint64_t waited = 0;
+
+    if (nanoseconds == 0)
+    {
+        return;
+    }
+    start = tb_platform_clock_nanoseconds();
+    while (waited < nanoseconds)
+    {
+        tb_win32_sleep_once(nanoseconds - waited);
+        waited = tb_platform_clock_nanoseconds() - start;
+    }
+}
+
+void tb_platform_wait_until(uint64_t deadline)
+{
+    tb_shared_wait_until(deadline, TB_WIN32_SLEEP_SLACK_NANOSECONDS);
 }

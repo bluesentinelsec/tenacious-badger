@@ -14,6 +14,8 @@ set(TB_PLATFORM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/../shared/name.c"
     # A semaphore is built from the adapter's mutex and condition variable.
     "${CMAKE_CURRENT_SOURCE_DIR}/../shared/semaphore.c"
+    # Waiting for a moment is built from the adapter's sleep and clock.
+    "${CMAKE_CURRENT_SOURCE_DIR}/../shared/wait.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/time.c"
     # POSIX threads are the same on Linux and macOS, except where a condition
     # variable waits for a limited time: that part is condition.c.

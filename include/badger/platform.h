@@ -30,6 +30,59 @@
 TB_API uint64_t tb_platform_clock_nanoseconds(void);
 
 /**
+ * @brief Stop the calling thread for a length of time.
+ *
+ * The thread uses no processor while it sleeps. It sleeps for at least the
+ * time asked, by the clock of tb_platform_clock_nanoseconds(), and wakes as
+ * soon after that as the system gets round to it: typically within a
+ * millisecond on a machine that is not busy, and after any length of time on
+ * one that is. To wait for a moment more exactly than that, use
+ * tb_platform_wait_until().
+ *
+ * A sleep cannot be ended early. A thread that may have to be woken waits on
+ * a condition or a semaphore with a time limit instead.
+ *
+ * @param nanoseconds How long to sleep at the least; 0 returns at once. Any
+ * value is valid.
+ * @par Errors A native timer that cannot be made or set ends the process
+ * with a diagnostic.
+ * @par Threading Thread-safe.
+ */
+TB_API void tb_platform_sleep(uint64_t nanoseconds);
+
+/**
+ * @brief Wait until the clock reaches a reading, as exactly as the clock is.
+ *
+ * This is what holds a frame loop to a rate: add the length of a frame to a
+ * deadline each frame, and wait for it.
+ *
+ * @code
+ * uint64_t deadline = tb_platform_clock_nanoseconds();
+ *
+ * for (;;)
+ * {
+ *     run_a_frame();
+ *     deadline += frame_nanoseconds;
+ *     tb_platform_wait_until(deadline);
+ * }
+ * @endcode
+ *
+ * Because each deadline is worked out from the one before and not from the
+ * time now, a frame that wakes late does not make the next one late.
+ *
+ * The thread sleeps for most of the wait. For the last stretch of it, about
+ * a millisecond, it runs and watches the clock, because a sleep cannot be
+ * trusted to end in time: the wait is exact at the price of a processor for
+ * that stretch.
+ *
+ * @param deadline A reading of tb_platform_clock_nanoseconds(). One that has
+ * passed returns at once.
+ * @par Errors As tb_platform_sleep().
+ * @par Threading Thread-safe.
+ */
+TB_API void tb_platform_wait_until(uint64_t deadline);
+
+/**
  * @brief End the process abnormally, at once.
  *
  * The last step of an unrecoverable failure, such as a failed assertion, after

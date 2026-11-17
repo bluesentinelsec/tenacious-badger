@@ -204,6 +204,13 @@ is given a thread's value as the thread ends. And `tb_thread_relax` and
 first while it looks for work, which made submitting a job and waiting for it
 about a sixth faster.
 
+A thread can wait for time to pass. `tb_platform_sleep` sleeps for at least a
+number of nanoseconds, and `tb_platform_wait_until` waits for a reading of
+the clock as exactly as the clock is, which is what holds a frame loop to a
+rate. On Windows a sleep no longer has anything to do with the 15.6
+millisecond timer interrupt: it wakes about half a millisecond late, and a
+wait wakes on time.
+
 A table of atoms can be shared between threads.
 `tb_atom_table_create_shared` makes one that synchronizes itself: equal bytes
 give the same pointer whichever threads intern them. A name that is already
