@@ -124,3 +124,36 @@ jobs:
         run: python3 tools/check_foundation.py --self-test
       - name: Check that C code uses the foundation layer, not the C library it replaces
         run: python3 tools/check_foundation.py
+
+  memory-coverage:
+    name: Checking allocator coverage
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build with the runner's GCC coverage instrumentation
+        run: >
+          cmake -S . -B build/coverage -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_C_COMPILER=gcc -DCMAKE_C_FLAGS=--coverage
+          -DCMAKE_SHARED_LINKER_FLAGS=--coverage -DCMAKE_EXE_LINKER_FLAGS=--coverage
+          -DTB_BUILD_BURROW=OFF -DTB_BUILD_BENCHMARKS=OFF
+      - run: cmake --build build/coverage --target tb_tests tb_probe tb_memory_checked_tests --parallel
+      - run: ctest --test-dir build/coverage -R core_memory --output-on-failure --timeout 60
+      - name: Require 80 percent line coverage of the checking allocator
+        run: |
+          gcov --json-format build/coverage/src/CMakeFiles/badger.dir/core/memory_debug.c.gcno
+          python3 - <<'PY'
+          import gzip
+          import json
+          with gzip.open("memory_debug.c.gcov.json.gz", "rt") as report:
+              data = json.load(report)
+          lines = [line for source in data["files"]
+                   if source["file"].endswith("src/core/memory_debug.c")
+                   for line in source["lines"]]
+          covered = sum(line["count"] > 0 for line in lines)
+          assert lines, "gcov did not report memory_debug.c"
+          print(f"Checking allocator: {covered}/{len(lines)} lines ({covered / len(lines):.1%})")
+          assert covered / len(lines) >= 0.8, "checking allocator coverage is below 80%"
+          PY

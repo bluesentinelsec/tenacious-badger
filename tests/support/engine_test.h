@@ -44,6 +44,9 @@ const tb_assert_failure *tb_engine_test_last_assert_failure(void);
  */
 void tb_engine_test_install_memory_functions(void);
 
+/** @brief Whether this executable runs on the checking allocator. */
+bool tb_engine_test_is_checking_memory(void);
+
 /**
  * @brief Route exhausted fail-fast allocations to the test framework as traps.
  *

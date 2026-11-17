@@ -405,10 +405,80 @@ Allocation is one of the rules that the check enforces.
 [The foundation check](development.md#the-foundation-check) describes all of
 them, how exceptions are granted, and what the check does not report.
 
+## Checking allocations
+
+`badger/memory_debug.h` provides memory functions that check individual heap
+blocks. They are available in Debug and Release and are installed explicitly,
+before the engine allocates anything:
+
+```c
+tb_memory_functions checking = {0};
+tb_memory_debug_site previous = {0};
+void *block = NULL;
+
+tb_memory_debug_get_functions(&checking);
+(void)tb_memory_set_functions(&checking);
+(void)tb_memory_debug_set_label("assets");
+previous = tb_memory_debug_set_site((tb_memory_debug_site){__FILE__, __LINE__});
+block = tb_malloc(128);
+(void)tb_memory_debug_set_site(previous);
+/* Use the block. */
+tb_free(block);
+tb_memory_debug_report();
+(void)tb_memory_debug_reset();
+```
+
+The checker detects foreign and interior pointers, recently freed blocks used
+again, and changes to the 16 guard bytes on either side of a block. It checks
+guards on free and resize; `tb_memory_debug_check()` checks all live blocks.
+Faults report the block's number, size, module label, and annotated source
+location, then terminate. A custom handler may replace the report but must
+not return. New bytes contain 0xCD; released bytes are filled with 0xDD before
+being returned to the underlying allocator.
+
+Labels and source locations are thread-local annotations. Set a site around
+an allocation or a scope and restore the returned previous site afterwards.
+This keeps the ordinary allocation API free of interception macros; it also
+means that an unannotated allocation has no file or line. Resizing preserves
+the original attribution. Label and file strings are borrowed and must remain
+valid through live blocks and freed-block history, until reset; string
+literals are the usual choice. `tb_memory_debug_watch(number)` stops when a
+particular block is allocated, for obtaining its call stack in a debugger.
+Allocation numbers are repeatable only when allocation order is repeatable.
+
+`tb_memory_debug_get_statistics()` gives current and peak user bytes and
+blocks, plus the total number of allocations. `tb_memory_debug_visit()` visits
+every live block, oldest first. Its callback runs under the allocator lock
+and must not reenter the checker. The text report totals every live block by
+label, lists up to 32 labels and 32 blocks, and reports the omitted totals.
+Visit the blocks when an unlimited report is needed.
+
+The checker uses the engine's original allocation functions by default.
+`tb_memory_debug_set_underlying()` selects an application's allocator before
+installing the checker. It refuses incomplete functions, its own functions,
+and changes while checked blocks remain live. Underlying functions must not
+reenter the checker, including through the engine's allocation functions.
+One mutex serializes bookkeeping and underlying allocation. Handler and
+underlying-function changes belong to single-threaded startup or teardown.
+A reset requires no live blocks and releases the address table and history.
+
+This is a debugging tool with explicit limits: each block has metadata and
+32 guard bytes, allocations take a global lock, and only the most recent
+1,024 frees are remembered. It cannot distinguish an old pointer from a new
+block at the same address, catch every use after free, or catch a write that
+jumps over the guard bytes. Use sanitizers where available. Aligned engine
+allocations include alignment padding inside the checked allocation, so a
+write into that padding may not touch a guard.
+
+The regression suite compares counts with a randomized model, tests faults
+as traps and child-process diagnostics, checks concurrent callers and failed
+underlying allocations, and repeats the existing memory tests with checking
+installed. Sanitizer probes independently detect the same before/after-buffer
+writes without the checker. CI requires at least 80% line coverage of the
+checker implementation.
+
 ## Not here yet
 
-- A debugging allocator that records call sites and detects overruns in
-  individual blocks (#31).
 - A scratch arena for each thread. A variable for each thread is available
   ([platforms.md](platforms.md#threads-mutexes-and-condition-variables)); the
   arena itself is not written.
