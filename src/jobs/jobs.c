@@ -1262,3 +1262,127 @@ void tb_jobs_wait_for_all(tb_jobs *jobs)
     TB_ASSERT(jobs != NULL);
     tb_jobs_work_until(jobs, tb_jobs_worker_here(jobs), &reason);
 }
+
+/* ---------------------------------------------------------------------------
+ * Loops.
+ *
+ * A loop is its iterations and a count of how many have been handed out.
+ * Every thread that takes part claims the next range by moving the count
+ * on, runs it, and comes back for another, until none is left. The calling
+ * thread takes part, and so does a job for each worker; a job that starts
+ * after the last range has been claimed finds nothing and ends.
+ * ------------------------------------------------------------------------- */
+
+/* Ranges for each thread when the caller leaves the grain to the scheduler:
+ * enough that a thread which gets slow iterations is not left with a large
+ * share, and few enough that claiming them costs little. */
+#define TB_JOBS_RANGES_PER_THREAD ((size_t)4)
+
+/* Most jobs that take part in one loop, beside the calling thread. */
+#define TB_JOBS_LOOP_HELPERS_MAX ((size_t)64)
+
+typedef struct tb_jobs_loop
+{
+    tb_job_range_function *function;
+    void *argument;
+    size_t count; /* Iterations in the loop. */
+    size_t grain; /* Most iterations in a range; at least 1. */
+    /* Iterations handed out so far; never more than `count`. */
+    tb_platform_atomic_size claimed;
+} tb_jobs_loop;
+
+/* Runs ranges of a loop until none is left. Also the function of the jobs
+ * that take part. */
+static void tb_jobs_run_ranges(void *argument)
+{
+    tb_jobs_loop *const loop = argument;
+    size_t first = tb_platform_atomic_size_load(&loop->claimed);
+
+    while (first < loop->count)
+    {
+        size_t length = loop->count - first;
+
+        if (length > loop->grain)
+        {
+            length = loop->grain;
+        }
+        /* On failure `first` is what another thread moved the count to. */
+        if (tb_platform_atomic_size_compare_exchange(&loop->claimed, &first, first + length))
+        {
+            loop->function(loop->argument, first, length);
+            first = tb_platform_atomic_size_load(&loop->claimed);
+        }
+    }
+}
+
+/* `dividend` divided by `divisor`, which is not zero, rounded up. */
+static size_t tb_jobs_divide_rounding_up(size_t dividend, size_t divisor)
+{
+    size_t quotient = dividend / divisor;
+
+    if (dividend % divisor != 0)
+    {
+        quotient++;
+    }
+    return quotient;
+}
+
+/* The grain of a loop whose caller left it to the scheduler. */
+static size_t tb_jobs_choose_grain(const tb_jobs *jobs, size_t count)
+{
+    /* The workers and the calling thread. A count of threads that makes
+     * the product overflow is larger than any count of iterations. */
+    size_t range_count = 0;
+
+    if (!tb_size_multiply(jobs->worker_count + 1, TB_JOBS_RANGES_PER_THREAD, &range_count) ||
+        range_count >= count)
+    {
+        return 1;
+    }
+    /* Rounded up, so that there are no more ranges than were aimed at. */
+    return tb_jobs_divide_rounding_up(count, range_count);
+}
+
+void tb_jobs_for(tb_jobs *jobs, size_t count, size_t grain, tb_job_range_function *function,
+                 void *argument)
+{
+    tb_jobs_loop loop = {.function = function, .argument = argument, .count = count};
+    tb_job helpers[TB_JOBS_LOOP_HELPERS_MAX] = {0};
+    size_t helper_count = 0;
+    size_t range_count = 0;
+
+    TB_ASSERT(jobs != NULL);
+    TB_ASSERT(function != NULL);
+    if (count == 0)
+    {
+        return;
+    }
+    loop.grain = grain;
+    if (grain == 0)
+    {
+        loop.grain = tb_jobs_choose_grain(jobs, count);
+    }
+    /* A job for each worker, and no more jobs than there are ranges beyond
+     * the one that the calling thread starts with. */
+    range_count = tb_jobs_divide_rounding_up(count, loop.grain);
+    helper_count = jobs->worker_count;
+    if (helper_count > TB_JOBS_LOOP_HELPERS_MAX)
+    {
+        helper_count = TB_JOBS_LOOP_HELPERS_MAX;
+    }
+    if (helper_count > range_count - 1)
+    {
+        helper_count = range_count - 1;
+    }
+    for (size_t index = 0; index < helper_count; index++)
+    {
+        helpers[index] = tb_jobs_run(jobs, tb_jobs_run_ranges, &loop);
+    }
+    tb_jobs_run_ranges(&loop);
+    /* Every range has been claimed, and the jobs that claimed some may
+     * still be running them. `loop` is on this stack until they are done. */
+    for (size_t index = 0; index < helper_count; index++)
+    {
+        tb_jobs_wait(jobs, helpers[index]);
+    }
+}
