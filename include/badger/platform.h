@@ -49,6 +49,9 @@ TB_API _Noreturn void tb_platform_abort(void);
  *
  * Zero-initialize it. Once it is shared between threads, read and write
  * `value` only through the `tb_platform_atomic_size_*` functions.
+ *
+ * A null pointer given to any atomic function of this header, where one is
+ * required, fails an assertion in a build with assertions.
  */
 typedef struct tb_platform_atomic_size
 {

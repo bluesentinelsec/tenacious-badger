@@ -53,6 +53,12 @@ them. Their tests (`tb_platform_tests`) are built from the selected adapter's
 sources alone, which keeps that true and lets a test call a function that is
 private to an adapter.
 
+The one thing an adapter takes from above is the report of a broken contract:
+it states its contracts with `TB_ASSERT`, and a failed one calls
+`tb_assert_fail`, which `src/core/assert.c` defines. In the adapters' tests
+`tests/support/platform_assert.c` defines it instead, as a trap of the test
+framework, so `TB_TEST_EXPECT_TRAP` works there as it does everywhere else.
+
 ## Abnormal termination
 
 Public declaration: `include/badger/platform.h`, `tb_platform_abort(void)`.
@@ -133,8 +139,32 @@ tb_mutex_lock(&table_lock);
 tb_mutex_unlock(&table_lock);
 ```
 
-**A mutex is not recursive.** A thread that locks one it already holds never
-returns. There is no reader/writer form yet.
+**A mutex is not recursive.** A thread that locks one it already holds has
+broken the contract. There is no reader/writer form yet.
+
+**Contracts are checked in builds with assertions**, the same on every
+platform. Each of these fails a `TB_ASSERT` before anything is changed, where
+the system's own answer is undefined and ranges from a corrupted lock to a
+thread that never returns:
+
+| Violation | Assertion that fails |
+| --- | --- |
+| A null pointer where one is required, in any thread or atomic function | `mutex != NULL`, and its like |
+| Unlocking a mutex that nobody holds, or that another thread holds | the calling thread holds the mutex |
+| Locking a mutex that the calling thread holds | the calling thread does not hold the mutex already |
+| Waiting on a condition without holding the mutex | the calling thread holds the mutex |
+| Joining a thread that was never created, or twice | the thread was created and is not joined yet |
+| Creating a thread over one that is not joined | the thread object holds no thread that is not joined |
+
+To check them, a mutex records which thread holds it. No system says, so the
+record is a word of the `tb_mutex`, written as one step because threads that
+do not hold the mutex read it. A build without assertions keeps the word and
+never touches it: a `tb_mutex` is the same size in Debug and Release, which
+one generated header for both requires. Trying a mutex that the caller holds
+is allowed, and is refused like any other attempt on a held mutex.
+
+Not checked: a thread that joins itself, a mutex or condition that is moved
+while in use, and threads that wait on one condition with different mutexes.
 
 **A wait can end with nobody having woken it.** Look at the state the mutex
 guards, in a loop, before going on. `tb_condition_wait_for` adds a time limit,
@@ -164,13 +194,15 @@ set, and each supplies that part.
 The Windows objects are ready when they are all zeros. The POSIX ones have to
 be made by a function, so on Linux and macOS the first word of a `tb_mutex` or
 `tb_condition` records whether that has happened, and the first thread to use
-the object makes it. That is why the two types are larger there: 72 and 56
-bytes, against 8 and 8 on Windows. `badger/thread_storage.h`, which the build
+the object makes it. That is why the two types are larger there: 80 and 56
+bytes, against 16 and 8 on Windows, the record of who holds the mutex
+included. `badger/thread_storage.h`, which the build
 selects as it selects `badger/api.h`, tells the public header the size.
 
 A system call that fails, such as one that cannot start another thread, ends
 the process with a diagnostic that names the interface (`platform.thread`),
-the function, and the platform. Joining a thread twice does the same.
+the function, and the platform. Joining a thread twice does the same in a
+build without assertions.
 
 On Linux the thread functions must be part of the C library, as they are from
 glibc 2.34 on; the build links no separate thread library.

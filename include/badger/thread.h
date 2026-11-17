@@ -27,6 +27,14 @@
  * **A variable for each thread** is declared with the C keyword
  * `_Thread_local`, which every supported compiler provides. It starts at zero
  * in each new thread.
+ *
+ * **Contracts.** What a function requires of its caller is checked in a build
+ * with assertions (see badger/assert.h), on every platform: a null pointer,
+ * unlocking a mutex that the calling thread does not hold, locking one that
+ * it holds already, waiting on a condition without holding the mutex, and
+ * joining a thread that is not there each fail an assertion before anything
+ * is changed. A build without assertions does not check, and what the system
+ * then does is undefined.
  */
 #ifndef TB_THREAD_H
 #define TB_THREAD_H
@@ -67,7 +75,9 @@ typedef struct tb_thread
  * The thread has the system's default stack size and priority. It may begin
  * to run before this function returns.
  *
- * @param thread Required non-null; holds no unjoined thread.
+ * @param thread Required non-null; zero-initialized, or joined since it was
+ * last created. Creating over a thread that is not joined is a contract
+ * violation.
  * @param entry Function to run; required non-null.
  * @param argument Passed to `entry`; may be NULL. Whatever it points to must
  * outlive the thread's use of it.
@@ -83,8 +93,9 @@ TB_API void tb_thread_create(tb_thread *thread, tb_thread_function *entry, void 
  * @brief Wait for a thread to end, and release it.
  * @param thread Required non-null; created and not yet joined. It is zeroed,
  * and may be given to tb_thread_create() again.
- * @par Errors Joining a thread that was not created, or twice, ends the
- * process with a diagnostic. A thread that joins itself never returns.
+ * @par Errors Joining a thread that was not created, or twice, is a contract
+ * violation; a build without assertions ends the process with a diagnostic.
+ * A thread that joins itself never returns, and that is not checked.
  * @par Threading Externally synchronized for one `thread` object; any thread
  * but the one being joined may call it.
  */
@@ -109,6 +120,9 @@ TB_API uint64_t tb_thread_current_id(void);
  * Zero-initialize it; a zeroed mutex is unlocked and ready. It needs no
  * destruction. It must be unlocked, and must not be moved or copied, from the
  * moment a thread first locks it until no thread uses it any more.
+ *
+ * A build with assertions records in it which thread holds it, which is how
+ * the contracts below are checked. The mutex is the same size in every build.
  */
 typedef struct tb_mutex
 {
@@ -118,7 +132,8 @@ typedef struct tb_mutex
 /**
  * @brief Take a mutex, waiting until no other thread holds it.
  * @param mutex Required non-null. The calling thread must not hold it
- * already: a mutex is not recursive, and locking it twice never returns.
+ * already: a mutex is not recursive. Locking it twice is a contract
+ * violation, and never returns in a build without assertions.
  * @par Threading Thread-safe.
  */
 TB_API void tb_mutex_lock(tb_mutex *mutex);
@@ -127,14 +142,16 @@ TB_API void tb_mutex_lock(tb_mutex *mutex);
  * @brief Take a mutex if no thread holds it, without waiting.
  * @param mutex Required non-null.
  * @return true when the calling thread now holds the mutex; false when it is
- * held, in which case nothing changed.
+ * held, by another thread or by the caller, in which case nothing changed.
  * @par Threading Thread-safe.
  */
 TB_API bool tb_mutex_try_lock(tb_mutex *mutex);
 
 /**
  * @brief Give up a mutex.
- * @param mutex Required non-null; held by the calling thread.
+ * @param mutex Required non-null; held by the calling thread. Unlocking a
+ * mutex that nobody holds, or that another thread holds, is a contract
+ * violation.
  * @par Threading Thread-safe.
  */
 TB_API void tb_mutex_unlock(tb_mutex *mutex);
@@ -167,7 +184,8 @@ typedef struct tb_condition
  *
  * @param condition Required non-null.
  * @param mutex Required non-null; held by the calling thread. It is held
- * again when the function returns.
+ * again when the function returns. Waiting without holding it is a contract
+ * violation.
  * @par Threading Thread-safe.
  */
 TB_API void tb_condition_wait(tb_condition *condition, tb_mutex *mutex);
@@ -180,8 +198,8 @@ TB_API void tb_condition_wait(tb_condition *condition, tb_mutex *mutex);
  * condition until a deadline, call this in a loop with the time that is left.
  *
  * @param condition Required non-null.
- * @param mutex Required non-null; held by the calling thread. It is held
- * again when the function returns.
+ * @param mutex Required non-null; held by the calling thread, whatever the
+ * limit. It is held again when the function returns.
  * @param nanoseconds Longest time to wait. Zero returns false at once.
  * @return true when the wait ended early, woken or not; false when at least
  * `nanoseconds` passed. The thread may not run again until some time after

@@ -168,6 +168,12 @@ AUTHORIZED = {
         {'strstr', 'strrchr', 'strcspn'},
         'measures the C library beside badger/str.h'),
 
+    # The platform adapters' tests are built without the foundation modules.
+    'tests/support/platform_assert.c': (
+        {'snprintf'},
+        'reports an adapter\'s failed assertion to the test framework, in executables built '
+        'without badger/fmt.h'),
+
     # Tests that check a module against the C library, which shares no code
     # with it.
     'tests/core/fmt_test.c': (
