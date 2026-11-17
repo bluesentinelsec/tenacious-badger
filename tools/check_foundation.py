@@ -144,8 +144,21 @@ COLLECTIONS = rule('badger/table.h', 'docs/collections.md', {
         '<search.h>',
 })
 
+FILES = rule('badger/file.h', 'docs/files.md', {
+    'tb_file_open, tb_file_close, tb_file_read, and tb_file_write':
+        'fopen fopen_s fclose fread fwrite open close read write CreateFileW CreateFileA '
+        'ReadFile WriteFile',
+    'tb_file_seek, tb_file_tell, tb_file_size, and tb_file_flush':
+        'fseek fseeko ftell ftello lseek fsync SetFilePointerEx GetFileSizeEx FlushFileBuffers',
+    'tb_fs_query, tb_fs_make_directory, tb_fs_remove, and tb_fs_rename':
+        'lstat fstat mkdir rmdir unlink remove rename GetFileAttributesW GetFileAttributesExW '
+        'CreateDirectoryW RemoveDirectoryW DeleteFileW MoveFileExW',
+    'tb_directory_open, tb_directory_next, and tb_directory_close':
+        'opendir readdir closedir FindFirstFileW FindNextFileW FindClose',
+})
+
 RULES = [ALLOCATION, FORMATTING, STRINGS, FAILURES, TIMING, ATOMICS, THREADS, PROCESSORS,
-         COLLECTIONS]
+         COLLECTIONS, FILES]
 FORBIDDEN = {name: entry for group in RULES for name, entry in group.items()}
 PREFIXES = sorted((name[:-1] for name in FORBIDDEN if name.endswith('*')), key=len, reverse=True)
 
@@ -170,7 +183,7 @@ AUTHORIZED = {
         {'malloc', 'calloc', 'realloc', 'free'},
         'implements the engine allocation functions on top of the C library'),
     'src/core/fmt.c': (
-        {'fflush'},
+        {'fflush', 'fwrite'},
         'implements badger/fmt.h on top of the C library\'s streams'),
     'src/core/str.c': (
         {'strlen', 'strcmp', 'strncmp'},
@@ -179,7 +192,7 @@ AUTHORIZED = {
         {'_Static_assert'},
         'defines TB_STATIC_ASSERT'),
     'src/platform/': (
-        set(TIMING) | set(ATOMICS) | set(THREADS) | set(PROCESSORS) | {'abort', 'fputs'},
+        set(TIMING) | set(ATOMICS) | set(THREADS) | set(PROCESSORS) | set(FILES) | {'abort', 'fputs'},
         'implements the platform interfaces beneath the foundation modules, and is built '
         'and tested without them'),
 
