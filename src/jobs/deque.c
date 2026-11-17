@@ -103,31 +103,30 @@ void *tb_job_deque_pop(tb_job_deque *deque)
 
 void *tb_job_deque_steal(tb_job_deque *deque)
 {
-    TB_ASSERT(deque != NULL);
-    for (;;)
-    {
-        size_t top = tb_platform_atomic_size_load(&deque->top);
-        const size_t bottom = tb_platform_atomic_size_load(&deque->bottom);
-        void *item = NULL;
+    size_t top = 0;
+    size_t bottom = 0;
+    void *item = NULL;
 
-        /* Nothing when the ends are level, and nothing when the owner has
-         * stepped `bottom` one below `top` on its way out of an empty queue. */
-        if (bottom == top || bottom + 1 == top)
-        {
-            return NULL;
-        }
-        /* Read before it is claimed: once `top` is raised, the owner may
-         * put a new item in this slot. */
-        item = tb_platform_atomic_pointer_load(tb_job_deque_slot(deque, top));
-        if (tb_platform_atomic_size_compare_exchange(&deque->top, &top, top + 1))
-        {
-            return item;
-        }
-        /* Another thief, or the owner taking the last item, raised `top`
-         * first. What was read may be theirs, or may have been read from a
-         * slot that `top` had already left; either way it is dropped. Each
-         * turn of this loop means that some other thread got an item. */
+    TB_ASSERT(deque != NULL);
+    top = tb_platform_atomic_size_load(&deque->top);
+    bottom = tb_platform_atomic_size_load(&deque->bottom);
+    /* Nothing when the ends are level, and nothing when the owner has
+     * stepped `bottom` one below `top` on its way out of an empty queue. */
+    if (bottom == top || bottom + 1 == top)
+    {
+        return NULL;
     }
+    /* Read before it is claimed: once `top` is raised, the owner may put a
+     * new item in this slot. */
+    item = tb_platform_atomic_pointer_load(tb_job_deque_slot(deque, top));
+    if (!tb_platform_atomic_size_compare_exchange(&deque->top, &top, top + 1))
+    {
+        /* Another thief, or the owner taking the last item, raised `top`
+         * first. What was read may be theirs, or may have come from a slot
+         * that `top` had already left; either way it is dropped. */
+        return NULL;
+    }
+    return item;
 }
 
 size_t tb_job_deque_count(tb_job_deque *deque)
@@ -142,12 +141,6 @@ size_t tb_job_deque_count(tb_job_deque *deque)
     if (bottom + 1 == top)
     {
         return 0;
-    }
-    /* `top` may have risen, and items been added, between the two readings,
-     * which makes the difference too large. */
-    if (bottom - top > deque->capacity)
-    {
-        return deque->capacity;
     }
     return bottom - top;
 }

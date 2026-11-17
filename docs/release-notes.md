@@ -154,6 +154,21 @@ only known from experiments that were not kept: a mutex with and without
 contention, a turn passed between two threads, the atomic operations, and
 allocation from eight threads at once beside the C library's.
 
+Reading an atomic value on Windows no longer writes to it. A load took 6
+nanoseconds, and took the value's cache line from every other thread that
+was reading it, so that eight threads reading one value each waited 70 to
+165 nanoseconds. A load now takes 0.8 nanoseconds, and 1.3 with eight
+threads reading at once.
+
+The engine has a job system. `badger/jobs.h` runs jobs on a pool of worker
+threads: a job is a function and an argument, can wait for other jobs, and is
+foreground or background. Waiting for a job runs other jobs meanwhile, so a
+job may wait for the jobs it submitted. A handle to a job that has finished
+is harmless, and nothing has to release one. Workers keep their jobs in
+queues of their own, with no lock, and idle workers steal from them. An
+atomic size can now be stored, exchanged, and compared-and-exchanged, which
+those queues need.
+
 Included foundations:
 
 - `badger` dynamic library and `badger_static` static library with the same

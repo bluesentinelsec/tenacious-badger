@@ -22,6 +22,7 @@ The foundation layer so far, one public header per module under
 | `platform.h` | [Native platform interfaces](platforms.md): the clock, abort, and atomic values |
 | `thread.h` | [Threads, mutexes, and condition variables](platforms.md#threads-mutexes-and-condition-variables) |
 | `system.h` | [The processors the process may run on](platforms.md#processors) |
+| `jobs.h` | [The job system](jobs.md): worker threads, and jobs with dependencies and priorities |
 
 `burrow` calls the shared library and prints `2 + 3 = 5`. Rendering, windowing,
 gameplay, vendor integrations, and the other planned modules remain future work.
@@ -170,6 +171,7 @@ publishes verified native exports after all tagged-build checks pass.
 
 - `include/badger/`: documented public C APIs, with `tb_` / `TB_` prefixes.
 - `src/core/`: platform-independent library logic.
+- `src/jobs/`: the [job system](jobs.md), which runs work on every core.
 - `src/platform/{win32,linux,macos}/`: CMake-selected native implementations.
 - `src/platform/default/`: the adapter for [any other platform](platforms.md#unsupported-platforms),
   whose every function reports "not implemented".

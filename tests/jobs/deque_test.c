@@ -161,6 +161,32 @@ TB_TEST(jobs_deque, an_empty_queue_gives_nothing)
     TB_TEST_EXPECT_UINT(tb_job_deque_count(&deque), ==, 0);
 }
 
+/* On its way out of an empty queue the owner lowers `bottom` below `top` for
+ * a moment, before it puts it back. A thief or a reader that looks in that
+ * moment must see an empty queue, not one with as many items as a count can
+ * hold. The moment is too short to wait for, so it is made here by hand. */
+TB_TEST(jobs_deque, a_queue_whose_owner_is_stepping_out_looks_empty)
+{
+    const size_t first_counts[] = {0, 1, 5, SIZE_MAX};
+
+    for (size_t index = 0; index < TB_TEST_COUNT_OF(first_counts); index++)
+    {
+        tb_platform_atomic_pointer slots[4] = {0};
+        tb_job_deque deque = {0};
+
+        TB_TEST_CONTEXT("counts that start at %zu", first_counts[index]);
+        tb_job_deque_init_at(&deque, slots, TB_TEST_COUNT_OF(slots), first_counts[index]);
+        tb_platform_atomic_size_store(&deque.bottom, first_counts[index] - 1);
+        TB_TEST_EXPECT_UINT(tb_job_deque_count(&deque), ==, 0);
+        TB_TEST_EXPECT_POINTER(tb_job_deque_steal(&deque), ==, NULL);
+        /* The owner puts it back, and the queue works. */
+        tb_platform_atomic_size_store(&deque.bottom, first_counts[index]);
+        TB_TEST_REQUIRE(tb_job_deque_push(&deque, item_number(1)));
+        TB_TEST_EXPECT_UINT(tb_job_deque_count(&deque), ==, 1);
+        TB_TEST_EXPECT_POINTER(tb_job_deque_steal(&deque), ==, item_number(1));
+    }
+}
+
 TB_TEST(jobs_deque, the_owner_takes_the_newest_and_a_thief_the_oldest)
 {
     tb_platform_atomic_pointer slots[8] = {0};
