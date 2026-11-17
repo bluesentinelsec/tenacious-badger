@@ -13,14 +13,14 @@
 
 Build a high-performance 3D game engine (`badger`) and a showcase game (`burrow`) in **C17**. Use only **native platform APIs** and **DirectX** on Windows, and roll our own code for everything else. The project is a deliberate practice ground for Windows-native game programming and modern GPU features: hardware ray tracing, path tracing, DLSS, FSR, XeSS and low-latency modes.
 
-Windows comes first, but the deeper practice is building software that scales cleanly to other platforms. In effect, this is our own SDL: a platform layer and engine where we control every design decision and every implementation. Linux (including the Steam Deck) and macOS start as **fatal stubs** behind the same interfaces as Windows (see [Platform stubs](#platform-stubs)). Adding them later means implementing those interfaces, not rewriting the core.
+Windows comes first, but the deeper practice is building software that scales cleanly to other platforms. In effect, this is our own SDL: a platform layer and engine where we control every design decision and every implementation. Windows, macOS and Linux (including the Steam Deck) each implement every platform interface (see [Platform implementations](#platform-implementations)). Any other platform fails by default: its build stops, and its code reports "not implemented" (see [Unsupported platforms](#unsupported-platforms)). Adding a platform means implementing those interfaces, not rewriting the core.
 
 The engine is general-purpose: it must support first-person and third-person 3D, isometric RTS and 2D games. A **graybox first-person shooter** is the first game target. It keeps the engine honest: every feature must serve something playable.
 
 ## Guiding Principles
 
 1. **C and native APIs only.** No third-party packages. Anything the platform does not provide (containers, JSON, compression, image/audio decoding, UI) we write ourselves. The project's C idioms ([safe-c-idioms.md](../../../Documents/safe-c-idioms.md)) are binding. They cover warnings as errors, zero-initialization, explicit ownership, arenas, `goto` cleanup, checked arithmetic and Doxygen on public APIs.
-2. **Platform code lives behind interfaces. This is non-negotiable.** Every platform- or API-specific symbol sits behind an engine interface. Every interface has an implementation for each target platform, even if that implementation is a **fatal stub**. The build system selects implementations; shared code contains no `#ifdef _WIN32` checks.
+2. **Platform code lives behind interfaces. This is non-negotiable.** Every platform- or API-specific symbol sits behind an engine interface. Every interface is implemented for Windows, macOS and Linux, and has a default implementation for every other platform that fails with a **"not implemented"** error. The build system selects implementations; shared code contains no `#ifdef _WIN32` checks.
 3. **Performance by design.** Data-oriented layouts, multi-core execution and an explicit, modern GPU model. Measure before and after optimizing; profiling is built in, not added later.
 4. **Thread safety as a requirement.** Most engine subsystems must be safe to use from worker threads. Each public API documents its threading contract.
 5. **Borrow proven idioms.** Take patterns from Unreal: modules, an RHI, a render dependency graph, console variables, stat commands, cooking. Take the console and cvars from Quake. Adapt them to C instead of emulating C++ object systems.
@@ -53,14 +53,14 @@ Running the Windows D3D12 build under Proton on the Steam Deck and the Linux lap
 | Situation | Behavior |
 | --- | --- |
 | **Implemented**: the platform or backend supports the operation | It works. |
-| **Fatal stub**: the platform or backend is not implemented yet | It logs the interface, function and platform, explains the next step ("Vulkan backend not implemented; run with `-rhi=d3d12`"), then terminates. |
+| **Not implemented**: a backend that is not written yet, or a platform we do not support | It logs the interface, function and platform, explains the next step ("Vulkan backend not implemented; run with `-rhi=d3d12`"), then terminates. |
 | **Unavailable capability**: an optional feature is missing (no DXR, no `nvngx_dlss.dll`, an unsupported GPU) | A capability query reports it, the engine falls back, and the console and UI say why. This is never fatal. |
 
-Fatal stubs mark missing *work*. Capability queries describe missing *hardware or redistributables*.
+"Not implemented" marks missing *work*. Capability queries describe missing *hardware or redistributables*.
 
 ### Platform interfaces
 
-`platform/` defines narrow interfaces; `platform/win32/` implements them. `platform/linux/` and `platform/macos/` start as fatal stubs that **compile in CI from day one**, which keeps the gating real.
+`platform/` defines narrow interfaces; `platform/win32/`, `platform/macos/` and `platform/linux/` implement them. All three **build and run their tests in CI from the change that adds an interface**, which keeps the gating real.
 
 - **Windowing and events:** windows, DPI, fullscreen/borderless modes, the message pump.
 - **Input:** Raw Input for keyboard and mouse, XInput for gamepads (inbox, and what Steam Input exposes under Proton), and raw HID later for other controllers.
@@ -74,11 +74,11 @@ Fatal stubs mark missing *work*. Capability queries describe missing *hardware o
 
 Strings are UTF-8 inside the engine. The Win32 adapter converts to UTF-16 at the boundary and calls only `W` APIs.
 
-### Platform stubs
+### Platform implementations
 
-Every interface needs an implementation on every platform from the first milestone. Windows implements them; Linux and macOS start as fatal stubs that name the native API each one will eventually use. The planned APIs are provisional; we confirm each when its platform is onboarded.
+Every platform interface is implemented on Windows, macOS and Linux in the change that adds it. No interface ships with one of the three missing or stubbed. The table names the native API behind each interface; for an interface that does not exist yet the API is provisional, and we confirm it when the interface is written.
 
-| Interface | Windows (implemented) | Linux and Steam Deck (fatal stub) | macOS (fatal stub) |
+| Interface | Windows | Linux and Steam Deck | macOS |
 | --- | --- | --- | --- |
 | Windowing and events | Win32 | Wayland, with X11 to be decided | Cocoa (AppKit) |
 | Input | Raw Input, XInput | evdev | Game Controller framework, IOKit HID |
@@ -89,10 +89,24 @@ Every interface needs an implementation on every platform from the first milesto
 | Dynamic libraries | `LoadLibraryW`/`GetProcAddress` | `dlopen`/`dlsym` | `dlopen`/`dlsym` |
 | Audio device | WASAPI | PipeWire or ALSA | Core Audio |
 | System information and crashes | DbgHelp minidumps, stack walking | `/proc`, signal handlers | `sysctl`, signal handlers |
-| RHI backends | D3D12 (implemented); D3D11, OpenGL, software (stubs) | Vulkan, OpenGL, software (stubs) | Metal, software (stubs) |
-| Upscaler and latency plugins | DLSS, FSR, XeSS, Reflex, Anti-Lag 2 | Vendor plugins that support Vulkan on Linux (stubs) | MetalFX (stub) |
 
-A missing vendor plugin on a platform where it will never exist (DLSS on macOS, for example) is an *unavailable capability*, not a stub.
+Rendering backends and vendor plugins are not platform interfaces, and arrive one at a time. Until one is written, selecting it is a "not implemented" failure on a platform we otherwise support.
+
+| Backend or plugin | Windows | Linux and Steam Deck | macOS |
+| --- | --- | --- | --- |
+| RHI backends | D3D12 (first); D3D11, OpenGL, software (later) | Vulkan, OpenGL, software (later) | Metal, software (later) |
+| Upscaler and latency plugins | DLSS, FSR, XeSS, Reflex, Anti-Lag 2 | Vendor plugins that support Vulkan on Linux | MetalFX |
+
+A missing vendor plugin on a platform where it will never exist (DLSS on macOS, for example) is an *unavailable capability*, not missing work.
+
+### Unsupported platforms
+
+Any platform other than Windows, macOS and Linux is unsupported, and fails in two places:
+
+- **The build fails.** Configuring for an unsupported platform stops with an error that names the platform and says where its adapter belongs.
+- **The default implementation reports "not implemented".** Every platform interface has a default implementation for a platform that has none of its own. Each of its functions logs the interface, the function and "not implemented", then terminates. A port that gets past the build therefore fails at the first call it has not implemented, never silently.
+
+The default implementation is written in standard C, so it compiles anywhere, and CI builds and tests it on all three supported platforms.
 
 ## Rendering
 
@@ -147,7 +161,7 @@ The engine is a set of focused modules with explicit startup and shutdown order 
 | Module | Responsibility |
 | --- | --- |
 | `core` | Allocators (arenas, pools, frame allocators), containers, strings and UTF-8, hashing, math (SIMD via compiler intrinsics), logging, asserts and fatal errors |
-| `platform` | The interfaces above and their per-OS implementations or stubs |
+| `platform` | The interfaces above, real Windows/macOS/Linux adapters, and fatal unsupported-platform defaults |
 | `jobs` | Task scheduler and worker threads |
 | `ecs` | Entities, components, archetypes, queries and the system scheduler |
 | `rhi`, `render` | GPU abstraction and the renderer |
@@ -211,16 +225,16 @@ Shared mutable state uses atomics or synchronization primitives, never `volatile
 
 ## Build, Tests and CI
 
-- **Toolchain.** MSVC in C17 mode (`/std:c17 /W4 /WX`, plus `/fsanitize=address` for sanitizer builds) with CMake. CMake also builds the stub platforms on Linux (GCC/Clang) and macOS (Clang), so portability can't silently decay.
+- **Toolchain.** MSVC in C17 mode (`/std:c17 /W4 /WX`, plus `/fsanitize=address` for sanitizer builds) with CMake. CMake also builds the Linux (GCC/Clang) and macOS (Clang) implementations, so portability can't silently decay, and stops with an error on any other platform.
 - **Build types.** Debug (symbols, no optimization, debug layers), sanitizer (standalone test binaries) and Release (optimized, stripped, no sanitizers).
 - **Tests.** A small in-house test harness (no frameworks). It runs:
   - unit tests (strive for 80% source coverage or better);
   - integration tests for module startup and shutdown;
   - D3D12 tests on the WARP software adapter where it supports the feature under test, with golden-image comparisons and tolerances;
   - fixed-tick replay tests for gameplay;
-  - tests that every fatal stub fails with a clear message.
+  - tests that every "not implemented" default fails with a clear message.
   - leave escape hatches in order to test the game loop a specified number of frames.
-- **CI.** Windows builds and runs the full suite. Linux and macOS compile everything and run the platform-independent tests and stub checks.
+- **CI.** Windows, Linux and macOS each build everything and run the full suite, their own platform adapter's tests included. Tests of a backend run where that backend exists: D3D12 on Windows.
 - Every interface, platform requirement and capability tier is documented under `docs/`.
 
 

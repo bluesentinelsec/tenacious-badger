@@ -130,6 +130,7 @@ tb_make_standalone(tb_internal_tests)
 # engine, which keeps the adapters free of the modules above them and lets a
 # test call a function that is private to an adapter.
 set(TB_PLATFORM_TEST_SOURCES
+    platform/fs_test.c
     platform/atomic_test.c platform/contract_test.c platform/name_test.c
     platform/system_test.c platform/thread_options_test.c platform/thread_test.c
     platform/time_test.c)
@@ -179,6 +180,7 @@ target_include_directories(tb_platform_default_probe PRIVATE
 tb_configure_target(tb_platform_default_probe)
 tb_make_standalone(tb_platform_default_probe)
 set(TB_PLATFORM_INTERFACE_HEADERS
+    "${PROJECT_SOURCE_DIR}/include/badger/file.h"
     "${PROJECT_SOURCE_DIR}/include/badger/platform.h"
     "${PROJECT_SOURCE_DIR}/include/badger/system.h"
     "${PROJECT_SOURCE_DIR}/include/badger/thread.h")

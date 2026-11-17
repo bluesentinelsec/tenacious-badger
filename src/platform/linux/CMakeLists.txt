@@ -1,4 +1,7 @@
 set(TB_PLATFORM_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/../shared/fs.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../posix/fs.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/fs_location.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/abort.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/atomic.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/condition.c"

@@ -144,8 +144,21 @@ COLLECTIONS = rule('badger/table.h', 'docs/collections.md', {
         '<search.h>',
 })
 
+FILES = rule('badger/file.h', 'docs/files.md', {
+    'tb_file_open, tb_file_close, tb_file_read, and tb_file_write':
+        'fopen fopen_s fclose fread fwrite open close read write CreateFileW CreateFileA '
+        'ReadFile WriteFile',
+    'tb_file_seek, tb_file_tell, tb_file_size, and tb_file_flush':
+        'fseek fseeko ftell ftello lseek fsync SetFilePointerEx GetFileSizeEx FlushFileBuffers',
+    'tb_fs_query, tb_fs_make_directory, tb_fs_remove, and tb_fs_rename':
+        'lstat fstat mkdir rmdir unlink remove rename GetFileAttributesW GetFileAttributesExW '
+        'CreateDirectoryW RemoveDirectoryW DeleteFileW MoveFileExW SetFileInformationByHandle',
+    'tb_directory_open, tb_directory_next, and tb_directory_close':
+        'opendir readdir closedir FindFirstFileW FindNextFileW FindClose',
+})
+
 RULES = [ALLOCATION, FORMATTING, STRINGS, FAILURES, TIMING, ATOMICS, THREADS, PROCESSORS,
-         COLLECTIONS]
+         COLLECTIONS, FILES]
 FORBIDDEN = {name: entry for group in RULES for name, entry in group.items()}
 PREFIXES = sorted((name[:-1] for name in FORBIDDEN if name.endswith('*')), key=len, reverse=True)
 
@@ -153,12 +166,24 @@ PREFIXES = sorted((name[:-1] for name in FORBIDDEN if name.endswith('*')), key=l
 # and covers every file below it. Keep this list short: each entry is a place
 # where the engine does not use its own foundation.
 AUTHORIZED = {
+    # Native file adapters also build independently of the core allocator and
+    # strings. Their small path/iterator allocations return resource errors.
+    **{path: (set(names.split()),
+              'implements native files beneath the foundation modules')
+       for path, names in {
+           'src/platform/shared/fs.c': 'malloc free strlen snprintf',
+           'src/platform/posix/fs.c': 'malloc free strlen strcmp',
+           'src/platform/win32/fs.c': 'malloc free',
+           'src/platform/linux/fs_location.c': 'malloc free strlen',
+           'src/platform/macos/fs_location.c': 'malloc free strlen',
+       }.items()},
+
     # The modules that implement the replacements.
     'src/core/memory.c': (
         {'malloc', 'calloc', 'realloc', 'free'},
         'implements the engine allocation functions on top of the C library'),
     'src/core/fmt.c': (
-        {'fflush'},
+        {'fflush', 'fwrite'},
         'implements badger/fmt.h on top of the C library\'s streams'),
     'src/core/str.c': (
         {'strlen', 'strcmp', 'strncmp'},
@@ -167,7 +192,7 @@ AUTHORIZED = {
         {'_Static_assert'},
         'defines TB_STATIC_ASSERT'),
     'src/platform/': (
-        set(TIMING) | set(ATOMICS) | set(THREADS) | set(PROCESSORS) | {'abort', 'fputs'},
+        set(TIMING) | set(ATOMICS) | set(THREADS) | set(PROCESSORS) | set(FILES) | {'abort', 'fputs'},
         'implements the platform interfaces beneath the foundation modules, and is built '
         'and tested without them'),
 
@@ -294,6 +319,11 @@ def find_uses(text):
             continue
         for match in IDENTIFIER.finditer(line):
             rule_name = rule_name_of(match.group(0))
+            # POSIX uses ordinary English names that are also legitimate
+            # local variables. Check calls for those ambiguous names.
+            if rule_name in {'open', 'close', 'read', 'write', 'remove', 'rename'}:
+                if not line[match.end():].lstrip().startswith('('):
+                    continue
             if rule_name is not None:
                 uses.append((number, match.group(0), rule_name))
     return uses
@@ -440,8 +470,11 @@ def self_test():
         ('formatted output', 'printf("%d", 1); (void)snprintf(b, 4, "x"); fputs("x", stderr);',
          ['printf', 'snprintf', 'fputs']),
         ('engine formatting', 'tb_fmt_print("%d", 1); tb_fmt_buffer(b, 4, "x"); fwrite(b, 1, 1, f);',
-         []),
+         ['fwrite']),
         ('flushing the standard streams', 'fflush(stdout); (void)tb_fmt_flush();', ['fflush']),
+        ('file calls', 'read(fd, b, n); write(fd, b, n); fopen(p, mode);',
+         ['read', 'write', 'fopen']),
+        ('file-like variables', 'size_t read = 0; bool write = true; ++read;', []),
         ('strings', 'n = strlen(s); if (strcmp(a, b) == 0) { p = strstr(a, b); }',
          ['strlen', 'strcmp', 'strstr']),
         ('engine strings and memory blocks',
