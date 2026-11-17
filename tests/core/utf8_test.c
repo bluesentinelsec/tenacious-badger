@@ -1,4 +1,4 @@
-﻿#include "badger/assert.h"
+#include "badger/assert.h"
 #include "badger/utf8.h"
 #include "tb_test.h"
 #include <string.h>

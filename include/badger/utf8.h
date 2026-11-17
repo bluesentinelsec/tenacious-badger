@@ -1,4 +1,4 @@
-﻿/** @file utf8.h
+/** @file utf8.h
  * @brief Strict Unicode scalar conversion and navigation over bounded ranges.
  *
  * No allocation, locale, normalization, or replacement characters. Embedded

@@ -222,3 +222,23 @@ bool tb_log_file_flush(void *context)
     TB_ASSERT(context != NULL);
     return tb_file_flush(context) == TB_FS_OK;
 }
+
+const char *tb_log_result_name(tb_log_result result)
+{
+    switch (result)
+    {
+    case TB_LOG_OK:
+        return "ok";
+    case TB_LOG_FILTERED:
+        return "filtered";
+    case TB_LOG_INVALID:
+        return "invalid argument";
+    case TB_LOG_IO:
+        return "sink failed";
+    case TB_LOG_REENTRANT:
+        return "called from a logger callback";
+    case TB_LOG_TOO_LARGE:
+        return "too large";
+    }
+    return "unknown result";
+}

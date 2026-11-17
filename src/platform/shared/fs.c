@@ -108,7 +108,7 @@ tb_fs_result tb_native_fs_output(const char *text, char *destination, size_t cap
     }
     if (capacity < *required)
     {
-        return TB_FS_NO_SPACE;
+        return TB_FS_BUFFER_TOO_SMALL;
     }
     memcpy(destination, text, *required);
     return TB_FS_OK;
@@ -183,7 +183,7 @@ static tb_fs_result tb_fs_temp(tb_path_view directory, char *path, size_t capaci
         }
         if ((size_t)written >= capacity)
         {
-            result = TB_FS_NO_SPACE;
+            result = TB_FS_BUFFER_TOO_SMALL;
             goto cleanup;
         }
         if (file != NULL)

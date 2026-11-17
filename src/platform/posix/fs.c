@@ -53,7 +53,7 @@ tb_fs_result tb_native_fs_errno(int code)
     case EOVERFLOW:
         return TB_FS_TOO_LARGE;
     default:
-        return TB_FS_IO;
+        return TB_FS_OS_ERROR;
     }
 }
 static int tb_file_descriptor(const tb_file *file)

@@ -25,13 +25,13 @@ static tb_fs_result injected_write(tb_file *file, const void *bytes, size_t leng
 }
 static tb_fs_result injected_flush(tb_file *file)
 {
-    return failure_stage == 3 ? TB_FS_IO : tb_file_flush(file);
+    return failure_stage == 3 ? TB_FS_OS_ERROR : tb_file_flush(file);
 }
 static tb_fs_result injected_close(tb_file *file)
 {
     tb_fs_result result = {0};
     result = tb_file_close(file);
-    return failure_stage == 4 ? TB_FS_IO : result;
+    return failure_stage == 4 ? TB_FS_OS_ERROR : result;
 }
 static tb_fs_result injected_rename(tb_path_view source, tb_path_view destination)
 {

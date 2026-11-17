@@ -1,4 +1,4 @@
-﻿#include "badger/fmt.h"
+#include "badger/fmt.h"
 #include "tb_test.h"
 
 /* The parent gives one standard stream a read-only file handle. The other

@@ -42,8 +42,9 @@ static tb_fs_result tb_fs_windows_error(DWORD code)
     case ERROR_DISK_FULL:
     case ERROR_HANDLE_DISK_FULL:
     case ERROR_DISK_QUOTA_EXCEEDED:
-    case ERROR_INSUFFICIENT_BUFFER:
         return TB_FS_NO_SPACE;
+    case ERROR_INSUFFICIENT_BUFFER:
+        return TB_FS_BUFFER_TOO_SMALL;
     case ERROR_NOT_ENOUGH_MEMORY:
     case ERROR_OUTOFMEMORY:
     case ERROR_TOO_MANY_OPEN_FILES:
@@ -53,7 +54,7 @@ static tb_fs_result tb_fs_windows_error(DWORD code)
     case ERROR_ARITHMETIC_OVERFLOW:
         return TB_FS_TOO_LARGE;
     default:
-        return TB_FS_IO;
+        return TB_FS_OS_ERROR;
     }
 }
 static tb_fs_result tb_fs_last_error(void)
@@ -797,7 +798,7 @@ tb_fs_result tb_native_fs_location(tb_fs_location location, char **path)
                                       0, NULL, &known);
         if (FAILED(answer))
         {
-            result = TB_FS_IO;
+            result = TB_FS_OS_ERROR;
             goto cleanup;
         }
         result = tb_fs_windows_utf8(known, path);

@@ -29,7 +29,11 @@ foreach(header IN LISTS headers)
             message(FATAL_ERROR
                 "${header}: no function name on the line of its TB_API: ${declaration}")
         endif()
-        list(APPEND functions "${CMAKE_MATCH_1}")
+        # A function that only names a result needs nothing from the
+        # platform: the engine implements it once, and no adapter does.
+        if(NOT CMAKE_MATCH_1 MATCHES "_result_name$")
+            list(APPEND functions "${CMAKE_MATCH_1}")
+        endif()
     endforeach()
 endforeach()
 

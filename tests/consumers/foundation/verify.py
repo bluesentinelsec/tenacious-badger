@@ -1,4 +1,4 @@
-﻿"""Exercise a real external utility through filesystem effects and diagnostics."""
+"""Exercise a real external utility through filesystem effects and diagnostics."""
 from pathlib import Path
 import os
 import subprocess

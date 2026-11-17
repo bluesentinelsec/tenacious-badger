@@ -204,7 +204,8 @@ TB_TEST(platform_files, enumeration_retains_short_entries_and_visits_every_name_
         TB_TEST_REQUIRE_UINT(result, ==, TB_FS_OK);
         TB_TEST_REQUIRE_UINT(required, ==, 5);
         name[0] = 42;
-        TB_TEST_REQUIRE_UINT(tb_directory_next(&iterator, name, 4, &required), ==, TB_FS_NO_SPACE);
+        TB_TEST_REQUIRE_UINT(tb_directory_next(&iterator, name, 4, &required), ==,
+                             TB_FS_BUFFER_TOO_SMALL);
         TB_TEST_REQUIRE_INT(name[0], ==, 42);
         TB_TEST_REQUIRE_UINT(tb_directory_next(&iterator, name, sizeof(name), &required), ==,
                              TB_FS_OK);
@@ -276,7 +277,7 @@ TB_TEST(platform_files, locations_validate_text_and_never_partially_write)
         path[0] = 42;
         TB_TEST_EXPECT_UINT(
             tb_fs_get_location((tb_fs_location)value, path, required - 1, &required), ==,
-            TB_FS_NO_SPACE);
+            TB_FS_BUFFER_TOO_SMALL);
         TB_TEST_EXPECT_INT(path[0], ==, 42);
         TB_TEST_REQUIRE_UINT(
             tb_fs_get_location((tb_fs_location)value, path, sizeof(path), &required), ==, TB_FS_OK);
@@ -286,7 +287,8 @@ TB_TEST(platform_files, locations_validate_text_and_never_partially_write)
                         TB_FS_INVALID);
     TB_TEST_EXPECT_UINT(required, ==, 0);
     path[0] = 42;
-    TB_TEST_EXPECT_UINT(tb_fs_temp_file((tb_path_view){0}, path, 1, &file), ==, TB_FS_NO_SPACE);
+    TB_TEST_EXPECT_UINT(tb_fs_temp_file((tb_path_view){0}, path, 1, &file), ==,
+                        TB_FS_BUFFER_TOO_SMALL);
     TB_TEST_EXPECT_INT(path[0], ==, 42);
     TB_TEST_EXPECT_UINT(file.value, ==, 0);
 }

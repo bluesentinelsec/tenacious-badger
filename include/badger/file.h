@@ -18,19 +18,20 @@
 /** @brief Portable filesystem failure categories. */
 typedef enum tb_fs_result
 {
-    TB_FS_OK,            /**< Success. */
-    TB_FS_NOT_FOUND,     /**< A name or parent does not exist. */
-    TB_FS_EXISTS,        /**< Exclusive creation found an existing name. */
-    TB_FS_ACCESS,        /**< Permission denied, read-only filesystem, or sharing violation. */
-    TB_FS_NOT_DIRECTORY, /**< A required directory is a different kind. */
-    TB_FS_IS_DIRECTORY,  /**< A regular file was required. */
-    TB_FS_NOT_EMPTY,     /**< Directory removal found children. */
-    TB_FS_INVALID,       /**< Malformed UTF-8, path, flags, or offset. */
-    TB_FS_NO_SPACE,      /**< Disk full, quota exhausted, or output buffer too small. */
-    TB_FS_NO_MEMORY,     /**< Native resource allocation failed. */
-    TB_FS_TOO_LARGE,     /**< Path, size, or offset exceeds a native limit. */
-    TB_FS_IO,            /**< Other native I/O failure. */
-    TB_FS_END            /**< Enumeration exhausted; not a read error. */
+    TB_FS_OK,               /**< Success. */
+    TB_FS_NOT_FOUND,        /**< A name or parent does not exist. */
+    TB_FS_EXISTS,           /**< Exclusive creation found an existing name. */
+    TB_FS_ACCESS,           /**< Permission denied, read-only filesystem, or sharing violation. */
+    TB_FS_NOT_DIRECTORY,    /**< A required directory is a different kind. */
+    TB_FS_IS_DIRECTORY,     /**< A regular file was required. */
+    TB_FS_NOT_EMPTY,        /**< Directory removal found children. */
+    TB_FS_INVALID,          /**< Malformed UTF-8, path, flags, or offset. */
+    TB_FS_NO_SPACE,         /**< Disk full or quota exhausted. */
+    TB_FS_BUFFER_TOO_SMALL, /**< The caller's buffer cannot hold the result. */
+    TB_FS_NO_MEMORY,        /**< Native resource allocation failed. */
+    TB_FS_TOO_LARGE,        /**< Path, size, or offset exceeds a native limit. */
+    TB_FS_OS_ERROR,         /**< A native failure that no other result names. */
+    TB_FS_END               /**< Enumeration exhausted; not a read error. */
 } tb_fs_result;
 /** @brief Owned native file token. Initialize to zero; do not inspect value. */
 typedef struct tb_file

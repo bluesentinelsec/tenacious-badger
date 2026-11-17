@@ -21,7 +21,7 @@ typedef enum tb_vm_result
     TB_VM_INVALID,     /**< Zero, unaligned, out-of-bounds, or unrepresentable size. */
     TB_VM_NO_MEMORY,   /**< Address space or native memory resources exhausted. */
     TB_VM_UNAVAILABLE, /**< Optional explicit large pages unavailable to this process. */
-    TB_VM_OS_ERROR     /**< Other native failure. */
+    TB_VM_OS_ERROR     /**< A native failure that no other result names. */
 } tb_vm_result;
 /** @brief Host page geometry. All sizes are bytes. */
 typedef struct tb_vm_info
@@ -68,4 +68,13 @@ TB_API tb_vm_result tb_vm_release(tb_vm_region *region);
  * INVALID for an invalid size. Release with tb_vm_release; partial commit and
  * decommit are unavailable for these regions. Callers choose a regular fallback. */
 TB_API tb_vm_result tb_vm_allocate_large(size_t size, tb_vm_region *region);
+/** @brief Name a result, for a log or a message: "out of memory", "unavailable".
+ *
+ * It needs nothing from the platform, so the engine implements it once and
+ * no platform adapter does.
+ *
+ * @param result Any value; one that is no result is named "unknown result".
+ * @return A string with static storage duration; never NULL.
+ * @par Threading Thread-safe. */
+TB_API const char *tb_vm_result_name(tb_vm_result result);
 #endif

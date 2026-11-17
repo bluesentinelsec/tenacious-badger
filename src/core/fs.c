@@ -126,7 +126,7 @@ static tb_fs_result tb_fs_write_all(tb_file *file, const void *bytes, size_t len
         }
         if (count == 0 || count > length - written)
         {
-            return TB_FS_IO;
+            return TB_FS_OS_ERROR;
         }
         written += count;
     }
@@ -310,4 +310,40 @@ tb_fs_result tb_fs_make_directories(tb_path_view path)
 cleanup:
     tb_str_free(NULL, normalized);
     return result;
+}
+
+const char *tb_fs_result_name(tb_fs_result result)
+{
+    switch (result)
+    {
+    case TB_FS_OK:
+        return "ok";
+    case TB_FS_NOT_FOUND:
+        return "not found";
+    case TB_FS_EXISTS:
+        return "already exists";
+    case TB_FS_ACCESS:
+        return "access denied";
+    case TB_FS_NOT_DIRECTORY:
+        return "not a directory";
+    case TB_FS_IS_DIRECTORY:
+        return "is a directory";
+    case TB_FS_NOT_EMPTY:
+        return "directory not empty";
+    case TB_FS_INVALID:
+        return "invalid argument";
+    case TB_FS_NO_SPACE:
+        return "no space left";
+    case TB_FS_BUFFER_TOO_SMALL:
+        return "buffer too small";
+    case TB_FS_NO_MEMORY:
+        return "out of memory";
+    case TB_FS_TOO_LARGE:
+        return "too large";
+    case TB_FS_OS_ERROR:
+        return "operating system error";
+    case TB_FS_END:
+        return "end";
+    }
+    return "unknown result";
 }
