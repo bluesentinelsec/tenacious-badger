@@ -107,13 +107,24 @@ for the caller to arrange.
 
 | Platform | Selected implementation | Current behavior |
 | --- | --- | --- |
-| Windows | `src/platform/win32/atomic.c` | Interlocked operations from the Windows API. |
+| Windows | `src/platform/win32/atomic.c` | Interlocked operations from the Windows API, and its acquire reads for the loads. |
 | Linux / Steam Deck | `src/platform/linux/atomic.c` | The compiler's atomic builtins (GCC and Clang). |
 | macOS | `src/platform/macos/atomic.c` | The compiler's atomic builtins (AppleClang). |
 
 It is a platform interface because MSVC does not offer C11 `<stdatomic.h>` in
 C17 mode without an experimental switch. Every allocation depends on it. Weaker orderings, and arithmetic on
 the 32-bit value, wait for the code that needs them.
+
+**A load is a read, and writes nothing.** That is so on every platform, and on
+Windows it had to be made so. An interlocked operation that changes nothing,
+such as adding zero, returns the right value, but it is a write to the
+processor: it takes the value's cache line away from every other thread that
+is reading it. Threads that only look at a value then get in each other's way
+as much as threads that change it, which matters to a thief that looks at the
+ends of every other worker's queue. The Windows adapter reads with
+`ReadSizeTAcquire`, `ReadAcquire`, and `ReadPointerAcquire`: a plain read on
+x86, and a read with a barrier on Arm. Every other operation there is
+interlocked, which is a full barrier, so a read stays in step with them.
 
 ## Threads, mutexes, and condition variables
 
