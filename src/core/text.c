@@ -247,6 +247,11 @@ tb_text tb_text_join(const tb_allocator *allocator, const tb_text *texts, size_t
             tb_memory_fail(1, SIZE_MAX, TB_TEXT_ALIGNMENT);
         }
     }
+    if (length == 0)
+    {
+        /* Nothing to copy, and no bytes to copy it to. */
+        return tb_text_make(NULL, 0);
+    }
     bytes = tb_text_new_bytes(allocator, length);
     position = bytes;
     for (size_t index = 0; index < count; index++)
