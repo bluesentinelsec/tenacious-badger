@@ -13,6 +13,7 @@ add_executable(tb_bench
     core/ring_bench.c
     core/table_bench.c
     core/text_bench.c
+    jobs/jobs_bench.c
     platform/atomic_bench.c
     platform/thread_bench.c)
 target_include_directories(tb_bench PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/harness")

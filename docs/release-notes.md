@@ -160,10 +160,14 @@ was reading it, so that eight threads reading one value each waited 70 to
 165 nanoseconds. A load now takes 0.8 nanoseconds, and 1.3 with eight
 threads reading at once.
 
-The job system has its first piece, which is internal: the queue that a
-worker thread keeps its tasks in and that idle workers steal from, with no
-lock. An atomic size can now be stored, exchanged, and
-compared-and-exchanged, which the queue needs.
+The engine has a job system. `badger/jobs.h` runs jobs on a pool of worker
+threads: a job is a function and an argument, can wait for other jobs, and is
+foreground or background. Waiting for a job runs other jobs meanwhile, so a
+job may wait for the jobs it submitted. A handle to a job that has finished
+is harmless, and nothing has to release one. Workers keep their jobs in
+queues of their own, with no lock, and idle workers steal from them. An
+atomic size can now be stored, exchanged, and compared-and-exchanged, which
+those queues need.
 
 Included foundations:
 
