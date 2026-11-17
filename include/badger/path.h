@@ -73,7 +73,7 @@ TB_API tb_path_result tb_path_parse(tb_path_style style, tb_path_view input, tb_
  * @param destination Output bytes, or NULL with capacity zero to measure.
  * @param capacity Bytes available, including the terminator.
  * @param[out] required Required pointer; receives bytes including the NUL on
- * success/NO_SPACE, zero on other errors.
+ * success/BUFFER_TOO_SMALL, zero on other errors.
  * @return A tb_path_result. Inputs may overlap destination. Empty input becomes
  * '.'. Trailing separators are removed except on roots. Leading parents are
  * retained for relative paths and clamped at rooted paths.

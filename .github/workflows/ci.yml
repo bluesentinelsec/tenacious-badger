@@ -215,13 +215,6 @@ jobs:
       - run: cmake --build build/coverage --parallel
       - name: Run every test
         run: ctest --test-dir build/coverage --output-on-failure --timeout 120 --no-tests=error
-      - name: Temporary diagnosis of the default adapter's counts
-        run: |
-          find build/coverage -name "*.gcda" | grep -c . || true
-          find build/coverage -path "*default_probe*" -name "*.gc*" | head -20 || true
-          build/coverage/bin/tb_platform_default_probe platform_default.tb_vm_reserve || true
-          find build/coverage -path "*default_probe*" -name "*.gcda" | head -20 || true
-          ls build/coverage/bin | head -30
       - name: Require 80 percent of the lines of every engine source to be run
         run: python3 tools/check_coverage.py build/coverage --gcov "${{ matrix.gcov }}"
 
