@@ -9,9 +9,183 @@ It is being built in pieces. This page describes what exists.
 
 | Piece | State |
 | --- | --- |
-| The queue that a worker keeps its work in | Here: `src/jobs/deque.h` |
-| The scheduler: workers, dependencies, priorities | Next |
-| Loops whose iterations run in parallel | After the scheduler |
+| The scheduler: workers, dependencies, priorities | Here: `include/badger/jobs.h` |
+| The queue that a worker keeps its work in | Here: `src/jobs/deque.h`, private |
+| Loops whose iterations run in parallel | Next |
+
+## The scheduler
+
+Public declaration: `include/badger/jobs.h`.
+
+```c
+tb_jobs *const jobs = tb_jobs_create(NULL);
+tb_job cull = tb_jobs_run(jobs, cull_objects, &scene);
+tb_job animate = tb_jobs_run(jobs, animate_skeletons, &scene);
+
+/* Drawing waits for both. */
+const tb_job needs[] = {cull, animate};
+const tb_job_description draw = {.function = record_draws,
+                                 .argument = &scene,
+                                 .dependencies = needs,
+                                 .dependency_count = 2};
+
+tb_jobs_wait(jobs, tb_jobs_submit(jobs, &draw));
+tb_jobs_destroy(jobs);
+```
+
+| Function | What it does |
+| --- | --- |
+| `tb_jobs_create`, `tb_jobs_destroy` | Start a pool of workers; finish every job, stop the workers, and release it. |
+| `tb_jobs_submit` | Submit a job: a function, an argument, a priority, and the jobs it waits for. |
+| `tb_jobs_run` | Submit a foreground job with no dependencies. |
+| `tb_jobs_wait` | Return when a job has finished, running other jobs meanwhile. |
+| `tb_jobs_wait_for_all` | Return when nothing is unfinished. |
+| `tb_jobs_is_finished` | Whether a job has finished. |
+| `tb_jobs_worker_count` | How many worker threads there are. |
+
+Everything is thread-safe and may be called from inside a job, except
+creating and destroying a scheduler.
+
+**A job is a function and an argument.** It runs once, on a worker thread or
+on a thread that is waiting. Whatever the argument points to must stay valid
+until the job has finished.
+
+**A handle never dangles.** `tb_job` names a job by a slot and a generation.
+When the job finishes the handle is out of date, and stays so when the slot
+is given to a later job: waiting for it returns at once, and a job that
+depends on it does not wait. Nothing releases a handle, and it may be copied
+and kept. A zeroed handle names no job.
+
+**A job can wait for others.** It starts only when every job it depends on has
+finished. A job with no function finishes when its dependencies have, which
+is the way to wait for many jobs at once:
+
+```c
+const tb_job_description all = {.dependencies = pieces, .dependency_count = piece_count};
+
+tb_jobs_wait(jobs, tb_jobs_submit(jobs, &all));
+```
+
+**Two priorities.** A worker takes every foreground job that is ready before
+any background one. Background is for loading, streaming, and baking. A
+foreground job that depends on a background job waits as long as the
+background job does.
+
+**Waiting helps.** `tb_jobs_wait` runs jobs that are ready, any of them, until
+the one it waits for has finished, and sleeps only when there is nothing to
+run. So a job may wait for jobs it submitted, and every worker may do so at
+once, without the pool running out of threads. Two things follow:
+
+- A wait can return some time after its job finished, when the thread was in
+  the middle of another job.
+- Each job that a waiting thread runs is on top of the waiter's stack. Jobs
+  that wait inside jobs that wait use stack for every level; workers have
+  1 MiB.
+
+**A job must not wait for itself, or for a job that depends on it.** Neither
+can finish. This is not checked.
+
+**Destroying a scheduler finishes its work first**: every job that is
+outstanding, and whatever those jobs go on to submit.
+
+| Option | Default | |
+| --- | --- | --- |
+| `worker_count` | One for each logical processor the process may use, less one, and at least one | The thread that submits and waits runs jobs too, so the count of threads at work is one more. |
+| `queue_capacity` | 256 | Jobs a worker keeps to itself for each priority, a power of two. More than that go to a queue that all threads share. |
+
+Workers are named `badger-worker-0`, `badger-worker-1`, and so on, for
+debuggers and crash reports.
+
+**Limits.** About a million jobs may be unfinished at once, and four million
+dependencies. Beyond that the process ends with a diagnostic, as it does when
+memory runs out.
+
+### How it is put together
+
+A job lives in a **slot** from submission until it has finished. Slots are
+made in blocks of 1,024 that never move, and a finished job's slot is used
+again. Each use has its own generation.
+
+A job that is ready to run is in one of three kinds of place:
+
+- **The queue of the worker that made it ready**, described
+  [below](#the-queue-that-workers-steal-from): no lock, newest first for its
+  owner, oldest first for thieves.
+- **A queue that all threads share**, for jobs made ready by a thread that is
+  not a worker, and for what a worker's own queue has no room for.
+- **Nowhere**, while it waits for the jobs it depends on. Each of those keeps
+  a list of the jobs that wait for it, and makes them ready as it finishes.
+
+There is one of each queue for each priority. A thread that wants a job looks
+at its own foreground queue, the shared foreground queue, and the other
+workers' foreground queues, and only then at the background ones in the same
+order.
+
+**A worker that has work touches nothing that another thread writes.** That
+is the aim of the whole design, and where it was missed the benchmarks showed
+it at once:
+
+| A worker | So that |
+| --- | --- |
+| Takes jobs from its own queue | No lock for the common case. |
+| Takes the slots for new jobs from a store of its own, 64 at a time | The lock on the shared store is taken once for 64 jobs. |
+| Counts what it submits and finishes in counters of its own | No count that every thread writes for every job. Whether anything is unfinished is found by adding them up, when someone asks. |
+| Takes jobs from the shared queue 17 at a time | Its lock is taken once for 17 jobs. |
+
+The shared queue is two lists. A thread that makes a job ready adds it to the
+*arrivals* with one compare-and-exchange and no lock, so a thread that submits
+many jobs is never made to wait by the threads that take them. A thread that
+takes a job takes it from the *departures* under a lock, and when those run
+out it takes all the arrivals at once and turns them round, oldest first.
+
+What different threads write is kept a cache line apart in the scheduler's
+own structures.
+
+### Sleeping and waking
+
+Putting a thread to sleep and waking it costs several microseconds, which is
+far more than a small job. The scheduler therefore sleeps reluctantly and
+wakes sparingly.
+
+- **A thread with nothing to run goes on looking** through the queues for
+  100 microseconds before it sleeps.
+- **While one thread is looking, a job that becomes ready wakes nobody.** The
+  one that is looking will find it.
+- **One idle worker looks at a time.** The others sleep as soon as one look
+  has found nothing. Idle workers that all keep looking do not find work
+  sooner; they get in the way of the thread that is trying to give them some.
+- **A thread that finds a job, when nobody else is looking and more jobs are
+  ready, wakes one sleeper** to look in its place. A burst of jobs so wakes
+  the workers one after another.
+
+No wake is lost. A thread that is about to sleep counts itself, and only then
+looks once more for a job. A thread that makes a job ready does that first,
+and only then looks at the counts. Whichever looks second sees what the other
+did. The tests submit 3,000 jobs one at a time to idle workers, with the test
+itself running nothing, and every one of them has to be picked up.
+
+### What a job costs
+
+`tb_bench jobs`, Release, MSVC 19.50, i9-14900HX, seven workers and the
+submitting thread on the eight performance cores. Each job adds one to an
+atomic counter, so the numbers are nearly all scheduler.
+
+| Case | Nanoseconds for each job |
+| --- | --- |
+| The work alone, with no scheduler | 5 |
+| A tree of jobs that each submit two more, run by 8 threads | 52 to 56 |
+| A batch submitted by one thread, run by 8 | 200 to 240 |
+| A job submitted and waited for, one at a time | 240 to 260 |
+| A chain of jobs that each wait for the one before | 490 to 500 |
+
+The tree is the pattern the scheduler is built for: jobs made by workers,
+kept in their own queues, and stolen when a worker is idle. The others pass
+every job from one thread to another, which costs the transfer of several
+cache lines whatever the scheduler does.
+
+**A job should be worth its cost.** At these numbers a job that does less
+than a microsecond of work is mostly overhead. Give a job a batch of small
+items, not one.
 
 ## The queue that workers steal from
 
@@ -35,7 +209,7 @@ scheduler scale with the number of cores.
 
 This is the deque of Chase and Lev, *Dynamic Circular Work-Stealing Deque*
 (2005), with a fixed capacity. It is private to the engine: `src/jobs/deque.h`
-is not a public header, and the scheduler will be the only thing that uses it.
+is not a public header, and the scheduler is the only thing that uses it.
 
 | Function | Who may call it | What it does |
 | --- | --- | --- |
@@ -76,8 +250,8 @@ sequentially consistent operations, and the comment in `tb_job_deque_pop` marks
 it.
 
 **A full queue refuses.** The capacity is fixed, and `tb_job_deque_push`
-returns false when there is no room. The scheduler will run such a task at
-once in place of queueing it. A queue that grew would have to keep its old
+returns false when there is no room. The scheduler puts such a job in the
+queue that all threads share. A queue that grew would have to keep its old
 array alive for as long as a thief might still be reading it; refusing avoids
 that question.
 
