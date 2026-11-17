@@ -76,7 +76,7 @@ endfunction()
 # child process and checks the outcome.
 tb_add_tests(tb_probe NO_CTEST
     SOURCES core/assert_probe.c core/fmt_probe.c core/memory_probe.c
-        core/memory_debug_probe.c support/support_probe.c
+        core/memory_debug_probe.c core/fmt_failure_probe.c support/support_probe.c
     LIBRARIES TenaciousBadger::badger)
 function(tb_add_probe_test name script)
     add_test(NAME ${name}
@@ -92,6 +92,9 @@ tb_add_probe_test(core_memory_debug.reports_and_aborts ExpectMemoryDebug.cmake)
 # Checks of the source text. They run with the tests so that a violation fails
 # locally, before it fails in CI.
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(NAME core_fmt.failed_standard_streams_are_reported
+    COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tools/stream_failure_test.py"
+        "$<TARGET_FILE:tb_probe>")
 add_test(NAME packaging.child_python_uses_the_running_interpreter
     COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tools/package_sdk_test.py")
 add_test(NAME source_checks.foundation
