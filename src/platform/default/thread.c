@@ -88,3 +88,65 @@ void tb_condition_wake_all(tb_condition *condition)
     (void)condition;
     tb_default_not_implemented(TB_DEFAULT_THREAD_INTERFACE, "tb_condition_wake_all");
 }
+
+void tb_semaphore_signal(tb_semaphore *semaphore, size_t count)
+{
+    (void)semaphore;
+    (void)count;
+    tb_default_not_implemented(TB_DEFAULT_THREAD_INTERFACE, "tb_semaphore_signal");
+}
+
+void tb_semaphore_wait(tb_semaphore *semaphore)
+{
+    (void)semaphore;
+    tb_default_not_implemented(TB_DEFAULT_THREAD_INTERFACE, "tb_semaphore_wait");
+}
+
+bool tb_semaphore_try_wait(tb_semaphore *semaphore)
+{
+    (void)semaphore;
+    tb_default_not_implemented(TB_DEFAULT_THREAD_INTERFACE, "tb_semaphore_try_wait");
+}
+
+bool tb_semaphore_wait_for(tb_semaphore *semaphore, uint64_t nanoseconds)
+{
+    (void)semaphore;
+    (void)nanoseconds;
+    tb_default_not_implemented(TB_DEFAULT_THREAD_INTERFACE, "tb_semaphore_wait_for");
+}
+
+void tb_thread_local_create(tb_thread_local *local, tb_thread_local_destructor *destructor)
+{
+    (void)local;
+    (void)destructor;
+    tb_default_not_implemented(TB_DEFAULT_THREAD_INTERFACE, "tb_thread_local_create");
+}
+
+void tb_thread_local_destroy(tb_thread_local *local)
+{
+    (void)local;
+    tb_default_not_implemented(TB_DEFAULT_THREAD_INTERFACE, "tb_thread_local_destroy");
+}
+
+void *tb_thread_local_get(const tb_thread_local *local)
+{
+    (void)local;
+    tb_default_not_implemented(TB_DEFAULT_THREAD_INTERFACE, "tb_thread_local_get");
+}
+
+void tb_thread_local_set(const tb_thread_local *local, void *value)
+{
+    (void)local;
+    (void)value;
+    tb_default_not_implemented(TB_DEFAULT_THREAD_INTERFACE, "tb_thread_local_set");
+}
+
+void tb_thread_relax(void)
+{
+    tb_default_not_implemented(TB_DEFAULT_THREAD_INTERFACE, "tb_thread_relax");
+}
+
+void tb_thread_yield(void)
+{
+    tb_default_not_implemented(TB_DEFAULT_THREAD_INTERFACE, "tb_thread_yield");
+}

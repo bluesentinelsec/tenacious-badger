@@ -128,6 +128,9 @@ interlocked, which is a full barrier, so a read stays in step with them.
 
 ## Threads, mutexes, and condition variables
 
+Semaphores, values that each thread has for itself, and the hint for a loop
+that waits are in the same header, and described at the end of this section.
+
 Public declaration: `include/badger/thread.h`.
 
 | | Functions |
@@ -263,6 +266,80 @@ build without assertions.
 
 On Linux the thread functions must be part of the C library, as they are from
 glibc 2.34 on; the build links no separate thread library.
+
+### Semaphores
+
+A `tb_semaphore` is a count of signals. `tb_semaphore_signal` adds to it and
+`tb_semaphore_wait` takes one, waiting while there is none. Unlike a
+condition, it remembers a signal that nobody was waiting for, which makes it
+the way to hand units of work to a thread, or to share a pool of a few things
+between many threads.
+
+```c
+tb_semaphore work = {0}; /* No signals yet. */
+
+/* A producer, for each unit of work: */
+tb_semaphore_signal(&work, 1);
+
+/* A consumer: */
+tb_semaphore_wait(&work);
+```
+
+| Need | Use |
+| --- | --- |
+| Add signals | `tb_semaphore_signal(semaphore, count)` |
+| Take one, waiting for it | `tb_semaphore_wait(semaphore)` |
+| Take one if there is one | `tb_semaphore_try_wait(semaphore)` |
+| Take one, waiting a limited time | `tb_semaphore_wait_for(semaphore, nanoseconds)` |
+
+Like a mutex and a condition, a semaphore is ready when it is all zeros and
+needs no destruction. That is why it is built from those two, once, in
+`src/platform/shared/semaphore.c`, and not from each system's own semaphore:
+every one of those must be destroyed, and macOS has none that can live inside
+another object. The cost is a lock for each signal and each wait.
+
+### Values that each thread has for itself
+
+`_Thread_local` gives every thread its own copy of a variable, and is what to
+use when the variable is known as the program is compiled. A `tb_thread_local`
+is for the two things it cannot do: a place that is made at run time, and a
+value that needs something done with it when its thread ends.
+
+```c
+static tb_thread_local scratch = {0};
+
+tb_thread_local_create(&scratch, release_scratch); /* Once, at startup. */
+
+/* On any thread: */
+if (tb_thread_local_get(&scratch) == NULL)
+{
+    tb_thread_local_set(&scratch, make_scratch());
+}
+```
+
+`release_scratch` is called with a thread's value as the thread ends, on that
+thread, when the value is not NULL. It runs for a thread that
+`tb_thread_create` started and whose function returned; for other threads the
+systems differ. Destroy a place only when no thread has a value in it.
+
+| Platform | Implementation |
+| --- | --- |
+| Windows | Fiber-local storage, `FlsAlloc`: the only kind on Windows that calls a function with a thread's value as the thread ends |
+| Linux, macOS | `pthread_key_create` |
+
+### Waiting without sleeping
+
+A loop that waits for another thread to change something calls
+`tb_thread_relax` each time round. It is the processor's own instruction for
+this (`pause` on x86, `yield` on ARM): the loop uses less power, takes less
+from a thread that shares its core, and leaves faster when the wait is over.
+`tb_thread_yield` gives up the rest of the thread's turn to another thread
+that is ready, for a loop that has waited longer than that.
+
+The job scheduler's search for work calls `tb_thread_relax` between two looks
+at queues that were empty. Submitting a job and waiting for it went from 208
+to 243 nanoseconds to 177 to 202 with it (`tb_bench jobs`, Release, MSVC
+19.50, i9-14900HX); the other cases did not change by more than they vary.
 
 ## Processors
 

@@ -867,6 +867,9 @@ static tb_job_slot *tb_jobs_search(tb_jobs *jobs, tb_jobs_worker *worker,
     {
         for (size_t pass = 0; pass < TB_JOBS_SEARCH_PASSES_PER_READING && !is_over; pass++)
         {
+            /* Between two looks at queues that were empty: the thread whose
+             * job this one waits for may share its core. */
+            tb_thread_relax();
             slot = tb_jobs_find(jobs, worker);
             is_over = slot != NULL || tb_jobs_reason_has_ended(jobs, reason);
         }

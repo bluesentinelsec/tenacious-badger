@@ -146,7 +146,8 @@ far more than a small job. The scheduler therefore sleeps reluctantly and
 wakes sparingly.
 
 - **A thread with nothing to run goes on looking** through the queues for
-  100 microseconds before it sleeps.
+  100 microseconds before it sleeps. Between two looks it tells the processor
+  that it is waiting, with `tb_thread_relax`.
 - **While one thread is looking, a job that becomes ready wakes nobody.** The
   one that is looking will find it.
 - **One idle worker looks at a time.** The others sleep as soon as one look
