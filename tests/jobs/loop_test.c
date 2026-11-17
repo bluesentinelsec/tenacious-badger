@@ -11,6 +11,7 @@
 #include "badger/assert.h"
 #include "badger/memory.h"
 #include "badger/platform.h"
+#include "badger/thread.h"
 
 #include "tb_test.h"
 
@@ -237,6 +238,69 @@ TB_TEST(jobs_loop, the_work_is_done_when_the_loop_returns)
     TB_TEST_EXPECT_UINT(wrong_count, ==, 0);
     tb_jobs_destroy(jobs);
     tb_free(values);
+}
+
+#define NANOSECONDS_PER_SECOND UINT64_C(1000000000)
+
+/* Longest that a range waits for the others. No machine is so slow, so
+ * reaching it means that the ranges do not run at the same time. */
+#define PATIENCE_NANOSECONDS (UINT64_C(20) * NANOSECONDS_PER_SECOND)
+
+#define MEETING_SIZE ((size_t)4)
+
+/* Every range waits until all of them have started, which ranges that ran
+ * one after another never could. Each notes which thread it ran on. */
+typedef struct meeting
+{
+    tb_platform_atomic_size arrived;
+    tb_platform_atomic_size gave_up;
+    uint64_t thread_ids[MEETING_SIZE]; /* By iteration: the thread that ran it. */
+} meeting;
+
+static void meet_the_other_ranges(void *argument, size_t first, size_t count)
+{
+    meeting *const all = argument;
+    const uint64_t start = tb_platform_clock_nanoseconds();
+
+    (void)count;
+    all->thread_ids[first] = tb_thread_current_id();
+    (void)tb_platform_atomic_size_add(&all->arrived, 1);
+    while (tb_platform_atomic_size_load(&all->arrived) < MEETING_SIZE)
+    {
+        if (tb_platform_clock_nanoseconds() - start > PATIENCE_NANOSECONDS)
+        {
+            (void)tb_platform_atomic_size_add(&all->gave_up, 1);
+            return;
+        }
+    }
+}
+
+/* Three workers and the calling thread, and four ranges that cannot finish
+ * until all four are running: the loop is parallel, and the caller is one of
+ * the threads that runs it. */
+TB_TEST(jobs_loop, ranges_run_at_the_same_time_on_the_workers_and_the_caller)
+{
+    tb_jobs *const jobs = create_with_workers(MEETING_SIZE - 1);
+    meeting all = {0};
+    const uint64_t own_id = tb_thread_current_id();
+    size_t own_count = 0;
+
+    tb_jobs_for(jobs, MEETING_SIZE, 1, meet_the_other_ranges, &all);
+    TB_TEST_EXPECT_UINT(tb_platform_atomic_size_load(&all.gave_up), ==, 0);
+    for (size_t index = 0; index < MEETING_SIZE; index++)
+    {
+        if (all.thread_ids[index] == own_id)
+        {
+            own_count++;
+        }
+        for (size_t other = index + 1; other < MEETING_SIZE; other++)
+        {
+            TB_TEST_CONTEXT("ranges %zu and %zu", index, other);
+            TB_TEST_EXPECT_UINT(all.thread_ids[index], !=, all.thread_ids[other]);
+        }
+    }
+    TB_TEST_EXPECT_UINT(own_count, ==, 1);
+    tb_jobs_destroy(jobs);
 }
 
 /* ---------------------------------------------------------------------------
