@@ -226,7 +226,7 @@ static tb_fs_result tb_fs_windows_path(tb_path_view path, WCHAR **output)
         goto cleanup;
     }
     prefix = 4;
-    if (written >= 2 && absolute[0] == L'\\' && absolute[1] == L'\\')
+    if (wcsncmp(absolute, L"\\\\", 2) == 0)
     {
         prefix = 8;
         skip = 2;
@@ -238,7 +238,8 @@ static tb_fs_result tb_fs_windows_path(tb_path_view path, WCHAR **output)
         goto cleanup;
     }
     memcpy(prefixed, prefix == 8 ? L"\\\\?\\UNC\\" : L"\\\\?\\", prefix * sizeof(WCHAR));
-    memcpy(prefixed + prefix, absolute + skip, ((size_t)written - skip + 1) * sizeof(WCHAR));
+    /* The rest of the path, with its terminator. */
+    (void)wcscpy_s(prefixed + prefix, (size_t)written - skip + 1, absolute + skip);
     *output = prefixed;
     prefixed = NULL;
 cleanup:

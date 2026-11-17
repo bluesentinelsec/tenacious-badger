@@ -44,6 +44,15 @@
       "cacheVariables": {
         "TB_ENABLE_THREAD_SANITIZER": true
       }
+    },
+    {
+      "name": "analyze",
+      "inherits": "debug",
+      "displayName": "Static analysis with the compiler's analyzer",
+      "binaryDir": "${sourceDir}/build/analyze",
+      "cacheVariables": {
+        "TB_ENABLE_STATIC_ANALYSIS": true
+      }
     }
   ],
   "buildPresets": [
@@ -58,6 +67,10 @@
     {
       "name": "sanitizer",
       "configurePreset": "sanitizer"
+    },
+    {
+      "name": "analyze",
+      "configurePreset": "analyze"
     },
     {
       "name": "thread-sanitizer",

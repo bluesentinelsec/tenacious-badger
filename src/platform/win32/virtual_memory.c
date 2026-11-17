@@ -53,6 +53,10 @@ tb_vm_result tb_vm_decommit(tb_vm_region *region, size_t offset, size_t size)
     {
         return TB_VM_INVALID;
     }
+    /* The analyzer warns that pages freed without MEM_RELEASE keep their
+     * address range. Keeping it is what decommitting is: the range stays
+     * reserved for the region until tb_vm_release() gives it back. */
+#pragma warning(suppress : 6250)
     return VirtualFree((unsigned char *)region->address + offset, size, MEM_DECOMMIT)
                ? TB_VM_OK
                : TB_VM_OS_ERROR;

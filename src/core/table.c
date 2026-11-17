@@ -330,9 +330,9 @@ void *tb_table_put(tb_table *table, const void *key, void *value)
         return previous;
     }
     /* A new key. The empty slot that was found is where it goes, unless the
-     * table must grow to stay no more than three quarters full: then its
-     * place is among the new slots. */
-    if (table->length >= tb_table_capacity_of(table->slot_count))
+     * table has no slots yet or must grow to stay no more than three quarters
+     * full: then its place is among the new slots. */
+    if (slot == NULL || table->length >= tb_table_capacity_of(table->slot_count))
     {
         tb_table_reserve(table, table->length + 1);
         slot = tb_table_slot_of(table, key, hash);

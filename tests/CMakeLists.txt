@@ -115,6 +115,8 @@ add_test(NAME source_checks.foundation
     COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/check_foundation.py")
 add_test(NAME source_checks.foundation_self_test
     COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/check_foundation.py" --self-test)
+add_test(NAME source_checks.analyzer_driver_self_test
+    COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/analyze_with_clang.py" --self-test)
 add_test(NAME source_checks.text
     COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/check_text.py")
 add_test(NAME source_checks.text_self_test

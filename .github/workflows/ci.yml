@@ -103,6 +103,54 @@ jobs:
       - name: Build the shared and static libraries
         run: cmake --build build/default-adapter --parallel
 
+  analysis:
+    name: Static analysis / ${{ matrix.platform }} / ${{ matrix.compiler }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: Windows
+            os: windows-2025-vs2026
+            compiler: MSVC
+            cc: cl
+          - platform: macOS
+            os: macos-26
+            compiler: AppleClang
+            cc: clang
+            target: tb_analyze
+          - platform: Linux
+            os: ubuntu-26.04
+            compiler: GCC
+            cc: gcc
+          - platform: Linux
+            os: ubuntu-26.04
+            compiler: Clang
+            cc: clang
+            target: tb_analyze
+    env:
+      CC: ${{ matrix.cc }}
+      CMAKE_GENERATOR: ${{ matrix.os == 'windows-2025-vs2026' && 'Visual Studio 18 2026' || 'Unix Makefiles' }}
+      CMAKE_GENERATOR_PLATFORM: ${{ matrix.os == 'windows-2025-vs2026' && 'x64' || '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check the analyzer driver against arguments with known answers
+        run: python3 tools/analyze_with_clang.py --self-test
+      # MSVC and GCC analyze as they compile, so their analysis is the build.
+      # Clang's is the tb_analyze target, which compiles nothing.
+      - name: Configure the engine alone, with the compiler's static analyzer
+        run: >
+          cmake -S . -B build/analyze -DCMAKE_BUILD_TYPE=Debug
+          -DTB_ENABLE_STATIC_ANALYSIS=ON -DTB_BUILD_TESTS=OFF -DTB_BUILD_BENCHMARKS=OFF
+          -DTB_WINDOWS_SELF_SIGN=OFF
+      - name: Analyze every source of the engine
+        run: >
+          cmake --build build/analyze --config Debug --parallel
+          ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+
   format:
     name: C formatting
     runs-on: ubuntu-26.04

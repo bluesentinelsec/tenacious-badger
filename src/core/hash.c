@@ -108,11 +108,12 @@ static uint64_t tb_hash_stripes(const unsigned char **cursor, size_t length)
 uint64_t tb_hash_bytes(const void *bytes, size_t length)
 {
     const unsigned char *input = bytes;
-    /* Bytes after the whole stripes: fewer than a stripe. */
-    size_t left = length % TB_HASH_STRIPE_SIZE;
+    size_t left = 0;
     uint64_t hash = TB_HASH_PRIME_5;
 
     TB_ASSERT(bytes != NULL || length == 0);
+    /* Bytes after the whole stripes: fewer than a stripe. */
+    left = length % TB_HASH_STRIPE_SIZE;
     if (length >= TB_HASH_STRIPE_SIZE)
     {
         hash = tb_hash_stripes(&input, length);
