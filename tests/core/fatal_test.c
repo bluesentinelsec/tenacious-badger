@@ -17,6 +17,7 @@
 #include "tb_test.h"
 
 #include <stddef.h>
+#include <stdint.h>
 #include <string.h>
 
 typedef struct received
@@ -154,6 +155,35 @@ TB_TEST(core_fatal, the_report_carries_the_stack_that_led_to_it)
          * its caller. */
         TB_TEST_EXPECT(tb_str_equal(first.function, "tb_fatal") || is_named);
     }
+}
+
+static void write_a_report_with_no_frames(void *context)
+{
+    const tb_fatal_report report = {.message = "test: nothing to show"};
+
+    (void)context;
+    tb_fatal_write(&report);
+}
+
+static void write_a_report_with_frames(void *context)
+{
+    void *const frames[] = {(void *)(uintptr_t)fatal_test_meet_a_condition, NULL};
+    const tb_fatal_report report = {
+        .message = "test: two frames", .frames = frames, .frame_count = 2};
+
+    (void)context;
+    tb_fatal_write(&report);
+}
+
+/* Writing a report, which the default handler does, is checked in a child
+ * process by ExpectFatalAbort.cmake. Here it is only run, with frames made
+ * by hand, so that it is run where no stack can be captured: under a tool
+ * that moves the program's code, for one. */
+TB_TEST(core_fatal, a_report_can_be_written_with_and_without_frames)
+{
+    write_a_report_with_no_frames(NULL);
+    write_a_report_with_frames(NULL);
+    TB_TEST_EXPECT(true);
 }
 
 static void fail_an_assertion(void *context)
