@@ -14,9 +14,13 @@
 /* The most frames that one capture asks the system for. */
 #define TB_POSIX_STACK_FRAMES_MAX ((size_t)128)
 
-size_t tb_stack_capture(void **frames, size_t capacity, size_t skip)
+/* Not joined into its caller, so that the address it returns to is a frame
+ * of the stack that backtrace() gives. */
+__attribute__((noinline)) size_t tb_stack_capture(void **frames, size_t capacity, size_t skip)
 {
-    void *all[TB_POSIX_STACK_FRAMES_MAX + 1] = {0};
+    void *all[TB_POSIX_STACK_FRAMES_MAX + 2] = {0};
+    void *const caller = __builtin_return_address(0);
+    size_t first = 1;
     size_t wanted = capacity;
     size_t count = 0;
     int captured = 0;
@@ -30,10 +34,21 @@ size_t tb_stack_capture(void **frames, size_t capacity, size_t skip)
     {
         return 0;
     }
-    /* The system's first frame is this function, which is left out with the
-     * frames that the caller asked to have left out. */
-    captured = backtrace(all, (int)(TB_POSIX_STACK_FRAMES_MAX + 1));
-    for (size_t index = skip + 1; index < (size_t)captured && count < wanted; index++)
+    captured = backtrace(all, (int)(TB_POSIX_STACK_FRAMES_MAX + 2));
+    /* The first frame of the caller is the address that this function returns
+     * to. What comes before it is this function, and whatever stands between
+     * it and the system: a sanitizer, for one, puts a function of its own in
+     * front of backtrace(). Where the address is not found, only this
+     * function is left out. */
+    for (size_t index = 0; index < (size_t)captured; index++)
+    {
+        if (all[index] == caller)
+        {
+            first = index;
+            break;
+        }
+    }
+    for (size_t index = first + skip; index < (size_t)captured && count < wanted; index++)
     {
         frames[count] = all[index];
         count++;
