@@ -11,6 +11,7 @@ set(TB_TEST_CASE_SOURCES
     core/atom_test.c
     core/bit_test.c
     core/fmt_test.c
+    core/fs_test.c
     core/hash_test.c
     core/list_test.c
     core/memory_test.c
@@ -61,6 +62,7 @@ target_compile_definitions(tb_memory_checked_tests PRIVATE TB_TEST_CHECK_MEMORY)
 # engine is named here as it is named within the engine, such as
 # "jobs/deque.h".
 set(TB_INTERNAL_TEST_CASE_SOURCES
+    core/fs_transaction_test.c
     jobs/deque_test.c)
 set(TB_ENGINE_SOURCES ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES} ${TB_JOBS_SOURCES})
 
