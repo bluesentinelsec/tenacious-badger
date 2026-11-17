@@ -41,10 +41,12 @@ size_t tb_posix_thread_read_name(char *buffer, size_t capacity)
 {
     char kept[TB_MACOS_THREAD_NAME_CAPACITY] = {0};
 
+    /* coverage-off: reading the calling thread's own name into room enough does not fail */
     if (pthread_getname_np(pthread_self(), kept, sizeof(kept)) != 0)
     {
         kept[0] = '\0';
     }
+    /* coverage-on */
     return tb_platform_copy_name(buffer, capacity, kept);
 }
 
