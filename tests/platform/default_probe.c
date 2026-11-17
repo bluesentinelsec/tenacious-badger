@@ -49,6 +49,28 @@ TB_TEST(platform_default, tb_platform_atomic_size_load)
     (void)tb_platform_atomic_size_load(&atomic);
 }
 
+TB_TEST(platform_default, tb_platform_atomic_size_store)
+{
+    tb_platform_atomic_size atomic = {0};
+
+    tb_platform_atomic_size_store(&atomic, 1);
+}
+
+TB_TEST(platform_default, tb_platform_atomic_size_exchange)
+{
+    tb_platform_atomic_size atomic = {0};
+
+    (void)tb_platform_atomic_size_exchange(&atomic, 1);
+}
+
+TB_TEST(platform_default, tb_platform_atomic_size_compare_exchange)
+{
+    tb_platform_atomic_size atomic = {0};
+    size_t expected = 0;
+
+    (void)tb_platform_atomic_size_compare_exchange(&atomic, &expected, 1);
+}
+
 TB_TEST(platform_default, tb_platform_atomic_u32_load)
 {
     tb_platform_atomic_u32 atomic = {0};

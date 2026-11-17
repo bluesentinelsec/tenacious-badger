@@ -17,6 +17,7 @@ set_target_properties(badger PROPERTIES
     SOVERSION "${PROJECT_VERSION_MAJOR}")
 add_subdirectory(core)
 add_subdirectory(platform)
+add_subdirectory(jobs)
 tb_strip_release(badger)
 
 # The engine's modules call one another across source files, and a compiler

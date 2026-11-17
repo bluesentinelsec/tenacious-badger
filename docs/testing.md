@@ -189,6 +189,15 @@ names share one namespace, and this form lets a pattern select a module
 Each case is also the CTest test `<suite>.<name>`, for example
 `core_sum.adds_small_numbers`.
 
+**What a module keeps to itself is tested in `tb_internal_tests`.** `tb_tests`
+links the engine library and so reaches only what the library exports. A
+private part of a module, such as the queue inside the job system, has no
+public header and no exported symbol. Its cases are listed in
+`TB_INTERNAL_TEST_CASE_SOURCES` and built into a second executable from the
+engine's sources, where a case includes a private header by its path under
+`src/`, such as `"jobs/deque.h"`. Use it only for what cannot be tested
+through the public interface.
+
 Two things cannot be cases of `tb_tests`, because they end the process: the
 framework's own failure reports and the engine's default assertion handler. Each
 has a small helper executable that a CTest script runs as a child process

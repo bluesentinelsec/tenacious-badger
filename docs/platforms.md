@@ -88,7 +88,7 @@ which they happened.
 
 | Type | Holds | Operations |
 | --- | --- | --- |
-| `tb_platform_atomic_size` | A `size_t` | `_add`, `_subtract`, `_load` |
+| `tb_platform_atomic_size` | A `size_t` | `_add`, `_subtract`, `_load`, `_store`, `_exchange`, `_compare_exchange` |
 | `tb_platform_atomic_u32` | A `uint32_t` | `_load`, `_store`, `_exchange`, `_compare_exchange` |
 | `tb_platform_atomic_pointer` | A `void *` | `_load`, `_store`, `_exchange`, `_compare_exchange` |
 

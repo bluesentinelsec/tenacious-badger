@@ -85,6 +85,42 @@ TB_API size_t tb_platform_atomic_size_subtract(tb_platform_atomic_size *atomic, 
 TB_API size_t tb_platform_atomic_size_load(tb_platform_atomic_size *atomic);
 
 /**
+ * @brief Write an atomic value.
+ * @param atomic Required non-null.
+ * @param value The new value.
+ * @par Threading Thread-safe; sequentially consistent.
+ */
+TB_API void tb_platform_atomic_size_store(tb_platform_atomic_size *atomic, size_t value);
+
+/**
+ * @brief Write an atomic value and learn what it replaced, as one indivisible step.
+ * @param atomic Required non-null.
+ * @param value The new value.
+ * @return The value from just before the write.
+ * @par Threading Thread-safe; sequentially consistent.
+ */
+TB_API size_t tb_platform_atomic_size_exchange(tb_platform_atomic_size *atomic, size_t value);
+
+/**
+ * @brief Write an atomic value only if it still holds what the caller last saw.
+ *
+ * As tb_platform_atomic_u32_compare_exchange(), which explains the use.
+ *
+ * @param atomic Required non-null.
+ * @param[in,out] expected Required non-null. On entry, the value the caller
+ * expects to find. On failure it receives the value found; on success it is
+ * unchanged.
+ * @param desired The value to write when `*expected` is found.
+ * @return true when `desired` was written; false when the value was not
+ * `*expected`, in which case nothing was written. It does not fail when the
+ * value is as expected.
+ * @par Threading Thread-safe; sequentially consistent. `expected` belongs to
+ * the calling thread.
+ */
+TB_API bool tb_platform_atomic_size_compare_exchange(tb_platform_atomic_size *atomic,
+                                                     size_t *expected, size_t desired);
+
+/**
  * @brief A 32-bit value that several threads may read and write without a lock.
  *
  * Zero-initialize it. Once it is shared between threads, read and write
