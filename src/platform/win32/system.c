@@ -1,4 +1,5 @@
 #include "badger/system.h"
+#include "badger/fatal.h"
 
 #include "badger/assert.h"
 #include "badger/platform.h"
@@ -7,8 +8,6 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
-
-#include <stdio.h>
 
 /* ---------------------------------------------------------------------------
  * Counting, apart from the system.
@@ -79,8 +78,7 @@ void tb_win32_processors_finish(const tb_win32_processor_tally *tally,
 
 static _Noreturn void tb_win32_system_fail(const char *diagnostic)
 {
-    fputs(diagnostic, stderr);
-    tb_platform_abort();
+    tb_fatal_message(diagnostic);
 }
 
 /* A process is confined to part of the machine when all of its threads are

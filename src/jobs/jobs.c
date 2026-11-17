@@ -1,6 +1,7 @@
 #include "badger/jobs.h"
 
 #include "badger/assert.h"
+#include "badger/fatal.h"
 #include "badger/fmt.h"
 #include "badger/memory.h"
 #include "badger/platform.h"
@@ -233,9 +234,7 @@ static _Thread_local size_t tb_jobs_next_victim_here = 0;
 
 static _Noreturn void tb_jobs_fail(const char *diagnostic)
 {
-    (void)tb_fmt_print_error("%s", diagnostic);
-    (void)tb_fmt_flush();
-    tb_platform_abort();
+    tb_fatal_message(diagnostic);
 }
 
 static bool tb_jobs_is_priority(tb_job_priority priority)

@@ -22,6 +22,8 @@ The foundation layer so far, one public header per module under
 | `platform.h` | [Native platform interfaces](platforms.md): the clock, sleeping and pacing, abort, and atomic values |
 | `thread.h` | [Threads, mutexes, condition variables, semaphores, and thread-local values](platforms.md#threads-mutexes-and-condition-variables) |
 | `system.h` | [The processors the process may run on](platforms.md#processors) |
+| `stack.h` | [The call stack of a thread](platforms.md#call-stacks), and what an address is part of |
+| `fatal.h` | [Fatal errors](platforms.md#fatal-errors): the one way the engine ends the process, with the stack that led there |
 | `jobs.h` | [The job system](jobs.md): worker threads, jobs with dependencies and priorities, and loops that run on every thread |
 | `memory_debug.h` | [Memory functions that check how memory is used](memory.md) |
 | `virtual_memory.h` | [Reserved address space and committed pages](virtual-memory.md) |

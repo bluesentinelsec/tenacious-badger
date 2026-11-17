@@ -1,5 +1,7 @@
 #include "badger/assert.h"
 
+#include "badger/fatal.h"
+
 #include "badger/fmt.h"
 #include "badger/platform.h"
 
@@ -12,17 +14,17 @@ typedef struct tb_assert_binding
 
 static tb_assert_binding tb_assert_installed = {0};
 
-static void tb_assert_report_to_stderr(const tb_assert_failure *failure)
+/* The default report: a fatal condition like any other, so that it is written
+ * with the call stack and goes to the handler of badger/fatal.h. */
+static _Noreturn void tb_assert_report_as_fatal(const tb_assert_failure *failure)
 {
     if (failure->message != NULL)
     {
-        (void)tb_fmt_print_error("%s:%d: assertion failed in %s: %s (%s)\n", failure->file,
-                                 failure->line, failure->function, failure->expression,
-                                 failure->message);
-        return;
+        tb_fatal("%s:%d: assertion failed in %s: %s (%s)", failure->file, failure->line,
+                 failure->function, failure->expression, failure->message);
     }
-    (void)tb_fmt_print_error("%s:%d: assertion failed in %s: %s\n", failure->file, failure->line,
-                             failure->function, failure->expression);
+    tb_fatal("%s:%d: assertion failed in %s: %s", failure->file, failure->line, failure->function,
+             failure->expression);
 }
 
 void tb_assert_set_handler(tb_assert_handler *handler, void *context)
@@ -46,10 +48,10 @@ void tb_assert_fail(const char *expression, const char *message, const char *fil
     }
     else
     {
-        tb_assert_report_to_stderr(&failure);
+        tb_assert_report_as_fatal(&failure);
     }
-    /* Reached by the default report and by a handler that returned: the caller's
-     * invariant is broken, so continuing is never an option. */
+    /* Reached by a handler that returned: the caller's invariant is broken,
+     * so continuing is never an option. */
     (void)tb_fmt_flush();
     tb_platform_abort();
 }

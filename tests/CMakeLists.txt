@@ -11,6 +11,7 @@ set(TB_TEST_CASE_SOURCES
     core/assert_test.c
     core/atom_test.c
     core/bit_test.c
+    core/fatal_test.c
     core/fmt_test.c
     core/fs_test.c
     core/hash_test.c
@@ -84,7 +85,7 @@ endfunction()
 # own checks. tb_probe holds those cases; a script per topic runs them in a
 # child process and checks the outcome.
 tb_add_tests(tb_probe NO_CTEST
-    SOURCES core/assert_probe.c core/fmt_probe.c core/memory_probe.c
+    SOURCES core/assert_probe.c core/fatal_probe.c core/fmt_probe.c core/memory_probe.c
         core/memory_debug_probe.c core/fmt_failure_probe.c core/log_probe.c platform/virtual_memory_probe.c support/support_probe.c
     LIBRARIES TenaciousBadger::badger)
 function(tb_add_probe_test name script)
@@ -93,6 +94,7 @@ function(tb_add_probe_test name script)
             -P "${CMAKE_CURRENT_SOURCE_DIR}/${script}")
 endfunction()
 tb_add_probe_test(core_assert.default_handler_reports_and_aborts ExpectAssertAbort.cmake)
+tb_add_probe_test(core_fatal.default_handler_reports_and_aborts ExpectFatalAbort.cmake)
 tb_add_probe_test(core_fmt.prints_to_the_standard_streams ExpectFormattedOutput.cmake)
 tb_add_probe_test(core_memory.default_handler_reports_and_aborts ExpectOutOfMemoryAbort.cmake)
 tb_add_probe_test(test_support.leaks_and_failure_injection ExpectTestSupport.cmake)
@@ -160,7 +162,8 @@ tb_make_standalone(tb_internal_tests)
 set(TB_PLATFORM_TEST_SOURCES
     platform/fs_test.c platform/virtual_memory_test.c
     platform/atomic_test.c platform/contract_test.c platform/name_test.c
-    platform/semaphore_test.c platform/system_test.c platform/thread_local_test.c
+    platform/semaphore_test.c platform/stack_test.c platform/system_test.c
+    platform/thread_local_test.c
     platform/thread_options_test.c platform/thread_test.c platform/time_test.c)
 # An adapter reports a broken contract through tb_assert_fail(), which the
 # core defines. Executables built from an adapter alone get it from here, as
@@ -211,6 +214,7 @@ set(TB_PLATFORM_INTERFACE_HEADERS
     "${PROJECT_SOURCE_DIR}/include/badger/virtual_memory.h"
     "${PROJECT_SOURCE_DIR}/include/badger/file.h"
     "${PROJECT_SOURCE_DIR}/include/badger/platform.h"
+    "${PROJECT_SOURCE_DIR}/include/badger/stack.h"
     "${PROJECT_SOURCE_DIR}/include/badger/system.h"
     "${PROJECT_SOURCE_DIR}/include/badger/thread.h")
 list(JOIN TB_PLATFORM_INTERFACE_HEADERS "," tb_platform_interface_headers)

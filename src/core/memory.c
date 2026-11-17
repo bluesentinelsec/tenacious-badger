@@ -3,6 +3,7 @@
 #include "badger/memory.h"
 
 #include "badger/assert.h"
+#include "badger/fatal.h"
 #include "badger/fmt.h"
 #include "badger/platform.h"
 #include "badger/size.h"
@@ -115,13 +116,12 @@ _Noreturn void tb_memory_fail(size_t count, size_t size, size_t alignment)
     }
     else
     {
-        /* Formatting to a stream allocates nothing, so it can report this. */
-        (void)tb_fmt_print_error(
-            "badger: out of memory allocating %zu x %zu bytes (alignment %zu)\n", count, size,
-            alignment);
+        /* A fatal report allocates nothing, so it can report this. */
+        tb_fatal("badger: out of memory allocating %zu x %zu bytes (alignment %zu)", count, size,
+                 alignment);
     }
-    /* Reached by the default report and by a handler that returned: the caller
-     * was promised memory, so there is nothing to return to. */
+    /* Reached by a handler that returned: the caller was promised memory, so
+     * there is nothing to return to. */
     (void)tb_fmt_flush();
     tb_platform_abort();
 }

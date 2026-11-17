@@ -19,3 +19,7 @@ endif()
 if(NOT diagnostic MATCHES "badger: out of memory allocating 3 x 64 bytes \\(alignment 0\\)")
     message(FATAL_ERROR "Unexpected out-of-memory diagnostic: ${report}")
 endif()
+# It is reported as every fatal condition is: with the call stack.
+if(NOT diagnostic MATCHES "\n    #0 [^\n]*\n    #1 ")
+    message(FATAL_ERROR "Exhausted memory must be reported with its call stack: ${report}")
+endif()

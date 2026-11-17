@@ -237,6 +237,14 @@ AUTHORIZED = {
         'reports an adapter\'s failed assertion to the test framework, in executables built '
         'without badger/fmt.h'),
 
+    'tests/platform/stack_test.c': (
+        {'strlen', 'strcmp', 'strncmp'},
+        'compares the names that an adapter gives to addresses, in an executable built '
+        'without badger/str.h'),
+    'src/platform/posix/stack.c': (
+        {'strlen'},
+        'copies the names that the system gives to addresses, beneath badger/str.h'),
+
     # Tests that confine the process, to see the count of processors follow.
     'tests/platform/win32/affinity_test.c': (
         {'GetProcessAffinityMask'},

@@ -8,6 +8,7 @@
  * headers for the functions, so a function that is added to a platform
  * interface without a case here fails the test. */
 #include "badger/platform.h"
+#include "badger/stack.h"
 #include "badger/system.h"
 #include "badger/thread.h"
 
@@ -26,6 +27,20 @@ TB_TEST(platform_default, tb_platform_abort)
 TB_TEST(platform_default, tb_platform_clock_nanoseconds)
 {
     (void)tb_platform_clock_nanoseconds();
+}
+
+TB_TEST(platform_default, tb_stack_capture)
+{
+    void *frames[1] = {0};
+
+    (void)tb_stack_capture(frames, 1, 0);
+}
+
+TB_TEST(platform_default, tb_stack_describe)
+{
+    tb_stack_location location = {0};
+
+    tb_stack_describe(NULL, &location);
 }
 
 TB_TEST(platform_default, tb_platform_sleep)

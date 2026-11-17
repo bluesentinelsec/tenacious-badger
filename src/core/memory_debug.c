@@ -19,6 +19,7 @@
 #include "badger/memory_debug.h"
 
 #include "badger/assert.h"
+#include "badger/fatal.h"
 #include "badger/fmt.h"
 #include "badger/hash.h"
 #include "badger/platform.h"
@@ -111,45 +112,54 @@ static const char *tb_memory_debug_label_text(const char *label)
     return label;
 }
 
-/* The default report of a finding. */
-static void tb_memory_debug_write_finding(const tb_memory_debug_finding *finding)
+/* The default report of a finding: a fatal condition like any other, so that
+ * it is written with the call stack and goes to the handler of
+ * badger/fatal.h. */
+static _Noreturn void tb_memory_debug_report_as_fatal(const tb_memory_debug_finding *finding)
 {
     const tb_memory_debug_block *const block = &finding->block;
     const unsigned long long number = block->number;
     const char *const label = tb_memory_debug_label_text(block->label);
+    char fault[TB_FATAL_MESSAGE_CAPACITY] = {0};
 
-    if (block->file != NULL)
-    {
-        (void)tb_fmt_print_error("badger: allocated at %s:%zu\n", block->file, block->line);
-    }
     switch (finding->fault)
     {
     case TB_MEMORY_DEBUG_NOT_A_BLOCK:
-        (void)tb_fmt_print_error(
-            "badger: memory fault: %p was freed or resized, and is not an allocated block\n",
+        (void)tb_fmt_buffer(
+            fault, sizeof(fault),
+            "badger: memory fault: %p was freed or resized, and is not an allocated block",
             block->memory);
         break;
     case TB_MEMORY_DEBUG_FREED_TWICE:
-        (void)tb_fmt_print_error("badger: memory fault: block %llu was freed or resized after it "
-                                 "was freed (bytes %zu, at %p, label %s)\n",
-                                 number, block->size, block->memory, label);
+        (void)tb_fmt_buffer(fault, sizeof(fault),
+                            "badger: memory fault: block %llu was freed or resized after it was "
+                            "freed (bytes %zu, at %p, label %s)",
+                            number, block->size, block->memory, label);
         break;
     case TB_MEMORY_DEBUG_WRITTEN_BEFORE:
-        (void)tb_fmt_print_error("badger: memory fault: the byte %zu before block %llu was "
-                                 "written (bytes %zu, at %p, label %s)\n",
-                                 finding->distance, number, block->size, block->memory, label);
+        (void)tb_fmt_buffer(fault, sizeof(fault),
+                            "badger: memory fault: the byte %zu before block %llu was written "
+                            "(bytes %zu, at %p, label %s)",
+                            finding->distance, number, block->size, block->memory, label);
         break;
     case TB_MEMORY_DEBUG_WRITTEN_AFTER:
-        (void)tb_fmt_print_error("badger: memory fault: the byte %zu after block %llu was "
-                                 "written (bytes %zu, at %p, label %s)\n",
-                                 finding->distance, number, block->size, block->memory, label);
+        (void)tb_fmt_buffer(fault, sizeof(fault),
+                            "badger: memory fault: the byte %zu after block %llu was written "
+                            "(bytes %zu, at %p, label %s)",
+                            finding->distance, number, block->size, block->memory, label);
         break;
     case TB_MEMORY_DEBUG_WATCHED:
-        (void)tb_fmt_print_error(
-            "badger: memory: block %llu is allocated here (bytes %zu, at %p, label %s)\n", number,
+        (void)tb_fmt_buffer(
+            fault, sizeof(fault),
+            "badger: memory: block %llu is allocated here (bytes %zu, at %p, label %s)", number,
             block->size, block->memory, label);
         break;
     }
+    if (block->file != NULL)
+    {
+        tb_fatal("%s; allocated at %s:%zu", fault, block->file, block->line);
+    }
+    tb_fatal_message(fault);
 }
 
 /* Reports a finding and ends the process. The caller does not hold the lock. */
@@ -161,10 +171,10 @@ static _Noreturn void tb_memory_debug_fail(const tb_memory_debug_finding *findin
     }
     else
     {
-        tb_memory_debug_write_finding(finding);
+        tb_memory_debug_report_as_fatal(finding);
     }
-    /* Reached by the default report and by a handler that returned: memory
-     * that has been misused cannot be relied on. */
+    /* Reached by a handler that returned: memory that has been misused
+     * cannot be relied on. */
     (void)tb_fmt_flush();
     tb_platform_abort();
 }

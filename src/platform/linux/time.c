@@ -1,12 +1,12 @@
 /* clock_gettime is a POSIX function; request the POSIX API from the strict C17 headers. */
 #define _POSIX_C_SOURCE 200809L
 
+#include "badger/fatal.h"
 #include "badger/platform.h"
 
 #include "../shared/wait.h"
 
 #include <errno.h>
-#include <stdio.h>
 #include <time.h>
 
 #define TB_LINUX_NANOSECONDS_PER_SECOND UINT64_C(1000000000)
@@ -30,9 +30,8 @@ uint64_t tb_platform_clock_nanoseconds(void)
     /* coverage-off: the monotonic clock exists on every Linux the engine supports */
     if (clock_gettime(CLOCK_MONOTONIC, &now) != 0)
     {
-        fputs("platform.time: tb_platform_clock_nanoseconds on linux: clock_gettime failed\n",
-              stderr);
-        tb_platform_abort();
+        tb_fatal_message(
+            "platform.time: tb_platform_clock_nanoseconds on linux: clock_gettime failed\n");
     }
     /* coverage-on */
     return (uint64_t)now.tv_sec * TB_LINUX_NANOSECONDS_PER_SECOND + (uint64_t)now.tv_nsec;
@@ -57,8 +56,7 @@ void tb_platform_sleep(uint64_t nanoseconds)
     /* coverage-off: the monotonic clock exists on every Linux the engine supports */
     if (clock_gettime(CLOCK_MONOTONIC, &deadline) != 0)
     {
-        fputs("platform.time: tb_platform_sleep on linux: clock_gettime failed\n", stderr);
-        tb_platform_abort();
+        tb_fatal_message("platform.time: tb_platform_sleep on linux: clock_gettime failed\n");
     }
     /* coverage-on */
     /* Both parts of a second are less than a billion, so their sum is less
@@ -80,8 +78,7 @@ void tb_platform_sleep(uint64_t nanoseconds)
     /* coverage-off: clock_nanosleep fails otherwise only for arguments that are ruled out above */
     if (error != 0)
     {
-        fputs("platform.time: tb_platform_sleep on linux: clock_nanosleep failed\n", stderr);
-        tb_platform_abort();
+        tb_fatal_message("platform.time: tb_platform_sleep on linux: clock_nanosleep failed\n");
     }
     /* coverage-on */
 }

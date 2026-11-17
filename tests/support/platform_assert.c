@@ -5,6 +5,7 @@
  * framework, as it does in the engine's tests, and a case can check for it
  * with TB_TEST_EXPECT_TRAP. */
 #include "badger/assert.h"
+#include "badger/fatal.h"
 
 #include "tb_test.h"
 
@@ -33,4 +34,11 @@ void tb_assert_fail(const char *expression, const char *message, const char *fil
 bool tb_assert_library_enabled(void)
 {
     return TB_ASSERT_ENABLED != 0;
+}
+
+/* An adapter reports a system call that it cannot do without through
+ * tb_fatal_message(), which the core also defines. Here it is a trap too. */
+void tb_fatal_message(const char *message)
+{
+    tb_test_trap(__FILE__, __LINE__, message);
 }

@@ -4,10 +4,10 @@
 
 #include "../posix/condition_native.h"
 
+#include "badger/fatal.h"
 #include "badger/platform.h"
 
 #include <errno.h>
-#include <stdio.h>
 #include <time.h>
 
 #define TB_MACOS_NANOSECONDS_PER_SECOND UINT64_C(1000000000)
@@ -17,8 +17,7 @@
 
 static _Noreturn void tb_macos_condition_fail(const char *diagnostic)
 {
-    fputs(diagnostic, stderr);
-    tb_platform_abort();
+    tb_fatal_message(diagnostic);
 }
 
 void tb_posix_condition_start(pthread_cond_t *condition)

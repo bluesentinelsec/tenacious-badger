@@ -2,6 +2,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "badger/thread.h"
+#include "badger/fatal.h"
 
 #include "../shared/name.h"
 #include "badger/assert.h"
@@ -12,7 +13,6 @@
 #include <errno.h>
 #include <pthread.h>
 #include <sched.h>
-#include <stdio.h>
 #include <unistd.h>
 
 /* A tb_mutex and a tb_condition are ready when they are all zeros, but the
@@ -45,8 +45,7 @@ TB_STATIC_ASSERT(sizeof(pthread_t) <= sizeof(uintptr_t), "a pthread_t fits in tb
 
 static _Noreturn void tb_posix_thread_fail(const char *diagnostic)
 {
-    fputs(diagnostic, stderr);
-    tb_platform_abort();
+    tb_fatal_message(diagnostic);
 }
 
 /* ---------------------------------------------------------------------------

@@ -111,11 +111,13 @@ them. Their tests (`tb_platform_tests`) are built from the selected adapter's
 sources alone, which keeps that true and lets a test call a function that is
 private to an adapter.
 
-The one thing an adapter takes from above is the report of a broken contract:
-it states its contracts with `TB_ASSERT`, and a failed one calls
-`tb_assert_fail`, which `src/core/assert.c` defines. In the adapters' tests
-`tests/support/platform_assert.c` defines it instead, as a trap of the test
-framework, so `TB_TEST_EXPECT_TRAP` works there as it does everywhere else.
+What an adapter takes from above is two reports. It states its contracts
+with `TB_ASSERT`, and a failed one calls `tb_assert_fail`, which
+`src/core/assert.c` defines. And a system call that it cannot do without, and
+that failed, calls `tb_fatal_message`, which `src/core/fatal.c` defines. In
+the adapters' tests `tests/support/platform_assert.c` defines both instead,
+as traps of the test framework, so `TB_TEST_EXPECT_TRAP` works there as it
+does everywhere else.
 
 ## Abnormal termination
 
@@ -136,6 +138,77 @@ the planned system-information interface and will hook in here.
 
 A child process checks in CI that a failed assertion reports its location and
 ends the process promptly on every platform.
+
+## Call stacks
+
+Public declaration: `include/badger/stack.h`. `tb_stack_capture` records where
+the calling thread is and how it got there, as the addresses that its calls
+return to, innermost first. `tb_stack_describe` says what one address is part
+of: the function, the module and the offset within it, and the source file
+and line. Capturing is cheap and allocates nothing; describing is for a
+report that someone will read.
+
+| Platform | Selected implementation | Capture | What an address can be given |
+| --- | --- | --- | --- |
+| Windows | `src/platform/win32/stack.c` | `RtlCaptureStackBackTrace` | Module always; function, file and line from the program's `.pdb` files, through DbgHelp |
+| Linux / Steam Deck | `src/platform/posix/stack.c` | `backtrace` | Module and offset always; the function when the module exports it or kept its name |
+| macOS | `src/platform/posix/stack.c` | `backtrace` | The same |
+
+What cannot be named is left empty, never guessed. The module and offset are
+what `addr2line` or `atos` need to name the rest afterwards.
+
+DbgHelp is part of Windows. It is loaded when the first address is described,
+so a program that never describes one does not load it, and one lock
+serializes every call into it, because it is not safe to use from two
+threads.
+
+[Fatal errors](#fatal-errors) are the first user: every report of one carries
+the stack that led to it.
+
+## Fatal errors
+
+Public declaration: `include/badger/fatal.h`. A condition that no caller can
+handle ends the process, and every such condition in the engine ends it in
+one place: `tb_fatal`.
+
+```c
+tb_fatal("render: the built-in shaders could not be loaded (%s)", reason);
+```
+
+By default the message and the call stack are written to stderr, and the
+process ends with `tb_platform_abort`:
+
+```
+render: the built-in shaders could not be loaded (file not found)
+    #0 tb_fatal (badger.dll+0x112d0) src\core\fatal.c:116
+    #1 start_renderer (burrow.exe+0x2f1c) renderer.c:212
+    #2 main (burrow.exe+0x1108) main.c:40
+```
+
+`tb_fatal_set_handler` replaces that, for an application that wants the
+report in its log, in a dialog, or sent somewhere. A handler that only wants
+to add something writes its own part and calls `tb_fatal_write` for the rest.
+
+| What goes wrong | How it arrives |
+| --- | --- |
+| A failed `TB_ASSERT` | Through the handler of `assert.h`; here when none is installed |
+| Exhausted memory | Through the handler of `memory.h`; here when none is installed |
+| A fault found by the checking memory functions | Through the handler of `memory_debug.h`; here when none is installed |
+| A system call that an adapter cannot do without, such as starting a thread | Here |
+| More unfinished jobs than the scheduler can hold | Here |
+
+The platform adapters are beneath the foundation modules and use none of
+them, with two exceptions that are both reports: a broken contract goes to
+`tb_assert_fail`, and a system call that failed goes to `tb_fatal_message`.
+In the adapters' own tests both are traps of the test framework.
+
+The default adapter for an unsupported platform is the exception: it reports
+"not implemented" with nothing but standard C, because on such a platform
+there is no stack to capture.
+
+**A report allocates nothing of the engine's**, so exhausted memory can be
+reported like anything else. Naming the frames does allocate inside the
+system's library on Windows.
 
 ## Atomic values
 

@@ -5,6 +5,8 @@ set(TB_PLATFORM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/../posix/fs.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/fs_location.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/abort.c"
+    # Capturing a stack and naming an address are the same on Linux and macOS.
+    "${CMAKE_CURRENT_SOURCE_DIR}/../posix/stack.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/atomic.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/condition.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/system.c"

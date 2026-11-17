@@ -1,11 +1,11 @@
 /* clock_gettime_nsec_np is an Apple function; request it from the strict C17 headers. */
 #define _DARWIN_C_SOURCE
 
+#include "badger/fatal.h"
 #include "badger/platform.h"
 
 #include "../shared/wait.h"
 
-#include <stdio.h>
 #include <time.h>
 
 #define TB_MACOS_NANOSECONDS_PER_SECOND UINT64_C(1000000000)
@@ -27,10 +27,9 @@ uint64_t tb_platform_clock_nanoseconds(void)
 
     if (now == 0)
     {
-        fputs("platform.time: tb_platform_clock_nanoseconds on macos: clock_gettime_nsec_np "
-              "failed\n",
-              stderr);
-        tb_platform_abort();
+        tb_fatal_message(
+            "platform.time: tb_platform_clock_nanoseconds on macos: clock_gettime_nsec_np "
+            "failed\n");
     }
     return now;
 }
