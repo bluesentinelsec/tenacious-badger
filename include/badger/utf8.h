@@ -4,10 +4,13 @@
  * No allocation, locale, normalization, or replacement characters. Embedded
  * NUL and noncharacters are valid scalars. Surrogates and values above U+10FFFF
  * are invalid. Counts are code points, not grapheme clusters or display cells.
- * All functions are thread-safe when callers synchronize access to buffers.
  * Inputs are borrowed for the call; no pointers are retained. Source and
  * destination ranges must not overlap. NULL is allowed for an empty input.
  * Required output pointers are non-null; violations assert in Debug.
+ *
+ * @par Threading
+ * Thread-safe: no function keeps state. The caller ensures that an input is
+ * not changed and a destination is not used by another thread during a call.
  */
 #ifndef TB_UTF8_H
 #define TB_UTF8_H

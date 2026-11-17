@@ -1,9 +1,14 @@
 /** @file fs.h
  * @brief Allocator-aware whole-file helpers over the native file interface.
  *
- * Thread-safe for distinct outputs and thread-safe allocators. No filesystem
- * snapshot or containment is implied. Handles and temporary objects are owned
- * only during a call. Runtime errors are returned, including allocation failure.
+ * No filesystem snapshot or containment is implied. Handles and temporary
+ * objects are owned only during a call. Runtime errors are returned, including
+ * allocation failure.
+ *
+ * @par Threading
+ * Thread-safe, when each call has an output of its own and the allocator it
+ * is given is thread-safe. Two calls that write the same path at the same
+ * time each succeed or fail as a whole, in an order the file system chooses.
  */
 #ifndef TB_FS_H
 #define TB_FS_H
