@@ -195,6 +195,15 @@ atomic size can now be stored, exchanged, and compared-and-exchanged, which
 those queues need. `tb_jobs_for` runs the iterations of a loop on every
 thread, handing out ranges of them as threads become free.
 
+`badger/thread.h` gains three things. A semaphore, `tb_semaphore`, counts
+signals and remembers one that nobody was waiting for; like a mutex it is
+ready when zeroed and is never destroyed. `tb_thread_local` is a place where
+each thread keeps a value of its own, made at run time, with a function that
+is given a thread's value as the thread ends. And `tb_thread_relax` and
+`tb_thread_yield` are for loops that wait: the job scheduler now calls the
+first while it looks for work, which made submitting a job and waiting for it
+about a sixth faster.
+
 A table of atoms can be shared between threads.
 `tb_atom_table_create_shared` makes one that synchronizes itself: equal bytes
 give the same pointer whichever threads intern them. A name that is already

@@ -379,3 +379,75 @@ void tb_condition_wake_all(tb_condition *condition)
     TB_ASSERT(condition != NULL);
     WakeAllConditionVariable(tb_win32_condition(condition));
 }
+
+/* ---------------------------------------------------------------------------
+ * Values that each thread has for itself.
+ *
+ * These are fiber-local storage, not thread-local: only that kind calls a
+ * function with a thread's value as the thread ends. A thread that is not
+ * made into fibers is one fiber, and the two kinds are then the same.
+ * ------------------------------------------------------------------------- */
+
+/* A key is kept as its index and one, so that zero means there is none. */
+static DWORD tb_win32_local_index(const tb_thread_local *local)
+{
+    return (DWORD)(local->key - 1);
+}
+
+void tb_thread_local_create(tb_thread_local *local, tb_thread_local_destructor *destructor)
+{
+    DWORD index = 0;
+
+    TB_ASSERT(local != NULL);
+    TB_ASSERT_MSG(local->key == 0, "the place for thread-local values is already created");
+    index = FlsAlloc(destructor);
+    /* coverage-off: the system gives a process thousands of these, and no test takes them all */
+    if (index == FLS_OUT_OF_INDEXES)
+    {
+        tb_win32_thread_fail("platform.thread: tb_thread_local_create on win32: FlsAlloc failed\n");
+    }
+    /* coverage-on */
+    local->key = (uintptr_t)index + 1;
+}
+
+void tb_thread_local_destroy(tb_thread_local *local)
+{
+    TB_ASSERT(local != NULL);
+    TB_ASSERT_MSG(local->key != 0, "the place for thread-local values is not created");
+    (void)FlsFree(tb_win32_local_index(local));
+    local->key = 0;
+}
+
+void *tb_thread_local_get(const tb_thread_local *local)
+{
+    TB_ASSERT(local != NULL);
+    TB_ASSERT_MSG(local->key != 0, "the place for thread-local values is not created");
+    return FlsGetValue(tb_win32_local_index(local));
+}
+
+void tb_thread_local_set(const tb_thread_local *local, void *value)
+{
+    TB_ASSERT(local != NULL);
+    TB_ASSERT_MSG(local->key != 0, "the place for thread-local values is not created");
+    /* coverage-off: setting a value fails only when the system is out of memory */
+    if (!FlsSetValue(tb_win32_local_index(local), value))
+    {
+        tb_win32_thread_fail("platform.thread: tb_thread_local_set on win32: FlsSetValue failed\n");
+    }
+    /* coverage-on */
+}
+
+/* ---------------------------------------------------------------------------
+ * Waiting without sleeping.
+ * ------------------------------------------------------------------------- */
+
+void tb_thread_relax(void)
+{
+    /* The pause instruction on x64, and the yield instruction on ARM64. */
+    YieldProcessor();
+}
+
+void tb_thread_yield(void)
+{
+    (void)SwitchToThread();
+}

@@ -451,3 +451,80 @@ void tb_condition_wake_all(tb_condition *condition)
                              "pthread_cond_broadcast failed\n");
     }
 }
+
+/* ---------------------------------------------------------------------------
+ * Values that each thread has for itself.
+ * ------------------------------------------------------------------------- */
+
+TB_STATIC_ASSERT(sizeof(pthread_key_t) <= sizeof(uintptr_t),
+                 "a pthread_key_t fits in tb_thread_local");
+
+/* A key is kept as its number and one, so that zero means there is none. */
+static pthread_key_t tb_posix_local_key(const tb_thread_local *local)
+{
+    return (pthread_key_t)(local->key - 1);
+}
+
+void tb_thread_local_create(tb_thread_local *local, tb_thread_local_destructor *destructor)
+{
+    pthread_key_t key = {0};
+
+    TB_ASSERT(local != NULL);
+    TB_ASSERT_MSG(local->key == 0, "the place for thread-local values is already created");
+    /* coverage-off: the system gives a process hundreds of these, and no test takes them all */
+    if (pthread_key_create(&key, destructor) != 0)
+    {
+        tb_posix_thread_fail("platform.thread: tb_thread_local_create: pthread_key_create "
+                             "failed\n");
+    }
+    /* coverage-on */
+    local->key = (uintptr_t)key + 1;
+}
+
+void tb_thread_local_destroy(tb_thread_local *local)
+{
+    TB_ASSERT(local != NULL);
+    TB_ASSERT_MSG(local->key != 0, "the place for thread-local values is not created");
+    (void)pthread_key_delete(tb_posix_local_key(local));
+    local->key = 0;
+}
+
+void *tb_thread_local_get(const tb_thread_local *local)
+{
+    TB_ASSERT(local != NULL);
+    TB_ASSERT_MSG(local->key != 0, "the place for thread-local values is not created");
+    return pthread_getspecific(tb_posix_local_key(local));
+}
+
+void tb_thread_local_set(const tb_thread_local *local, void *value)
+{
+    TB_ASSERT(local != NULL);
+    TB_ASSERT_MSG(local->key != 0, "the place for thread-local values is not created");
+    /* coverage-off: setting a value fails only when the system is out of memory */
+    if (pthread_setspecific(tb_posix_local_key(local), value) != 0)
+    {
+        tb_posix_thread_fail("platform.thread: tb_thread_local_set: pthread_setspecific "
+                             "failed\n");
+    }
+    /* coverage-on */
+}
+
+/* ---------------------------------------------------------------------------
+ * Waiting without sleeping.
+ * ------------------------------------------------------------------------- */
+
+void tb_thread_relax(void)
+{
+    /* The instruction that each processor has for a loop that waits. On a
+     * processor that is neither, a loop waits without one. */
+#if defined(__x86_64__) || defined(__i386__)
+    __builtin_ia32_pause();
+#elif defined(__aarch64__) || defined(__arm__)
+    __asm__ __volatile__("yield");
+#endif
+}
+
+void tb_thread_yield(void)
+{
+    (void)sched_yield();
+}

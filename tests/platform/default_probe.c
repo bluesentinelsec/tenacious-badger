@@ -220,6 +220,72 @@ TB_TEST(platform_default, tb_condition_wake_all)
     tb_condition_wake_all(&condition);
 }
 
+TB_TEST(platform_default, tb_semaphore_signal)
+{
+    tb_semaphore semaphore = {0};
+
+    tb_semaphore_signal(&semaphore, 1);
+}
+
+TB_TEST(platform_default, tb_semaphore_wait)
+{
+    tb_semaphore semaphore = {0};
+
+    tb_semaphore_wait(&semaphore);
+}
+
+TB_TEST(platform_default, tb_semaphore_try_wait)
+{
+    tb_semaphore semaphore = {0};
+
+    (void)tb_semaphore_try_wait(&semaphore);
+}
+
+TB_TEST(platform_default, tb_semaphore_wait_for)
+{
+    tb_semaphore semaphore = {0};
+
+    (void)tb_semaphore_wait_for(&semaphore, 0);
+}
+
+TB_TEST(platform_default, tb_thread_local_create)
+{
+    tb_thread_local local = {0};
+
+    tb_thread_local_create(&local, NULL);
+}
+
+TB_TEST(platform_default, tb_thread_local_destroy)
+{
+    tb_thread_local local = {0};
+
+    tb_thread_local_destroy(&local);
+}
+
+TB_TEST(platform_default, tb_thread_local_get)
+{
+    tb_thread_local local = {0};
+
+    (void)tb_thread_local_get(&local);
+}
+
+TB_TEST(platform_default, tb_thread_local_set)
+{
+    tb_thread_local local = {0};
+
+    tb_thread_local_set(&local, NULL);
+}
+
+TB_TEST(platform_default, tb_thread_relax)
+{
+    tb_thread_relax();
+}
+
+TB_TEST(platform_default, tb_thread_yield)
+{
+    tb_thread_yield();
+}
+
 #include "badger/file.h"
 
 TB_TEST(platform_default, tb_file_open)

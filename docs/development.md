@@ -20,7 +20,7 @@ The foundation layer so far, one public header per module under
 | `array.h`, `bit.h`, `ring.h`, `list.h`, `table.h`, `set.h` | [Collections](collections.md): a dynamic array, a bit vector, a ring, an intrusive list, a hash table, and a set |
 | `str.h`, `text.h`, `fmt.h`, `atom.h`, `hash.h` | [Strings](strings.md): C strings, text values, formatted output, atoms, and hash functions |
 | `platform.h` | [Native platform interfaces](platforms.md): the clock, abort, and atomic values |
-| `thread.h` | [Threads, mutexes, and condition variables](platforms.md#threads-mutexes-and-condition-variables) |
+| `thread.h` | [Threads, mutexes, condition variables, semaphores, and thread-local values](platforms.md#threads-mutexes-and-condition-variables) |
 | `system.h` | [The processors the process may run on](platforms.md#processors) |
 | `jobs.h` | [The job system](jobs.md): worker threads, jobs with dependencies and priorities, and loops that run on every thread |
 | `memory_debug.h` | [Memory functions that check how memory is used](memory.md) |
