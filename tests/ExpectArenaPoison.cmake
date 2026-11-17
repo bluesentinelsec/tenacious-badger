@@ -14,6 +14,8 @@ foreach(name IN ITEMS
         read_after_reset
         write_after_rewind
         read_after_reset_of_a_fixed_arena
+        read_after_reset_of_a_reserved_arena
+        write_after_rewind_of_a_reserved_arena
         write_past_the_last_object)
     run_probe_case(${name})
     if(NOT output MATCHES "before-invalid-access")

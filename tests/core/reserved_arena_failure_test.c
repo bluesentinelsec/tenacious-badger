@@ -1,0 +1,151 @@
+#include "core/arena_internal.h"
+#include "tb_test.h"
+#include <string.h>
+
+static size_t commit_calls = {0};
+static size_t fail_commit = {0};
+static size_t live_reservations = {0};
+static bool refuse_reservation = {0};
+static bool refuse_decommit = {0};
+static tb_vm_result reserve_memory(size_t size, tb_vm_region *region)
+{
+    tb_vm_result result = {0};
+    if (refuse_reservation)
+    {
+        return TB_VM_NO_MEMORY;
+    }
+    result = tb_vm_reserve(size, region);
+    if (result == TB_VM_OK)
+    {
+        live_reservations++;
+    }
+    return result;
+}
+static tb_vm_result commit_memory(tb_vm_region *region, size_t offset, size_t size)
+{
+    commit_calls++;
+    if (commit_calls == fail_commit)
+    {
+        return TB_VM_NO_MEMORY;
+    }
+    return tb_vm_commit(region, offset, size);
+}
+static tb_vm_result decommit_memory(tb_vm_region *region, size_t offset, size_t size)
+{
+    if (refuse_decommit)
+    {
+        return TB_VM_OS_ERROR;
+    }
+    return tb_vm_decommit(region, offset, size);
+}
+static tb_vm_result release_memory(tb_vm_region *region)
+{
+    tb_vm_result result = {0};
+    result = tb_vm_release(region);
+    if (result == TB_VM_OK)
+    {
+        live_reservations--;
+    }
+    return result;
+}
+static const tb_arena_vm_operations operations = {reserve_memory, commit_memory, decommit_memory,
+                                                  release_memory};
+TB_TEST(core_reserved_arena_failure, failed_commit_preserves_every_object_mark_and_account)
+{
+    tb_vm_info info = {0};
+    info = tb_vm_get_info();
+    refuse_decommit = false;
+    refuse_reservation = false;
+    for (size_t failure = {0}; failure < 12; failure++)
+    {
+        tb_arena *arena = NULL;
+        unsigned char *objects[12] = {0};
+        size_t count = {0};
+        commit_calls = 0;
+        fail_commit = failure + 1;
+        arena = tb_arena_try_create_reserved_with_operations(info.page_size * 32, &operations);
+        if (arena == NULL)
+        {
+            TB_TEST_EXPECT_UINT(failure, ==, 0);
+            TB_TEST_EXPECT_UINT(live_reservations, ==, 0);
+            continue;
+        }
+        for (size_t attempt = {0}; attempt < 12; attempt++)
+        {
+            size_t before = {0};
+            size_t committed = {0};
+            tb_arena_mark mark = {0};
+            unsigned char *memory = NULL;
+            before = tb_arena_remaining(arena);
+            committed = tb_arena_committed_size(arena);
+            mark = tb_arena_get_mark(arena);
+            memory = tb_arena_try_alloc(arena, info.page_size, 1);
+            if (memory == NULL)
+            {
+                tb_arena_mark after = {0};
+                after = tb_arena_get_mark(arena);
+                TB_TEST_EXPECT_UINT(tb_arena_remaining(arena), ==, before);
+                TB_TEST_EXPECT_UINT(tb_arena_committed_size(arena), ==, committed);
+                TB_TEST_EXPECT_POINTER(after.chunk, ==, mark.chunk);
+                TB_TEST_EXPECT_POINTER(after.cursor, ==, mark.cursor);
+                for (size_t previous = {0}; previous < count; previous++)
+                {
+                    TB_TEST_EXPECT_UINT(objects[previous][info.page_size - 1], ==, previous + 1);
+                }
+                fail_commit = 0;
+                memory = tb_arena_try_alloc(arena, info.page_size, 1);
+                TB_TEST_REQUIRE_POINTER(memory, !=, NULL);
+                memset(memory, 42, info.page_size);
+                break;
+            }
+            objects[count] = memory;
+            count++;
+            memset(memory, (int)count, info.page_size);
+        }
+        tb_arena_destroy(arena);
+        TB_TEST_EXPECT_UINT(live_reservations, ==, 0);
+    }
+    refuse_reservation = true;
+    TB_TEST_EXPECT_POINTER(tb_arena_try_create_reserved_with_operations(4096, &operations), ==,
+                           NULL);
+    TB_TEST_EXPECT_UINT(live_reservations, ==, 0);
+    refuse_reservation = false;
+}
+TB_TEST(core_reserved_arena_failure, allocator_growth_failure_and_trim_failure_leave_usable_memory)
+{
+    tb_arena *arena = NULL;
+    tb_vm_info info = {0};
+    tb_allocator allocator = {0};
+    unsigned char *bytes = NULL;
+    size_t committed = {0};
+    info = tb_vm_get_info();
+    commit_calls = 0;
+    fail_commit = 0;
+    refuse_decommit = false;
+    arena = tb_arena_try_create_reserved_with_operations(info.page_size * 32, &operations);
+    TB_TEST_REQUIRE_POINTER(arena, !=, NULL);
+    allocator = tb_arena_allocator(arena);
+    bytes = tb_allocator_alloc(&allocator, 100, 1);
+    memset(bytes, 42, 100);
+    committed = tb_arena_committed_size(arena);
+    fail_commit = commit_calls + 1;
+    TB_TEST_EXPECT_POINTER(tb_allocator_try_realloc(&allocator, bytes, 100, info.page_size * 4, 1),
+                           ==, NULL);
+    TB_TEST_EXPECT_UINT(bytes[99], ==, 42);
+    TB_TEST_EXPECT_UINT(tb_arena_committed_size(arena), ==, committed);
+    fail_commit = 0;
+    TB_TEST_EXPECT_POINTER(tb_allocator_try_realloc(&allocator, bytes, 100, info.page_size * 4, 1),
+                           ==, bytes);
+    committed = tb_arena_committed_size(arena);
+    tb_arena_set_commit_retention(arena, 0);
+    refuse_decommit = true;
+    tb_arena_reset(arena);
+    TB_TEST_EXPECT_UINT(tb_arena_committed_size(arena), ==, committed);
+    bytes = tb_arena_alloc(arena, info.page_size * 4, 1);
+    memset(bytes, 12, info.page_size * 4);
+    refuse_decommit = false;
+    tb_arena_reset(arena);
+    TB_TEST_EXPECT_UINT(tb_arena_committed_size(arena), ==, info.page_size);
+    tb_arena_destroy(arena);
+    TB_TEST_EXPECT_UINT(live_reservations, ==, 0);
+}

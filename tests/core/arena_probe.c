@@ -78,11 +78,35 @@ TB_TEST(arena_probe, write_past_the_last_object)
     tb_arena_destroy(arena);
 }
 
+TB_TEST(arena_probe, read_after_reset_of_a_reserved_arena)
+{
+    tb_arena *const arena = tb_arena_create_reserved(0);
+    unsigned char *const object = tb_arena_alloc(arena, PROBE_OBJECT_SIZE, 8);
+    object[0] = 7;
+    tb_arena_reset(arena);
+    announce_access();
+    (void)tb_fmt_print("after-invalid-access: read %d\n", object[0]);
+    tb_arena_destroy(arena);
+}
+
+TB_TEST(arena_probe, write_after_rewind_of_a_reserved_arena)
+{
+    tb_arena *const arena = tb_arena_create_reserved(0);
+    const tb_arena_mark mark = tb_arena_get_mark(arena);
+    unsigned char *const object = tb_arena_alloc(arena, PROBE_OBJECT_SIZE, 8);
+    tb_arena_rewind(arena, mark);
+    announce_access();
+    object[0] = 7;
+    (void)tb_fmt_print("after-invalid-access\n");
+    tb_arena_destroy(arena);
+}
+
 TB_TEST(arena_probe, valid_use_is_not_reported)
 {
     static unsigned char buffer[PROBE_CHUNK_SIZE];
     tb_arena *const arenas[] = {tb_arena_create(PROBE_CHUNK_SIZE),
-                                tb_arena_create_fixed(buffer, sizeof(buffer))};
+                                tb_arena_create_fixed(buffer, sizeof(buffer)),
+                                tb_arena_create_reserved(0)};
 
     /* The same steps as the cases above, touching only what is in use. A
      * report here would mean the arena poisons memory it has handed out. */

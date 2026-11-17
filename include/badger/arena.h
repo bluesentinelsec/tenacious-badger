@@ -22,9 +22,11 @@
  * it releases, so an object that owns something else (a file, a block from
  * tb_malloc()) must have that released first.
  *
- * **Two kinds.** A growing arena takes chunks from the engine's allocation
+ * **Three kinds.** A growing arena takes chunks from the engine's allocation
  * functions as it fills (tb_arena_create()). A fixed arena lives entirely in a
  * buffer the caller supplies and never allocates (tb_arena_create_fixed()).
+ * A reserved arena commits pages within one stable address range
+ * (tb_arena_create_reserved()); reset trims committed pages to its retention limit.
  *
  * **Whose memory.** A growing arena takes each chunk with one call to the
  * memory functions installed by tb_memory_set_functions(), and returns it with
@@ -79,6 +81,47 @@ typedef struct tb_arena tb_arena;
  * leave the bytes as they were.
  */
 #define TB_ARENA_FILL_BYTE 0xDD
+
+/** @brief Default contiguous reservation, including bookkeeping but excluding guard page. */
+#define TB_ARENA_DEFAULT_RESERVE_SIZE ((size_t)64 * 1024 * 1024)
+/** @brief Default maximum committed bytes retained by a reserved arena after reset. */
+#define TB_ARENA_DEFAULT_COMMIT_RETENTION ((size_t)64 * 1024)
+
+/** @brief Reserve a contiguous arena and commit pages only as needed.
+ * @param reserve_size Bytes including bookkeeping, rounded up to pages; zero
+ * selects TB_ARENA_DEFAULT_RESERVE_SIZE. A further inaccessible guard page is
+ * always reserved after the usable range. Sizes below the minimum are raised.
+ * @return Owned arena for tb_arena_destroy; never NULL. Allocation/commit
+ * exhaustion fails fast. Objects remain at stable addresses until reset,
+ * rewind or destruction. Reservation and commitment are accounted separately
+ * from tb_memory_allocation_count; they do not call the heap allocator.
+ * @par Threading Externally synchronized, like other arenas.
+ */
+TB_API tb_arena *tb_arena_create_reserved(size_t reserve_size);
+/** @brief Fallible form of tb_arena_create_reserved.
+ * @param reserve_size Reservation size as above.
+ * @return Owned arena or NULL on native reserve/commit failure or size overflow;
+ * partial reservations are released. Externally synchronized after creation.
+ */
+TB_API tb_arena *tb_arena_try_create_reserved(size_t reserve_size);
+/** @brief Set the committed-byte retention limit for the next reset.
+ * @param arena Required reserved arena; another arena kind is a contract error.
+ * @param bytes Whole reservation bytes to retain, rounded up to a page and
+ * clamped to the usable reservation. Zero retains the bookkeeping page only.
+ * Reset trims pages above this limit; rewind retains pages for cheap reuse.
+ * Trim is best effort; a failed decommit is recommitted before reuse. Failure
+ * to restore access is fatal. No mapping changes occur in this setter.
+ * @par Threading Externally synchronized.
+ */
+TB_API void tb_arena_set_commit_retention(tb_arena *arena, size_t bytes);
+/** @brief Return reserved virtual bytes including bookkeeping and the guard page.
+ * @param arena Required arena. @return Zero for fixed/chunked arenas.
+ * @par Threading Externally synchronized. */
+TB_API size_t tb_arena_reserved_size(const tb_arena *arena);
+/** @brief Return committed bytes including bookkeeping, excluding the guard page.
+ * @param arena Required arena. @return Zero for fixed/chunked arenas.
+ * @par Threading Externally synchronized. */
+TB_API size_t tb_arena_committed_size(const tb_arena *arena);
 
 /* -------------------------------------------------------------------------
  * Creating and destroying.
@@ -325,6 +368,8 @@ TB_API tb_allocator tb_arena_allocator(tb_arena *arena);
  * For a fixed arena this is the size of the buffer less the arena's
  * bookkeeping. For a growing arena it rises as chunks are added and never
  * falls: resetting and rewinding keep the memory.
+ * A reserved arena reports its fixed virtual payload capacity, including
+ * pages not committed yet; use tb_arena_committed_size for committed bytes.
  *
  * @param arena Required non-null.
  */
@@ -337,6 +382,8 @@ TB_API size_t tb_arena_capacity(const tb_arena *arena);
  * arena it is everything that is left. For a growing arena a larger request
  * still succeeds, by moving to another chunk and leaving these bytes unused
  * until the next reset or rewind.
+ * For a reserved arena this includes uncommitted pages; allocation can fail
+ * if the operating system cannot commit them.
  *
  * @param arena Required non-null.
  */

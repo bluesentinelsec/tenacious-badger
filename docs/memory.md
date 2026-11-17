@@ -22,6 +22,8 @@ The API reference is the documented header
 | Release | `tb_free(memory)`, or `tb_aligned_free(memory)` for aligned blocks | |
 
 Objects that share a lifetime are better served by an [arena](#arenas).
+For stable addresses with on-demand commitment and reset trimming, see
+[reserved arenas](virtual-memory.md#reserved-arenas).
 
 ## Fail fast by default
 

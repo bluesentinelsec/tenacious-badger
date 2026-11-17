@@ -6,6 +6,7 @@ add_subdirectory(framework)
 set(TB_TEST_CASE_SOURCES
     core/allocator_test.c
     core/arena_test.c
+    core/reserved_arena_test.c
     core/array_test.c
     core/assert_test.c
     core/atom_test.c
@@ -63,6 +64,7 @@ target_compile_definitions(tb_memory_checked_tests PRIVATE TB_TEST_CHECK_MEMORY)
 # "jobs/deque.h".
 set(TB_INTERNAL_TEST_CASE_SOURCES
     core/fs_transaction_test.c
+    core/reserved_arena_failure_test.c
     jobs/deque_test.c)
 set(TB_ENGINE_SOURCES ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES} ${TB_JOBS_SOURCES})
 

@@ -1001,6 +1001,19 @@ TB_TEST(core_arena, random_operations_keep_every_object_intact_in_a_fixed_arena)
     tb_arena_destroy(arena);
 }
 
+TB_TEST(core_arena, random_operations_keep_every_object_intact_in_reserved_arenas)
+{
+    static const size_t reserves[] = {16384, 2 * 1024 * 1024};
+    for (size_t index = {0}; index < TB_TEST_COUNT_OF(reserves); index++)
+    {
+        tb_arena *arena = NULL;
+        arena = tb_arena_create_reserved(reserves[index]);
+        tb_arena_set_commit_retention(arena, 0);
+        run_model(arena, true, SMALL_CHUNK_SIZE);
+        tb_arena_destroy(arena);
+    }
+}
+
 /* --- fixed arenas ------------------------------------------------------------- */
 
 enum
