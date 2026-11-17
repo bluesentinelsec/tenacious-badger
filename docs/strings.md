@@ -44,8 +44,37 @@ Three things need care:
   search are always at a character boundary.
 - **Reversing and mapping are for ASCII.** They work byte by byte.
 
-Validating UTF-8, and counting or stepping through code points, is a separate
-module that is not here yet (#48).
+`badger/utf8.h` validates bounded ranges, counts Unicode scalars, and navigates
+byte offsets. `tb_utf8_decode` returns a scalar and the next offset;
+`tb_utf8_previous` walks back from a boundary; `tb_utf8_boundary` finds a safe
+cut at or before an arbitrary byte offset. Code points are not grapheme
+clusters or display widths.
+
+The module follows [RFC 3629](https://www.rfc-editor.org/rfc/rfc3629) and the
+[Unicode encoding forms](https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-3/#G7404).
+It rejects overlong forms, surrogate code points, values above U+10FFFF, and
+truncated sequences. It does not silently substitute replacement characters.
+Embedded NULs, noncharacters, and a BOM are ordinary scalars. Validation reports
+the byte offset where the first ill-formed sequence starts.
+
+All operations use caller-owned ranges and allocate nothing. Decode and
+navigation outputs stay unchanged on failure. Encoding writes nothing when
+the scalar is invalid or the output is too short. Navigation checks only the
+traversed text; call `tb_utf8_validate` to check a complete range first.
+
+`tb_utf8_to_utf16` and `tb_utf8_from_utf16` convert whole ranges, including
+embedded NULs, without adding a terminator. Pass NULL and zero output capacity
+to measure. For valid input the output length is the required capacity, even
+if a supplied buffer is too small. Invalid input sets that length to zero.
+Both conversions validate and measure before writing, so errors leave the
+buffer untouched. UTF-16 units are native-endian `uint16_t`, not `wchar_t`;
+unpaired surrogates are errors. The platform boundary chooses whether to
+include a terminating NUL in the input range.
+
+The tests round-trip every Unicode scalar through both encodings, check known
+boundary encodings, compare random bytes with an independent byte grammar,
+and exercise malformed input, navigation, and every short output capacity.
+No external code or test corpus is bundled.
 
 ## C strings
 

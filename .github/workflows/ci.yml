@@ -126,7 +126,7 @@ jobs:
         run: python3 tools/check_foundation.py
 
   memory-coverage:
-    name: Checking allocator coverage
+    name: Foundation coverage
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
@@ -140,20 +140,23 @@ jobs:
           -DCMAKE_SHARED_LINKER_FLAGS=--coverage -DCMAKE_EXE_LINKER_FLAGS=--coverage
           -DTB_BUILD_BURROW=OFF -DTB_BUILD_BENCHMARKS=OFF
       - run: cmake --build build/coverage --target tb_tests tb_probe tb_memory_checked_tests --parallel
-      - run: ctest --test-dir build/coverage -R core_memory --output-on-failure --timeout 60
-      - name: Require 80 percent line coverage of the checking allocator
+      - run: ctest --test-dir build/coverage -R core_ --output-on-failure --timeout 60
+      - name: Require 80 percent line coverage of the checked foundation modules
         run: |
-          gcov --json-format build/coverage/src/CMakeFiles/badger.dir/core/memory_debug.c.gcno
+          for module in memory_debug utf8; do
+            gcov --json-format "build/coverage/src/CMakeFiles/badger.dir/core/${module}.c.gcno"
+          done
           python3 - <<'PY'
           import gzip
           import json
-          with gzip.open("memory_debug.c.gcov.json.gz", "rt") as report:
-              data = json.load(report)
-          lines = [line for source in data["files"]
-                   if source["file"].endswith("src/core/memory_debug.c")
-                   for line in source["lines"]]
-          covered = sum(line["count"] > 0 for line in lines)
-          assert lines, "gcov did not report memory_debug.c"
-          print(f"Checking allocator: {covered}/{len(lines)} lines ({covered / len(lines):.1%})")
-          assert covered / len(lines) >= 0.8, "checking allocator coverage is below 80%"
+          for module in ["memory_debug", "utf8"]:
+              with gzip.open(f"{module}.c.gcov.json.gz", "rt") as report:
+                  data = json.load(report)
+              lines = [line for source in data["files"]
+                       if source["file"].endswith(f"src/core/{module}.c")
+                       for line in source["lines"]]
+              covered = sum(line["count"] > 0 for line in lines)
+              assert lines, f"gcov did not report {module}"
+              print(f"{module}: {covered}/{len(lines)} lines ({covered / len(lines):.1%})")
+              assert covered / len(lines) >= 0.8, f"{module} coverage is below 80%"
           PY

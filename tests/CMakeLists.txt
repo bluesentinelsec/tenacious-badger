@@ -22,6 +22,7 @@ set(TB_TEST_CASE_SOURCES
     core/sum_test.c
     core/table_test.c
     core/text_test.c
+    core/utf8_test.c
     jobs/jobs_test.c
     jobs/loop_test.c
     framework/selftest/checks_test.c
