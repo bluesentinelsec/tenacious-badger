@@ -548,39 +548,48 @@ TB_TEST(jobs, a_job_with_no_function_finishes_when_its_dependencies_have)
 
 /* A finished job's slot is given to a later job. A handle to the finished
  * one must go on meaning that job, which has finished, and never the job
- * that has its slot now. */
+ * that has its slot now.
+ *
+ * The one worker is held at a gate, so the case runs the first job itself by
+ * waiting for it, and its slot goes back where the next job that the case
+ * submits will take it from. That job waits for the gate too, so it has the
+ * slot for as long as the case needs. */
 TB_TEST(jobs, a_handle_to_a_finished_job_is_not_a_handle_to_the_job_in_its_slot)
 {
     tb_jobs *const jobs = create_with_workers(1);
     gate barrier = {0};
-    tb_platform_atomic_size count = {0};
+    tb_platform_atomic_size later_count = {0};
+    tb_platform_atomic_size dependent_count = {0};
+    const tb_job held = tb_jobs_run(jobs, wait_at_the_gate, &barrier);
+    const bool has_arrived = have_arrived(&barrier, 1);
     const tb_job early = tb_jobs_run(jobs, do_nothing, NULL);
-    tb_job held = {0};
     tb_job_description description = {
-        .function = count_one, .argument = &count, .dependency_count = 1};
-    bool has_arrived = false;
+        .function = count_one, .argument = &later_count, .dependency_count = 1};
+    tb_job later = {0};
 
-    /* Until nothing is unfinished, which is when the slot has been given
-     * back; the job itself is finished a moment sooner. */
-    tb_jobs_wait_for_all(jobs);
-    /* The only free slot is the one that `early` had. */
-    held = tb_jobs_run(jobs, wait_at_the_gate, &barrier);
-    has_arrived = have_arrived(&barrier, 1);
-    TB_TEST_EXPECT_UINT(held.slot, ==, early.slot);
-    TB_TEST_EXPECT_UINT(held.generation, !=, early.generation);
-    TB_TEST_EXPECT(tb_jobs_is_finished(jobs, early));
-    TB_TEST_EXPECT(!tb_jobs_is_finished(jobs, held));
-    /* Returns at once, though the job in the slot is stopped at the gate. */
     tb_jobs_wait(jobs, early);
-    /* A job that depends on the finished one is ready, though the worker is
-     * busy with the job in the slot: the case runs it by waiting for it. */
+    description.dependencies = &held;
+    later = tb_jobs_submit(jobs, &description);
+    TB_TEST_EXPECT_UINT(later.slot, ==, early.slot);
+    TB_TEST_EXPECT_UINT(later.generation, !=, early.generation);
+    TB_TEST_EXPECT(tb_jobs_is_finished(jobs, early));
+    TB_TEST_EXPECT(!tb_jobs_is_finished(jobs, later));
+    /* Returns at once, though the job in the slot cannot run yet. */
+    tb_jobs_wait(jobs, early);
+    TB_TEST_EXPECT(!tb_jobs_is_finished(jobs, later));
+    /* A job that depends on the finished one is ready, and does not wait
+     * for the job in the slot: the case runs it by waiting for it. */
+    description.argument = &dependent_count;
     description.dependencies = &early;
     tb_jobs_wait(jobs, tb_jobs_submit(jobs, &description));
-    TB_TEST_EXPECT_UINT(tb_platform_atomic_size_load(&count), ==, 1);
-    TB_TEST_EXPECT(!tb_jobs_is_finished(jobs, held));
+    TB_TEST_EXPECT_UINT(tb_platform_atomic_size_load(&dependent_count), ==, 1);
+    TB_TEST_EXPECT_UINT(tb_platform_atomic_size_load(&later_count), ==, 0);
+    TB_TEST_EXPECT(!tb_jobs_is_finished(jobs, later));
+
     open_the_gate(&barrier);
-    tb_jobs_wait(jobs, held);
+    tb_jobs_wait(jobs, later);
     TB_TEST_REQUIRE(has_arrived);
+    TB_TEST_EXPECT_UINT(tb_platform_atomic_size_load(&later_count), ==, 1);
     tb_jobs_destroy(jobs);
 }
 
