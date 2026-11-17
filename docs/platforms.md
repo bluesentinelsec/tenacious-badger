@@ -2,8 +2,8 @@
 
 The binding architecture is in [AGENTS.md](../AGENTS.md). The existing
 [vision.md](vision.md) is an earlier draft. Only the clock,
-abnormal-termination, atomic-value, and thread interfaces exist so far; the
-other platform services and rendering backends are still planned. No renderer, window, vendor SDK, or game loop is implemented.
+abnormal-termination, atomic-value, thread, and processor-count interfaces
+exist so far; the other platform services and rendering backends are still planned. No renderer, window, vendor SDK, or game loop is implemented.
 
 Every interface is implemented on Windows, Linux, and macOS.
 [Any other platform](#unsupported-platforms) stops the build, and reports
@@ -206,6 +206,76 @@ build without assertions.
 
 On Linux the thread functions must be part of the C library, as they are from
 glibc 2.34 on; the build links no separate thread library.
+
+## Processors
+
+Public declaration: `include/badger/system.h`,
+`tb_system_get_processors(tb_system_processors *)`. It counts the processors
+that the process may run on, which is what a pool of worker threads is sized
+from.
+
+| Field | Counts |
+| --- | --- |
+| `logical_count` | Logical processors: what the system schedules a thread on. |
+| `core_count` | Cores that have at least one of them. A core may present two logical processors. |
+| `performance_core_count` | Cores of the fastest kind, on a machine that has several kinds. |
+
+```c
+tb_system_processors processors = {0};
+
+tb_system_get_processors(&processors);
+```
+
+| Machine | `logical_count` | `core_count` | `performance_core_count` |
+| --- | --- | --- | --- |
+| The development laptop: 8 fast cores of two threads, 16 efficient cores | 32 | 24 | 8 |
+| A Steam Deck: 4 cores of two threads | 8 | 4 | 4 |
+| An Apple M1 Max: 8 fast cores, 2 efficient | 10 | 10 | 8 |
+
+**The counts are of what the process may use.** A process that the system
+confines to some processors counts only those, and a core counts when at
+least one of its logical processors is allowed. When none of the fast cores
+is allowed, the cores that are allowed are the fastest the process has, and
+all of them are performance cores.
+
+**Every count is at least one**, and
+`performance_core_count <= core_count <= logical_count`. Where the system
+does not say which logical processors share a core, each is a core. Where it
+does not say which cores are fast, all of them are.
+
+**A limit on processor time is not counted.** A container given half the time
+of four processors has four.
+
+**The system is asked on every call**, because a processor can be taken
+offline and a process can be confined while it runs. Read the counts once
+where they are needed.
+
+| Platform | Selected implementation | Which processors | Cores and their kinds |
+| --- | --- | --- | --- |
+| Windows | `src/platform/win32/system.c` | The process's affinity mask | `GetLogicalProcessorInformationEx`: one record for each core, with its efficiency class |
+| Linux / Steam Deck | `src/platform/linux/system.c`, `processors.c` | `sched_getaffinity` of the process's first thread | The kernel's files under `/sys/devices/system/cpu`: `thread_siblings_list` for cores, then `/sys/devices/cpu_core/cpus` or `cpu_capacity` for the fast ones |
+| macOS | `src/platform/macos/system.c` | Every available one; macOS confines no process | `sysctl`: `hw.logicalcpu`, `hw.physicalcpu`, `hw.perflevel0.physicalcpu` |
+
+Linux confines threads, not processes, so the first thread of the process
+stands for it: a limit set by a container or a launcher is its limit, and
+every thread starts with it. A thread that the engine pins later does not
+change the answer.
+
+On a Windows machine with more than 64 logical processors the system divides
+them into groups. A process confined to one group is counted within it; one
+that spans groups may run anywhere in them, and all are counted.
+
+On Linux a file that is missing or cannot be understood is something the
+system does not say, never an error: a container without `/sys` has cores of
+one kind. A machine with more than 1,024 logical processors is counted from
+the number that are online.
+
+The counting is apart from the calls that ask the system, on Windows and on
+Linux, and takes a description of a machine. The tests give it the
+development laptop, an Arm machine with three kinds of core, a virtual
+machine that says nothing, processes confined in several ways, and files that
+are malformed. A second test confines the real process, asks the real system,
+and gives the process back what it had.
 
 ## Unsupported platforms
 

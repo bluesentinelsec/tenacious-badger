@@ -94,8 +94,8 @@ endfunction()
 # engine, which keeps the adapters free of the modules above them and lets a
 # test call a function that is private to an adapter.
 set(TB_PLATFORM_TEST_SOURCES
-    platform/atomic_test.c platform/contract_test.c platform/thread_test.c
-    platform/time_test.c)
+    platform/atomic_test.c platform/contract_test.c platform/system_test.c
+    platform/thread_test.c platform/time_test.c)
 # An adapter reports a broken contract through tb_assert_fail(), which the
 # core defines. Executables built from an adapter alone get it from here, as
 # a trap of the test framework.
@@ -103,8 +103,13 @@ set(TB_PLATFORM_TEST_SUPPORT_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/support/platfo
 set(TB_PLATFORM_PRIVATE_DIRECTORY "")
 if(WIN32)
     list(APPEND TB_PLATFORM_TEST_SOURCES
-        platform/win32/counter_test.c platform/win32/thread_wait_test.c)
+        platform/win32/affinity_test.c platform/win32/counter_test.c
+        platform/win32/processors_test.c platform/win32/thread_wait_test.c)
     set(TB_PLATFORM_PRIVATE_DIRECTORY "${PROJECT_SOURCE_DIR}/src/platform/win32")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    list(APPEND TB_PLATFORM_TEST_SOURCES
+        platform/linux/affinity_test.c platform/linux/processors_test.c)
+    set(TB_PLATFORM_PRIVATE_DIRECTORY "${PROJECT_SOURCE_DIR}/src/platform/linux")
 endif()
 
 # The arguments go to tb_add_test_executable.
@@ -132,6 +137,7 @@ tb_configure_target(tb_platform_default_probe)
 tb_make_standalone(tb_platform_default_probe)
 set(TB_PLATFORM_INTERFACE_HEADERS
     "${PROJECT_SOURCE_DIR}/include/badger/platform.h"
+    "${PROJECT_SOURCE_DIR}/include/badger/system.h"
     "${PROJECT_SOURCE_DIR}/include/badger/thread.h")
 list(JOIN TB_PLATFORM_INTERFACE_HEADERS "," tb_platform_interface_headers)
 add_test(NAME platform_default.every_function_reports_not_implemented
