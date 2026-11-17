@@ -222,3 +222,7 @@ Browser, Android, and iOS exports are planned for later milestones.
 
 Bounded UTF-8 validation, scalar navigation, and strict UTF-16 conversion are
 available through `badger/utf8.h`, without allocation or locale dependencies.
+
+Pure UTF-8 path manipulation in `badger/path.h` supports Windows and POSIX
+syntax on every host, bounded and owned results, and lexical containment for
+rooted joins. See [path contracts](paths.md) before using it with external names.
