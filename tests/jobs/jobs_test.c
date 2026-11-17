@@ -13,6 +13,7 @@
 #include "badger/assert.h"
 #include "badger/memory.h"
 #include "badger/platform.h"
+#include "badger/system.h"
 #include "badger/thread.h"
 
 #include "tb_test.h"
@@ -20,6 +21,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#define NANOSECONDS_PER_MICROSECOND UINT64_C(1000)
+#define NANOSECONDS_PER_MILLISECOND UINT64_C(1000000)
 #define NANOSECONDS_PER_SECOND UINT64_C(1000000000)
 
 /* Longest that a case waits for something that must happen. No machine is so
@@ -78,6 +81,28 @@ static bool finishes_without_help(tb_jobs *jobs, tb_job job)
         }
     }
     return true;
+}
+
+/* Keeps the calling thread busy for a length of time, without sleeping. */
+static void pass_the_time(uint64_t nanoseconds)
+{
+    const uint64_t start = tb_platform_clock_nanoseconds();
+
+    while (tb_platform_clock_nanoseconds() - start < nanoseconds)
+    {
+    }
+}
+
+/* Longer than a thread goes on looking for a job before it sleeps, many
+ * times over: after this long with nothing to do, every worker is asleep. */
+#define LONG_ENOUGH_TO_FALL_ASLEEP (UINT64_C(5) * NANOSECONDS_PER_MILLISECOND)
+
+/* A job that takes long enough for a thread that waits for it to give up
+ * looking for other work and go to sleep. */
+static void take_a_long_time(void *argument)
+{
+    pass_the_time(LONG_ENOUGH_TO_FALL_ASLEEP);
+    (void)tb_platform_atomic_size_add(argument, 1);
 }
 
 /* A place where jobs stop until the case lets them go. */
@@ -144,14 +169,23 @@ TB_TEST(jobs, a_scheduler_starts_the_workers_it_was_asked_for)
     }
 }
 
-TB_TEST(jobs, a_scheduler_with_no_options_has_at_least_one_worker)
+TB_TEST(jobs, a_scheduler_with_no_options_has_a_worker_for_every_processor_but_one)
 {
     const tb_jobs_options nothing = {0};
     tb_jobs *const from_null = tb_jobs_create(NULL);
     tb_jobs *const from_zeros = tb_jobs_create(&nothing);
+    tb_system_processors processors = {0};
+    size_t expected = 1;
 
-    TB_TEST_EXPECT_UINT(tb_jobs_worker_count(from_null), >=, 1);
-    TB_TEST_EXPECT_UINT(tb_jobs_worker_count(from_zeros), ==, tb_jobs_worker_count(from_null));
+    /* One for each logical processor, less one for the thread that submits
+     * and waits, and never none. */
+    tb_system_get_processors(&processors);
+    if (processors.logical_count > 2)
+    {
+        expected = processors.logical_count - 1;
+    }
+    TB_TEST_EXPECT_UINT(tb_jobs_worker_count(from_null), ==, expected);
+    TB_TEST_EXPECT_UINT(tb_jobs_worker_count(from_zeros), ==, expected);
     tb_jobs_destroy(from_null);
     tb_jobs_destroy(from_zeros);
     /* Destroying nothing does nothing. */
@@ -387,7 +421,14 @@ TB_TEST(jobs, jobs_run_at_the_same_time_on_every_worker)
         meeting all = {.size = counts[index]};
         tb_job last = {0};
 
+        tb_platform_atomic_size warm_up = {0};
+
         TB_TEST_CONTEXT("%zu workers", counts[index]);
+        /* A job first, so that one worker is awake and looking for the
+         * next, and takes the jobs that follow in one batch. It then has to
+         * wake the others for them: a job that is ready wakes nobody while a
+         * thread is looking. */
+        TB_TEST_EXPECT(finishes_without_help(jobs, tb_jobs_run(jobs, count_one, &warm_up)));
         for (size_t job = 0; job < counts[index]; job++)
         {
             last = tb_jobs_run(jobs, come_to_the_meeting, &all);
@@ -900,6 +941,178 @@ TB_TEST(jobs, a_worker_wakes_for_a_job_whose_dependency_finishes)
     TB_TEST_EXPECT_UINT(lost_count, ==, 0);
     tb_jobs_wait_for_all(jobs);
     TB_TEST_EXPECT_UINT(tb_platform_atomic_size_load(&count), ==, WAKE_ROUNDS * 2);
+    tb_jobs_destroy(jobs);
+}
+
+typedef struct relay
+{
+    tb_jobs *jobs;
+    meeting all;
+    tb_job maker;                        /* The job that leaves the others. */
+    tb_platform_atomic_size has_maker;   /* 1 once `maker` is set. */
+    tb_platform_atomic_size has_started; /* 1 once the maker is running. */
+} relay;
+
+/* Long enough for the thread of the case to notice that the maker has
+ * started and to begin waiting, and far shorter than a thread goes on
+ * looking before it sleeps. */
+#define HEAD_START (UINT64_C(20) * NANOSECONDS_PER_MICROSECOND)
+
+#define RELAY_JOB_COUNT 3
+
+/* Leaves three jobs that wait for this one, so that all three become ready
+ * in the same moment, when it returns. Each of them needs the other two
+ * running at the same time. */
+static void leave_three_for_the_meeting(void *argument)
+{
+    relay *const shared = argument;
+    tb_job_description description = {.function = come_to_the_meeting};
+
+    while (tb_platform_atomic_size_load(&shared->has_maker) == 0)
+    {
+    }
+    description.argument = &shared->all;
+    description.dependencies = &shared->maker;
+    description.dependency_count = 1;
+    tb_platform_atomic_size_store(&shared->has_started, 1);
+    pass_the_time(HEAD_START);
+    for (size_t index = 0; index < RELAY_JOB_COUNT; index++)
+    {
+        (void)tb_jobs_submit(shared->jobs, &description);
+    }
+}
+
+#define RELAY_ROUNDS 20
+
+/* Jobs that become ready while a thread is looking for work wake nobody: the
+ * thread that is looking will find them. Here three become ready at once on
+ * one worker. That worker runs one, and the thread that is looking, which is
+ * the case itself, takes another. The other workers are asleep, so unless
+ * the case wakes one of them when it takes its job, the third waits for a
+ * thread that is not coming.
+ *
+ * The case can take its job before the last of the three is ready, and then
+ * that one wakes a worker by itself. So a scheduler that left out the wake
+ * could pass a round, and the case runs many. */
+TB_TEST(jobs, a_thread_that_takes_one_of_several_new_jobs_wakes_a_worker_for_the_rest)
+{
+    tb_jobs *const jobs = create_with_workers(3);
+    size_t gave_up_count = 0;
+
+    for (size_t round = 0; round < RELAY_ROUNDS && gave_up_count == 0; round++)
+    {
+        relay shared = {.jobs = jobs, .all = {.size = RELAY_JOB_COUNT}};
+
+        pass_the_time(LONG_ENOUGH_TO_FALL_ASLEEP);
+        shared.maker = tb_jobs_run(jobs, leave_three_for_the_meeting, &shared);
+        tb_platform_atomic_size_store(&shared.has_maker, 1);
+        /* Not before a worker has the maker, or the case would run it. */
+        while (tb_platform_atomic_size_load(&shared.has_started) == 0)
+        {
+        }
+        tb_jobs_wait_for_all(jobs);
+        gave_up_count += tb_platform_atomic_size_load(&shared.all.gave_up);
+    }
+    TB_TEST_EXPECT_UINT(gave_up_count, ==, 0);
+    tb_jobs_destroy(jobs);
+}
+
+#define SLEEP_ROUNDS 20
+
+/* The workers are left idle until all of them are asleep, and then given one
+ * job, which the case does not run itself. A job that woke nobody would
+ * stay in its queue for ever. */
+TB_TEST(jobs, a_sleeping_worker_is_woken_for_a_job)
+{
+    const size_t counts[] = {1, 3};
+
+    for (size_t index = 0; index < TB_TEST_COUNT_OF(counts); index++)
+    {
+        tb_jobs *const jobs = create_with_workers(counts[index]);
+        tb_platform_atomic_size count = {0};
+        size_t lost_count = 0;
+
+        TB_TEST_CONTEXT("%zu workers", counts[index]);
+        for (size_t round = 0; round < SLEEP_ROUNDS && lost_count == 0; round++)
+        {
+            pass_the_time(LONG_ENOUGH_TO_FALL_ASLEEP);
+            if (!finishes_without_help(jobs, tb_jobs_run(jobs, count_one, &count)))
+            {
+                lost_count++;
+            }
+        }
+        TB_TEST_EXPECT_UINT(lost_count, ==, 0);
+        tb_jobs_destroy(jobs);
+    }
+}
+
+#define FALLING_ASLEEP_ROUNDS ((size_t)4000)
+
+/* The same, with the job arriving at every moment around the one at which
+ * the workers fall asleep: while the last of them is still looking, while it
+ * is deciding to sleep, and just after. A worker that did not look once more
+ * before it slept would miss a job that arrived while it decided. */
+TB_TEST(jobs, a_job_that_arrives_as_the_workers_fall_asleep_is_run)
+{
+    tb_jobs *const jobs = create_with_workers(2);
+    tb_platform_atomic_size count = {0};
+    size_t lost_count = 0;
+
+    for (size_t round = 0; round < FALLING_ASLEEP_ROUNDS && lost_count == 0; round++)
+    {
+        /* From no wait at all to three times as long as a worker looks. */
+        pass_the_time((round % 300) * NANOSECONDS_PER_MICROSECOND);
+        if (!finishes_without_help(jobs, tb_jobs_run(jobs, count_one, &count)))
+        {
+            lost_count++;
+        }
+    }
+    TB_TEST_EXPECT_UINT(lost_count, ==, 0);
+    tb_jobs_destroy(jobs);
+}
+
+/* A thread that waits for a job that takes a long time runs out of other
+ * work and goes to sleep. It has to be woken when the job finishes, by the
+ * worker that finished it. */
+TB_TEST(jobs, a_thread_that_sleeps_while_it_waits_for_a_job_is_woken_when_it_finishes)
+{
+    tb_jobs *const jobs = create_with_workers(1);
+    tb_platform_atomic_size count = {0};
+
+    for (size_t round = 0; round < SLEEP_ROUNDS; round++)
+    {
+        const tb_job job = tb_jobs_run(jobs, take_a_long_time, &count);
+
+        /* The one worker has taken the job before the case can. */
+        pass_the_time(LONG_ENOUGH_TO_FALL_ASLEEP / 10);
+        tb_jobs_wait(jobs, job);
+        if (!tb_jobs_is_finished(jobs, job))
+        {
+            TB_TEST_FAIL("the wait returned before its job had finished, in round %zu", round);
+        }
+    }
+    TB_TEST_EXPECT_UINT(tb_platform_atomic_size_load(&count), ==, SLEEP_ROUNDS);
+    tb_jobs_destroy(jobs);
+}
+
+/* The same for a thread that waits for every job. */
+TB_TEST(jobs, a_thread_that_sleeps_while_it_waits_for_all_jobs_is_woken_by_the_last)
+{
+    tb_jobs *const jobs = create_with_workers(2);
+    tb_platform_atomic_size count = {0};
+
+    for (size_t round = 0; round < SLEEP_ROUNDS; round++)
+    {
+        (void)tb_jobs_run(jobs, take_a_long_time, &count);
+        (void)tb_jobs_run(jobs, take_a_long_time, &count);
+        /* Both workers have taken a job before the case can. */
+        pass_the_time(LONG_ENOUGH_TO_FALL_ASLEEP / 10);
+        tb_jobs_wait_for_all(jobs);
+        if (tb_platform_atomic_size_load(&count) != (round + 1) * 2)
+        {
+            TB_TEST_FAIL("the wait returned with jobs unfinished, in round %zu", round);
+        }
+    }
     tb_jobs_destroy(jobs);
 }
 
