@@ -349,6 +349,57 @@ TB_TEST(jobs, jobs_beyond_a_workers_own_queue_are_not_lost)
     TB_TEST_EXPECT_UINT(grow_a_tree(&one_slot, true), ==, 0);
 }
 
+/* A meeting that needs everyone: each job that comes waits until all of them
+ * have come. Jobs that ran one after another could never meet. */
+typedef struct meeting
+{
+    size_t size;                     /* How many are expected. */
+    tb_platform_atomic_size arrived; /* How many have come. */
+    tb_platform_atomic_size gave_up; /* Jobs that waited in vain. */
+} meeting;
+
+static void come_to_the_meeting(void *argument)
+{
+    meeting *const all = argument;
+    const uint64_t start = tb_platform_clock_nanoseconds();
+
+    (void)tb_platform_atomic_size_add(&all->arrived, 1);
+    while (tb_platform_atomic_size_load(&all->arrived) < all->size)
+    {
+        if (tb_platform_clock_nanoseconds() - start > PATIENCE_NANOSECONDS)
+        {
+            (void)tb_platform_atomic_size_add(&all->gave_up, 1);
+            return;
+        }
+    }
+}
+
+/* As many jobs as there are workers, none of which can finish until all of
+ * them are running. The case runs nothing itself, so each needs a worker of
+ * its own. */
+TB_TEST(jobs, jobs_run_at_the_same_time_on_every_worker)
+{
+    const size_t counts[] = {2, 4};
+
+    for (size_t index = 0; index < TB_TEST_COUNT_OF(counts); index++)
+    {
+        tb_jobs *const jobs = create_with_workers(counts[index]);
+        meeting all = {.size = counts[index]};
+        tb_job last = {0};
+
+        TB_TEST_CONTEXT("%zu workers", counts[index]);
+        for (size_t job = 0; job < counts[index]; job++)
+        {
+            last = tb_jobs_run(jobs, come_to_the_meeting, &all);
+        }
+        TB_TEST_EXPECT(finishes_without_help(jobs, last));
+        tb_jobs_wait_for_all(jobs);
+        TB_TEST_EXPECT_UINT(tb_platform_atomic_size_load(&all.gave_up), ==, 0);
+        TB_TEST_EXPECT_UINT(tb_platform_atomic_size_load(&all.arrived), ==, counts[index]);
+        tb_jobs_destroy(jobs);
+    }
+}
+
 /* ---------------------------------------------------------------------------
  * Stopping.
  * ------------------------------------------------------------------------- */
