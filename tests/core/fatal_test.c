@@ -70,6 +70,7 @@ static void fail_with_a_string(void *context)
 TB_TEST(core_fatal, a_fatal_condition_reaches_the_handler_as_it_was_formatted)
 {
     char with_newlines[] = "audio: the device was lost\n\n";
+    char with_percent[] = "jobs: 100%s of the slots are taken";
 
     start_receiving();
     TB_TEST_EXPECT_TRAP(fail_with_arguments, NULL, "render: the loader failed with -7 of 12");
@@ -78,7 +79,7 @@ TB_TEST(core_fatal, a_fatal_condition_reaches_the_handler_as_it_was_formatted)
 
     /* A message that is already a string is taken as it is, percent signs
      * included, and loses one newline from its end. */
-    TB_TEST_EXPECT_TRAP(fail_with_a_string, "jobs: 100%s of the slots are taken", "100%s");
+    TB_TEST_EXPECT_TRAP(fail_with_a_string, with_percent, "100%s");
     TB_TEST_EXPECT_STRING(last.message, ==, "jobs: 100%s of the slots are taken");
     TB_TEST_EXPECT_TRAP(fail_with_a_string, with_newlines, "the device was lost");
     TB_TEST_EXPECT_STRING(last.message, ==, "audio: the device was lost\n");
