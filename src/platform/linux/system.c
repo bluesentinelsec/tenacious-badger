@@ -36,11 +36,40 @@ static bool tb_linux_read_system_file(void *context, const char *path, char *buf
     return is_whole;
 }
 
-/* Used when the system's set of allowed processors cannot be read, which is
- * so on a machine with more processors than the set has room for: the
- * processors that are online, taken to be cores of one kind. */
-/* coverage-off: needs a machine with more processors than the set of allowed ones has room for */
-static void tb_linux_count_online_processors(tb_system_processors *processors)
+/* The processors that the process may use, as the system's set of them.
+ * False when the set cannot be read, which is so on a machine with more
+ * processors than the set has room for. Linux confines threads, not
+ * processes: the first thread of the process stands for it, since the
+ * limits that a container or a launcher sets are its limits, and every
+ * thread starts with them. */
+static bool tb_linux_read_allowed(tb_linux_cpu_set *allowed)
+{
+    cpu_set_t native = {0};
+    bool has_any = false;
+
+    CPU_ZERO(&native);
+    /* coverage-off: needs a machine with more processors than the set of allowed ones has room for
+     */
+    if (sched_getaffinity(getpid(), sizeof(native), &native) != 0)
+    {
+        return false;
+    }
+    /* coverage-on */
+    for (size_t cpu = 0; cpu < TB_LINUX_CPU_LIMIT; cpu++)
+    {
+        if (CPU_ISSET(cpu, &native))
+        {
+            tb_linux_cpu_set_add(allowed, cpu);
+            has_any = true;
+        }
+    }
+    return has_any;
+}
+
+/* When the set cannot be read: the processors that are online, numbered from
+ * zero, and taken to be cores of one kind. */
+/* coverage-off: as above */
+static size_t tb_linux_list_online_processors(tb_linux_processor *list, size_t capacity)
 {
     const long online = sysconf(_SC_NPROCESSORS_ONLN);
     size_t count = 1;
@@ -49,44 +78,57 @@ static void tb_linux_count_online_processors(tb_system_processors *processors)
     {
         count = (size_t)online;
     }
-    processors->logical_count = count;
-    processors->core_count = count;
-    processors->performance_core_count = count;
+    for (size_t index = 0; index < count && index < capacity; index++)
+    {
+        list[index].cpu = (uint32_t)index;
+        list[index].core = (uint32_t)index;
+        list[index].is_performance = true;
+    }
+    return count;
 }
 /* coverage-on */
 
+size_t tb_linux_list_process_processors(tb_linux_processor *list, size_t capacity)
+{
+    tb_linux_cpu_set allowed = {0};
+
+    if (!tb_linux_read_allowed(&allowed))
+    {
+        return tb_linux_list_online_processors(list, capacity);
+    }
+    return tb_linux_list_processors(&allowed, tb_linux_read_system_file, NULL, list, capacity);
+}
+
 void tb_system_get_processors(tb_system_processors *processors)
 {
-    cpu_set_t native = {0};
     tb_linux_cpu_set allowed = {0};
-    size_t allowed_count = 0;
 
     TB_ASSERT(processors != NULL);
-    CPU_ZERO(&native);
-    /* Linux confines threads, not processes. The first thread of the process
-     * stands for it: the limits that a container or a launcher sets are its
-     * limits, and every thread starts with them. */
-    /* coverage-off: as above: the set cannot be read only on such a machine */
-    if (sched_getaffinity(getpid(), sizeof(native), &native) != 0)
+    if (!tb_linux_read_allowed(&allowed))
     {
-        tb_linux_count_online_processors(processors);
+        /* coverage-off: as above */
+        const size_t count = tb_linux_list_online_processors(NULL, 0);
+
+        processors->logical_count = count;
+        processors->core_count = count;
+        processors->performance_core_count = count;
         return;
+        /* coverage-on */
     }
-    /* coverage-on */
-    for (size_t cpu = 0; cpu < TB_LINUX_CPU_LIMIT; cpu++)
-    {
-        if (CPU_ISSET(cpu, &native))
-        {
-            tb_linux_cpu_set_add(&allowed, cpu);
-            allowed_count++;
-        }
-    }
-    /* coverage-off: a running thread is allowed on at least one processor */
-    if (allowed_count == 0)
-    {
-        tb_linux_count_online_processors(processors);
-        return;
-    }
-    /* coverage-on */
     tb_linux_count_processors(&allowed, tb_linux_read_system_file, NULL, processors);
+}
+
+size_t tb_system_list_processors(tb_system_processor *processors, size_t capacity)
+{
+    static _Thread_local tb_linux_processor list[TB_LINUX_CPU_LIMIT];
+    size_t count = 0;
+
+    TB_ASSERT(processors != NULL || capacity == 0);
+    count = tb_linux_list_process_processors(list, TB_LINUX_CPU_LIMIT);
+    for (size_t index = 0; index < count && index < capacity; index++)
+    {
+        processors[index].core = list[index].core;
+        processors[index].is_performance = list[index].is_performance;
+    }
+    return count;
 }

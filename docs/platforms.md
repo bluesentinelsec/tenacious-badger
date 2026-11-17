@@ -369,8 +369,8 @@ on Linux.
 On macOS the class a thread is given also decides which kind of core it runs
 on, where the machine has two: utility work goes to the efficiency cores.
 
-Processor affinity is not here. It needs a list of the processors, which the
-count of them does not give (#98).
+A thread can be confined to some processors with
+`tb_thread_options::processors`; see [Confining a thread](#confining-a-thread).
 
 | Platform | Selected implementation | Thread | Mutex | Condition variable |
 | --- | --- | --- | --- | --- |
@@ -510,6 +510,56 @@ does not say which cores are fast, all of them are.
 
 **A limit on processor time is not counted.** A container given half the time
 of four processors has four.
+
+### The list of processors
+
+`tb_system_list_processors` lists the same processors, one entry each: the
+core it is part of, numbered from zero, and whether that core is of the
+fastest kind. A processor is known by its place in that list. That is the
+engine's name for it, and the one a thread is confined by; the systems' own
+numbers stay in the adapters, and so do Windows' groups of 64.
+
+```c
+tb_system_processor list[256] = {{0}};
+const size_t count = tb_system_list_processors(list, 256);
+```
+
+On the development laptop the list is 16 processors of the fast kind, two to
+a core (cores 0 to 7), then 16 efficient ones, a core each (cores 8 to 23).
+The list agrees with the counts asked at the same moment: as many entries, as
+many distinct cores, as many distinct fast cores. Each adapter builds the list
+and counts it, so the described machines that test the counting test the
+list too.
+
+macOS says how many processors of each kind there are, but not which is
+which. There each processor is listed as a core of its own, of the fast kind,
+and since threads cannot be confined there, nothing is lost.
+
+### Confining a thread
+
+```c
+const size_t first_fast_core[] = {0};
+const tb_thread_options options = {.processors = first_fast_core, .processor_count = 1};
+
+tb_thread_create_with_options(&thread, &options, run, argument);
+```
+
+| Platform | How | Where the thread is |
+| --- | --- | --- |
+| Windows | Created suspended, given a group and a mask with `SetThreadGroupAffinity`, then started | `GetCurrentProcessorNumberEx` |
+| Linux / Steam Deck | `pthread_attr_setaffinity_np` on the attributes it is created with | `sched_getcpu` |
+| macOS | Not possible: `tb_thread_can_be_confined` is false and the option is ignored | `tb_thread_current_processor` says it does not know |
+
+A place that is not in the list when the thread is made is left out, and with
+none left the thread runs where it would have anyway. On Windows a thread runs
+within one group, that of the first processor named.
+
+**The job system does not confine its workers.** The system's scheduler knows
+which processors are busy, which are fast, and which are about to sleep, and
+moving a thread between them is cheap. A worker that may run on only one
+processor waits whenever that one is taken. Confinement is offered for the
+cases where something else has to be kept off a processor, and should be
+measured where it is used.
 
 **The system is asked on every call**, because a processor can be taken
 offline and a process can be confined while it runs. Read the counts once

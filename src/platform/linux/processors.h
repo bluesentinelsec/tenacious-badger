@@ -48,6 +48,25 @@ bool tb_linux_cpu_list_parse(const char *text, tb_linux_cpu_set *set);
  * fit. `context` is the pointer given beside the function. */
 typedef bool tb_linux_read_file(void *context, const char *path, char *buffer, size_t capacity);
 
+/* One logical processor that the process may use: its number to the system,
+ * the number of its core among the allowed cores, counted from zero in the
+ * order of their first processors, and whether its core is of the fastest
+ * kind. */
+typedef struct tb_linux_processor
+{
+    uint32_t cpu;
+    uint32_t core;
+    bool is_performance;
+} tb_linux_processor;
+
+/* Lists the processors among `allowed`, which is not empty, in the order of
+ * their numbers, from what the kernel's files say about them. Writes at most
+ * `capacity` to `list` and returns how many there are. `list` may be NULL
+ * when `capacity` is 0. The other pointers but `context` are required
+ * non-null. */
+size_t tb_linux_list_processors(const tb_linux_cpu_set *allowed, tb_linux_read_file *read,
+                                void *context, tb_linux_processor *list, size_t capacity);
+
 /* Counts the processors among `allowed`, which is not empty, from what the
  * kernel's files say about them. `read` is given paths under /sys. A file
  * that cannot be read is something the system does not say, and the counts
@@ -55,5 +74,10 @@ typedef bool tb_linux_read_file(void *context, const char *path, char *buffer, s
  * but `context` are required non-null. */
 void tb_linux_count_processors(const tb_linux_cpu_set *allowed, tb_linux_read_file *read,
                                void *context, tb_system_processors *processors);
+
+/* The processors that this process may use, listed as above. Unlike the rest
+ * of this header it asks the system: it is defined in system.c, for the
+ * thread functions, which confine a thread by these numbers. */
+size_t tb_linux_list_process_processors(tb_linux_processor *list, size_t capacity);
 
 #endif

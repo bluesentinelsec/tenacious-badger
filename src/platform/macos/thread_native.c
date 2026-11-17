@@ -6,6 +6,8 @@
 
 #include "../shared/name.h"
 
+#include <stdint.h>
+
 #include <pthread.h>
 #include <pthread/qos.h>
 
@@ -44,4 +46,24 @@ size_t tb_posix_thread_read_name(char *buffer, size_t capacity)
         kept[0] = '\0';
     }
     return tb_platform_copy_name(buffer, capacity, kept);
+}
+
+/* macOS decides by itself where a thread runs. It takes hints of affinity on
+ * Intel Macs and none on Apple silicon, and says on neither where a thread
+ * is running. */
+void tb_posix_thread_confine(pthread_attr_t *attributes, const size_t *processors, size_t count)
+{
+    (void)attributes;
+    (void)processors;
+    (void)count;
+}
+
+bool tb_posix_thread_can_be_confined(void)
+{
+    return false;
+}
+
+size_t tb_posix_thread_current_processor(void)
+{
+    return SIZE_MAX;
 }

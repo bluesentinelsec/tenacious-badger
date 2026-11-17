@@ -202,14 +202,14 @@ static bool tb_linux_read_cpu_file(tb_linux_read_file *read, void *context, size
 }
 
 /* ---------------------------------------------------------------------------
- * Counting.
+ * Listing and counting.
  * ------------------------------------------------------------------------- */
 
-/* A core is counted once, at the lowest of its logical processors that the
- * process may use. Whether `cpu`, which is allowed, is that one. A processor
- * whose siblings the kernel does not list is a core by itself. */
-static bool tb_linux_is_first_allowed_of_its_core(const tb_linux_cpu_set *allowed, size_t cpu,
-                                                  tb_linux_read_file *read, void *context)
+/* The lowest of the logical processors of `cpu`'s core that the process may
+ * use: `cpu` itself when it is the first of its core that is allowed. A
+ * processor whose siblings the kernel does not list is a core by itself. */
+static size_t tb_linux_first_allowed_of_its_core(const tb_linux_cpu_set *allowed, size_t cpu,
+                                                 tb_linux_read_file *read, void *context)
 {
     char text[TB_LINUX_FILE_CAPACITY] = {0};
     tb_linux_cpu_set siblings = {0};
@@ -217,46 +217,44 @@ static bool tb_linux_is_first_allowed_of_its_core(const tb_linux_cpu_set *allowe
     if (!tb_linux_read_cpu_file(read, context, cpu, "topology/thread_siblings_list", text,
                                 sizeof(text)))
     {
-        return true;
+        return cpu;
     }
     if (!tb_linux_cpu_list_parse(text, &siblings) || !tb_linux_cpu_set_has(&siblings, cpu))
     {
-        return true;
+        return cpu;
     }
     for (size_t lower = 0; lower < cpu; lower++)
     {
         if (tb_linux_cpu_set_has(&siblings, lower) && tb_linux_cpu_set_has(allowed, lower))
         {
-            return false;
+            return lower;
         }
     }
-    return true;
+    return cpu;
 }
 
 /* Intel processors with two kinds of core list the logical processors of the
- * fast kind in one file. Counts the cores among `first_of_core` that are in
- * it; false when the file is not there, as on every other machine. */
-static bool tb_linux_count_listed_fast_cores(const tb_linux_cpu_set *first_of_core,
-                                             tb_linux_read_file *read, void *context,
-                                             size_t *fast_count)
+ * fast kind in one file. Puts the cores among `first_of_core` that are in it
+ * into `fast`; false when the file is not there, as on every other machine. */
+static bool tb_linux_find_listed_fast_cores(const tb_linux_cpu_set *first_of_core,
+                                            tb_linux_read_file *read, void *context,
+                                            tb_linux_cpu_set *fast)
 {
     char text[TB_LINUX_FILE_CAPACITY] = {0};
-    tb_linux_cpu_set fast = {0};
-    size_t count = 0;
+    tb_linux_cpu_set listed = {0};
 
     if (!read(context, "/sys/devices/cpu_core/cpus", text, sizeof(text)) ||
-        !tb_linux_cpu_list_parse(text, &fast))
+        !tb_linux_cpu_list_parse(text, &listed))
     {
         return false;
     }
     for (size_t cpu = 0; cpu < TB_LINUX_CPU_LIMIT; cpu++)
     {
-        if (tb_linux_cpu_set_has(first_of_core, cpu) && tb_linux_cpu_set_has(&fast, cpu))
+        if (tb_linux_cpu_set_has(first_of_core, cpu) && tb_linux_cpu_set_has(&listed, cpu))
         {
-            count++;
+            tb_linux_cpu_set_add(fast, cpu);
         }
     }
-    *fast_count = count;
     return true;
 }
 
@@ -264,16 +262,17 @@ static bool tb_linux_count_listed_fast_cores(const tb_linux_cpu_set *first_of_co
 #define TB_LINUX_CAPACITY_LIMIT ((size_t)1000000)
 
 /* Arm machines with several kinds of core give every logical processor a
- * capacity, highest for the fastest kind. Counts the cores among
- * `first_of_core` that have the highest; false when a capacity cannot be
- * read, as on machines whose cores are all alike. */
-static bool tb_linux_count_highest_capacity_cores(const tb_linux_cpu_set *first_of_core,
-                                                  tb_linux_read_file *read, void *context,
-                                                  size_t *fast_count)
+ * capacity, highest for the fastest kind. Puts the cores among
+ * `first_of_core` that have the highest into `fast`; false when a capacity
+ * cannot be read, as on machines whose cores are all alike. */
+static bool tb_linux_find_highest_capacity_cores(const tb_linux_cpu_set *first_of_core,
+                                                 tb_linux_read_file *read, void *context,
+                                                 tb_linux_cpu_set *fast)
 {
     char text[TB_LINUX_FILE_CAPACITY] = {0};
+    static _Thread_local size_t capacities[TB_LINUX_CPU_LIMIT];
     size_t highest = 0;
-    size_t count = 0;
+    bool has_any = false;
 
     for (size_t cpu = 0; cpu < TB_LINUX_CPU_LIMIT; cpu++)
     {
@@ -290,27 +289,47 @@ static bool tb_linux_count_highest_capacity_cores(const tb_linux_cpu_set *first_
         {
             return false;
         }
-        if (count == 0 || capacity > highest)
+        capacities[cpu] = capacity;
+        if (!has_any || capacity > highest)
         {
             highest = capacity;
-            count = 1;
         }
-        else if (capacity == highest)
+        has_any = true;
+    }
+    for (size_t cpu = 0; cpu < TB_LINUX_CPU_LIMIT; cpu++)
+    {
+        if (tb_linux_cpu_set_has(first_of_core, cpu) && capacities[cpu] == highest)
         {
-            count++;
+            tb_linux_cpu_set_add(fast, cpu);
         }
     }
-    *fast_count = count;
-    return count > 0;
+    return has_any;
 }
 
-void tb_linux_count_processors(const tb_linux_cpu_set *allowed, tb_linux_read_file *read,
-                               void *context, tb_system_processors *processors)
+/* Whether a set has any member. */
+static bool tb_linux_cpu_set_is_empty(const tb_linux_cpu_set *set)
 {
+    for (size_t word = 0; word < TB_LINUX_CPU_LIMIT / TB_LINUX_CPU_SET_WORD_BITS; word++)
+    {
+        if (set->words[word] != 0)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+size_t tb_linux_list_processors(const tb_linux_cpu_set *allowed, tb_linux_read_file *read,
+                                void *context, tb_linux_processor *list, size_t capacity)
+{
+    /* For each allowed processor, the first allowed processor of its core;
+     * and for each that is first, the number of its core. */
+    static _Thread_local uint16_t first_of[TB_LINUX_CPU_LIMIT];
+    static _Thread_local uint16_t core_of[TB_LINUX_CPU_LIMIT];
     tb_linux_cpu_set first_of_core = {0};
-    size_t logical_count = 0;
+    tb_linux_cpu_set fast = {0};
+    size_t count = 0;
     size_t core_count = 0;
-    size_t fast_count = 0;
 
     for (size_t cpu = 0; cpu < TB_LINUX_CPU_LIMIT; cpu++)
     {
@@ -318,27 +337,69 @@ void tb_linux_count_processors(const tb_linux_cpu_set *allowed, tb_linux_read_fi
         {
             continue;
         }
-        logical_count++;
-        if (tb_linux_is_first_allowed_of_its_core(allowed, cpu, read, context))
+        first_of[cpu] = (uint16_t)tb_linux_first_allowed_of_its_core(allowed, cpu, read, context);
+        if (first_of[cpu] == cpu)
         {
             tb_linux_cpu_set_add(&first_of_core, cpu);
+            core_of[cpu] = (uint16_t)core_count;
             core_count++;
         }
     }
-    processors->logical_count = logical_count;
-    processors->core_count = core_count;
-    processors->performance_core_count = core_count;
-    if (tb_linux_count_listed_fast_cores(&first_of_core, read, context, &fast_count))
+    /* The fast kind: the cores that the kernel lists as fast, or failing a
+     * list, those of the highest capacity. Where the system says neither,
+     * or no core of the fast kind is allowed, the cores that are allowed are
+     * taken to be alike, and all of the fastest kind there is. */
+    if (!tb_linux_find_listed_fast_cores(&first_of_core, read, context, &fast))
     {
-        /* None of the fast kind is allowed: the cores that are, are alike. */
-        if (fast_count > 0)
+        tb_linux_cpu_set_clear(&fast);
+        if (!tb_linux_find_highest_capacity_cores(&first_of_core, read, context, &fast))
         {
-            processors->performance_core_count = fast_count;
+            tb_linux_cpu_set_clear(&fast);
         }
-        return;
     }
-    if (tb_linux_count_highest_capacity_cores(&first_of_core, read, context, &fast_count))
+    if (tb_linux_cpu_set_is_empty(&fast))
     {
-        processors->performance_core_count = fast_count;
+        fast = first_of_core;
     }
+    for (size_t cpu = 0; cpu < TB_LINUX_CPU_LIMIT; cpu++)
+    {
+        if (!tb_linux_cpu_set_has(allowed, cpu))
+        {
+            continue;
+        }
+        if (count < capacity)
+        {
+            list[count].cpu = (uint32_t)cpu;
+            list[count].core = core_of[first_of[cpu]];
+            list[count].is_performance = tb_linux_cpu_set_has(&fast, first_of[cpu]);
+        }
+        count++;
+    }
+    return count;
+}
+
+void tb_linux_count_processors(const tb_linux_cpu_set *allowed, tb_linux_read_file *read,
+                               void *context, tb_system_processors *processors)
+{
+    static _Thread_local tb_linux_processor list[TB_LINUX_CPU_LIMIT];
+    const size_t count = tb_linux_list_processors(allowed, read, context, list, TB_LINUX_CPU_LIMIT);
+    size_t core_count = 0;
+    size_t fast_count = 0;
+
+    /* A core is counted at its first processor in the list, whose core number
+     * is the next one. */
+    for (size_t index = 0; index < count; index++)
+    {
+        if (list[index].core == core_count)
+        {
+            core_count++;
+            if (list[index].is_performance)
+            {
+                fast_count++;
+            }
+        }
+    }
+    processors->logical_count = count;
+    processors->core_count = core_count;
+    processors->performance_core_count = fast_count;
 }

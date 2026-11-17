@@ -7,6 +7,7 @@
 
 #include "badger/api.h"
 
+#include <stdbool.h>
 #include <stddef.h>
 
 /**
@@ -63,5 +64,63 @@ typedef struct tb_system_processors
  * @par Threading Thread-safe.
  */
 TB_API void tb_system_get_processors(tb_system_processors *processors);
+
+/**
+ * @brief One logical processor that the process may run on.
+ *
+ * A processor has no number of the system's here. It is known by its place in
+ * the list that tb_system_list_processors() gives, and that place is what a
+ * thread is confined by (tb_thread_options::processors). The engine's numbers
+ * hide what each system numbers differently: Windows names a processor by a
+ * group and a place in it, and a process may span groups.
+ */
+typedef struct tb_system_processor
+{
+    /** The core it is part of, counted from zero over the cores that the
+     * process may use, in the order the list first reaches them. Two
+     * processors that share a core have the same number. Every processor is
+     * a core by itself where the system does not say which share one. */
+    size_t core;
+    /** Whether its core is of the fastest kind. Every processor is, where
+     * the cores are all alike and where the system does not say. */
+    bool is_performance;
+} tb_system_processor;
+
+/**
+ * @brief List the logical processors that the process may run on.
+ *
+ * The list agrees with tb_system_get_processors(), asked at the same moment:
+ * as many entries as `logical_count`, as many distinct cores as `core_count`,
+ * and as many distinct cores of the fastest kind as `performance_core_count`,
+ * except where the system does not say which processor is of which kind.
+ * That is so on macOS, whose processors cannot be confined either (see
+ * tb_thread_can_be_confined()).
+ *
+ * Like the counts, the list can change while the process runs.
+ *
+ * @code
+ * tb_system_processor list[256] = {{0}};
+ * const size_t count = tb_system_list_processors(list, 256);
+ *
+ * // The first logical processor of each fast core:
+ * size_t next_core = 0;
+ * for (size_t index = 0; index < count && index < 256; index++)
+ * {
+ *     if (list[index].core == next_core)
+ *     {
+ *         next_core++;
+ *         if (list[index].is_performance) { use(index); }
+ *     }
+ * }
+ * @endcode
+ *
+ * @param[out] processors Receives the first `capacity` entries; required
+ * non-null unless `capacity` is 0.
+ * @param capacity Entries that `processors` has room for; 0 to only count.
+ * @return How many processors there are, which may be more than `capacity`.
+ * @par Errors As tb_system_get_processors().
+ * @par Threading Thread-safe.
+ */
+TB_API size_t tb_system_list_processors(tb_system_processor *processors, size_t capacity);
 
 #endif

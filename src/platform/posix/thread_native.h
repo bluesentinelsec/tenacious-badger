@@ -9,6 +9,8 @@
 
 #include "badger/thread.h"
 
+#include <pthread.h>
+#include <stdbool.h>
 #include <stddef.h>
 
 /* Gives the calling thread a name, which is UTF-8, NUL-terminated, and not
@@ -24,5 +26,19 @@ void tb_posix_thread_apply_priority(tb_thread_priority priority);
  * `capacity` bytes, at least one, and terminates it. Returns the bytes
  * written, without the terminator; zero when the system has no name. */
 size_t tb_posix_thread_read_name(char *buffer, size_t capacity);
+
+/* Confines the thread that is about to be made with `attributes` to the
+ * processors at these places of tb_system_list_processors(), leaving out the
+ * places that are not in it. Changes nothing when none is left, or where
+ * threads cannot be confined. Unlike the functions above, it does not act on
+ * the calling thread. */
+void tb_posix_thread_confine(pthread_attr_t *attributes, const size_t *processors, size_t count);
+
+/* Whether threads can be confined here: what tb_thread_can_be_confined()
+ * returns. */
+bool tb_posix_thread_can_be_confined(void);
+
+/* What tb_thread_current_processor() returns. */
+size_t tb_posix_thread_current_processor(void);
 
 #endif

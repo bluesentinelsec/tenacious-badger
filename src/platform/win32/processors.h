@@ -21,11 +21,29 @@ typedef struct tb_win32_affinity
     uint64_t mask;   /* Its allowed processors in that group. */
 } tb_win32_affinity;
 
-/* A count in progress. Zero-initialize it, set `affinity`, add every core of
- * the machine, then read the result with tb_win32_processors_finish(). */
+/* One logical processor that the process may use: where the system has it,
+ * the efficiency class of its core, where a higher class is a faster core,
+ * and the number of its core among the allowed cores, counted from zero. */
+typedef struct tb_win32_processor
+{
+    uint16_t group;
+    uint8_t number; /* Its place in the group, below 64. */
+    uint8_t efficiency_class;
+    uint32_t core;
+} tb_win32_processor;
+
+/* The most logical processors that a list has room for: 64 groups of 64. */
+#define TB_WIN32_PROCESSORS_MAX ((size_t)4096)
+
+/* A count in progress. Zero-initialize it, set `affinity`, and `list` and
+ * `list_capacity` to have the processors listed as well as counted; add
+ * every core of the machine, then read the result with
+ * tb_win32_processors_finish(). */
 typedef struct tb_win32_processor_tally
 {
     tb_win32_affinity affinity;
+    tb_win32_processor *list; /* NULL to count only. */
+    size_t list_capacity;
     size_t logical_count;       /* Allowed logical processors so far. */
     size_t core_count;          /* Cores with at least one of them. */
     uint8_t fastest_class;      /* Highest efficiency class among those cores. */
@@ -43,5 +61,12 @@ void tb_win32_processors_add_core(tb_win32_processor_tally *tally, uint8_t effic
  * process has, gives one of each. Both pointers are required non-null. */
 void tb_win32_processors_finish(const tb_win32_processor_tally *tally,
                                 tb_system_processors *processors);
+
+/* Asks the system for the processors that the process may use, and lists the
+ * first `capacity` of them in the order of tb_system_list_processors().
+ * Returns how many there are, and the efficiency class of the fastest core
+ * among them in `*fastest_class`. Defined in system.c; the thread functions
+ * confine a thread by it. Both pointers are required non-null. */
+size_t tb_win32_list_processors(tb_win32_processor *list, size_t capacity, uint8_t *fastest_class);
 
 #endif

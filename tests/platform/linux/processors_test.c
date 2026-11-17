@@ -202,6 +202,27 @@ static void expect_counts(machine *described, const char *allowed_list, size_t l
     TB_TEST_EXPECT_UINT(processors.performance_core_count, ==, performance_core_count);
 }
 
+/* Lists the processors among `allowed_list` and checks each against
+ * `expected`: its number, its core, and whether it is of the fast kind. */
+static void expect_list(machine *described, const char *allowed_list,
+                        const tb_linux_processor *expected, size_t expected_count)
+{
+    tb_linux_cpu_set allowed = {0};
+    tb_linux_processor list[16] = {{0}};
+    size_t count = 0;
+
+    TB_TEST_REQUIRE(tb_linux_cpu_list_parse(allowed_list, &allowed));
+    count = tb_linux_list_processors(&allowed, read_machine_file, described, list, 16);
+    TB_TEST_REQUIRE_UINT(count, ==, expected_count);
+    for (size_t index = 0; index < count; index++)
+    {
+        TB_TEST_CONTEXT("place %zu", index);
+        TB_TEST_EXPECT_UINT(list[index].cpu, ==, expected[index].cpu);
+        TB_TEST_EXPECT_UINT(list[index].core, ==, expected[index].core);
+        TB_TEST_EXPECT(list[index].is_performance == expected[index].is_performance);
+    }
+}
+
 #define CPU "/sys/devices/system/cpu/cpu"
 #define SIBLINGS "/topology/thread_siblings_list"
 #define CAPACITY "/cpu_capacity"
@@ -404,4 +425,42 @@ TB_TEST(platform_linux_processors, a_processor_of_several_digits_has_its_own_fil
                          .file_count = TB_TEST_COUNT_OF(numbers_of_several_digits)};
 
     expect_counts(&described, "7,10,45,130,902,1023\n", 6, 3, 3);
+}
+
+/* The two processors of a core have the core's number, though they are four
+ * apart in the system's numbering, and the cores are numbered in the order
+ * the list reaches them. With only a part allowed, the numbers close up. */
+TB_TEST(platform_linux_processors, the_processors_are_listed_with_their_cores)
+{
+    machine described = {.files = four_paired_cores,
+                         .file_count = TB_TEST_COUNT_OF(four_paired_cores)};
+    static const tb_linux_processor all[] = {
+        {0, 0, true}, {1, 1, true}, {2, 2, true}, {3, 3, true},
+        {4, 0, true}, {5, 1, true}, {6, 2, true}, {7, 3, true},
+    };
+    static const tb_linux_processor some[] = {{2, 0, true}, {5, 1, true}, {6, 0, true}};
+
+    TB_TEST_CONTEXT("every processor allowed");
+    expect_list(&described, "0-7\n", all, TB_TEST_COUNT_OF(all));
+    TB_TEST_CONTEXT("three processors on two cores");
+    expect_list(&described, "2,5-6\n", some, TB_TEST_COUNT_OF(some));
+}
+
+TB_TEST(platform_linux_processors, the_list_says_which_processors_are_of_the_fast_kind)
+{
+    machine capacities = {.files = three_capacities,
+                          .file_count = TB_TEST_COUNT_OF(three_capacities)};
+    static const tb_linux_processor without_the_largest[] = {
+        {3, 0, false}, {4, 1, true}, {6, 2, true}};
+    tb_linux_processor list[2] = {{0}};
+    tb_linux_cpu_set allowed = {0};
+
+    expect_list(&capacities, "3-4,6\n", without_the_largest, TB_TEST_COUNT_OF(without_the_largest));
+    /* Room for fewer than there are: the first are written, all are counted. */
+    TB_TEST_REQUIRE(tb_linux_cpu_list_parse("0-7\n", &allowed));
+    TB_TEST_EXPECT_UINT(tb_linux_list_processors(&allowed, read_machine_file, &capacities, list, 2),
+                        ==, 8);
+    TB_TEST_EXPECT_UINT(list[1].cpu, ==, 1);
+    TB_TEST_EXPECT_UINT(tb_linux_list_processors(&allowed, read_machine_file, &capacities, NULL, 0),
+                        ==, 8);
 }

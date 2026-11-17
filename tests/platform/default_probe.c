@@ -161,6 +161,11 @@ TB_TEST(platform_default, tb_system_get_processors)
     tb_system_get_processors(&processors);
 }
 
+TB_TEST(platform_default, tb_system_list_processors)
+{
+    (void)tb_system_list_processors(NULL, 0);
+}
+
 TB_TEST(platform_default, tb_thread_create)
 {
     tb_thread thread = {0};
@@ -192,6 +197,16 @@ TB_TEST(platform_default, tb_thread_current_name)
     char name[TB_THREAD_NAME_CAPACITY] = {0};
 
     (void)tb_thread_current_name(name, sizeof(name));
+}
+
+TB_TEST(platform_default, tb_thread_can_be_confined)
+{
+    (void)tb_thread_can_be_confined();
+}
+
+TB_TEST(platform_default, tb_thread_current_processor)
+{
+    (void)tb_thread_current_processor();
 }
 
 TB_TEST(platform_default, tb_mutex_lock)

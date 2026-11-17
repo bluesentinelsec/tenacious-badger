@@ -45,6 +45,19 @@ void tb_win32_processors_add_core(tb_win32_processor_tally *tally, uint8_t effic
     {
         return;
     }
+    for (uint8_t number = 0; number < 64; number++)
+    {
+        const size_t place = tally->logical_count +
+                             (size_t)tb_win32_count_bits(allowed & ((UINT64_C(1) << number) - 1));
+
+        if ((allowed >> number & 1) != 0 && tally->list != NULL && place < tally->list_capacity)
+        {
+            tally->list[place].group = group;
+            tally->list[place].number = number;
+            tally->list[place].efficiency_class = efficiency_class;
+            tally->list[place].core = (uint32_t)tally->core_count;
+        }
+    }
     tally->logical_count += allowed_count;
     tally->core_count++;
     if (tally->fastest_class_count == 0 || efficiency_class > tally->fastest_class)
@@ -146,15 +159,15 @@ static void tb_win32_add_cores(tb_win32_processor_tally *tally, const BYTE *reco
     }
 }
 
-void tb_system_get_processors(tb_system_processors *processors)
+/* Counts, and lists where the tally says to, the processors that the process
+ * may use. */
+static void tb_win32_tally_processors(tb_win32_processor_tally *tally)
 {
-    tb_win32_processor_tally tally = {0};
     const HANDLE heap = GetProcessHeap();
     BYTE *records = NULL;
     DWORD records_size = 0;
 
-    TB_ASSERT(processors != NULL);
-    tb_win32_read_affinity(&tally.affinity);
+    tb_win32_read_affinity(&tally->affinity);
 
     /* The system says how many bytes its answer takes, and the answer can
      * grow between the two calls when a processor is added, so ask again
@@ -178,10 +191,44 @@ void tb_system_get_processors(tb_system_processors *processors)
                                  "memory for the system's description of the processors\n");
         }
     }
-    tb_win32_add_cores(&tally, records, records_size);
+    tb_win32_add_cores(tally, records, records_size);
     if (records != NULL)
     {
         (void)HeapFree(heap, 0, records);
     }
+}
+
+void tb_system_get_processors(tb_system_processors *processors)
+{
+    tb_win32_processor_tally tally = {0};
+
+    TB_ASSERT(processors != NULL);
+    tb_win32_tally_processors(&tally);
     tb_win32_processors_finish(&tally, processors);
+}
+
+size_t tb_win32_list_processors(tb_win32_processor *list, size_t capacity, uint8_t *fastest_class)
+{
+    tb_win32_processor_tally tally = {.list = list, .list_capacity = capacity};
+
+    tb_win32_tally_processors(&tally);
+    *fastest_class = tally.fastest_class;
+    return tally.logical_count;
+}
+
+size_t tb_system_list_processors(tb_system_processor *processors, size_t capacity)
+{
+    static _Thread_local tb_win32_processor list[TB_WIN32_PROCESSORS_MAX];
+    uint8_t fastest_class = 0;
+    size_t count = 0;
+
+    TB_ASSERT(processors != NULL || capacity == 0);
+    count = tb_win32_list_processors(list, TB_WIN32_PROCESSORS_MAX, &fastest_class);
+    for (size_t index = 0; index < count && index < capacity && index < TB_WIN32_PROCESSORS_MAX;
+         index++)
+    {
+        processors[index].core = list[index].core;
+        processors[index].is_performance = list[index].efficiency_class == fastest_class;
+    }
+    return count;
 }
