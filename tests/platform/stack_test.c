@@ -185,7 +185,17 @@ TB_TEST(platform_stack, an_address_is_described_by_its_module)
 {
     const capture all = capture_with(FRAME_CAPACITY, 0);
     tb_stack_location location = {0};
+    tb_stack_location direct = {0};
     tb_stack_location nothing = {.line = 7, .function = "left over", .module = "left over"};
+    /* An address in this program that no capture is needed for. In a build
+     * that links incrementally it is a jump to the function, not the
+     * function, so only its module is checked. */
+    const void *const code = (const void *)(uintptr_t)stack_test_innermost;
+
+    tb_stack_describe(code, &direct);
+    TB_TEST_EXPECT_POINTER(direct.address, ==, code);
+    TB_TEST_EXPECT(strncmp(direct.module, "tb_platform_tests", 17) == 0);
+    TB_TEST_EXPECT_UINT(direct.module_offset, >, 0);
 
     TB_TEST_REQUIRE_UINT(all.count, >=, 3);
     tb_stack_describe(all.frames[0], &location);
