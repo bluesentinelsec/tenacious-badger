@@ -285,7 +285,19 @@ tb_fs_result tb_fs_make_directories(tb_path_view path)
         if (result == TB_FS_EXISTS || end == parts.root.length)
         {
             result = tb_fs_query((tb_path_view){normalized, end}, &info);
-            if (result == TB_FS_OK && info.kind != TB_FS_DIRECTORY)
+            if (result == TB_FS_OK && info.kind == TB_FS_LINK)
+            {
+                tb_directory directory = {0};
+                /* Native directory aliases (for example macOS /var) are part
+                 * of normal path resolution. Opening verifies the link target
+                 * is a directory without pretending to provide containment. */
+                result = tb_directory_open((tb_path_view){normalized, end}, &directory);
+                if (result == TB_FS_OK)
+                {
+                    result = tb_directory_close(&directory);
+                }
+            }
+            else if (result == TB_FS_OK && info.kind != TB_FS_DIRECTORY)
             {
                 result = TB_FS_NOT_DIRECTORY;
             }

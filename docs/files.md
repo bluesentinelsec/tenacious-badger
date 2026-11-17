@@ -85,7 +85,7 @@ file's permissions, timestamps, or other metadata. The containing directory is
 not synced, so this provides atomic visibility, not power-loss durability.
 
 `tb_fs_make_directories` normalizes ordinary dot components lexically, creates
-missing prefixes, and accepts existing directories. Encountered links are
-rejected; directory races still require a separate containment design. It may
+missing prefixes, and accepts existing directories, including native directory
+aliases such as macOS `/var`. Directory links are followed; directory races still require a separate containment design. It may
 leave directories it already created on failure. Path-normalization scratch
 storage follows the path module's fail-fast allocation contract.

@@ -53,7 +53,7 @@ TB_API tb_fs_result tb_fs_replace_file(tb_path_view path, const void *bytes, siz
  * @param path Borrowed UTF-8 directory. Native host syntax is used.
  * Ordinary dot components are normalized lexically before creation.
  * @return Status; partial directory creation remains on failure. Existing
- * symlinks/reparse points are rejected when encountered by prefix queries.
+ * directory symlinks/reparse points are followed as native directory aliases.
  * This is a convenience operation, not a race-free security boundary. */
 TB_API tb_fs_result tb_fs_make_directories(tb_path_view path);
 #endif
