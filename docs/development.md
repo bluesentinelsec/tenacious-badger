@@ -22,7 +22,7 @@ The foundation layer so far, one public header per module under
 | `platform.h` | [Native platform interfaces](platforms.md): the clock, abort, and atomic values |
 | `thread.h` | [Threads, mutexes, and condition variables](platforms.md#threads-mutexes-and-condition-variables) |
 | `system.h` | [The processors the process may run on](platforms.md#processors) |
-| `jobs.h` | [The job system](jobs.md): worker threads, and jobs with dependencies and priorities |
+| `jobs.h` | [The job system](jobs.md): worker threads, jobs with dependencies and priorities, and loops that run on every thread |
 
 `burrow` calls the shared library and prints `2 + 3 = 5`. Rendering, windowing,
 gameplay, vendor integrations, and the other planned modules remain future work.

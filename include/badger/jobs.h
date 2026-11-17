@@ -215,4 +215,65 @@ TB_API void tb_jobs_wait(tb_jobs *jobs, tb_job job);
  */
 TB_API void tb_jobs_wait_for_all(tb_jobs *jobs);
 
+/* -------------------------------------------------------------------------
+ * Loops.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * @brief The body of a parallel loop: do the work of some of its iterations.
+ *
+ * It is given a range, not one index, so that the call is paid for once for
+ * many iterations.
+ *
+ * @code
+ * static void scale_some(void *argument, size_t first, size_t count)
+ * {
+ *     float *const values = argument;
+ *
+ *     for (size_t index = first; index < first + count; index++)
+ *     {
+ *         values[index] *= 2.0f;
+ *     }
+ * }
+ * @endcode
+ *
+ * @param argument The pointer given to tb_jobs_for(); may be NULL.
+ * @param first The first iteration of the range.
+ * @param count How many iterations the range has; at least 1.
+ */
+typedef void tb_job_range_function(void *argument, size_t first, size_t count);
+
+/**
+ * @brief Run the iterations of a loop on every thread, and return when all
+ * of them are done.
+ *
+ * The iterations `0` to `count - 1` are divided into ranges of at most
+ * `grain` iterations, and `function` is called once for each range, on the
+ * workers and on the calling thread at the same time. Every iteration is in
+ * exactly one range. Ranges are handed out as threads become free, so a
+ * thread that gets slow iterations does not hold the others up.
+ *
+ * @code
+ * tb_jobs_for(jobs, value_count, 0, scale_some, values);
+ * @endcode
+ *
+ * The ranges run in no particular order and at the same time, so the body
+ * must not depend on the order, and iterations in different ranges must not
+ * write the same memory.
+ *
+ * @param jobs Required non-null.
+ * @param count How many iterations there are. Zero returns at once.
+ * @param grain The most iterations in one range, or 0 to let the scheduler
+ * choose: about four ranges for each thread. Choose it yourself when you know
+ * what an iteration costs: a range should be worth a microsecond or more of
+ * work, and small enough that there are several for each thread.
+ * @param function The body; required non-null.
+ * @param argument Passed to every call of `function`; may be NULL. Whatever
+ * it points to is only needed until this function returns.
+ * @par Threading Thread-safe; may be called from inside a job, and from
+ * inside the body of another loop.
+ */
+TB_API void tb_jobs_for(tb_jobs *jobs, size_t count, size_t grain, tb_job_range_function *function,
+                        void *argument);
+
 #endif
