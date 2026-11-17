@@ -140,6 +140,6 @@ jobs:
           -DCMAKE_SHARED_LINKER_FLAGS=--coverage -DCMAKE_EXE_LINKER_FLAGS=--coverage
           -DTB_BUILD_BURROW=OFF -DTB_BUILD_BENCHMARKS=OFF
       - run: cmake --build build/coverage --target tb_tests tb_probe tb_memory_checked_tests tb_internal_tests tb_platform_tests --parallel
-      - run: ctest --test-dir build/coverage -R "core_|platform_files" --output-on-failure --timeout 60
+      - run: ctest --test-dir build/coverage -R "core_|platform_files|platform_memory" --output-on-failure --timeout 60
       - name: Require 80 percent line coverage of the checked foundation modules
         run: python3 tools/check_coverage.py build/coverage

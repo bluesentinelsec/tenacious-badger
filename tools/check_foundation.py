@@ -56,7 +56,9 @@ ALLOCATION = rule('badger/memory.h', 'docs/memory.md', {
         'aligned_alloc posix_memalign memalign valloc pvalloc _aligned_malloc _aligned_realloc '
         '_aligned_recalloc _aligned_free',
     'the engine allocation functions, or a platform memory interface':
-        'HeapAlloc HeapReAlloc HeapFree HeapCreate VirtualAlloc VirtualFree mmap munmap',
+        'HeapAlloc HeapReAlloc HeapFree HeapCreate',
+    'tb_vm_reserve, tb_vm_commit, tb_vm_decommit, and tb_vm_release':
+        'VirtualAlloc VirtualFree mmap munmap mprotect',
     'badger/memory.h':
         '<malloc.h>',
 })
@@ -166,6 +168,14 @@ PREFIXES = sorted((name[:-1] for name in FORBIDDEN if name.endswith('*')), key=l
 # and covers every file below it. Keep this list short: each entry is a place
 # where the engine does not use its own foundation.
 AUTHORIZED = {
+    'src/platform/win32/virtual_memory.c': (
+        {'VirtualAlloc', 'VirtualFree'}, 'implements the virtual memory interface'),
+    'src/platform/posix/virtual_memory.c': (
+        {'mmap', 'munmap', 'mprotect'}, 'implements the virtual memory interface'),
+    'src/platform/linux/virtual_memory.c': (
+        {'mmap'}, 'implements optional native large pages'),
+    'src/platform/macos/virtual_memory.c': (
+        {'mmap'}, 'implements optional native large pages'),
     # Native file adapters also build independently of the core allocator and
     # strings. Their small path/iterator allocations return resource errors.
     **{path: (set(names.split()),
