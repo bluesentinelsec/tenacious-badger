@@ -10,6 +10,7 @@ TB_TEST(fmt_failure_probe, stdout_refuses_output)
     TB_TEST_REQUIRE(!tb_fmt_flush());
     TB_TEST_REQUIRE(!tb_fmt_flush());
     (void)tb_fmt_print_error("stdout-failure-detected\n");
+    TB_TEST_REQUIRE(tb_fmt_flush_error());
 }
 
 TB_TEST(fmt_failure_probe, stderr_refuses_output)
@@ -19,4 +20,5 @@ TB_TEST(fmt_failure_probe, stderr_refuses_output)
     TB_TEST_REQUIRE(!tb_fmt_flush());
     TB_TEST_REQUIRE(!tb_fmt_flush());
     (void)tb_fmt_print("stderr-failure-detected\n");
+    TB_TEST_REQUIRE(!tb_fmt_flush_error());
 }

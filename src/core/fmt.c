@@ -884,6 +884,11 @@ size_t tb_fmt_print_error(const char *format, ...)
     return length;
 }
 
+bool tb_fmt_flush_error(void)
+{
+    return fflush(stderr) == 0 && ferror(stderr) == 0;
+}
+
 bool tb_fmt_flush(void)
 {
     /* Both are flushed whatever the first reports. */

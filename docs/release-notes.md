@@ -236,3 +236,7 @@ Native binary files and directories are available through `badger/file.h` on
 all desktop platforms. `badger/fs.h` adds bounded whole-file reads with custom
 allocators, recursive directory creation, and atomic replacement that preserves
 existing readers. See [file contracts](files.md) for ownership and durability.
+
+Thread-safe synchronous logging now supports severity/category filters and
+replaceable callbacks, with stderr and native-file sinks. Sink failures and
+recursive logging are reported explicitly. See [logging](logging.md).
