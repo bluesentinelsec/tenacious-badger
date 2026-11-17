@@ -143,13 +143,13 @@ jobs:
       - run: ctest --test-dir build/coverage -R core_ --output-on-failure --timeout 60
       - name: Require 80 percent line coverage of the checked foundation modules
         run: |
-          for module in memory_debug utf8; do
+          for module in memory_debug utf8 path; do
             gcov --json-format "build/coverage/src/CMakeFiles/badger.dir/core/${module}.c.gcno"
           done
           python3 - <<'PY'
           import gzip
           import json
-          for module in ["memory_debug", "utf8"]:
+          for module in ["memory_debug", "utf8", "path"]:
               with gzip.open(f"{module}.c.gcov.json.gz", "rt") as report:
                   data = json.load(report)
               lines = [line for source in data["files"]
