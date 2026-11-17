@@ -121,7 +121,7 @@ Public declaration: `include/badger/thread.h`.
 
 | | Functions |
 | --- | --- |
-| A thread | `tb_thread_create`, `tb_thread_join`, `tb_thread_current_id` |
+| A thread | `tb_thread_create`, `tb_thread_create_with_options`, `tb_thread_join`, `tb_thread_current_id`, `tb_thread_current_name` |
 | A mutex | `tb_mutex_lock`, `tb_mutex_try_lock`, `tb_mutex_unlock` |
 | A condition variable | `tb_condition_wait`, `tb_condition_wait_for`, `tb_condition_wake_one`, `tb_condition_wake_all` |
 
@@ -177,9 +177,55 @@ starts at zero in every new thread. Nothing runs when a thread ends: a thread
 that gives its variable something to release must release it before it
 returns.
 
-**A thread has the system's default stack**, which is usually 1 MB on Windows,
-8 MB on Linux, and 512 KB on macOS. Stack sizes, names, priorities, and processor
-affinity are left for the job system to ask for.
+**A thread has the system's default stack** unless it asks for another: usually
+1 MB on Windows, 8 MB on Linux, and 512 KB on macOS.
+
+**A thread can be given a name, a stack size, and a priority** when it is
+created, with `tb_thread_create_with_options`:
+
+```c
+const tb_thread_options options = {.name = "badger-worker-3",
+                                   .stack_size = TB_THREAD_STACK_SIZE_DEFAULT,
+                                   .priority = TB_THREAD_PRIORITY_BACKGROUND};
+
+tb_thread_create_with_options(&thread, &options, run_worker, worker);
+```
+
+| Option | Asks for nothing when | What the thread gets |
+| --- | --- | --- |
+| `name` | `NULL` or empty | A name that debuggers, profilers, and crash reports show. |
+| `stack_size` | `0` | At least that many bytes of stack. `TB_THREAD_STACK_SIZE_DEFAULT` is 1 MiB, the same on every platform. |
+| `priority` | `TB_THREAD_PRIORITY_NORMAL` | The system's nearest to `TB_THREAD_PRIORITY_BACKGROUND` or `TB_THREAD_PRIORITY_HIGH`. |
+
+The thread gives itself its name and priority before it runs its function,
+because macOS names only the calling thread. The name is copied into the
+`tb_thread`, so the caller's text may go away.
+
+**A stack size is always honored; a name and a priority are requests.** The
+system rounds a stack size up to its page size and its own minimum. A name
+or a priority that the system does not grant is not an error, and the thread
+runs without it.
+
+| Platform | Name | Bytes of a name the system keeps | `BACKGROUND` | `HIGH` |
+| --- | --- | --- | --- | --- |
+| Windows | `SetThreadDescription` | All 31 that the engine keeps | `THREAD_PRIORITY_BELOW_NORMAL` | `THREAD_PRIORITY_ABOVE_NORMAL` |
+| Linux / Steam Deck | `pthread_setname_np` | 15 | Niceness 10 | Niceness -5, where the process may raise a priority; most may not, and the thread stays normal |
+| macOS | `pthread_setname_np` | All 31 | `QOS_CLASS_UTILITY` | `QOS_CLASS_USER_INTERACTIVE` |
+
+**A name is cut between characters.** The engine keeps the first 31 bytes of
+a name, and Linux the first 15. A cut that would fall inside a UTF-8
+character drops the whole character.
+
+`tb_thread_current_name` reads the calling thread's name back from the
+system, which is the name a debugger shows. A thread that was given none has
+what the system gives it: nothing on Windows and macOS, and the program's name
+on Linux.
+
+On macOS the class a thread is given also decides which kind of core it runs
+on, where the machine has two: utility work goes to the efficiency cores.
+
+Processor affinity is not here. It needs a list of the processors, which the
+count of them does not give (#98).
 
 | Platform | Selected implementation | Thread | Mutex | Condition variable |
 | --- | --- | --- | --- | --- |

@@ -115,6 +115,8 @@ ATOMICS = rule('badger/platform.h', 'docs/platforms.md', {
 THREADS = rule('badger/thread.h', 'docs/platforms.md', {
     'tb_thread_create, tb_thread_join, and tb_thread_current_id':
         'thrd_* CreateThread _beginthread _beginthreadex GetCurrentThreadId',
+    'tb_thread_create_with_options and tb_thread_current_name':
+        'SetThreadDescription GetThreadDescription SetThreadPriority prctl',
     'tb_mutex and its functions':
         'mtx_* AcquireSRWLockExclusive ReleaseSRWLockExclusive TryAcquireSRWLockExclusive '
         'AcquireSRWLockShared ReleaseSRWLockShared TryAcquireSRWLockShared '

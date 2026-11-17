@@ -3,6 +3,10 @@ set(TB_PLATFORM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/atomic.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/condition.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/system.c"
+    # Naming a thread and giving it a priority are not part of POSIX.
+    "${CMAKE_CURRENT_SOURCE_DIR}/thread_native.c"
+    # Shared by every adapter that names threads.
+    "${CMAKE_CURRENT_SOURCE_DIR}/../shared/name.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/time.c"
     # POSIX threads are the same on Linux and macOS, except where a condition
     # variable waits for a limited time: that part is condition.c.
