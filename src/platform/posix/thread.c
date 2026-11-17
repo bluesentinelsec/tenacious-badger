@@ -382,13 +382,15 @@ void tb_condition_wait(tb_condition *condition, tb_mutex *mutex)
     TB_ASSERT(condition != NULL);
     TB_ASSERT(mutex != NULL);
     TB_ASSERT_MSG(tb_posix_caller_holds(mutex), "the calling thread holds the mutex");
-    /* The wait gives the mutex up and takes it again. */
-    tb_posix_note_released(mutex);
     if (pthread_cond_wait(tb_posix_condition(condition), tb_posix_mutex(mutex)) != 0)
     {
         tb_posix_thread_fail("platform.thread: tb_condition_wait on posix: pthread_cond_wait "
                              "failed\n");
     }
+    /* The wait gave the mutex up, and whoever took it meanwhile recorded
+     * itself. The record is not cleared before the wait: until the mutex is
+     * taken again it names this thread, which is asleep and cannot be misled
+     * by it. */
     tb_posix_note_held(mutex);
 }
 
@@ -406,8 +408,6 @@ bool tb_condition_wait_for(tb_condition *condition, tb_mutex *mutex, uint64_t na
     native_condition = tb_posix_condition(condition);
     native_mutex = tb_posix_mutex(mutex);
     start = tb_platform_clock_nanoseconds();
-    /* Each wait gives the mutex up and takes it again. */
-    tb_posix_note_released(mutex);
     /* The system may count the limit on another clock than the engine's, and
      * waits for a very long one in parts. The engine's clock decides when the
      * limit has passed. */
@@ -422,6 +422,8 @@ bool tb_condition_wait_for(tb_condition *condition, tb_mutex *mutex, uint64_t na
             elapsed = tb_platform_clock_nanoseconds() - start;
         }
     }
+    /* As after tb_condition_wait(): whoever held the mutex meanwhile
+     * recorded itself. */
     tb_posix_note_held(mutex);
     return ended_early;
 }
