@@ -122,3 +122,122 @@ TB_TEST(platform_time, an_interval_is_as_long_as_the_c_library_measures_it)
                  " ns where the C library's measured from %" PRIu64 " to %" PRIu64 " ns",
                  measured.engine, measured.inner, measured.outer);
 }
+
+/* --- sleeping -------------------------------------------------------------------- */
+
+#define NANOSECONDS_PER_MILLISECOND UINT64_C(1000000)
+#define NANOSECONDS_PER_MICROSECOND UINT64_C(1000)
+
+/* How much longer than asked a sleep or a wait may take before a case calls
+ * it wrong. On a machine with nothing else to do the lateness is under a
+ * millisecond; a hosted CI machine can keep a thread waiting for a processor
+ * a hundred times as long, and a case that failed then would say nothing
+ * about the engine. */
+#define LATENESS_ALLOWED (UINT64_C(2000) * NANOSECONDS_PER_MILLISECOND)
+
+TB_TEST(platform_time, a_sleep_lasts_at_least_as_long_as_asked)
+{
+    static const uint64_t lengths[] = {
+        1,
+        UINT64_C(99),
+        UINT64_C(50) * NANOSECONDS_PER_MICROSECOND,
+        NANOSECONDS_PER_MILLISECOND + 1,
+        UINT64_C(30) * NANOSECONDS_PER_MILLISECOND,
+    };
+
+    for (size_t index = 0; index < TB_TEST_COUNT_OF(lengths); index++)
+    {
+        const uint64_t start = tb_platform_clock_nanoseconds();
+        uint64_t slept = 0;
+
+        TB_TEST_CONTEXT("a sleep of %" PRIu64 " nanoseconds", lengths[index]);
+        tb_platform_sleep(lengths[index]);
+        slept = tb_platform_clock_nanoseconds() - start;
+        TB_TEST_EXPECT_UINT(slept, >=, lengths[index]);
+        TB_TEST_EXPECT_UINT(slept, <, lengths[index] + LATENESS_ALLOWED);
+    }
+}
+
+TB_TEST(platform_time, a_sleep_of_no_time_returns_at_once)
+{
+    const uint64_t start = tb_platform_clock_nanoseconds();
+
+    for (size_t index = 0; index < 1000; index++)
+    {
+        tb_platform_sleep(0);
+    }
+    /* A thousand of them take less than any one real sleep would. */
+    TB_TEST_EXPECT_UINT(tb_platform_clock_nanoseconds() - start, <, LATENESS_ALLOWED);
+}
+
+TB_TEST(platform_time, a_wait_ends_at_its_moment_and_never_before)
+{
+    static const uint64_t lengths[] = {
+        UINT64_C(20) * NANOSECONDS_PER_MICROSECOND,
+        UINT64_C(700) * NANOSECONDS_PER_MICROSECOND,
+        UINT64_C(3) * NANOSECONDS_PER_MILLISECOND,
+        UINT64_C(25) * NANOSECONDS_PER_MILLISECOND,
+    };
+
+    for (size_t index = 0; index < TB_TEST_COUNT_OF(lengths); index++)
+    {
+        const uint64_t deadline = tb_platform_clock_nanoseconds() + lengths[index];
+        uint64_t now = 0;
+
+        TB_TEST_CONTEXT("a wait of %" PRIu64 " nanoseconds", lengths[index]);
+        tb_platform_wait_until(deadline);
+        now = tb_platform_clock_nanoseconds();
+        TB_TEST_EXPECT_UINT(now, >=, deadline);
+        TB_TEST_EXPECT_UINT(now - deadline, <, LATENESS_ALLOWED);
+    }
+}
+
+TB_TEST(platform_time, a_wait_for_a_moment_that_has_passed_returns_at_once)
+{
+    const uint64_t start = tb_platform_clock_nanoseconds();
+
+    for (size_t index = 0; index < 1000; index++)
+    {
+        tb_platform_wait_until(start);
+        tb_platform_wait_until(0);
+    }
+    TB_TEST_EXPECT_UINT(tb_platform_clock_nanoseconds() - start, <, LATENESS_ALLOWED);
+}
+
+#define FRAME_COUNT ((size_t)120)
+#define FRAME_NANOSECONDS (UINT64_C(2) * NANOSECONDS_PER_MILLISECOND)
+
+/* A frame loop held to 500 frames a second for 120 frames. No frame begins
+ * before its moment, and because each moment is worked out from the first
+ * and not from the time a frame happened to wake, the last frame is no later
+ * than a single one may be: lateness does not add up. */
+TB_TEST(platform_time, paced_frames_keep_their_rate)
+{
+    const uint64_t start = tb_platform_clock_nanoseconds();
+    uint64_t deadline = start;
+    uint64_t latest = 0;
+    size_t early_count = 0;
+
+    for (size_t frame = 0; frame < FRAME_COUNT; frame++)
+    {
+        uint64_t now = 0;
+
+        deadline += FRAME_NANOSECONDS;
+        tb_platform_wait_until(deadline);
+        now = tb_platform_clock_nanoseconds();
+        if (now < deadline)
+        {
+            early_count++;
+        }
+        else if (now - deadline > latest)
+        {
+            latest = now - deadline;
+        }
+    }
+    TB_TEST_EXPECT_UINT(early_count, ==, 0);
+    TB_TEST_EXPECT_UINT(latest, <, LATENESS_ALLOWED);
+    TB_TEST_EXPECT_UINT(tb_platform_clock_nanoseconds() - start, >=,
+                        FRAME_COUNT * FRAME_NANOSECONDS);
+    TB_TEST_EXPECT_UINT(tb_platform_clock_nanoseconds() - start, <,
+                        FRAME_COUNT * FRAME_NANOSECONDS + LATENESS_ALLOWED);
+}

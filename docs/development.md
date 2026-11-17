@@ -19,7 +19,7 @@ The foundation layer so far, one public header per module under
 | `allocator.h` | [Allocators chosen per object](memory.md#choosing-the-allocator-of-one-object) |
 | `array.h`, `bit.h`, `ring.h`, `list.h`, `table.h`, `set.h` | [Collections](collections.md): a dynamic array, a bit vector, a ring, an intrusive list, a hash table, and a set |
 | `str.h`, `text.h`, `fmt.h`, `atom.h`, `hash.h` | [Strings](strings.md): C strings, text values, formatted output, atoms, and hash functions |
-| `platform.h` | [Native platform interfaces](platforms.md): the clock, abort, and atomic values |
+| `platform.h` | [Native platform interfaces](platforms.md): the clock, sleeping and pacing, abort, and atomic values |
 | `thread.h` | [Threads, mutexes, condition variables, semaphores, and thread-local values](platforms.md#threads-mutexes-and-condition-variables) |
 | `system.h` | [The processors the process may run on](platforms.md#processors) |
 | `jobs.h` | [The job system](jobs.md): worker threads, jobs with dependencies and priorities, and loops that run on every thread |
@@ -274,7 +274,10 @@ replaces:
 | `timespec_get`, `clock_gettime`, `QueryPerformanceCounter`, `mach_absolute_time`, and other native clocks | `tb_platform_clock_nanoseconds` | [`platform.h`](platforms.md#clock) |
 | `<stdatomic.h>`, `_Atomic`, `Interlocked...`, `__atomic_...`, `__sync_...` | `tb_platform_atomic_size`, `tb_platform_atomic_u32`, `tb_platform_atomic_pointer` | [`platform.h`](platforms.md#atomic-values) |
 | `<pthread.h>`, `<threads.h>`, `pthread_...`, `thrd_...`, `mtx_...`, `cnd_...`, `CreateThread`, the Win32 lock and condition variable functions | `tb_thread`, `tb_mutex`, `tb_condition` | [`thread.h`](platforms.md#threads-mutexes-and-condition-variables) |
-| `thread_local`, `__thread`, `tss_...`, `TlsAlloc` and its relatives | The C keyword `_Thread_local` | [`thread.h`](platforms.md#threads-mutexes-and-condition-variables) |
+| `thread_local`, `__thread`, `tss_...`, `TlsAlloc`, `FlsAlloc` and their relatives | The C keyword `_Thread_local`, or `tb_thread_local` for a place made at run time | [`thread.h`](platforms.md#values-that-each-thread-has-for-itself) |
+| `<semaphore.h>`, `sem_...`, `CreateSemaphoreW`, `dispatch_semaphore_...` | `tb_semaphore` | [`thread.h`](platforms.md#semaphores) |
+| `_mm_pause`, `YieldProcessor`, `sched_yield`, `SwitchToThread` | `tb_thread_relax`, `tb_thread_yield` | [`thread.h`](platforms.md#waiting-without-sleeping) |
+| `Sleep`, `nanosleep`, `clock_nanosleep`, `usleep`, waitable timers | `tb_platform_sleep`, `tb_platform_wait_until` | [`platform.h`](platforms.md#sleeping-and-pacing) |
 | `GetSystemInfo`, `GetLogicalProcessorInformationEx`, `sched_getaffinity`, `get_nprocs`, `_SC_NPROCESSORS_ONLN`, and other native counts of processors | `tb_system_get_processors` | [`system.h`](platforms.md#processors) |
 | `<search.h>` | `tb_table`, `tb_set`, `tb_list` | [`table.h`](collections.md) |
 
