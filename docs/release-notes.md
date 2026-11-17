@@ -149,6 +149,11 @@ reads a thread's name back from the system. Debuggers and crash reports show
 the name. A `tb_thread` is 40 bytes larger than before, for the name
 it carries to its thread.
 
+`tb_bench` can run a case on several threads at once, and measures what was
+only known from experiments that were not kept: a mutex with and without
+contention, a turn passed between two threads, the atomic operations, and
+allocation from eight threads at once beside the C library's.
+
 Included foundations:
 
 - `badger` dynamic library and `badger_static` static library with the same

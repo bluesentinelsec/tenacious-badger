@@ -1,6 +1,7 @@
 # Benchmarks
 
-`tb_bench` times the public operations of the foundation modules. It is how a
+`tb_bench` times the public operations of the foundation modules and of the
+platform's threads, locks, and atomic values. It is how a
 change that claims to make something faster shows it, and how a change that
 makes something slower is noticed. It is built with the project, in C17, with
 no dependencies, like everything else here.
@@ -52,6 +53,32 @@ with a game running can halve the speed of a benchmark between two runs. If
 the numbers of one build change from run to run by more than a few percent,
 the machine is not quiet enough for small differences to mean anything.
 
+## Cases on several threads
+
+A case can run on several threads at once: eight threads that all want one
+mutex, or that all allocate. Its name says how many.
+
+```
+thread	lock and unlock a mutex nobody else wants	badger	10.58
+thread	lock and unlock a mutex on 8 threads at once	badger	315.20
+```
+
+**The number is still the time one thread took for one operation.** Each
+thread performs the same count of operations, the harness lets all of them go
+at the same moment, and the time until the last has finished is divided by
+what one thread did. So a case on eight threads that reports the same number
+as the case on one has threads that do not get in each other's way, and one
+that reports eight times as much is doing no more work than one thread would.
+Above eight times, the threads are slower together than one after another.
+
+Two things follow:
+
+- **The contended numbers move from run to run** far more than the others,
+  by a factor of two on a quiet machine. Which thread gets the lock next is
+  the system's choice. Read them for their size, not their digits.
+- **The machine needs as many free cores as the case has threads.** With
+  fewer, the number measures the system's scheduler.
+
 ## What is not tested
 
 No test depends on a timing: neither a developer's machine in the middle of a
@@ -60,7 +87,8 @@ which fails when a benchmark crashes or stops working, on every platform.
 
 ## Adding a benchmark
 
-The benchmarks of a module are in `benchmarks/core/<module>_bench.c`, behind
+The benchmarks of a module are in `benchmarks/core/<module>_bench.c`, or in
+`benchmarks/platform/` for a platform interface, behind
 one function that `benchmarks/harness/tb_bench.c` calls. A case is a function
 that performs a known number of operations:
 
@@ -89,6 +117,10 @@ static void run_push(void *context)
   in separate calls.
 - **Time enough work.** A run should take milliseconds, not microseconds:
   repeat a small operation until it does.
+- **To run a case on several threads, set `threads`.** `operations` is then
+  what one thread performs. Every thread is given the same context, and
+  `tb_bench_thread_number()` tells a thread which one it is. `tb_bench_keep()`
+  may be called from any of them; the setup and teardown still run once.
 
 For a new module, add its file to `benchmarks/CMakeLists.txt`, and its
 function to `benchmarks/harness/tb_bench.h` and to the table of modules in
