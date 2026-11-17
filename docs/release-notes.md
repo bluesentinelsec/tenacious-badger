@@ -154,6 +154,11 @@ only known from experiments that were not kept: a mutex with and without
 contention, a turn passed between two threads, the atomic operations, and
 allocation from eight threads at once beside the C library's.
 
+The job system has its first piece, which is internal: the queue that a
+worker thread keeps its tasks in and that idle workers steal from, with no
+lock. An atomic size can now be stored, exchanged, and
+compared-and-exchanged, which the queue needs.
+
 Included foundations:
 
 - `badger` dynamic library and `badger_static` static library with the same
