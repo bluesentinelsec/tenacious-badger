@@ -47,6 +47,7 @@ if(TB_SANITIZER)
     # Standalone sanitizer executables link an instrumented copy, so the
     # framework's own code is checked along with the code under test.
     tb_test_add_framework_library(tb_test_sanitized)
+    target_compile_definitions(tb_test_sanitized PRIVATE TB_TEST_SANITIZED)
     tb_enable_sanitizers(tb_test_sanitized)
 endif()
 
