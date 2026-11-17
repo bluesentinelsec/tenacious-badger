@@ -319,6 +319,11 @@ def find_uses(text):
             continue
         for match in IDENTIFIER.finditer(line):
             rule_name = rule_name_of(match.group(0))
+            # POSIX uses ordinary English names that are also legitimate
+            # local variables. Check calls for those ambiguous names.
+            if rule_name in {'open', 'close', 'read', 'write', 'remove', 'rename'}:
+                if not line[match.end():].lstrip().startswith('('):
+                    continue
             if rule_name is not None:
                 uses.append((number, match.group(0), rule_name))
     return uses
@@ -465,8 +470,11 @@ def self_test():
         ('formatted output', 'printf("%d", 1); (void)snprintf(b, 4, "x"); fputs("x", stderr);',
          ['printf', 'snprintf', 'fputs']),
         ('engine formatting', 'tb_fmt_print("%d", 1); tb_fmt_buffer(b, 4, "x"); fwrite(b, 1, 1, f);',
-         []),
+         ['fwrite']),
         ('flushing the standard streams', 'fflush(stdout); (void)tb_fmt_flush();', ['fflush']),
+        ('file calls', 'read(fd, b, n); write(fd, b, n); fopen(p, mode);',
+         ['read', 'write', 'fopen']),
+        ('file-like variables', 'size_t read = 0; bool write = true; ++read;', []),
         ('strings', 'n = strlen(s); if (strcmp(a, b) == 0) { p = strstr(a, b); }',
          ['strlen', 'strcmp', 'strstr']),
         ('engine strings and memory blocks',
