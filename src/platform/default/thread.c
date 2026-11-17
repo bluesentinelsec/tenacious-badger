@@ -16,6 +16,16 @@ void tb_thread_create(tb_thread *thread, tb_thread_function *entry, void *argume
     tb_default_not_implemented(TB_DEFAULT_THREAD_INTERFACE, "tb_thread_create");
 }
 
+void tb_thread_create_with_options(tb_thread *thread, const tb_thread_options *options,
+                                   tb_thread_function *entry, void *argument)
+{
+    (void)thread;
+    (void)options;
+    (void)entry;
+    (void)argument;
+    tb_default_not_implemented(TB_DEFAULT_THREAD_INTERFACE, "tb_thread_create_with_options");
+}
+
 void tb_thread_join(tb_thread *thread)
 {
     (void)thread;
@@ -25,6 +35,13 @@ void tb_thread_join(tb_thread *thread)
 uint64_t tb_thread_current_id(void)
 {
     tb_default_not_implemented(TB_DEFAULT_THREAD_INTERFACE, "tb_thread_current_id");
+}
+
+size_t tb_thread_current_name(char *buffer, size_t capacity)
+{
+    (void)buffer;
+    (void)capacity;
+    tb_default_not_implemented(TB_DEFAULT_THREAD_INTERFACE, "tb_thread_current_name");
 }
 
 void tb_mutex_lock(tb_mutex *mutex)

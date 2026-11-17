@@ -94,8 +94,9 @@ endfunction()
 # engine, which keeps the adapters free of the modules above them and lets a
 # test call a function that is private to an adapter.
 set(TB_PLATFORM_TEST_SOURCES
-    platform/atomic_test.c platform/contract_test.c platform/system_test.c
-    platform/thread_test.c platform/time_test.c)
+    platform/atomic_test.c platform/contract_test.c platform/name_test.c
+    platform/system_test.c platform/thread_options_test.c platform/thread_test.c
+    platform/time_test.c)
 # An adapter reports a broken contract through tb_assert_fail(), which the
 # core defines. Executables built from an adapter alone get it from here, as
 # a trap of the test framework.
@@ -104,18 +105,24 @@ set(TB_PLATFORM_PRIVATE_DIRECTORY "")
 if(WIN32)
     list(APPEND TB_PLATFORM_TEST_SOURCES
         platform/win32/affinity_test.c platform/win32/counter_test.c
-        platform/win32/processors_test.c platform/win32/thread_wait_test.c)
+        platform/win32/processors_test.c platform/win32/thread_priority_test.c
+        platform/win32/thread_wait_test.c)
     set(TB_PLATFORM_PRIVATE_DIRECTORY "${PROJECT_SOURCE_DIR}/src/platform/win32")
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     list(APPEND TB_PLATFORM_TEST_SOURCES
-        platform/linux/affinity_test.c platform/linux/processors_test.c)
+        platform/linux/affinity_test.c platform/linux/processors_test.c
+        platform/linux/thread_priority_test.c)
     set(TB_PLATFORM_PRIVATE_DIRECTORY "${PROJECT_SOURCE_DIR}/src/platform/linux")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    list(APPEND TB_PLATFORM_TEST_SOURCES platform/macos/thread_priority_test.c)
 endif()
 
 # The arguments go to tb_add_test_executable.
 function(tb_add_platform_tests target)
     tb_add_test_executable(${target} SOURCES ${TB_PLATFORM_TEST_SOURCES} ${ARGN})
     target_sources(${target} PRIVATE ${TB_PLATFORM_SOURCES} ${TB_PLATFORM_TEST_SUPPORT_SOURCES})
+    # What the adapters share is tested on every platform.
+    target_include_directories(${target} PRIVATE "${PROJECT_SOURCE_DIR}/src/platform/shared")
     if(TB_PLATFORM_PRIVATE_DIRECTORY)
         target_include_directories(${target} PRIVATE "${TB_PLATFORM_PRIVATE_DIRECTORY}")
     endif()

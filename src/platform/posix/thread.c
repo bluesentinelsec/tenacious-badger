@@ -3,14 +3,17 @@
 
 #include "badger/thread.h"
 
+#include "../shared/name.h"
 #include "badger/assert.h"
 #include "badger/platform.h"
 #include "condition_native.h"
+#include "thread_native.h"
 
 #include <errno.h>
 #include <pthread.h>
 #include <sched.h>
 #include <stdio.h>
+#include <unistd.h>
 
 /* A tb_mutex and a tb_condition are ready when they are all zeros, but the
  * system's objects are not: they have to be made by a function. The first
@@ -171,24 +174,119 @@ static void tb_posix_note_released(tb_mutex *mutex)
  * Threads.
  * ------------------------------------------------------------------------- */
 
+/* Used where the system does not say how small a stack or how large a page
+ * may be. */
+#define TB_POSIX_STACK_SIZE_FLOOR ((size_t)16384)
+#define TB_POSIX_PAGE_SIZE_FALLBACK ((size_t)4096)
+
+static bool tb_posix_is_priority(tb_thread_priority priority)
+{
+    return priority == TB_THREAD_PRIORITY_NORMAL || priority == TB_THREAD_PRIORITY_BACKGROUND ||
+           priority == TB_THREAD_PRIORITY_HIGH;
+}
+
+/* A value of the system's configuration as a size, or `fallback` when the
+ * system has none. */
+static size_t tb_posix_configured_size(int name, size_t fallback)
+{
+    const long value = sysconf(name);
+
+    if (value <= 0)
+    {
+        return fallback;
+    }
+    return (size_t)value;
+}
+
+/* The stack size to ask the system for: at least `requested`, at least the
+ * system's minimum, and a whole number of pages, which macOS insists on. */
+static size_t tb_posix_stack_size(size_t requested)
+{
+    const size_t page = tb_posix_configured_size(_SC_PAGESIZE, TB_POSIX_PAGE_SIZE_FALLBACK);
+    const size_t minimum =
+        tb_posix_configured_size(_SC_THREAD_STACK_MIN, TB_POSIX_STACK_SIZE_FLOOR);
+    size_t size = requested;
+    size_t rest = 0;
+
+    if (size < minimum)
+    {
+        size = minimum;
+    }
+    rest = size % page;
+    if (rest == 0)
+    {
+        return size;
+    }
+    if (size > SIZE_MAX - (page - rest))
+    {
+        tb_posix_thread_fail("platform.thread: tb_thread_create on posix: the stack size is "
+                             "larger than any address space\n");
+    }
+    return size + (page - rest);
+}
+
 static void *tb_posix_thread_entry(void *parameter)
 {
     const tb_thread *const thread = parameter;
 
+    if (thread->name[0] != '\0')
+    {
+        tb_posix_thread_apply_name(thread->name);
+    }
+    if (thread->priority != TB_THREAD_PRIORITY_NORMAL)
+    {
+        tb_posix_thread_apply_priority(thread->priority);
+    }
     thread->entry(thread->argument);
     return NULL;
 }
 
 void tb_thread_create(tb_thread *thread, tb_thread_function *entry, void *argument)
 {
+    tb_thread_create_with_options(thread, NULL, entry, argument);
+}
+
+void tb_thread_create_with_options(tb_thread *thread, const tb_thread_options *options,
+                                   tb_thread_function *entry, void *argument)
+{
+    const char *name = NULL;
+    tb_thread_priority priority = TB_THREAD_PRIORITY_NORMAL;
+    size_t stack_size = 0;
+    pthread_attr_t attributes = {0};
     pthread_t native = {0};
+    int error = 0;
 
     TB_ASSERT(thread != NULL);
     TB_ASSERT(entry != NULL);
     TB_ASSERT_MSG(thread->native == 0, "the thread object holds no thread that is not joined");
+    TB_ASSERT_MSG(options == NULL || tb_posix_is_priority(options->priority),
+                  "the priority is one of tb_thread_priority");
+    if (options != NULL)
+    {
+        name = options->name;
+        priority = options->priority;
+        stack_size = options->stack_size;
+    }
     thread->entry = entry;
     thread->argument = argument;
-    if (pthread_create(&native, NULL, tb_posix_thread_entry, thread) != 0)
+    (void)tb_platform_copy_name(thread->name, sizeof(thread->name), name);
+    thread->priority = priority;
+    if (pthread_attr_init(&attributes) != 0)
+    {
+        tb_posix_thread_fail("platform.thread: tb_thread_create on posix: pthread_attr_init "
+                             "failed\n");
+    }
+    if (stack_size != 0)
+    {
+        if (pthread_attr_setstacksize(&attributes, tb_posix_stack_size(stack_size)) != 0)
+        {
+            tb_posix_thread_fail("platform.thread: tb_thread_create on posix: the system "
+                                 "refused the stack size\n");
+        }
+    }
+    error = pthread_create(&native, &attributes, tb_posix_thread_entry, thread);
+    (void)pthread_attr_destroy(&attributes);
+    if (error != 0)
     {
         tb_posix_thread_fail("platform.thread: tb_thread_create on posix: pthread_create "
                              "failed\n");
@@ -198,6 +296,8 @@ void tb_thread_create(tb_thread *thread, tb_thread_function *entry, void *argume
 
 void tb_thread_join(tb_thread *thread)
 {
+    const tb_thread joined = {0};
+
     TB_ASSERT(thread != NULL);
     TB_ASSERT_MSG(thread->native != 0, "the thread was created and is not joined yet");
     /* A build without assertions still refuses, with a diagnostic. */
@@ -210,7 +310,7 @@ void tb_thread_join(tb_thread *thread)
     {
         tb_posix_thread_fail("platform.thread: tb_thread_join on posix: pthread_join failed\n");
     }
-    thread->native = 0;
+    *thread = joined;
 }
 
 uint64_t tb_thread_current_id(void)
@@ -218,6 +318,13 @@ uint64_t tb_thread_current_id(void)
     /* The address of the thread's own record, or a number that stands for
      * it: never zero, and no two running threads share one. */
     return (uint64_t)(uintptr_t)pthread_self();
+}
+
+size_t tb_thread_current_name(char *buffer, size_t capacity)
+{
+    TB_ASSERT(buffer != NULL);
+    TB_ASSERT(capacity >= 1);
+    return tb_posix_thread_read_name(buffer, capacity);
 }
 
 /* ---------------------------------------------------------------------------

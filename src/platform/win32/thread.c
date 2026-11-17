@@ -1,5 +1,6 @@
 #include "badger/thread.h"
 
+#include "../shared/name.h"
 #include "badger/assert.h"
 #include "badger/platform.h"
 #include "thread_wait.h"
@@ -103,24 +104,98 @@ static CONDITION_VARIABLE *tb_win32_condition(tb_condition *condition)
  * Threads.
  * ------------------------------------------------------------------------- */
 
+/* Bytes of a name read back from the system, terminator included. Names
+ * that the engine gives are shorter; a debugger may have given a longer one. */
+#define TB_WIN32_THREAD_NAME_BYTES 256
+
+static bool tb_win32_is_priority(tb_thread_priority priority)
+{
+    return priority == TB_THREAD_PRIORITY_NORMAL || priority == TB_THREAD_PRIORITY_BACKGROUND ||
+           priority == TB_THREAD_PRIORITY_HIGH;
+}
+
+/* Gives the calling thread a name that debuggers and crash dumps show. The
+ * system takes UTF-16; text of some number of bytes of UTF-8 is never more
+ * units of UTF-16. A name that is not UTF-8 is not given. */
+static void tb_win32_apply_name(const char *name)
+{
+    WCHAR wide[TB_THREAD_NAME_CAPACITY] = {0};
+
+    if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, name, -1, wide,
+                            TB_THREAD_NAME_CAPACITY) == 0)
+    {
+        return;
+    }
+    (void)SetThreadDescription(GetCurrentThread(), wide);
+}
+
+static void tb_win32_apply_priority(tb_thread_priority priority)
+{
+    int native = THREAD_PRIORITY_NORMAL;
+
+    if (priority == TB_THREAD_PRIORITY_BACKGROUND)
+    {
+        native = THREAD_PRIORITY_BELOW_NORMAL;
+    }
+    else if (priority == TB_THREAD_PRIORITY_HIGH)
+    {
+        native = THREAD_PRIORITY_ABOVE_NORMAL;
+    }
+    (void)SetThreadPriority(GetCurrentThread(), native);
+}
+
 static DWORD WINAPI tb_win32_thread_entry(LPVOID parameter)
 {
     const tb_thread *const thread = parameter;
 
+    if (thread->name[0] != '\0')
+    {
+        tb_win32_apply_name(thread->name);
+    }
+    if (thread->priority != TB_THREAD_PRIORITY_NORMAL)
+    {
+        tb_win32_apply_priority(thread->priority);
+    }
     thread->entry(thread->argument);
     return 0;
 }
 
 void tb_thread_create(tb_thread *thread, tb_thread_function *entry, void *argument)
 {
+    tb_thread_create_with_options(thread, NULL, entry, argument);
+}
+
+void tb_thread_create_with_options(tb_thread *thread, const tb_thread_options *options,
+                                   tb_thread_function *entry, void *argument)
+{
+    const char *name = NULL;
+    tb_thread_priority priority = TB_THREAD_PRIORITY_NORMAL;
     HANDLE handle = NULL;
+    SIZE_T stack_size = 0;
+    DWORD flags = 0;
 
     TB_ASSERT(thread != NULL);
     TB_ASSERT(entry != NULL);
     TB_ASSERT_MSG(thread->native == 0, "the thread object holds no thread that is not joined");
+    TB_ASSERT_MSG(options == NULL || tb_win32_is_priority(options->priority),
+                  "the priority is one of tb_thread_priority");
+    if (options != NULL)
+    {
+        name = options->name;
+        priority = options->priority;
+        stack_size = options->stack_size;
+    }
     thread->entry = entry;
     thread->argument = argument;
-    handle = CreateThread(NULL, 0, tb_win32_thread_entry, thread, 0, NULL);
+    (void)tb_platform_copy_name(thread->name, sizeof(thread->name), name);
+    thread->priority = priority;
+    if (stack_size != 0)
+    {
+        /* Without this the size is how much of the default stack is
+         * committed at the start, not how large the stack can grow. */
+        flags = STACK_SIZE_PARAM_IS_A_RESERVATION;
+    }
+    handle = CreateThread(NULL, stack_size, tb_win32_thread_entry, thread, flags, NULL);
     if (handle == NULL)
     {
         tb_win32_thread_fail("platform.thread: tb_thread_create on win32: CreateThread failed\n");
@@ -130,6 +205,7 @@ void tb_thread_create(tb_thread *thread, tb_thread_function *entry, void *argume
 
 void tb_thread_join(tb_thread *thread)
 {
+    const tb_thread joined = {0};
     HANDLE handle = NULL;
 
     TB_ASSERT(thread != NULL);
@@ -150,13 +226,34 @@ void tb_thread_join(tb_thread *thread)
     {
         tb_win32_thread_fail("platform.thread: tb_thread_join on win32: CloseHandle failed\n");
     }
-    thread->native = 0;
+    *thread = joined;
 }
 
 uint64_t tb_thread_current_id(void)
 {
     /* Never zero: the system gives that identifier to no thread. */
     return GetCurrentThreadId();
+}
+
+size_t tb_thread_current_name(char *buffer, size_t capacity)
+{
+    char name[TB_WIN32_THREAD_NAME_BYTES] = {0};
+    PWSTR wide = NULL;
+
+    TB_ASSERT(buffer != NULL);
+    TB_ASSERT(capacity >= 1);
+    if (SUCCEEDED(GetThreadDescription(GetCurrentThread(), &wide)))
+    {
+        /* A name too long for the buffer here, or not valid UTF-16, is
+         * reported as no name. */
+        if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide, -1, name, sizeof(name), NULL,
+                                NULL) == 0)
+        {
+            name[0] = '\0';
+        }
+        (void)LocalFree(wide);
+    }
+    return tb_platform_copy_name(buffer, capacity, name);
 }
 
 /* ---------------------------------------------------------------------------

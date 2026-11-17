@@ -143,6 +143,12 @@ in `badger/system.h` reports the logical processors, the cores, and the cores
 of the fastest kind, on Windows, Linux, and macOS, for the process as the
 system confines it.
 
+A thread can be given a name, a stack size, and a priority.
+`tb_thread_create_with_options` takes them, and `tb_thread_current_name`
+reads a thread's name back from the system. Debuggers and crash reports show
+the name. A `tb_thread` is 40 bytes larger than before, for the name
+it carries to its thread.
+
 Included foundations:
 
 - `badger` dynamic library and `badger_static` static library with the same

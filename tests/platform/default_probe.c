@@ -121,6 +121,13 @@ TB_TEST(platform_default, tb_thread_create)
     tb_thread_create(&thread, do_nothing, NULL);
 }
 
+TB_TEST(platform_default, tb_thread_create_with_options)
+{
+    tb_thread thread = {0};
+
+    tb_thread_create_with_options(&thread, NULL, do_nothing, NULL);
+}
+
 TB_TEST(platform_default, tb_thread_join)
 {
     tb_thread thread = {0};
@@ -131,6 +138,13 @@ TB_TEST(platform_default, tb_thread_join)
 TB_TEST(platform_default, tb_thread_current_id)
 {
     (void)tb_thread_current_id();
+}
+
+TB_TEST(platform_default, tb_thread_current_name)
+{
+    char name[TB_THREAD_NAME_CAPACITY] = {0};
+
+    (void)tb_thread_current_name(name, sizeof(name));
 }
 
 TB_TEST(platform_default, tb_mutex_lock)
