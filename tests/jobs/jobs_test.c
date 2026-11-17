@@ -994,6 +994,134 @@ static void leave_three_for_the_meeting(void *argument)
  * The case can take its job before the last of the three is ready, and then
  * that one wakes a worker by itself. So a scheduler that left out the wake
  * could pass a round, and the case runs many. */
+typedef struct left_behind
+{
+    tb_jobs *jobs;
+    tb_platform_atomic_size has_run; /* 1 once the job that was left behind has run. */
+    tb_platform_atomic_size gave_up; /* 1 when it did not run in time. */
+} left_behind;
+
+/* Patience for the job that was left behind: long beside the time a sleeper
+ * takes to wake, short beside the time the case may take. */
+#define LEFT_BEHIND_PATIENCE (UINT64_C(2) * NANOSECONDS_PER_SECOND)
+
+static void run_the_one_left_behind(void *argument)
+{
+    left_behind *const shared = argument;
+
+    tb_platform_atomic_size_store(&shared->has_run, 1);
+}
+
+/* Longer than an idle worker looks for a job before it sleeps, so that a
+ * worker that was woken for this job and did not get it is asleep again when
+ * the job finishes. */
+static void finish_first(void *argument)
+{
+    (void)argument;
+    pass_the_time(LONG_ENOUGH_TO_FALL_ASLEEP / 2);
+}
+
+/* Submits a job and a job that depends on it, waits for the first, and then
+ * stays on this thread until the second has run, without running jobs. */
+static void wait_and_then_stay(void *argument)
+{
+    left_behind *const shared = argument;
+    const tb_job first = tb_jobs_run(shared->jobs, finish_first, NULL);
+    const tb_job_description second = {.function = run_the_one_left_behind,
+                                       .argument = shared,
+                                       .dependencies = &first,
+                                       .dependency_count = 1};
+    uint64_t start = 0;
+
+    (void)tb_jobs_submit(shared->jobs, &second);
+    tb_jobs_wait(shared->jobs, first);
+    start = tb_platform_clock_nanoseconds();
+    while (tb_platform_atomic_size_load(&shared->has_run) == 0)
+    {
+        if (tb_platform_clock_nanoseconds() - start > LEFT_BEHIND_PATIENCE)
+        {
+            tb_platform_atomic_size_store(&shared->gave_up, 1);
+            return;
+        }
+    }
+}
+
+#define LEFT_BEHIND_ROUNDS 20
+
+/* A worker that finishes a job and makes the next one ready in its own queue
+ * wakes nobody for it, because it takes that job next. Except when it was
+ * running the job only while it waited for it: then its wait is over, it
+ * returns to the job that waited, and that job stays on this thread here.
+ * The job left behind must have woken a sleeper as the worker returned, or
+ * it would wait for a thread that is not coming. */
+TB_TEST(jobs, a_job_left_behind_by_a_worker_that_returns_to_a_wait_is_run)
+{
+    tb_jobs *const jobs = create_with_workers(2);
+    size_t gave_up = 0;
+
+    for (size_t round = 0; round < LEFT_BEHIND_ROUNDS && gave_up == 0; round++)
+    {
+        left_behind shared = {.jobs = jobs};
+
+        pass_the_time(LONG_ENOUGH_TO_FALL_ASLEEP);
+        (void)tb_jobs_run(jobs, wait_and_then_stay, &shared);
+        /* Not tb_jobs_wait(): the case must run no job itself. */
+        while (tb_platform_atomic_size_load(&shared.has_run) == 0 &&
+               tb_platform_atomic_size_load(&shared.gave_up) == 0)
+        {
+            tb_thread_relax();
+        }
+        tb_jobs_wait_for_all(jobs);
+        gave_up += tb_platform_atomic_size_load(&shared.gave_up);
+    }
+    TB_TEST_EXPECT_UINT(gave_up, ==, 0);
+    tb_jobs_destroy(jobs);
+}
+
+/* Submits one job and stays on this thread until it has run, without
+ * running jobs: the job has to be run by another worker, at the same time. */
+static void submit_one_and_stay(void *argument)
+{
+    left_behind *const shared = argument;
+    const uint64_t start = tb_platform_clock_nanoseconds();
+
+    (void)tb_jobs_run(shared->jobs, run_the_one_left_behind, shared);
+    while (tb_platform_atomic_size_load(&shared->has_run) == 0)
+    {
+        if (tb_platform_clock_nanoseconds() - start > LEFT_BEHIND_PATIENCE)
+        {
+            tb_platform_atomic_size_store(&shared->gave_up, 1);
+            return;
+        }
+    }
+}
+
+/* A job that a running job submits wakes a sleeping worker for it, though it
+ * goes into the queue of the worker that submitted it: that worker is busy
+ * with the job that submitted it, and may be for a long time. */
+TB_TEST(jobs, a_job_submitted_by_a_running_job_runs_beside_it)
+{
+    tb_jobs *const jobs = create_with_workers(2);
+    size_t gave_up = 0;
+
+    for (size_t round = 0; round < LEFT_BEHIND_ROUNDS && gave_up == 0; round++)
+    {
+        left_behind shared = {.jobs = jobs};
+
+        pass_the_time(LONG_ENOUGH_TO_FALL_ASLEEP);
+        (void)tb_jobs_run(jobs, submit_one_and_stay, &shared);
+        while (tb_platform_atomic_size_load(&shared.has_run) == 0 &&
+               tb_platform_atomic_size_load(&shared.gave_up) == 0)
+        {
+            tb_thread_relax();
+        }
+        tb_jobs_wait_for_all(jobs);
+        gave_up += tb_platform_atomic_size_load(&shared.gave_up);
+    }
+    TB_TEST_EXPECT_UINT(gave_up, ==, 0);
+    tb_jobs_destroy(jobs);
+}
+
 TB_TEST(jobs, a_thread_that_takes_one_of_several_new_jobs_wakes_a_worker_for_the_rest)
 {
     tb_jobs *const jobs = create_with_workers(3);

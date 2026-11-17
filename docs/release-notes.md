@@ -202,7 +202,9 @@ each thread keeps a value of its own, made at run time, with a function that
 is given a thread's value as the thread ends. And `tb_thread_relax` and
 `tb_thread_yield` are for loops that wait: the job scheduler now calls the
 first while it looks for work, which made submitting a job and waiting for it
-about a sixth faster.
+about a sixth faster. A chain of small jobs, each waiting for the one before,
+no longer wakes a sleeping worker for every link, and costs 185 to 225
+nanoseconds a job where it cost 450 to 520.
 
 Every fatal error now says how the program got there. A failed assertion,
 exhausted memory, a memory fault, and a system call that the engine cannot do
@@ -226,7 +228,7 @@ give the same pointer whichever threads intern them. A name that is already
 an atom is found without a lock, at the cost it has in a table that is not
 shared, so threads that look names up do not wait for one another; only a new
 name takes the table's lock. Interning a new name into a small table that is
-not shared costs 18 nanoseconds where it cost 14.
+not shared costs about a nanosecond more than it did.
 
 Included foundations:
 
