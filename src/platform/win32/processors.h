@@ -32,9 +32,6 @@ typedef struct tb_win32_processor
     uint32_t core;
 } tb_win32_processor;
 
-/* The most logical processors that a list has room for: 64 groups of 64. */
-#define TB_WIN32_PROCESSORS_MAX ((size_t)4096)
-
 /* A count in progress. Zero-initialize it, set `affinity`, and `list` and
  * `list_capacity` to have the processors listed as well as counted; add
  * every core of the machine, then read the result with
@@ -62,11 +59,16 @@ void tb_win32_processors_add_core(tb_win32_processor_tally *tally, uint8_t effic
 void tb_win32_processors_finish(const tb_win32_processor_tally *tally,
                                 tb_system_processors *processors);
 
-/* Asks the system for the processors that the process may use, and lists the
- * first `capacity` of them in the order of tb_system_list_processors().
- * Returns how many there are, and the efficiency class of the fastest core
- * among them in `*fastest_class`. Defined in system.c; the thread functions
+/* Asks the system for the processors that the process may use, and lists them
+ * in the order of tb_system_list_processors(), in memory of the system's heap
+ * that the caller gives back with tb_win32_free_processor_list(). Writes how
+ * many there are to `*count`, and the efficiency class of the fastest core
+ * among them to `*fastest_class`. Returns NULL, with a count of zero, when
+ * there is no memory for the list. Defined in system.c; the thread functions
  * confine a thread by it. Both pointers are required non-null. */
-size_t tb_win32_list_processors(tb_win32_processor *list, size_t capacity, uint8_t *fastest_class);
+tb_win32_processor *tb_win32_new_processor_list(size_t *count, uint8_t *fastest_class);
+
+/* Gives back a list from tb_win32_new_processor_list(); NULL is accepted. */
+void tb_win32_free_processor_list(tb_win32_processor *list);
 
 #endif

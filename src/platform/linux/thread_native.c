@@ -70,17 +70,27 @@ size_t tb_posix_thread_read_name(char *buffer, size_t capacity)
 
 void tb_posix_thread_confine(pthread_attr_t *attributes, const size_t *processors, size_t count)
 {
-    static _Thread_local tb_linux_processor list[TB_LINUX_CPU_LIMIT];
-    const size_t listed = tb_linux_list_process_processors(list, TB_LINUX_CPU_LIMIT);
+    tb_linux_cpu_set allowed = {0};
     cpu_set_t native;
     bool has_any = false;
 
     CPU_ZERO(&native);
+    if (!tb_linux_read_process_processors(&allowed))
+    {
+        /* coverage-off: needs a machine with more processors than the set of allowed ones has room
+         * for */
+        return;
+        /* coverage-on */
+    }
+    /* The list is in the order of the system's numbers, so a place in it is
+     * the processor of that rank among the allowed ones. */
     for (size_t index = 0; index < count; index++)
     {
-        if (processors[index] < listed && processors[index] < TB_LINUX_CPU_LIMIT)
+        const size_t cpu = tb_linux_cpu_set_nth(&allowed, processors[index]);
+
+        if (cpu < TB_LINUX_CPU_LIMIT)
         {
-            CPU_SET(list[processors[index]].cpu, &native);
+            CPU_SET(cpu, &native);
             has_any = true;
         }
     }
@@ -99,9 +109,8 @@ bool tb_posix_thread_can_be_confined(void)
 
 size_t tb_posix_thread_current_processor(void)
 {
-    static _Thread_local tb_linux_processor list[TB_LINUX_CPU_LIMIT];
+    tb_linux_cpu_set allowed = {0};
     const int cpu = sched_getcpu();
-    size_t listed = 0;
 
     /* coverage-off: sched_getcpu fails only on a kernel older than any the engine supports */
     if (cpu < 0)
@@ -109,13 +118,9 @@ size_t tb_posix_thread_current_processor(void)
         return SIZE_MAX;
     }
     /* coverage-on */
-    listed = tb_linux_list_process_processors(list, TB_LINUX_CPU_LIMIT);
-    for (size_t index = 0; index < listed && index < TB_LINUX_CPU_LIMIT; index++)
+    if (!tb_linux_read_process_processors(&allowed) || !tb_linux_cpu_set_has(&allowed, (size_t)cpu))
     {
-        if (list[index].cpu == (uint32_t)cpu)
-        {
-            return index;
-        }
+        return SIZE_MAX;
     }
-    return SIZE_MAX;
+    return tb_linux_cpu_set_rank(&allowed, (size_t)cpu);
 }

@@ -207,28 +207,70 @@ void tb_system_get_processors(tb_system_processors *processors)
     tb_win32_processors_finish(&tally, processors);
 }
 
-size_t tb_win32_list_processors(tb_win32_processor *list, size_t capacity, uint8_t *fastest_class)
+tb_win32_processor *tb_win32_new_processor_list(size_t *count, uint8_t *fastest_class)
 {
-    tb_win32_processor_tally tally = {.list = list, .list_capacity = capacity};
+    tb_win32_processor_tally counted = {0};
+    tb_win32_processor_tally listed = {0};
+    tb_win32_processor *list = NULL;
 
-    tb_win32_tally_processors(&tally);
-    *fastest_class = tally.fastest_class;
-    return tally.logical_count;
+    /* Counted first, for the size of the list. A processor that appears
+     * between the two is left out of the list; one that goes is not there. */
+    tb_win32_tally_processors(&counted);
+    *count = 0;
+    *fastest_class = counted.fastest_class;
+    list = HeapAlloc(GetProcessHeap(), 0, (counted.logical_count + 1) * sizeof(*list));
+    /* coverage-off: the heap of the process has room for a few kilobytes */
+    if (list == NULL)
+    {
+        return NULL;
+    }
+    /* coverage-on */
+    listed.list = list;
+    listed.list_capacity = counted.logical_count + 1;
+    tb_win32_tally_processors(&listed);
+    *count = listed.logical_count;
+    if (*count > listed.list_capacity)
+    {
+        *count = listed.list_capacity;
+    }
+    *fastest_class = listed.fastest_class;
+    return list;
+}
+
+void tb_win32_free_processor_list(tb_win32_processor *list)
+{
+    if (list != NULL)
+    {
+        (void)HeapFree(GetProcessHeap(), 0, list);
+    }
 }
 
 size_t tb_system_list_processors(tb_system_processor *processors, size_t capacity)
 {
-    static _Thread_local tb_win32_processor list[TB_WIN32_PROCESSORS_MAX];
+    tb_win32_processor_tally tally = {0};
+    tb_win32_processor *list = NULL;
     uint8_t fastest_class = 0;
-    size_t count = 0;
+    size_t listed = 0;
 
     TB_ASSERT(processors != NULL || capacity == 0);
-    count = tb_win32_list_processors(list, TB_WIN32_PROCESSORS_MAX, &fastest_class);
-    for (size_t index = 0; index < count && index < capacity && index < TB_WIN32_PROCESSORS_MAX;
-         index++)
+    if (capacity == 0)
+    {
+        tb_win32_tally_processors(&tally);
+        return tally.logical_count;
+    }
+    list = tb_win32_new_processor_list(&listed, &fastest_class);
+    /* coverage-off: as above */
+    if (list == NULL)
+    {
+        tb_win32_system_fail("platform.system: tb_system_list_processors on win32: no memory "
+                             "for the list of processors\n");
+    }
+    /* coverage-on */
+    for (size_t index = 0; index < listed && index < capacity; index++)
     {
         processors[index].core = list[index].core;
         processors[index].is_performance = list[index].efficiency_class == fastest_class;
     }
-    return count;
+    tb_win32_free_processor_list(list);
+    return listed;
 }

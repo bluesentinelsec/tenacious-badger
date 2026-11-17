@@ -42,9 +42,9 @@ static bool tb_linux_read_system_file(void *context, const char *path, char *buf
  * processes: the first thread of the process stands for it, since the
  * limits that a container or a launcher sets are its limits, and every
  * thread starts with them. */
-static bool tb_linux_read_allowed(tb_linux_cpu_set *allowed)
+bool tb_linux_read_process_processors(tb_linux_cpu_set *allowed)
 {
-    cpu_set_t native = {0};
+    cpu_set_t native;
     bool has_any = false;
 
     CPU_ZERO(&native);
@@ -66,10 +66,10 @@ static bool tb_linux_read_allowed(tb_linux_cpu_set *allowed)
     return has_any;
 }
 
-/* When the set cannot be read: the processors that are online, numbered from
- * zero, and taken to be cores of one kind. */
+/* When the set cannot be read: the processors that are online, taken to be
+ * cores of one kind, each a core by itself. */
 /* coverage-off: as above */
-static size_t tb_linux_list_online_processors(tb_linux_processor *list, size_t capacity)
+static size_t tb_linux_list_online_processors(tb_system_processor *list, size_t capacity)
 {
     const long online = sysconf(_SC_NPROCESSORS_ONLN);
     size_t count = 1;
@@ -80,31 +80,19 @@ static size_t tb_linux_list_online_processors(tb_linux_processor *list, size_t c
     }
     for (size_t index = 0; index < count && index < capacity; index++)
     {
-        list[index].cpu = (uint32_t)index;
-        list[index].core = (uint32_t)index;
+        list[index].core = index;
         list[index].is_performance = true;
     }
     return count;
 }
 /* coverage-on */
 
-size_t tb_linux_list_process_processors(tb_linux_processor *list, size_t capacity)
-{
-    tb_linux_cpu_set allowed = {0};
-
-    if (!tb_linux_read_allowed(&allowed))
-    {
-        return tb_linux_list_online_processors(list, capacity);
-    }
-    return tb_linux_list_processors(&allowed, tb_linux_read_system_file, NULL, list, capacity);
-}
-
 void tb_system_get_processors(tb_system_processors *processors)
 {
     tb_linux_cpu_set allowed = {0};
 
     TB_ASSERT(processors != NULL);
-    if (!tb_linux_read_allowed(&allowed))
+    if (!tb_linux_read_process_processors(&allowed))
     {
         /* coverage-off: as above */
         const size_t count = tb_linux_list_online_processors(NULL, 0);
@@ -120,15 +108,13 @@ void tb_system_get_processors(tb_system_processors *processors)
 
 size_t tb_system_list_processors(tb_system_processor *processors, size_t capacity)
 {
-    static _Thread_local tb_linux_processor list[TB_LINUX_CPU_LIMIT];
-    size_t count = 0;
+    tb_linux_cpu_set allowed = {0};
 
     TB_ASSERT(processors != NULL || capacity == 0);
-    count = tb_linux_list_process_processors(list, TB_LINUX_CPU_LIMIT);
-    for (size_t index = 0; index < count && index < capacity; index++)
+    if (!tb_linux_read_process_processors(&allowed))
     {
-        processors[index].core = list[index].core;
-        processors[index].is_performance = list[index].is_performance;
+        return tb_linux_list_online_processors(processors, capacity);
     }
-    return count;
+    return tb_linux_list_processors(&allowed, tb_linux_read_system_file, NULL, processors, capacity,
+                                    NULL);
 }
