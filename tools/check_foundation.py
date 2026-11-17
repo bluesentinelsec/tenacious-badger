@@ -153,6 +153,18 @@ PREFIXES = sorted((name[:-1] for name in FORBIDDEN if name.endswith('*')), key=l
 # and covers every file below it. Keep this list short: each entry is a place
 # where the engine does not use its own foundation.
 AUTHORIZED = {
+    # Native file adapters also build independently of the core allocator and
+    # strings. Their small path/iterator allocations return resource errors.
+    **{path: (set(names.split()),
+              'implements native files beneath the foundation modules')
+       for path, names in {
+           'src/platform/shared/fs.c': 'malloc free strlen snprintf',
+           'src/platform/posix/fs.c': 'malloc free strlen strcmp',
+           'src/platform/win32/fs.c': 'malloc free',
+           'src/platform/linux/fs_location.c': 'malloc free strlen',
+           'src/platform/macos/fs_location.c': 'malloc free strlen',
+       }.items()},
+
     # The modules that implement the replacements.
     'src/core/memory.c': (
         {'malloc', 'calloc', 'realloc', 'free'},
