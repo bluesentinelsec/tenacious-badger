@@ -259,6 +259,12 @@ AUTHORIZED = {
     'tests/framework/src/support.c': (
         {'calloc', 'free'},
         'the test framework is independent of the engine it tests'),
+    'tests/framework/src/platform/posix.c': (
+        {'write'},
+        'the crash handler needs async-signal-safe output without engine dependencies'),
+    'tests/framework/src/platform/win32.c': (
+        {'WriteFile'},
+        'the crash handler writes prepared bytes without the CRT or engine dependencies'),
 }
 
 IDENTIFIER = re.compile(r'[A-Za-z_][A-Za-z0-9_]*')

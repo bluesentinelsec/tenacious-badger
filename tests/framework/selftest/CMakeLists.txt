@@ -42,3 +42,27 @@ if(TB_SANITIZER STREQUAL "address")
     tb_enable_sanitizers(tb_test_fixture_sanitized)
     tb_test_add_scenarios(tb_test_fixture_sanitized ".sanitized")
 endif()
+
+if(WIN32)
+    set(crash_native fixture/crash_win32.c)
+else()
+    set(crash_native fixture/crash_posix.c)
+endif()
+tb_add_test_executable(tb_test_crash_fixture NO_CTEST
+    MAIN fixture/crash_main.c SOURCES fixture/crash_tests.c)
+target_sources(tb_test_crash_fixture PRIVATE ${crash_native})
+tb_configure_target(tb_test_crash_fixture)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(NAME framework_crash.native_status_and_identity
+    COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/crash_test.py"
+        "$<TARGET_FILE:tb_test_crash_fixture>")
+if(TB_SANITIZER STREQUAL "address")
+    tb_add_test_executable(tb_test_crash_fixture_sanitized NO_CTEST
+        FRAMEWORK tb_test_sanitized MAIN fixture/crash_main.c SOURCES fixture/crash_tests.c)
+    target_sources(tb_test_crash_fixture_sanitized PRIVATE ${crash_native})
+    tb_configure_target(tb_test_crash_fixture_sanitized)
+    tb_enable_sanitizers(tb_test_crash_fixture_sanitized)
+    add_test(NAME framework_crash.sanitizer_report_is_preserved.sanitized
+        COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/crash_test.py"
+            "$<TARGET_FILE:tb_test_crash_fixture_sanitized>" sanitized)
+endif()

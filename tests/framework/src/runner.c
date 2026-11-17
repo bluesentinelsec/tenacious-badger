@@ -406,6 +406,7 @@ static tb_test_outcome tb_test_run_case(const tb_test_case *test, uint64_t run_s
     tb_test_outcome outcome = TB_TEST_OUTCOME_PASSED;
     double started = {0};
     double elapsed = {0};
+    char crash_message[2048] = {0};
 
     tb_test_running.is_skipped = false;
     tb_test_running.trap_is_expected = false;
@@ -424,12 +425,31 @@ static tb_test_outcome tb_test_run_case(const tb_test_case *test, uint64_t run_s
     }
     started = tb_test_now_milliseconds();
     tb_test_running.current = test;
+    if (!tb_test_running.options->break_on_failure)
+    {
+        (void)snprintf(crash_message, sizeof(crash_message), "test case: %s.%s (%s:%d)\n",
+                       test->suite, test->name, test->file, test->line);
+#if defined(TB_TEST_SANITIZED)
+        /* Leave every sanitizer handler untouched. A flushed breadcrumb gives
+         * its eventual report a case identity without relying on death hooks. */
+        fputs(crash_message, stderr);
+        (void)fflush(stderr);
+#else
+        tb_test_platform_crash_begin(crash_message, strlen(crash_message));
+#endif
+    }
     tb_test_call_case_body(test);
     if (tb_test_installed_hooks.after != NULL)
     {
         /* A trap check that the body left early must not swallow a trap here. */
         tb_test_running.trap_is_expected = false;
         tb_test_call_after_hook();
+    }
+    if (!tb_test_running.options->break_on_failure)
+    {
+#if !defined(TB_TEST_SANITIZED)
+        tb_test_platform_crash_end();
+#endif
     }
     tb_test_running.current = NULL;
     elapsed = tb_test_now_milliseconds() - started;

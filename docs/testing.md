@@ -400,3 +400,20 @@ The framework is tested in `tests/framework/selftest/`:
 
 When you change what the framework prints or how it exits, update the matching
 scenario in the same change.
+
+## Crash identification
+
+A normal run stays quiet for passing cases. If a case aborts or suffers a fatal
+memory/arithmetic fault, the runner writes its suite, name, and definition
+location to stderr before native termination. Windows uses an unhandled
+exception filter and an abort handler; POSIX uses signal handlers with prepared
+bytes and async-signal-safe output. Reporting is best effort when stderr is
+unusable. Existing handlers remain in control, and installed handlers are
+restored after each case. Case workers must finish before the case returns.
+
+`--break` installs no crash reporter, preserving debugger behavior. Sanitized
+frameworks install no handlers and instead flush a case breadcrumb to stderr
+before execution; sanitizer diagnostics then retain their own handlers and full
+reports. This extra output is intentional in sanitizer builds. Crash fixtures
+check native exit statuses, identity/location, embedder handlers, restoration,
+and the continued appearance of AddressSanitizer diagnostics.

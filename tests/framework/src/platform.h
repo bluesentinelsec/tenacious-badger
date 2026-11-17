@@ -4,6 +4,18 @@
  */
 #ifndef TB_TEST_PLATFORM_H
 #define TB_TEST_PLATFORM_H
+#include <stddef.h>
+
+/** @brief Identify a crashing case using an already formatted diagnostic.
+ * @param message Immutable bytes borrowed until crash_end, including a newline.
+ * @param length Byte count, at most 2047.
+ * @par Threading Runner-owned; begin before starting case workers and end after
+ * joining them. Existing handlers are preserved. Never call from a handler.
+ * Reporting is best effort and preserves the native termination status.
+ */
+void tb_test_platform_crash_begin(const char *message, size_t length);
+/** @brief Restore handlers installed by crash_begin and release its borrow. */
+void tb_test_platform_crash_end(void);
 
 /**
  * @brief Make a crash end the process instead of opening a blocking dialog.
