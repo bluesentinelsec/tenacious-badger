@@ -1,6 +1,7 @@
 set(TB_PLATFORM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/abort.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/atomic.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/system.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/thread.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/time.c"
     CACHE INTERNAL "Selected platform adapter sources")

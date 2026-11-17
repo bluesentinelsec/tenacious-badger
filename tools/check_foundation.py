@@ -129,12 +129,21 @@ THREADS = rule('badger/thread.h', 'docs/platforms.md', {
         'thread_local __thread tss_* TlsAlloc TlsGetValue TlsSetValue TlsFree',
 })
 
+PROCESSORS = rule('badger/system.h', 'docs/platforms.md', {
+    'tb_system_get_processors':
+        'GetSystemInfo GetNativeSystemInfo GetLogicalProcessorInformation '
+        'GetLogicalProcessorInformationEx GetActiveProcessorCount GetProcessAffinityMask '
+        'GetProcessGroupAffinity sched_getaffinity get_nprocs get_nprocs_conf '
+        '_SC_NPROCESSORS_ONLN _SC_NPROCESSORS_CONF',
+})
+
 COLLECTIONS = rule('badger/table.h', 'docs/collections.md', {
     'tb_table, tb_set, or tb_list':
         '<search.h>',
 })
 
-RULES = [ALLOCATION, FORMATTING, STRINGS, FAILURES, TIMING, ATOMICS, THREADS, COLLECTIONS]
+RULES = [ALLOCATION, FORMATTING, STRINGS, FAILURES, TIMING, ATOMICS, THREADS, PROCESSORS,
+         COLLECTIONS]
 FORBIDDEN = {name: entry for group in RULES for name, entry in group.items()}
 PREFIXES = sorted((name[:-1] for name in FORBIDDEN if name.endswith('*')), key=len, reverse=True)
 
@@ -156,7 +165,7 @@ AUTHORIZED = {
         {'_Static_assert'},
         'defines TB_STATIC_ASSERT'),
     'src/platform/': (
-        set(TIMING) | set(ATOMICS) | set(THREADS) | {'abort', 'fputs'},
+        set(TIMING) | set(ATOMICS) | set(THREADS) | set(PROCESSORS) | {'abort', 'fputs'},
         'implements the platform interfaces beneath the foundation modules, and is built '
         'and tested without them'),
 
@@ -168,11 +177,24 @@ AUTHORIZED = {
         {'strstr', 'strrchr', 'strcspn'},
         'measures the C library beside badger/str.h'),
 
+    'src/platform/win32/system.c': (
+        {'HeapAlloc', 'HeapFree'},
+        'holds the system\'s description of the processors, whose size the system decides, '
+        'beneath the engine\'s allocation functions'),
+
     # The platform adapters' tests are built without the foundation modules.
     'tests/support/platform_assert.c': (
         {'snprintf'},
         'reports an adapter\'s failed assertion to the test framework, in executables built '
         'without badger/fmt.h'),
+
+    # Tests that confine the process, to see the count of processors follow.
+    'tests/platform/win32/affinity_test.c': (
+        {'GetProcessAffinityMask'},
+        'reads the processors of the process to confine it and to give them back'),
+    'tests/platform/linux/affinity_test.c': (
+        {'sched_getaffinity'},
+        'reads the processors of the process to confine it and to give them back'),
 
     # Tests that check a module against the C library, which shares no code
     # with it.
@@ -428,6 +450,12 @@ def self_test():
          'now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);',
          ['timespec_get', 'QueryPerformanceCounter', 'clock_gettime_nsec_np']),
         ('the engine clock', 'now = tb_platform_clock_nanoseconds();', []),
+        ('counts of processors',
+         'GetSystemInfo(&info); n = sysconf(_SC_NPROCESSORS_ONLN); sched_getaffinity(0, s, &set); '
+         'n = get_nprocs();',
+         ['GetSystemInfo', '_SC_NPROCESSORS_ONLN', 'sched_getaffinity', 'get_nprocs']),
+        ('the engine count of processors',
+         'tb_system_get_processors(&processors); n = sysconf(_SC_PAGESIZE);', []),
         ('atomic types and compiler functions',
          '_Atomic int n; __atomic_add_fetch(&n, 1, __ATOMIC_SEQ_CST); __sync_synchronize();',
          ['_Atomic', '__atomic_add_fetch', '__sync_synchronize']),

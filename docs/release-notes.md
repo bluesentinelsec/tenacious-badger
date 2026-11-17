@@ -138,6 +138,11 @@ each fail an assertion where they were undefined behavior before. A mutex
 records which thread holds it for this, and is one pointer larger in every
 build.
 
+The engine can count the processors it may run on. `tb_system_get_processors`
+in `badger/system.h` reports the logical processors, the cores, and the cores
+of the fastest kind, on Windows, Linux, and macOS, for the process as the
+system confines it.
+
 Included foundations:
 
 - `badger` dynamic library and `badger_static` static library with the same

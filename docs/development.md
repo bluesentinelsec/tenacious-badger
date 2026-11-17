@@ -21,6 +21,7 @@ The foundation layer so far, one public header per module under
 | `str.h`, `text.h`, `fmt.h`, `atom.h`, `hash.h` | [Strings](strings.md): C strings, text values, formatted output, atoms, and hash functions |
 | `platform.h` | [Native platform interfaces](platforms.md): the clock, abort, and atomic values |
 | `thread.h` | [Threads, mutexes, and condition variables](platforms.md#threads-mutexes-and-condition-variables) |
+| `system.h` | [The processors the process may run on](platforms.md#processors) |
 
 `burrow` calls the shared library and prints `2 + 3 = 5`. Rendering, windowing,
 gameplay, vendor integrations, and the other planned modules remain future work.
@@ -223,6 +224,7 @@ replaces:
 | `<stdatomic.h>`, `_Atomic`, `Interlocked...`, `__atomic_...`, `__sync_...` | `tb_platform_atomic_size`, `tb_platform_atomic_u32`, `tb_platform_atomic_pointer` | [`platform.h`](platforms.md#atomic-values) |
 | `<pthread.h>`, `<threads.h>`, `pthread_...`, `thrd_...`, `mtx_...`, `cnd_...`, `CreateThread`, the Win32 lock and condition variable functions | `tb_thread`, `tb_mutex`, `tb_condition` | [`thread.h`](platforms.md#threads-mutexes-and-condition-variables) |
 | `thread_local`, `__thread`, `tss_...`, `TlsAlloc` and its relatives | The C keyword `_Thread_local` | [`thread.h`](platforms.md#threads-mutexes-and-condition-variables) |
+| `GetSystemInfo`, `GetLogicalProcessorInformationEx`, `sched_getaffinity`, `get_nprocs`, `_SC_NPROCESSORS_ONLN`, and other native counts of processors | `tb_system_get_processors` | [`system.h`](platforms.md#processors) |
 | `<search.h>` | `tb_table`, `tb_set`, `tb_list` | [`table.h`](collections.md) |
 
 `python tools/check_foundation.py --list` prints every name. The check reads
