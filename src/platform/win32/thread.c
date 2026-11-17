@@ -169,9 +169,9 @@ void tb_thread_create(tb_thread *thread, tb_thread_function *entry, void *argume
  * one that is in the list. A thread runs within one group. */
 static void tb_win32_confine(HANDLE handle, const size_t *processors, size_t count)
 {
-    static _Thread_local tb_win32_processor list[TB_WIN32_PROCESSORS_MAX];
     uint8_t fastest_class = 0;
-    const size_t listed = tb_win32_list_processors(list, TB_WIN32_PROCESSORS_MAX, &fastest_class);
+    size_t listed = 0;
+    tb_win32_processor *const list = tb_win32_new_processor_list(&listed, &fastest_class);
     GROUP_AFFINITY affinity = {0};
     bool has_group = false;
 
@@ -179,7 +179,7 @@ static void tb_win32_confine(HANDLE handle, const size_t *processors, size_t cou
     {
         const size_t place = processors[index];
 
-        if (place >= listed || place >= TB_WIN32_PROCESSORS_MAX)
+        if (place >= listed)
         {
             continue;
         }
@@ -199,6 +199,7 @@ static void tb_win32_confine(HANDLE handle, const size_t *processors, size_t cou
     {
         (void)SetThreadGroupAffinity(handle, &affinity, NULL);
     }
+    tb_win32_free_processor_list(list);
 }
 
 void tb_thread_create_with_options(tb_thread *thread, const tb_thread_options *options,
@@ -511,19 +512,21 @@ bool tb_thread_can_be_confined(void)
 
 size_t tb_thread_current_processor(void)
 {
-    static _Thread_local tb_win32_processor list[TB_WIN32_PROCESSORS_MAX];
     PROCESSOR_NUMBER current = {0};
     uint8_t fastest_class = 0;
     size_t listed = 0;
+    size_t place = SIZE_MAX;
+    tb_win32_processor *list = NULL;
 
     GetCurrentProcessorNumberEx(&current);
-    listed = tb_win32_list_processors(list, TB_WIN32_PROCESSORS_MAX, &fastest_class);
-    for (size_t index = 0; index < listed && index < TB_WIN32_PROCESSORS_MAX; index++)
+    list = tb_win32_new_processor_list(&listed, &fastest_class);
+    for (size_t index = 0; index < listed && place == SIZE_MAX; index++)
     {
         if (list[index].group == current.Group && list[index].number == current.Number)
         {
-            return index;
+            place = index;
         }
     }
-    return SIZE_MAX;
+    tb_win32_free_processor_list(list);
+    return place;
 }
