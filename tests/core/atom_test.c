@@ -2,7 +2,12 @@
  * pointer, and different bytes a different one. The cases press on that
  * promise where a hash table breaks it: bytes that differ only at their end
  * or only in length, strings built to land in the same slot, and enough
- * atoms to force the table to grow many times over. */
+ * atoms to force the table to grow many times over.
+ *
+ * A shared table makes the same promise to every thread at once. Its cases
+ * have threads intern the same names at the same moment, and look names up
+ * while other threads make the table grow under them. A thread started by a
+ * case only records; the case checks after joining. */
 #include "badger/atom.h"
 
 #include "badger/arena.h"
@@ -10,7 +15,9 @@
 #include "badger/fmt.h"
 #include "badger/hash.h"
 #include "badger/memory.h"
+#include "badger/platform.h"
 #include "badger/str.h"
+#include "badger/thread.h"
 #include "tb_test.h"
 #include "test_allocator.h"
 
@@ -242,6 +249,265 @@ TB_TEST(core_atom, tables_are_independent)
     TB_TEST_EXPECT_STRING(in_second, ==, "shared");
     TB_TEST_EXPECT_POINTER(tb_atom_string(second, "shared"), ==, in_second);
     tb_atom_table_destroy(second);
+}
+
+/* --- shared tables ------------------------------------------------------------ */
+
+TB_TEST(core_atom, a_shared_table_gives_what_any_table_gives_on_one_thread)
+{
+    tb_atom_table *const table = tb_atom_table_create_shared(NULL);
+    const char *const name = tb_atom_string(table, "r_fov");
+    const char *const number = tb_atom_int(table, -42);
+
+    TB_TEST_EXPECT_UINT(tb_atom_table_count(table), ==, 2);
+    expect_atom(name, "r_fov", 5);
+    expect_atom(number, "-42", 3);
+    TB_TEST_EXPECT_POINTER(tb_atom_new(table, "r_fov", 5), ==, name);
+    TB_TEST_EXPECT_POINTER(tb_atom_find(table, "r_fov", 5), ==, name);
+    TB_TEST_EXPECT_POINTER(tb_atom_find(table, "r_fo", 4), ==, NULL);
+    TB_TEST_EXPECT_POINTER(tb_atom_find(table, NULL, 0), ==, NULL);
+    expect_atom(tb_atom_new(table, NULL, 0), "", 0);
+    TB_TEST_EXPECT_UINT(tb_atom_table_count(table), ==, 3);
+    /* Through every growth of the table. */
+    for (int value = 0; value < 5000; value++)
+    {
+        (void)tb_atom_int(table, value);
+    }
+    TB_TEST_EXPECT_UINT(tb_atom_table_count(table), ==, 5003);
+    TB_TEST_EXPECT_POINTER(tb_atom_string(table, "r_fov"), ==, name);
+    TB_TEST_EXPECT_POINTER(tb_atom_int(table, -42), ==, number);
+    tb_atom_table_destroy(table);
+}
+
+/* A shared table keeps the arrays of slots that it has outgrown, for the
+ * threads that may still be searching them, and gives them back with the
+ * rest when it is destroyed. */
+TB_TEST(core_atom, a_shared_table_keeps_its_outgrown_slots_until_it_is_destroyed)
+{
+    tb_test_allocator tracker = {0};
+    const tb_allocator allocator = tb_test_allocator_start(&tracker);
+    tb_atom_table *const table = tb_atom_table_create_shared(&allocator);
+
+    for (int value = 1; value <= 200; value++)
+    {
+        (void)tb_atom_int(table, value);
+    }
+    /* The table, three blocks of atoms, and six arrays of slots: of 16, 32,
+     * 64, 128, 256, and 512. A table that is not shared has only the last. */
+    TB_TEST_EXPECT_UINT(tracker.live_block_count, ==, 10);
+    TB_TEST_EXPECT_UINT(tracker.release_count, ==, 0);
+    tb_atom_table_destroy(table);
+    TB_TEST_EXPECT_STRING(tracker.first_violation, ==, "none");
+    TB_TEST_EXPECT_UINT(tracker.live_block_count, ==, 0);
+}
+
+#define SHARED_THREAD_COUNT 8
+#define SHARED_NAME_COUNT ((size_t)4000)
+#define SHARED_NAME_CAPACITY 40
+
+static size_t write_shared_name(char *name, size_t number)
+{
+    return tb_fmt_buffer(name, SHARED_NAME_CAPACITY, "materials/shared_%zu", number);
+}
+
+typedef struct interner
+{
+    tb_atom_table *table;
+    size_t first;       /* The name this thread starts with. */
+    const char **atoms; /* By name: the atom this thread was given. */
+} interner;
+
+/* Interns every name, each thread from a different one on, so that at any
+ * moment the threads are after different names and now and then the same. */
+static void intern_every_name(void *argument)
+{
+    const interner *const self = argument;
+
+    for (size_t step = 0; step < SHARED_NAME_COUNT; step++)
+    {
+        /* Seven shares no factor with the count, so every name comes up. */
+        const size_t number = (self->first + step * 7) % SHARED_NAME_COUNT;
+        char name[SHARED_NAME_CAPACITY] = {0};
+        const size_t length = write_shared_name(name, number);
+
+        self->atoms[number] = tb_atom_new(self->table, name, length);
+    }
+}
+
+/* The table takes its memory from an allocator that is not safe to call from
+ * two threads. A shared table calls its allocator only under its own lock,
+ * so that is no fault, and the allocator's own checks say whether it held. */
+TB_TEST(core_atom, threads_that_intern_the_same_names_at_once_get_the_same_atoms)
+{
+    tb_test_allocator tracker = {0};
+    const tb_allocator allocator = tb_test_allocator_start(&tracker);
+    tb_atom_table *const table = tb_atom_table_create_shared(&allocator);
+    interner interners[SHARED_THREAD_COUNT] = {0};
+    tb_thread threads[SHARED_THREAD_COUNT] = {0};
+    size_t different_count = 0;
+
+    for (size_t index = 0; index < SHARED_THREAD_COUNT; index++)
+    {
+        interners[index].table = table;
+        interners[index].first = index * (SHARED_NAME_COUNT / SHARED_THREAD_COUNT);
+        interners[index].atoms = tb_calloc(SHARED_NAME_COUNT, sizeof(const char *));
+    }
+    for (size_t index = 0; index < SHARED_THREAD_COUNT; index++)
+    {
+        tb_thread_create(&threads[index], intern_every_name, &interners[index]);
+    }
+    for (size_t index = 0; index < SHARED_THREAD_COUNT; index++)
+    {
+        tb_thread_join(&threads[index]);
+    }
+
+    TB_TEST_EXPECT_UINT(tb_atom_table_count(table), ==, SHARED_NAME_COUNT);
+    for (size_t number = 0; number < SHARED_NAME_COUNT; number++)
+    {
+        char name[SHARED_NAME_CAPACITY] = {0};
+        const size_t length = write_shared_name(name, number);
+        const char *const atom = interners[0].atoms[number];
+
+        TB_TEST_CONTEXT("name %zu", number);
+        expect_atom(atom, name, length);
+        for (size_t index = 1; index < SHARED_THREAD_COUNT; index++)
+        {
+            if (interners[index].atoms[number] != atom)
+            {
+                different_count++;
+            }
+        }
+        /* And it is the atom that anyone gets from now on. */
+        TB_TEST_EXPECT_POINTER(tb_atom_find(table, name, length), ==, atom);
+    }
+    TB_TEST_EXPECT_UINT(different_count, ==, 0);
+    for (size_t index = 0; index < SHARED_THREAD_COUNT; index++)
+    {
+        tb_free(interners[index].atoms);
+    }
+    tb_atom_table_destroy(table);
+    TB_TEST_EXPECT_STRING(tracker.first_violation, ==, "none");
+    TB_TEST_EXPECT_UINT(tracker.live_block_count, ==, 0);
+}
+
+#define KNOWN_NAME_COUNT ((size_t)1000)
+#define GROWING_THREAD_COUNT 4
+#define READING_THREAD_COUNT 3
+#define NAMES_PER_GROWING_THREAD ((size_t)50000)
+
+typedef struct growth
+{
+    tb_atom_table *table;
+    const char **known;              /* The atoms of the names that are there from the start. */
+    tb_platform_atomic_size growing; /* Threads that are still adding names. */
+} growth;
+
+typedef struct grower
+{
+    growth *shared;
+    size_t number; /* Which of the growing threads this is. */
+} grower;
+
+typedef struct reader
+{
+    growth *shared;
+    size_t wrong_count; /* Lookups that gave anything but the known atom. */
+    size_t pass_count;  /* Times it went through every known name. */
+} reader;
+
+static void add_new_names(void *argument)
+{
+    const grower *const self = argument;
+
+    for (size_t index = 0; index < NAMES_PER_GROWING_THREAD; index++)
+    {
+        char name[SHARED_NAME_CAPACITY] = {0};
+        const size_t length =
+            tb_fmt_buffer(name, sizeof(name), "grow/%zu/%zu", self->number, index);
+
+        (void)tb_atom_new(self->shared->table, name, length);
+    }
+    (void)tb_platform_atomic_size_subtract(&self->shared->growing, 1);
+}
+
+static void look_up_the_known_names(void *argument)
+{
+    reader *const self = argument;
+    bool is_last_pass = false;
+
+    /* Until the table has stopped growing, and once more after that. */
+    while (!is_last_pass)
+    {
+        is_last_pass = tb_platform_atomic_size_load(&self->shared->growing) == 0;
+        for (size_t number = 0; number < KNOWN_NAME_COUNT; number++)
+        {
+            char name[SHARED_NAME_CAPACITY] = {0};
+            const size_t length = write_shared_name(name, number);
+
+            /* Found by looking, and found by interning, which must not make
+             * a second atom of it. */
+            if (tb_atom_find(self->shared->table, name, length) != self->shared->known[number] ||
+                tb_atom_new(self->shared->table, name, length) != self->shared->known[number])
+            {
+                self->wrong_count++;
+            }
+        }
+        self->pass_count++;
+    }
+}
+
+/* Names that are in the table must be found at every moment, by threads that
+ * take no lock, while other threads add 200,000 names and the table moves to
+ * a larger array of slots eight times. A reader that looked in an array
+ * that had been released, or in a new one that was not yet filled, would
+ * miss a name or crash. */
+TB_TEST(core_atom, a_name_is_found_while_other_threads_make_a_shared_table_grow)
+{
+    growth shared = {.table = tb_atom_table_create_shared(NULL)};
+    grower growers[GROWING_THREAD_COUNT] = {0};
+    reader readers[READING_THREAD_COUNT] = {0};
+    tb_thread growing_threads[GROWING_THREAD_COUNT] = {0};
+    tb_thread reading_threads[READING_THREAD_COUNT] = {0};
+
+    shared.known = tb_calloc(KNOWN_NAME_COUNT, sizeof(const char *));
+    for (size_t number = 0; number < KNOWN_NAME_COUNT; number++)
+    {
+        char name[SHARED_NAME_CAPACITY] = {0};
+        const size_t length = write_shared_name(name, number);
+
+        shared.known[number] = tb_atom_new(shared.table, name, length);
+    }
+    tb_platform_atomic_size_store(&shared.growing, GROWING_THREAD_COUNT);
+    for (size_t index = 0; index < READING_THREAD_COUNT; index++)
+    {
+        readers[index].shared = &shared;
+        tb_thread_create(&reading_threads[index], look_up_the_known_names, &readers[index]);
+    }
+    for (size_t index = 0; index < GROWING_THREAD_COUNT; index++)
+    {
+        growers[index].shared = &shared;
+        growers[index].number = index;
+        tb_thread_create(&growing_threads[index], add_new_names, &growers[index]);
+    }
+    for (size_t index = 0; index < GROWING_THREAD_COUNT; index++)
+    {
+        tb_thread_join(&growing_threads[index]);
+    }
+    for (size_t index = 0; index < READING_THREAD_COUNT; index++)
+    {
+        tb_thread_join(&reading_threads[index]);
+    }
+
+    for (size_t index = 0; index < READING_THREAD_COUNT; index++)
+    {
+        TB_TEST_CONTEXT("reader %zu", index);
+        TB_TEST_EXPECT_UINT(readers[index].wrong_count, ==, 0);
+        TB_TEST_EXPECT_UINT(readers[index].pass_count, >=, 1);
+    }
+    TB_TEST_EXPECT_UINT(tb_atom_table_count(shared.table), ==,
+                        KNOWN_NAME_COUNT + GROWING_THREAD_COUNT * NAMES_PER_GROWING_THREAD);
+    tb_free(shared.known);
+    tb_atom_table_destroy(shared.table);
 }
 
 /* --- pressure on the table ---------------------------------------------------- */

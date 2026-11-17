@@ -13,14 +13,24 @@
  * addressing: an atom goes in the first empty slot at or after the one its
  * hash names. Atoms are never removed, so a search ends at the first empty
  * slot, and the array is kept at most three quarters full so that one is
- * always near. */
+ * always near.
+ *
+ * A shared table is searched without a lock. That works because nothing a
+ * search reads is ever changed or released while the table lives: an atom is
+ * complete before the pointer to it is written into a slot, a slot that holds
+ * a pointer keeps it, and an array that the table has outgrown is kept until
+ * the table is destroyed, for the threads that are still searching it. Only
+ * adding an atom takes the table's lock, and it searches again first, in the
+ * newest array, for an atom that another thread added meanwhile. */
 #include "badger/atom.h"
 
 #include "badger/assert.h"
 #include "badger/fmt.h"
 #include "badger/hash.h"
+#include "badger/platform.h"
 #include "badger/size.h"
 #include "badger/str.h"
+#include "badger/thread.h"
 #include "memory_internal.h"
 
 #include <stdbool.h>
@@ -65,12 +75,34 @@ TB_STATIC_ASSERT(sizeof(tb_atom_block) % _Alignof(tb_atom_header) == 0,
 TB_STATIC_ASSERT(_Alignof(tb_atom_block) <= _Alignof(tb_atom_header),
                  "a block is allocated with the alignment of an atom");
 
+/* An array of slots, which follow this structure in memory. A slot holds a
+ * pointer to a header, or NULL while it is empty. */
+typedef struct tb_atom_slots
+{
+    /* The array that this one replaced, in a shared table, which keeps it for
+     * the threads that may still be searching it; NULL otherwise. */
+    struct tb_atom_slots *outgrown;
+    size_t capacity; /* Number of slots: a power of two. */
+    size_t size;     /* Bytes in the array, this structure included. */
+} tb_atom_slots;
+
+/* The slots follow the structure, so its size must leave them aligned. */
+TB_STATIC_ASSERT(sizeof(tb_atom_slots) % _Alignof(tb_platform_atomic_pointer) == 0,
+                 "the slots of an array must be aligned after its structure");
+TB_STATIC_ASSERT(_Alignof(tb_atom_slots) >= _Alignof(tb_platform_atomic_pointer),
+                 "an array of slots is allocated with the alignment of a slot");
+
 struct tb_atom_table
 {
     tb_allocator allocator; /* Supplies the table, the slots, and the blocks. */
-    tb_atom_header **slots; /* `capacity` slots; an empty one is NULL. */
-    size_t capacity;        /* Number of slots: 0 or a power of two. */
-    size_t count;           /* Number of atoms. */
+    /* The newest array of slots, a tb_atom_slots, or NULL before the first
+     * atom. Read by any thread that searches a shared table. */
+    tb_platform_atomic_pointer slots;
+    tb_platform_atomic_size count; /* Number of atoms. */
+    /* In a shared table, held by the thread that adds an atom. It guards
+     * everything below, and the writing of slots. */
+    tb_mutex lock;
+    bool is_shared;
     tb_atom_block *blocks;  /* Every block, the latest first. */
     unsigned char *cursor;  /* Next unused byte of the block being filled. */
     size_t remaining;       /* Unused bytes of the block being filled. */
@@ -176,66 +208,110 @@ static tb_atom_header *tb_atom_allocate(tb_atom_table *table, size_t length)
  * Slots.
  * ------------------------------------------------------------------------- */
 
-/* The slot that holds the atom with these bytes, or the empty slot where it
- * would go. The table has slots, and at least one of them is empty. */
-static tb_atom_header **tb_atom_slot(const tb_atom_table *table, const char *bytes, size_t length,
-                                     uint64_t hash)
+static tb_platform_atomic_pointer *tb_atom_slot_at(tb_atom_slots *slots, size_t index)
 {
-    const size_t mask = table->capacity - 1;
+    return (tb_platform_atomic_pointer *)(void *)(slots + 1) + index;
+}
+
+/* Looks for the atom with these bytes in an array, which has at least one
+ * empty slot. Returns its header, or NULL when it is not there, in which
+ * case `*empty_index` is the slot where it would go. */
+static tb_atom_header *tb_atom_search(tb_atom_slots *slots, const char *bytes, size_t length,
+                                      uint64_t hash, size_t *empty_index)
+{
+    const size_t mask = slots->capacity - 1;
     size_t index = (size_t)hash & mask;
 
     for (;;)
     {
-        tb_atom_header *const header = table->slots[index];
+        tb_atom_header *const header =
+            tb_platform_atomic_pointer_load(tb_atom_slot_at(slots, index));
 
         if (header == NULL)
         {
-            return &table->slots[index];
+            *empty_index = index;
+            return NULL;
         }
         /* The hash and the length rule out nearly every other atom before
          * any bytes are compared. */
         if (header->hash == hash && header->length == length &&
             (length == 0 || memcmp(tb_atom_of_header(header), bytes, length) == 0))
         {
-            return &table->slots[index];
+            return header;
         }
         index = (index + 1) & mask;
     }
 }
 
-/* Whether the table can take one more atom without growing. */
-static bool tb_atom_has_room(const tb_atom_table *table)
+/* Whether an array can take one more atom than `count`. With no array there
+ * is no room. */
+static bool tb_atom_has_room(const tb_atom_slots *slots, size_t count)
 {
+    if (slots == NULL)
+    {
+        return false;
+    }
     /* Compared as (count + 1) / capacity <= 3 / 4 without dividing. The
      * products cannot overflow: there is a pointer of several bytes for
      * every slot. */
-    return (table->count + 1) * TB_ATOM_LOAD_DENOMINATOR <=
-           table->capacity * TB_ATOM_LOAD_NUMERATOR;
+    return (count + 1) * TB_ATOM_LOAD_DENOMINATOR <= slots->capacity * TB_ATOM_LOAD_NUMERATOR;
 }
 
-/* Doubles the array of slots and puts every atom in its new place. */
-static void tb_atom_grow(tb_atom_table *table)
+static void tb_atom_slots_destroy(const tb_allocator *allocator, tb_atom_slots *slots)
 {
-    tb_atom_header **const old_slots = table->slots;
-    const size_t old_capacity = table->capacity;
-    size_t capacity = TB_ATOM_FIRST_CAPACITY;
+    tb_allocator_free(allocator, slots, slots->size, _Alignof(tb_atom_slots));
+}
 
-    if (old_capacity > 0 && !tb_size_multiply(old_capacity, 2, &capacity))
+/* Replaces the array of slots with one of twice the capacity, with every
+ * atom in its new place, and returns it. In a shared table the caller holds
+ * the lock. */
+static tb_atom_slots *tb_atom_grow(tb_atom_table *table, tb_atom_slots *old_slots)
+{
+    tb_atom_slots *slots = NULL;
+    size_t capacity = TB_ATOM_FIRST_CAPACITY;
+    size_t size = {0};
+
+    if (old_slots != NULL && !tb_size_multiply(old_slots->capacity, 2, &capacity))
     {
-        tb_memory_fail(old_capacity, sizeof(*old_slots), _Alignof(tb_atom_header *));
+        tb_memory_fail(old_slots->capacity, sizeof(tb_platform_atomic_pointer),
+                       _Alignof(tb_atom_slots));
     }
-    table->slots = TB_ALLOCATOR_NEW_ARRAY(&table->allocator, tb_atom_header *, capacity);
-    table->capacity = capacity;
-    for (size_t index = 0; index < old_capacity; index++)
+    if (!tb_size_multiply(capacity, sizeof(tb_platform_atomic_pointer), &size) ||
+        !tb_size_add(size, sizeof(tb_atom_slots), &size))
     {
-        tb_atom_header *const header = old_slots[index];
+        tb_memory_fail(capacity, sizeof(tb_platform_atomic_pointer), _Alignof(tb_atom_slots));
+    }
+    /* Zeroed: every slot is empty. */
+    slots = tb_allocator_calloc(&table->allocator, 1, size, _Alignof(tb_atom_slots));
+    slots->capacity = capacity;
+    slots->size = size;
+    for (size_t index = 0; old_slots != NULL && index < old_slots->capacity; index++)
+    {
+        tb_atom_header *const header =
+            tb_platform_atomic_pointer_load(tb_atom_slot_at(old_slots, index));
+        size_t new_index = {0};
 
         if (header != NULL)
         {
-            *tb_atom_slot(table, tb_atom_of_header(header), header->length, header->hash) = header;
+            (void)tb_atom_search(slots, tb_atom_of_header(header), header->length, header->hash,
+                                 &new_index);
+            /* Nothing can see the new array yet. */
+            tb_atom_slot_at(slots, new_index)->value = header;
         }
     }
-    TB_ALLOCATOR_DELETE_ARRAY(&table->allocator, tb_atom_header *, old_slots, old_capacity);
+    if (table->is_shared)
+    {
+        /* Kept: a thread may be in the middle of searching the old array. */
+        slots->outgrown = old_slots;
+    }
+    /* Published whole. A thread that searches from now on finds every atom
+     * that the old array had. */
+    tb_platform_atomic_pointer_store(&table->slots, slots);
+    if (!table->is_shared && old_slots != NULL)
+    {
+        tb_atom_slots_destroy(&table->allocator, old_slots);
+    }
+    return slots;
 }
 
 /* ---------------------------------------------------------------------------
@@ -251,10 +327,19 @@ tb_atom_table *tb_atom_table_create(const tb_allocator *allocator)
     return table;
 }
 
+tb_atom_table *tb_atom_table_create_shared(const tb_allocator *allocator)
+{
+    tb_atom_table *const table = tb_atom_table_create(allocator);
+
+    table->is_shared = true;
+    return table;
+}
+
 void tb_atom_table_destroy(tb_atom_table *table)
 {
     tb_allocator allocator = {0};
     tb_atom_block *block = NULL;
+    tb_atom_slots *slots = NULL;
 
     if (table == NULL)
     {
@@ -269,14 +354,22 @@ void tb_atom_table_destroy(tb_atom_table *table)
         tb_allocator_free(&allocator, block, block->size, _Alignof(tb_atom_header));
         block = next;
     }
-    TB_ALLOCATOR_DELETE_ARRAY(&allocator, tb_atom_header *, table->slots, table->capacity);
+    /* The newest array, and in a shared table every one before it. */
+    slots = tb_platform_atomic_pointer_load(&table->slots);
+    while (slots != NULL)
+    {
+        tb_atom_slots *const outgrown = slots->outgrown;
+
+        tb_atom_slots_destroy(&allocator, slots);
+        slots = outgrown;
+    }
     TB_ALLOCATOR_DELETE(&allocator, tb_atom_table, table);
 }
 
 size_t tb_atom_table_count(const tb_atom_table *table)
 {
     TB_ASSERT(table != NULL);
-    return table->count;
+    return tb_platform_atomic_size_load(&table->count);
 }
 
 /* ---------------------------------------------------------------------------
@@ -286,14 +379,17 @@ size_t tb_atom_table_count(const tb_atom_table *table)
 const char *tb_atom_find(const tb_atom_table *table, const char *bytes, size_t length)
 {
     const tb_atom_header *header = NULL;
+    tb_atom_slots *slots = NULL;
+    size_t empty_index = {0};
 
     TB_ASSERT(table != NULL);
     TB_ASSERT(bytes != NULL || length == 0);
-    if (table->capacity == 0)
+    slots = tb_platform_atomic_pointer_load(&table->slots);
+    if (slots == NULL)
     {
         return NULL;
     }
-    header = *tb_atom_slot(table, bytes, length, tb_hash_bytes(bytes, length));
+    header = tb_atom_search(slots, bytes, length, tb_hash_bytes(bytes, length), &empty_index);
     if (header == NULL)
     {
         return NULL;
@@ -301,33 +397,63 @@ const char *tb_atom_find(const tb_atom_table *table, const char *bytes, size_t l
     return tb_atom_of_header(header);
 }
 
+/* Looks, in a shared table whose lock the caller holds, for an atom that
+ * another thread may have added since the caller looked without the lock.
+ * `*slots` becomes the newest array, and `*empty_index` the slot in it where
+ * the atom would go. Returns the header, or NULL when it is still not there. */
+static tb_atom_header *tb_atom_search_again(tb_atom_table *table, tb_atom_slots **slots,
+                                            const char *bytes, size_t length, uint64_t hash,
+                                            size_t *empty_index)
+{
+    *slots = tb_platform_atomic_pointer_load(&table->slots);
+    if (*slots == NULL)
+    {
+        return NULL;
+    }
+    return tb_atom_search(*slots, bytes, length, hash, empty_index);
+}
+
 const char *tb_atom_new(tb_atom_table *table, const char *bytes, size_t length)
 {
-    tb_atom_header **slot = NULL;
     tb_atom_header *header = NULL;
+    tb_atom_slots *slots = NULL;
     char *atom = NULL;
+    size_t empty_index = {0};
     uint64_t hash = {0};
 
     TB_ASSERT(table != NULL);
     TB_ASSERT(bytes != NULL || length == 0);
     /* The bytes are hashed once, and one search finds either their atom or
-     * the empty slot where a new atom goes. */
+     * the empty slot where a new atom goes. An atom that exists is found
+     * without the lock, in a shared table as in any other. */
     hash = tb_hash_bytes(bytes, length);
-    if (table->capacity > 0)
+    slots = tb_platform_atomic_pointer_load(&table->slots);
+    if (slots != NULL)
     {
-        slot = tb_atom_slot(table, bytes, length, hash);
+        header = tb_atom_search(slots, bytes, length, hash, &empty_index);
     }
-    if (slot != NULL && *slot != NULL)
+    if (header != NULL)
     {
-        return tb_atom_of_header(*slot);
+        return tb_atom_of_header(header);
+    }
+    if (table->is_shared)
+    {
+        /* Only one thread adds at a time, and it looks again first. */
+        tb_mutex_lock(&table->lock);
+        header = tb_atom_search_again(table, &slots, bytes, length, hash, &empty_index);
+        if (header != NULL)
+        {
+            tb_mutex_unlock(&table->lock);
+            return tb_atom_of_header(header);
+        }
     }
     /* Room in the table first: if the atom then cannot be allocated, the
      * table is larger than it needs to be and otherwise unchanged. A table
      * that grew has a new place for the atom. */
-    if (!tb_atom_has_room(table))
+    if (!tb_atom_has_room(slots, tb_platform_atomic_size_load(&table->count)))
     {
-        tb_atom_grow(table);
-        slot = tb_atom_slot(table, bytes, length, hash);
+        slots = tb_atom_grow(table, slots);
+        (void)tb_atom_search(slots, bytes, length, hash, &empty_index);
     }
     header = tb_atom_allocate(table, length);
     header->hash = hash;
@@ -338,8 +464,19 @@ const char *tb_atom_new(tb_atom_table *table, const char *bytes, size_t length)
         memcpy(atom, bytes, length);
     }
     atom[length] = '\0';
-    *slot = header;
-    table->count++;
+    if (!table->is_shared)
+    {
+        /* No other thread reads this table, so the slot and the count are
+         * written plainly, which costs a third of an atomic write. */
+        tb_atom_slot_at(slots, empty_index)->value = header;
+        table->count.value++;
+        return atom;
+    }
+    /* Written as one step, after the atom is complete: from here any thread
+     * that reads the slot may read the atom. */
+    tb_platform_atomic_pointer_store(tb_atom_slot_at(slots, empty_index), header);
+    (void)tb_platform_atomic_size_add(&table->count, 1);
+    tb_mutex_unlock(&table->lock);
     return atom;
 }
 
