@@ -157,6 +157,13 @@ wakes sparingly.
   ready, wakes one sleeper** to look in its place. A burst of jobs so wakes
   the workers one after another.
 
+**A job that a worker makes ready by finishing one wakes nobody**, when it is
+the only job in that worker's foreground queue: the worker takes it next. A
+chain of jobs, each waiting for the one before, so runs on one thread without
+waking another for every link. A worker that was running the finished job
+only while it waited for something, and returns to the job that waited,
+wakes a sleeper for the job it leaves behind.
+
 No wake is lost. A thread that is about to sleep counts itself, and only then
 looks once more for a job. A thread that makes a job ready does that first,
 and only then looks at the counts. Whichever looks second sees what the other
@@ -173,9 +180,9 @@ atomic counter, so the numbers are nearly all scheduler.
 | --- | --- |
 | The work alone, with no scheduler | 5 |
 | A tree of jobs that each submit two more, run by 8 threads | 52 to 56 |
-| A batch submitted by one thread, run by 8 | 200 to 240 |
-| A job submitted and waited for, one at a time | 240 to 260 |
-| A chain of jobs that each wait for the one before | 490 to 500 |
+| A batch submitted by one thread, run by 8 | 220 to 245 |
+| A job submitted and waited for, one at a time | 170 to 200 |
+| A chain of jobs that each wait for the one before | 185 to 225 |
 
 The tree is the pattern the scheduler is built for: jobs made by workers,
 kept in their own queues, and stolen when a worker is idle. The others pass

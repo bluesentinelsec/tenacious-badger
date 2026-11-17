@@ -719,20 +719,34 @@ static tb_job_slot *tb_jobs_take_shared(tb_job_shared_queue *queue, tb_job_deque
  * A sleeper is woken only when no thread is searching. A searcher will find
  * the job, or will look once more as it goes to sleep and see it, and when
  * it finds one it wakes the next thread itself. So a burst of jobs wakes
- * threads one after another, not one for each job. */
-static void tb_jobs_make_ready(tb_jobs *jobs, tb_jobs_worker *worker, tb_job_slot *slot)
+ * threads one after another, not one for each job.
+ *
+ * Nor is one woken for the job that a worker makes ready by finishing the
+ * job it waited for, when it is the only job in that worker's foreground
+ * queue: the worker takes it next. A chain of jobs then runs on one thread
+ * and wakes nobody. A worker that, having finished, returns to a job that is
+ * waiting, and so does not take it, wakes a sleeper for it then; see
+ * tb_jobs_work_until(). */
+static void tb_jobs_make_ready(tb_jobs *jobs, tb_jobs_worker *worker, tb_job_slot *slot,
+                               bool is_finishing)
 {
     bool is_queued = false;
+    bool is_next_here = false;
 
     if (worker != NULL)
     {
-        is_queued = tb_job_deque_push(&worker->queues[slot->priority], slot);
+        tb_job_deque *const queue = &worker->queues[slot->priority];
+
+        is_next_here = is_finishing && slot->priority == TB_JOB_PRIORITY_FOREGROUND &&
+                       tb_job_deque_count(queue) == 0;
+        is_queued = tb_job_deque_push(queue, slot);
     }
     if (!is_queued)
     {
         tb_jobs_share(&jobs->shared[slot->priority], slot);
+        is_next_here = false;
     }
-    if (tb_platform_atomic_size_load(&jobs->searcher_count) == 0)
+    if (!is_next_here && tb_platform_atomic_size_load(&jobs->searcher_count) == 0)
     {
         tb_jobs_wake_one(jobs);
     }
@@ -902,12 +916,14 @@ static tb_job_slot *tb_jobs_search(tb_jobs *jobs, tb_jobs_worker *worker,
  * Running a job.
  * ------------------------------------------------------------------------- */
 
-/* One of the things a job waited for is done. */
-static void tb_jobs_count_down(tb_jobs *jobs, tb_jobs_worker *worker, tb_job_slot *slot)
+/* One of the things a job waited for is done: a job that it depended on
+ * finished, when `is_finishing`, or it was submitted. */
+static void tb_jobs_count_down(tb_jobs *jobs, tb_jobs_worker *worker, tb_job_slot *slot,
+                               bool is_finishing)
 {
     if (tb_platform_atomic_size_subtract(&slot->pending, 1) == 0)
     {
-        tb_jobs_make_ready(jobs, worker, slot);
+        tb_jobs_make_ready(jobs, worker, slot, is_finishing);
     }
 }
 
@@ -937,7 +953,7 @@ static void tb_jobs_run_slot(tb_jobs *jobs, tb_jobs_worker *worker, tb_job_slot 
     {
         const tb_job_edge *const edge = tb_jobs_edge(jobs, edge_id);
 
-        tb_jobs_count_down(jobs, worker, tb_jobs_slot(jobs, edge->dependent));
+        tb_jobs_count_down(jobs, worker, tb_jobs_slot(jobs, edge->dependent), true);
         last_edge = edge_id;
         edge_id = edge->next;
     }
@@ -973,6 +989,13 @@ static void tb_jobs_work_until(tb_jobs *jobs, tb_jobs_worker *worker, const tb_j
          * are looked at when there is nothing to run. */
         if (reason->slot != NULL && tb_jobs_reason_has_ended(jobs, reason))
         {
+            /* The job that the last one made ready here woke nobody, on the
+             * promise that this thread takes it next; it does not. */
+            if (worker != NULL &&
+                tb_job_deque_count(&worker->queues[TB_JOB_PRIORITY_FOREGROUND]) != 0)
+            {
+                tb_jobs_wake_one(jobs);
+            }
             return;
         }
         /* A worker's next job is most often in its own foreground queue,
@@ -1219,7 +1242,7 @@ tb_job tb_jobs_submit(tb_jobs *jobs, const tb_job_description *description)
         tb_jobs_depend(jobs, slot, description->dependencies[index]);
     }
     /* From here the job may run, finish, and give its slot to another. */
-    tb_jobs_count_down(jobs, worker, slot);
+    tb_jobs_count_down(jobs, worker, slot, false);
     return job;
 }
 
