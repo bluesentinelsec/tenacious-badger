@@ -33,10 +33,10 @@ typedef struct tb_bench_module
 } tb_bench_module;
 
 static const tb_bench_module tb_bench_modules[] = {
-    {"array", tb_bench_array},   {"atom", tb_bench_atom},     {"atomic", tb_bench_atomic},
-    {"bit", tb_bench_bit},       {"fmt", tb_bench_fmt},       {"hash", tb_bench_hash},
-    {"memory", tb_bench_memory}, {"ring", tb_bench_ring},     {"table", tb_bench_table},
-    {"text", tb_bench_text},     {"thread", tb_bench_thread},
+    {"array", tb_bench_array}, {"atom", tb_bench_atom},     {"atomic", tb_bench_atomic},
+    {"bit", tb_bench_bit},     {"fmt", tb_bench_fmt},       {"hash", tb_bench_hash},
+    {"jobs", tb_bench_jobs},   {"memory", tb_bench_memory}, {"ring", tb_bench_ring},
+    {"table", tb_bench_table}, {"text", tb_bench_text},     {"thread", tb_bench_thread},
 };
 
 #define TB_BENCH_MODULE_COUNT (sizeof(tb_bench_modules) / sizeof(tb_bench_modules[0]))

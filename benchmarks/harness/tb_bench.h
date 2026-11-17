@@ -159,6 +159,8 @@ void tb_bench_bit(tb_bench *bench);
 void tb_bench_fmt(tb_bench *bench);
 /** @brief Benchmarks of badger/hash.h. */
 void tb_bench_hash(tb_bench *bench);
+/** @brief Benchmarks of the scheduler of badger/jobs.h. */
+void tb_bench_jobs(tb_bench *bench);
 /** @brief Benchmarks of badger/memory.h, badger/arena.h, and badger/allocator.h. */
 void tb_bench_memory(tb_bench *bench);
 /** @brief Benchmarks of badger/ring.h. */
