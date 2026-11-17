@@ -193,7 +193,9 @@ Two things cannot be cases of `tb_tests`, because they end the process: the
 framework's own failure reports and the engine's default assertion handler. Each
 has a small helper executable that a CTest script runs as a child process
 (`tb_test_fixture` and `tb_probe`). Follow that pattern for other
-behavior that must terminate, such as a platform's fatal stubs.
+behavior that must terminate. `tb_platform_default_probe` does, for the
+[default platform adapter](platforms.md#unsupported-platforms), whose every
+function reports "not implemented" and ends the process.
 
 ### How cases are found
 

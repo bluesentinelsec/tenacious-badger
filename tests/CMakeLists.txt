@@ -115,6 +115,28 @@ endfunction()
 
 tb_add_platform_tests(tb_platform_tests)
 
+# A platform without an adapter of its own is built with the default one,
+# whose every function reports "not implemented" and ends the process. It is
+# standard C, so it is built and probed here on every platform: a function
+# cannot join a platform interface without its default.
+tb_add_test_executable(tb_platform_default_probe NO_CTEST SOURCES platform/default_probe.c)
+target_sources(tb_platform_default_probe PRIVATE ${TB_PLATFORM_DEFAULT_SOURCES})
+target_include_directories(tb_platform_default_probe PRIVATE
+    "${TB_PLATFORM_DEFAULT_INCLUDE_DIRECTORY}")
+tb_configure_target(tb_platform_default_probe)
+tb_make_standalone(tb_platform_default_probe)
+set(TB_PLATFORM_INTERFACE_HEADERS
+    "${PROJECT_SOURCE_DIR}/include/badger/platform.h"
+    "${PROJECT_SOURCE_DIR}/include/badger/thread.h")
+list(JOIN TB_PLATFORM_INTERFACE_HEADERS "," tb_platform_interface_headers)
+add_test(NAME platform_default.every_function_reports_not_implemented
+    COMMAND "${CMAKE_COMMAND}" "-DTB_PROBE=$<TARGET_FILE:tb_platform_default_probe>"
+        "-DTB_HEADERS=${tb_platform_interface_headers}"
+        "-DTB_SYSTEM_NAME=${CMAKE_SYSTEM_NAME}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/ExpectPlatformDefault.cmake")
+add_test(NAME platform_selection.an_unsupported_platform_stops_the_build
+    COMMAND "${CMAKE_COMMAND}" -P "${CMAKE_CURRENT_SOURCE_DIR}/ExpectPlatformSelection.cmake")
+
 if(TB_ENABLE_SANITIZERS)
     # Compile engine sources into standalone test executables. The shipping
     # shared library and burrow never acquire sanitizer dependencies.

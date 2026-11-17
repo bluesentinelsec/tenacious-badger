@@ -1,0 +1,8 @@
+/* Private to the default adapter: the system the build was configured for. */
+#ifndef TB_DEFAULT_PLATFORM_NAME_H
+#define TB_DEFAULT_PLATFORM_NAME_H
+
+/* The build system's name for the platform, such as "Haiku". */
+#define TB_DEFAULT_PLATFORM_NAME "@CMAKE_SYSTEM_NAME@"
+
+#endif

@@ -108,7 +108,9 @@ Integration tests exercise `burrow` through the shared library. The selected
 platform adapter has tests of its own, built without the rest of the engine:
 on every platform the clock must never go backward and must agree with the C
 library's clock about the length of an interval. A subprocess checks that a
-failed assertion reports its location and aborts.
+failed assertion reports its location and aborts. Another checks that every
+function of the default platform adapter reports "not implemented", and a
+script checks that an unsupported platform stops the build.
 
 `TB_ENABLE_SANITIZERS=ON` adds standalone Debug test executables that compile the
 engine sources directly and link an instrumented copy of the test framework.
@@ -140,7 +142,8 @@ release validation:
   macOS/AppleClang, and Linux with both GCC and Clang; C formatting is checked
   separately with the runner's preinstalled clang-format 22, and so is
   [use of the foundation layer](#the-foundation-check). Release jobs also
-  package, extract, and launch each native desktop export.
+  package, extract, and launch each native desktop export. One job builds the
+  engine with the [default platform adapter](platforms.md#unsupported-platforms).
 - [Sanitizers](../.github/workflows/sanitizers.yml): standalone Debug sanitizer tests
   on the same four toolchains, including the platform adapter's tests.
 
@@ -159,6 +162,8 @@ publishes verified native exports after all tagged-build checks pass.
 - `include/badger/`: documented public C APIs, with `tb_` / `TB_` prefixes.
 - `src/core/`: platform-independent library logic.
 - `src/platform/{win32,linux,macos}/`: CMake-selected native implementations.
+- `src/platform/default/`: the adapter for [any other platform](platforms.md#unsupported-platforms),
+  whose every function reports "not implemented".
 - `src/main.c`: thin `burrow` entrypoint.
 - `tests/`: unit tests and platform integration checks.
 - `benchmarks/`: `tb_bench`, which times the operations of the foundation

@@ -1,0 +1,12 @@
+/** @file api.h
+ * @brief Build-selected symbol visibility for a platform with no adapter.
+ */
+#ifndef TB_API_H
+#define TB_API_H
+
+/** @brief Marks a public engine symbol. Standard C has no way to publish a
+ * symbol from a shared library, so this adds nothing: a port that builds one
+ * supplies its own api.h with its adapter. */
+#define TB_API
+
+#endif

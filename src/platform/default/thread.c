@@ -1,0 +1,73 @@
+#include "badger/thread.h"
+
+#include "not_implemented.h"
+
+/* A lock that did nothing would let every thread in, and a thread that ran
+ * its function on the caller's would hide that there are no threads. Each
+ * function reports that it is missing. */
+
+#define TB_DEFAULT_THREAD_INTERFACE "platform.thread"
+
+void tb_thread_create(tb_thread *thread, tb_thread_function *entry, void *argument)
+{
+    (void)thread;
+    (void)entry;
+    (void)argument;
+    tb_default_not_implemented(TB_DEFAULT_THREAD_INTERFACE, "tb_thread_create");
+}
+
+void tb_thread_join(tb_thread *thread)
+{
+    (void)thread;
+    tb_default_not_implemented(TB_DEFAULT_THREAD_INTERFACE, "tb_thread_join");
+}
+
+uint64_t tb_thread_current_id(void)
+{
+    tb_default_not_implemented(TB_DEFAULT_THREAD_INTERFACE, "tb_thread_current_id");
+}
+
+void tb_mutex_lock(tb_mutex *mutex)
+{
+    (void)mutex;
+    tb_default_not_implemented(TB_DEFAULT_THREAD_INTERFACE, "tb_mutex_lock");
+}
+
+bool tb_mutex_try_lock(tb_mutex *mutex)
+{
+    (void)mutex;
+    tb_default_not_implemented(TB_DEFAULT_THREAD_INTERFACE, "tb_mutex_try_lock");
+}
+
+void tb_mutex_unlock(tb_mutex *mutex)
+{
+    (void)mutex;
+    tb_default_not_implemented(TB_DEFAULT_THREAD_INTERFACE, "tb_mutex_unlock");
+}
+
+void tb_condition_wait(tb_condition *condition, tb_mutex *mutex)
+{
+    (void)condition;
+    (void)mutex;
+    tb_default_not_implemented(TB_DEFAULT_THREAD_INTERFACE, "tb_condition_wait");
+}
+
+bool tb_condition_wait_for(tb_condition *condition, tb_mutex *mutex, uint64_t nanoseconds)
+{
+    (void)condition;
+    (void)mutex;
+    (void)nanoseconds;
+    tb_default_not_implemented(TB_DEFAULT_THREAD_INTERFACE, "tb_condition_wait_for");
+}
+
+void tb_condition_wake_one(tb_condition *condition)
+{
+    (void)condition;
+    tb_default_not_implemented(TB_DEFAULT_THREAD_INTERFACE, "tb_condition_wake_one");
+}
+
+void tb_condition_wake_all(tb_condition *condition)
+{
+    (void)condition;
+    tb_default_not_implemented(TB_DEFAULT_THREAD_INTERFACE, "tb_condition_wake_all");
+}
