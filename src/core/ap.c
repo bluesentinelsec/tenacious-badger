@@ -747,6 +747,9 @@ tb_ap_result tb_ap_to_string(const tb_ap *x, unsigned base, char *buffer, size_t
     {
         return TB_AP_BUFFER_TOO_SMALL;
     }
+    /* The text fit, so the size is not 0, and the contract requires a
+     * buffer. */
+    TB_ASSERT(buffer != NULL);
     if (sign_size > 0)
     {
         buffer[0] = '-';
