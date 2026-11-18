@@ -1,5 +1,6 @@
 #include "badger/assert.h"
 #include "badger/file.h"
+#include "badger/thread.h"
 #include "tb_test.h"
 #include <string.h>
 
@@ -100,6 +101,234 @@ TB_TEST(platform_files, binary_roundtrips_cursor_sizes_and_eof)
                             TB_FS_INVALID);
         TB_TEST_REQUIRE_UINT(tb_file_close(&file), ==, TB_FS_OK);
     }
+    TB_TEST_EXPECT_UINT(tb_fs_remove(path_view(path)), ==, TB_FS_OK);
+    TB_TEST_EXPECT_UINT(tb_fs_remove(path_view(directory)), ==, TB_FS_OK);
+}
+
+/* Positional calls name their own offset, so the cursor plays no part: they
+ * read and write anywhere, extend the file, and find the end without an error. */
+TB_TEST(platform_files, positional_transfers_ignore_the_cursor_and_extend_the_file)
+{
+    static const unsigned char zeros[10] = {0};
+    char directory[32768] = {0};
+    char path[32768] = {0};
+    unsigned char output[32] = {0};
+    tb_file file = {0};
+    size_t count = {0};
+    uint64_t position = {0};
+    uint64_t size = {0};
+    TB_TEST_REQUIRE_UINT(tb_fs_temp_directory((tb_path_view){0}, directory, sizeof(directory)), ==,
+                         TB_FS_OK);
+    child_name(path, sizeof(path), directory, "positional.bin");
+    TB_TEST_REQUIRE_UINT(
+        tb_file_open(path_view(path), TB_FILE_READ | TB_FILE_WRITE | TB_FILE_CREATE, &file), ==,
+        TB_FS_OK);
+    TB_TEST_REQUIRE_UINT(tb_file_write_at(&file, 0, "0123456789", 10, &count), ==, TB_FS_OK);
+    TB_TEST_EXPECT_UINT(count, ==, 10);
+    TB_TEST_REQUIRE_UINT(tb_file_read_at(&file, 3, output, 4, &count), ==, TB_FS_OK);
+    TB_TEST_EXPECT_UINT(count, ==, 4);
+    TB_TEST_EXPECT(memcmp(output, "3456", 4) == 0);
+    TB_TEST_REQUIRE_UINT(tb_file_read_at(&file, 7, output, sizeof(output), &count), ==, TB_FS_OK);
+    TB_TEST_EXPECT_UINT(count, ==, 3);
+    TB_TEST_EXPECT(memcmp(output, "789", 3) == 0);
+    TB_TEST_EXPECT_UINT(tb_file_read_at(&file, 10, output, sizeof(output), &count), ==, TB_FS_OK);
+    TB_TEST_EXPECT_UINT(count, ==, 0);
+    TB_TEST_EXPECT_UINT(tb_file_read_at(&file, 4096, output, sizeof(output), &count), ==, TB_FS_OK);
+    TB_TEST_EXPECT_UINT(count, ==, 0);
+    TB_TEST_EXPECT_UINT(tb_file_read_at(&file, 0, NULL, 0, &count), ==, TB_FS_OK);
+    TB_TEST_EXPECT_UINT(count, ==, 0);
+
+    /* Writing past the end extends the file, and the gap reads as zero. */
+    TB_TEST_REQUIRE_UINT(tb_file_write_at(&file, 20, "ab", 2, &count), ==, TB_FS_OK);
+    TB_TEST_EXPECT_UINT(count, ==, 2);
+    TB_TEST_EXPECT_UINT(tb_file_size(&file, &size), ==, TB_FS_OK);
+    TB_TEST_EXPECT_UINT(size, ==, 22);
+    TB_TEST_REQUIRE_UINT(tb_file_read_at(&file, 10, output, 12, &count), ==, TB_FS_OK);
+    TB_TEST_EXPECT_UINT(count, ==, 12);
+    TB_TEST_EXPECT(memcmp(output, zeros, 10) == 0);
+    TB_TEST_EXPECT(memcmp(output + 10, "ab", 2) == 0);
+
+    /* The cursor is unspecified afterwards; a seek makes it usable again. */
+    TB_TEST_EXPECT_UINT(tb_file_seek(&file, 1, TB_FILE_START, &position), ==, TB_FS_OK);
+    TB_TEST_REQUIRE_UINT(tb_file_read(&file, output, 2, &count), ==, TB_FS_OK);
+    TB_TEST_EXPECT_UINT(count, ==, 2);
+    TB_TEST_EXPECT(memcmp(output, "12", 2) == 0);
+
+    /* Offsets beyond int64_t are malformed. A read there finds the end; a
+     * write that cannot fit a byte before INT64_MAX is too large. */
+    count = 99;
+    TB_TEST_EXPECT_UINT(tb_file_read_at(&file, (uint64_t)INT64_MAX + 1, output, 1, &count), ==,
+                        TB_FS_INVALID);
+    TB_TEST_EXPECT_UINT(count, ==, 0);
+    count = 99;
+    TB_TEST_EXPECT_UINT(tb_file_write_at(&file, UINT64_MAX, "x", 1, &count), ==, TB_FS_INVALID);
+    TB_TEST_EXPECT_UINT(count, ==, 0);
+    TB_TEST_EXPECT_UINT(tb_file_read_at(&file, (uint64_t)INT64_MAX, output, 1, &count), ==,
+                        TB_FS_OK);
+    TB_TEST_EXPECT_UINT(count, ==, 0);
+    TB_TEST_EXPECT_UINT(tb_file_write_at(&file, (uint64_t)INT64_MAX, "x", 1, &count), ==,
+                        TB_FS_TOO_LARGE);
+    TB_TEST_EXPECT_UINT(count, ==, 0);
+    TB_TEST_EXPECT_UINT(tb_file_write_at(&file, (uint64_t)INT64_MAX, NULL, 0, &count), ==,
+                        TB_FS_OK);
+    TB_TEST_EXPECT_UINT(tb_file_size(&file, &size), ==, TB_FS_OK);
+    TB_TEST_EXPECT_UINT(size, ==, 22);
+    TB_TEST_REQUIRE_UINT(tb_file_close(&file), ==, TB_FS_OK);
+
+    /* Access is checked as for the cursor functions. */
+    TB_TEST_REQUIRE_UINT(tb_file_open(path_view(path), TB_FILE_READ, &file), ==, TB_FS_OK);
+    TB_TEST_EXPECT_UINT(tb_file_write_at(&file, 0, "x", 1, &count), ==, TB_FS_ACCESS);
+    TB_TEST_EXPECT_UINT(count, ==, 0);
+    TB_TEST_REQUIRE_UINT(tb_file_close(&file), ==, TB_FS_OK);
+    TB_TEST_REQUIRE_UINT(tb_file_open(path_view(path), TB_FILE_WRITE, &file), ==, TB_FS_OK);
+    TB_TEST_EXPECT_UINT(tb_file_read_at(&file, 0, output, 1, &count), ==, TB_FS_ACCESS);
+    TB_TEST_EXPECT_UINT(count, ==, 0);
+    TB_TEST_REQUIRE_UINT(tb_file_close(&file), ==, TB_FS_OK);
+    TB_TEST_EXPECT_UINT(tb_fs_remove(path_view(path)), ==, TB_FS_OK);
+    TB_TEST_EXPECT_UINT(tb_fs_remove(path_view(directory)), ==, TB_FS_OK);
+}
+
+enum
+{
+    POSITIONAL_THREADS = 8,
+    POSITIONAL_BLOCK = 4096,
+    POSITIONAL_BLOCKS_PER_THREAD = 16,
+    POSITIONAL_FILE_SIZE = POSITIONAL_THREADS * POSITIONAL_BLOCKS_PER_THREAD * POSITIONAL_BLOCK,
+    POSITIONAL_READS = 2000
+};
+
+/* The byte every test file holds at an offset, so a reader can check any range
+ * without a copy of the file. Odd multipliers make neighbouring blocks differ. */
+static unsigned char positional_byte(uint64_t offset)
+{
+    return (unsigned char)((offset * UINT64_C(2654435761)) >> 13);
+}
+
+typedef struct positional_worker
+{
+    tb_file *file;
+    uint64_t seed;
+    size_t index;
+    size_t mismatches;
+    size_t failures;
+} positional_worker;
+
+/* Each thread has a generator of its own: the test framework's is not shared
+ * between threads. */
+static uint64_t positional_next(uint64_t *state)
+{
+    *state ^= *state << 13;
+    *state ^= *state >> 7;
+    *state ^= *state << 17;
+    return *state;
+}
+
+static void positional_write_blocks(void *argument)
+{
+    positional_worker *const worker = argument;
+    unsigned char block[POSITIONAL_BLOCK] = {0};
+    for (size_t step = {0}; step < POSITIONAL_BLOCKS_PER_THREAD; step++)
+    {
+        /* Threads interleave their blocks, so neighbours are written at once. */
+        const uint64_t number = (uint64_t)step * POSITIONAL_THREADS + worker->index;
+        const uint64_t offset = number * POSITIONAL_BLOCK;
+        size_t done = {0};
+        for (size_t byte = {0}; byte < POSITIONAL_BLOCK; byte++)
+        {
+            block[byte] = positional_byte(offset + byte);
+        }
+        while (done < POSITIONAL_BLOCK)
+        {
+            size_t count = {0};
+            if (tb_file_write_at(worker->file, offset + done, block + done, POSITIONAL_BLOCK - done,
+                                 &count) != TB_FS_OK ||
+                count == 0)
+            {
+                worker->failures++;
+                break;
+            }
+            done += count;
+        }
+    }
+}
+
+static void positional_read_ranges(void *argument)
+{
+    positional_worker *const worker = argument;
+    unsigned char buffer[POSITIONAL_BLOCK] = {0};
+    uint64_t state = worker->seed;
+    for (size_t read = {0}; read < POSITIONAL_READS; read++)
+    {
+        /* Ranges of any length, overlapping each other and the end of the file. */
+        const uint64_t offset = positional_next(&state) % (POSITIONAL_FILE_SIZE + 64);
+        const size_t capacity = 1 + (size_t)(positional_next(&state) % POSITIONAL_BLOCK);
+        const uint64_t available =
+            offset < POSITIONAL_FILE_SIZE ? POSITIONAL_FILE_SIZE - offset : 0;
+        size_t count = {0};
+        if (tb_file_read_at(worker->file, offset, buffer, capacity, &count) != TB_FS_OK ||
+            count > capacity || (uint64_t)count > available || (count == 0 && available > 0))
+        {
+            worker->failures++;
+            continue;
+        }
+        for (size_t byte = {0}; byte < count; byte++)
+        {
+            if (buffer[byte] != positional_byte(offset + byte))
+            {
+                worker->mismatches++;
+                break;
+            }
+        }
+    }
+}
+
+static void positional_run(tb_thread_function *entry, tb_file *file,
+                           positional_worker workers[POSITIONAL_THREADS])
+{
+    tb_thread threads[POSITIONAL_THREADS] = {0};
+    for (size_t index = {0}; index < POSITIONAL_THREADS; index++)
+    {
+        workers[index] = (positional_worker){0};
+        workers[index].file = file;
+        workers[index].index = index;
+        workers[index].seed = UINT64_C(0x9E3779B97F4A7C15) * (index + 1);
+        tb_thread_create(&threads[index], entry, &workers[index]);
+    }
+    for (size_t index = {0}; index < POSITIONAL_THREADS; index++)
+    {
+        tb_thread_join(&threads[index]);
+    }
+}
+
+/* The claim of file.h: positional calls run together on one handle. Writers
+ * fill disjoint blocks at once, then readers check overlapping ranges at once. */
+TB_TEST(platform_files, positional_transfers_run_together_on_one_handle)
+{
+    char directory[32768] = {0};
+    char path[32768] = {0};
+    positional_worker workers[POSITIONAL_THREADS] = {0};
+    tb_file file = {0};
+    uint64_t size = {0};
+    TB_TEST_REQUIRE_UINT(tb_fs_temp_directory((tb_path_view){0}, directory, sizeof(directory)), ==,
+                         TB_FS_OK);
+    child_name(path, sizeof(path), directory, "shared.bin");
+    TB_TEST_REQUIRE_UINT(
+        tb_file_open(path_view(path), TB_FILE_READ | TB_FILE_WRITE | TB_FILE_CREATE, &file), ==,
+        TB_FS_OK);
+    positional_run(positional_write_blocks, &file, workers);
+    for (size_t index = {0}; index < POSITIONAL_THREADS; index++)
+    {
+        TB_TEST_EXPECT_UINT(workers[index].failures, ==, 0);
+    }
+    TB_TEST_EXPECT_UINT(tb_file_size(&file, &size), ==, TB_FS_OK);
+    TB_TEST_EXPECT_UINT(size, ==, POSITIONAL_FILE_SIZE);
+    positional_run(positional_read_ranges, &file, workers);
+    for (size_t index = {0}; index < POSITIONAL_THREADS; index++)
+    {
+        TB_TEST_EXPECT_UINT(workers[index].failures, ==, 0);
+        TB_TEST_EXPECT_UINT(workers[index].mismatches, ==, 0);
+    }
+    TB_TEST_REQUIRE_UINT(tb_file_close(&file), ==, TB_FS_OK);
     TB_TEST_EXPECT_UINT(tb_fs_remove(path_view(path)), ==, TB_FS_OK);
     TB_TEST_EXPECT_UINT(tb_fs_remove(path_view(directory)), ==, TB_FS_OK);
 }
@@ -457,6 +686,24 @@ static void invalid_file_contract(void *context)
     case 21:
         (void)tb_fs_temp_directory((tb_path_view){0}, NULL, 0);
         break;
+    case 22:
+        (void)tb_file_read_at(&file, 0, &byte, 1, &count);
+        break;
+    case 23:
+        (void)tb_file_read_at(&file, 0, &byte, 1, NULL);
+        break;
+    case 24:
+        (void)tb_file_read_at(&file, 0, NULL, 1, &count);
+        break;
+    case 25:
+        (void)tb_file_write_at(&file, 0, &byte, 1, &count);
+        break;
+    case 26:
+        (void)tb_file_write_at(&file, 0, &byte, 1, NULL);
+        break;
+    case 27:
+        (void)tb_file_write_at(&file, 0, NULL, 1, &count);
+        break;
     default:
         break;
     }
@@ -467,7 +714,7 @@ TB_TEST(platform_files, required_pointers_and_handle_lifetimes_are_contracts)
     {
         TB_TEST_SKIP("assertions disabled");
     }
-    for (size_t choice = {0}; choice < 22; choice++)
+    for (size_t choice = {0}; choice < 28; choice++)
     {
         TB_TEST_EXPECT_TRAP(invalid_file_contract, &choice, "assertion failed");
     }

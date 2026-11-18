@@ -10,4 +10,7 @@ tb_fs_result tb_native_fs_output(const char *text, char *destination, size_t cap
 /* Platform-specific, owned C heap string for the shared bounded wrapper. */
 tb_fs_result tb_native_fs_location(tb_fs_location location, char **path);
 bool tb_native_fs_separator(char byte);
+/* Bound a positional transfer: INVALID for an offset above INT64_MAX, else the
+ * length shortened to one native call and to the end of the int64_t range. */
+tb_fs_result tb_native_fs_positional_length(uint64_t offset, size_t length, size_t *bounded);
 #endif

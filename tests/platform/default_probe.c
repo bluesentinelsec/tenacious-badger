@@ -343,6 +343,16 @@ TB_TEST(platform_default, tb_file_write)
     (void)tb_file_write(NULL, NULL, 0, NULL);
 }
 
+TB_TEST(platform_default, tb_file_read_at)
+{
+    (void)tb_file_read_at(NULL, 0, NULL, 0, NULL);
+}
+
+TB_TEST(platform_default, tb_file_write_at)
+{
+    (void)tb_file_write_at(NULL, 0, NULL, 0, NULL);
+}
+
 TB_TEST(platform_default, tb_file_seek)
 {
     (void)tb_file_seek(NULL, 0, 0, NULL);

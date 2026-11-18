@@ -27,6 +27,28 @@ tb_fs_result tb_file_write(tb_file *file, const void *bytes, size_t length, size
     tb_default_not_implemented("platform.files", "tb_file_write");
 }
 
+tb_fs_result tb_file_read_at(tb_file *file, uint64_t offset, void *bytes, size_t capacity,
+                             size_t *transferred)
+{
+    (void)file;
+    (void)offset;
+    (void)bytes;
+    (void)capacity;
+    (void)transferred;
+    tb_default_not_implemented("platform.files", "tb_file_read_at");
+}
+
+tb_fs_result tb_file_write_at(tb_file *file, uint64_t offset, const void *bytes, size_t length,
+                              size_t *transferred)
+{
+    (void)file;
+    (void)offset;
+    (void)bytes;
+    (void)length;
+    (void)transferred;
+    tb_default_not_implemented("platform.files", "tb_file_write_at");
+}
+
 tb_fs_result tb_file_seek(tb_file *file, int64_t offset, tb_file_origin origin, uint64_t *position)
 {
     (void)file;
