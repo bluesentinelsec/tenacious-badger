@@ -29,6 +29,17 @@ static tb_stream_result tb_stream_from_fs(tb_fs_result result)
         return TB_STREAM_NO_SPACE;
     case TB_FS_ACCESS:
         return TB_STREAM_ACCESS;
+    /* The rest name paths and directories, which an open stream no longer
+     * meets; a system that reports one anyway is an operating system error. */
+    case TB_FS_NOT_FOUND:
+    case TB_FS_EXISTS:
+    case TB_FS_NOT_DIRECTORY:
+    case TB_FS_IS_DIRECTORY:
+    case TB_FS_NOT_EMPTY:
+    case TB_FS_BUFFER_TOO_SMALL:
+    case TB_FS_OS_ERROR:
+    case TB_FS_END:
+        return TB_STREAM_OS_ERROR;
     default:
         return TB_STREAM_OS_ERROR;
     }
