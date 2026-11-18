@@ -82,7 +82,9 @@ Strings are UTF-8, handled as bytes without decoding:
   nothing; it needs no terminator and can be formatted with `%T`.
 - `badger/fmt.h`: printf-style formatting to a buffer, a new string, the
   standard streams, or any function, with the same output on every platform
-  and conversions an application can add. Floating point is not converted yet.
+  and conversions an application can add. Floating-point conversions are
+  correctly rounded and the same everywhere; `badger/decimal.h` writes the
+  shortest text that reads back as the same `double`, and reads text back.
 - `badger/atom.h`: atoms are strings stored once, so that equal names are the
   same pointer and compare in one step. `badger/hash.h` has the hash functions
   behind them: XXH64 for bytes and the SplitMix64 finalizer for integers and

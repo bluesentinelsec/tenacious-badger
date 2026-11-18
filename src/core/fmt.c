@@ -7,6 +7,7 @@
 #include "badger/assert.h"
 #include "badger/size.h"
 #include "badger/str.h"
+#include "fmt_internal.h"
 #include "memory_internal.h"
 
 #include <limits.h>
@@ -608,7 +609,8 @@ static bool tb_fmt_parse_spec(const char **cursor, tb_fmt_spec *spec, va_list *a
 static bool tb_fmt_convert(tb_fmt_output *output, const tb_fmt_spec *spec, va_list *arguments)
 {
     const unsigned char code = (unsigned char)spec->conversion;
-    /* Only the integer conversions have arguments of more than one size. */
+    /* Only the integer conversions have arguments of more than one size; the
+     * floating-point ones accept `l` and ignore it. */
     const bool has_length = spec->length != TB_FMT_LENGTH_DEFAULT;
 
     switch (spec->conversion)
@@ -622,6 +624,22 @@ static bool tb_fmt_convert(tb_fmt_output *output, const tb_fmt_spec *spec, va_li
     case 'x':
     case 'X':
         tb_fmt_convert_unsigned(output, spec, arguments);
+        return true;
+    case 'f':
+    case 'F':
+    case 'e':
+    case 'E':
+    case 'g':
+    case 'G':
+    case 'a':
+    case 'A':
+        /* As in C, `l` changes nothing for a double; `L` names a long double,
+         * which the formatter does not take, and so is not a length here. */
+        if (spec->length != TB_FMT_LENGTH_DEFAULT && spec->length != TB_FMT_LENGTH_LONG)
+        {
+            return false;
+        }
+        tb_fmt_convert_float(output, spec, arguments);
         return true;
     default:
         break;

@@ -261,6 +261,9 @@ AUTHORIZED = {
     'tests/core/fmt_test.c': (
         {'snprintf'},
         'checks badger/fmt.h against the C library'),
+    'tests/core/decimal_test.c': (
+        {'snprintf'},
+        'checks floating-point formatting against C libraries that round correctly'),
     'tests/core/str_test.c': (
         {'strlen'},
         'checks badger/str.h against the C library'),

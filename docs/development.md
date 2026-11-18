@@ -20,6 +20,7 @@ The foundation layer so far, one public header per module under
 | `allocator.h` | [Allocators chosen per object](memory.md#choosing-the-allocator-of-one-object) |
 | `array.h`, `bit.h`, `ring.h`, `list.h`, `table.h`, `set.h` | [Collections](collections.md): a dynamic array, a bit vector, a ring, an intrusive list, a hash table, and a set |
 | `str.h`, `text.h`, `fmt.h`, `atom.h`, `hash.h` | [Strings](strings.md): C strings, text values, formatted output, atoms, and hash functions |
+| `decimal.h` | [Floating-point text that reads back](strings.md#floating-point-text-that-reads-back): the shortest text of a `double`, and reading text into one |
 | `platform.h` | [Native platform interfaces](platforms.md): the clock, sleeping and pacing, abort, and atomic values |
 | `thread.h` | [Threads, mutexes, condition variables, semaphores, and thread-local values](platforms.md#threads-mutexes-and-condition-variables) |
 | `system.h` | [The processors the process may run on](platforms.md#processors): how many, and which |

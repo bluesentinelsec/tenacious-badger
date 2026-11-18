@@ -604,6 +604,27 @@ tb_xp_result tb_xp_from_string(size_t n, tb_xp_digit *z, const char *text, size_
     return TB_XP_OK;
 }
 
+/* 10^9, the largest power of ten in a digit: the step of decimal text. */
+#define XP_DECIMAL_CHUNK 1000000000u
+
+/* tb_xp_quotient() by 10^9. Decimal is by far the most common base of text,
+ * and with the divisor a constant the compiler replaces each division by a
+ * multiplication, which is several times faster. */
+static tb_xp_digit xp_quotient_by_decimal_chunk(size_t n, tb_xp_digit *z)
+{
+    uint64_t remainder = 0;
+
+    for (size_t step = n; step > 0; step--)
+    {
+        const size_t index = step - 1;
+        const uint64_t dividend = (remainder << TB_XP_DIGIT_BITS) | z[index];
+
+        z[index] = (tb_xp_digit)(dividend / XP_DECIMAL_CHUNK);
+        remainder = dividend % XP_DECIMAL_CHUNK;
+    }
+    return (tb_xp_digit)remainder;
+}
+
 /* Writes the text digits of x, least significant first, into output, or only
  * counts them when output is NULL. Destroys the copy of x in scratch. */
 static size_t xp_render_reversed(size_t x_length, const tb_xp_digit *x, unsigned base,
@@ -616,7 +637,8 @@ static size_t xp_render_reversed(size_t x_length, const tb_xp_digit *x, unsigned
     memcpy(scratch, x, x_length * XP_DIGIT_BYTES);
     for (;;)
     {
-        tb_xp_digit piece = tb_xp_quotient(length, scratch, scratch, chunk.power);
+        tb_xp_digit piece = base == 10 ? xp_quotient_by_decimal_chunk(length, scratch)
+                                       : tb_xp_quotient(length, scratch, scratch, chunk.power);
         bool is_last = false;
 
         length = tb_xp_length(length, scratch);

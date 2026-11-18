@@ -43,13 +43,30 @@
  * | `%c` | `int` | the byte with that value |
  * | `%s` | `const char *` | the string; `(null)` for a null pointer |
  * | `%p` | `void *` | `0x` and the address in hexadecimal |
+ * | `%f`, `%F` | `double` | fixed notation, 6 digits after the point unless a precision says |
+ * | `%e`, `%E` | `double` | one digit, the point, 6 more, and an exponent: `1.500000e+03` |
+ * | `%g`, `%G` | `double` | 6 significant digits, as `%e` or `%f` by the exponent |
+ * | `%a`, `%A` | `double` | hexadecimal, exactly unless a precision says: `0x1.8p+1` |
  * | `%%` | none | a percent sign |
  *
- * Integer conversions behave exactly as the C standard specifies for printf.
+ * Integer conversions behave exactly as the C standard specifies for printf,
+ * and so do the floating-point ones, with these choices where C leaves one:
  *
- * **Floating point is not converted yet.** `%f`, `%e`, `%g`, and `%a` are
- * reserved for a correct, platform-independent conversion, which is a project
- * of its own. Until then they are invalid.
+ * - **Every digit is correctly rounded**, to nearest with ties to even, at
+ *   any precision: `%.1f` of 0.25 is `0.2`, and `%.20f` of 0.1 is the exact
+ *   value's first twenty digits. The text is the same on every platform and
+ *   does not depend on the locale or the rounding mode.
+ * - **Infinity is `inf` and NaN is `nan`** (`INF` and `NAN` for the capital
+ *   conversions), on every platform. NaN is written without a sign.
+ * - `%a` without a precision writes as many hexadecimal digits as the value
+ *   needs, and a subnormal value as `0x0.` and its digits with `p-1022`.
+ * - A `float` argument arrives as a `double`. The length `l` is accepted and
+ *   changes nothing; `L` (`long double`) is not supported, and `%Lf` is an
+ *   invalid conversion.
+ *
+ * For text that must read back as exactly the same value, such as saved data
+ * or JSON, use tb_decimal_shortest() (decimal.h), which writes the fewest
+ * digits that do; tb_decimal_parse() reads text back.
  *
  * **An invalid format string is a contract violation.** A conversion
  * character that is not known, or a format that ends inside a conversion,
@@ -250,8 +267,8 @@ typedef void tb_fmt_conversion(tb_fmt_output *output, const tb_fmt_spec *spec, v
  * @endcode
  *
  * @param conversion The character: an ASCII letter that is not a built-in
- * conversion (`d i u x X o c s p`), a reserved one (`a A e E f F g G n`), or a
- * length letter (`h l j z t L`).
+ * conversion (`d i u x X o c s p a A e E f F g G`), `n`, which C reserves, or
+ * a length letter (`h l j z t L`).
  * @param function The conversion, or NULL to remove the one registered.
  * @return The function registered before, or NULL when there was none.
  * @par Threading Stage-owned: call during single-threaded startup.

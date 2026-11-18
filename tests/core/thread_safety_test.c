@@ -13,6 +13,7 @@
  * joining. */
 #include "badger/ap.h"
 #include "badger/arena.h"
+#include "badger/decimal.h"
 #include "badger/fmt.h"
 #include "badger/fs.h"
 #include "badger/hash.h"
@@ -143,8 +144,35 @@ static bool uses_arbitrary_precision(size_t number)
     return is_right;
 }
 
-/* Paths, UTF-8, hashing, C strings, formatting to a buffer, and
- * extended- and arbitrary-precision arithmetic, each on data that carries the thread's
+/* A double made from the thread's number, written as its shortest text and
+ * with %.17g and %a, and read back from each. */
+static bool converts_floating_point(size_t number)
+{
+    const double value = ((double)number + 1.0) / 3.0;
+    char shortest[TB_DECIMAL_SHORTEST_SIZE] = {0};
+    char digits[48] = {0};
+    char hexadecimal[48] = {0};
+    size_t required = 0;
+    double back = 0.0;
+    bool is_right =
+        tb_decimal_shortest(value, shortest, sizeof(shortest), &required) == TB_DECIMAL_OK;
+
+    is_right = is_right && tb_decimal_parse(shortest, required - 1, &back) == TB_DECIMAL_OK &&
+               back == value;
+    is_right = is_right &&
+               tb_decimal_parse(digits, tb_fmt_buffer(digits, sizeof(digits), "%.17g", value),
+                                &back) == TB_DECIMAL_OK &&
+               back == value;
+    is_right =
+        is_right &&
+        tb_decimal_parse(hexadecimal, tb_fmt_buffer(hexadecimal, sizeof(hexadecimal), "%a", value),
+                         &back) == TB_DECIMAL_OK &&
+        back == value;
+    return is_right;
+}
+
+/* Paths, UTF-8, hashing, C strings, formatting to a buffer, extended- and
+ * arbitrary-precision arithmetic, and floating-point text, each on data that carries the thread's
  * number, so that an answer leaking from one thread to another would be a
  * wrong answer. */
 static void use_the_functions_that_keep_no_state(void *argument)
@@ -190,6 +218,7 @@ static void use_the_functions_that_keep_no_state(void *argument)
 
         count_unless(self, uses_extended_precision(self->number));
         count_unless(self, uses_arbitrary_precision(self->number));
+        count_unless(self, converts_floating_point(self->number));
     }
 }
 

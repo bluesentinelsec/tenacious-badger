@@ -157,6 +157,8 @@ void tb_bench_atom(tb_bench *bench);
 void tb_bench_atomic(tb_bench *bench);
 /** @brief Benchmarks of badger/bit.h. */
 void tb_bench_bit(tb_bench *bench);
+/** @brief Benchmarks of badger/decimal.h and the floating-point conversions of fmt.h. */
+void tb_bench_decimal(tb_bench *bench);
 /** @brief Benchmarks of badger/fmt.h. */
 void tb_bench_fmt(tb_bench *bench);
 /** @brief Benchmarks of badger/hash.h. */
