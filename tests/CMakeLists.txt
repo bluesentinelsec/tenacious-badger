@@ -4,6 +4,7 @@ add_subdirectory(framework)
 # of a new test here. Suites are named <module>_<feature>, so one pattern
 # selects a module (tb_tests "core_*") or a feature (tb_tests "core_sum.*").
 set(TB_TEST_CASE_SOURCES
+    codec/checksum_test.c
     core/allocator_test.c
     core/ap_test.c
     core/arena_test.c
@@ -73,8 +74,10 @@ target_compile_definitions(tb_memory_checked_tests PRIVATE TB_TEST_CHECK_MEMORY)
 set(TB_INTERNAL_TEST_CASE_SOURCES
     core/fs_transaction_test.c
     core/reserved_arena_failure_test.c
+    codec/crc32_table_test.c
     jobs/deque_test.c)
-set(TB_ENGINE_SOURCES ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES} ${TB_JOBS_SOURCES})
+set(TB_ENGINE_SOURCES ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES} ${TB_JOBS_SOURCES}
+    ${TB_CODEC_SOURCES})
 
 # The arguments go to tb_add_tests.
 function(tb_add_internal_tests target)
