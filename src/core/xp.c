@@ -173,6 +173,23 @@ unsigned tb_xp_diff(size_t n, tb_xp_digit *z, const tb_xp_digit *x, tb_xp_digit 
 
 /* --- multiplication ---------------------------------------------------------------- */
 
+/* accumulator[0..m-1] += y * multiplier. Returns the digit carried beyond
+ * them. (2^32 - 1)^2 + 2 * (2^32 - 1) is 2^64 - 1, so no step overflows. */
+static tb_xp_digit xp_multiply_add(size_t m, tb_xp_digit *accumulator, const tb_xp_digit *y,
+                                   uint64_t multiplier)
+{
+    uint64_t carry = 0;
+
+    for (size_t index = 0; index < m; index++)
+    {
+        const uint64_t partial = multiplier * y[index] + accumulator[index] + carry;
+
+        accumulator[index] = (tb_xp_digit)partial;
+        carry = partial >> TB_XP_DIGIT_BITS;
+    }
+    return (tb_xp_digit)carry;
+}
+
 void tb_xp_mul(tb_xp_digit *z, size_t n, const tb_xp_digit *x, size_t m, const tb_xp_digit *y)
 {
     TB_ASSERT(n > 0 && m > 0);
@@ -180,24 +197,15 @@ void tb_xp_mul(tb_xp_digit *z, size_t n, const tb_xp_digit *x, size_t m, const t
     TB_ASSERT_MSG(!xp_overlap(z, n + m, x, n) && !xp_overlap(z, n + m, y, m),
                   "the product must not overlap an operand");
     memset(z, 0, (n + m) * XP_DIGIT_BYTES);
+    /* Each row adds one digit of x times y into the digits of z from that
+     * digit's place, and its carry into the digit above them, which no
+     * earlier row has reached. */
     for (size_t row = 0; row < n; row++)
     {
-        const uint64_t multiplier = x[row];
-        uint64_t carry = 0;
-
-        if (multiplier == 0)
+        if (x[row] != 0)
         {
-            continue;
+            z[row + m] = xp_multiply_add(m, z + row, y, x[row]);
         }
-        /* (2^32 - 1)^2 + 2 * (2^32 - 1) is 2^64 - 1, so no step overflows. */
-        for (size_t column = 0; column < m; column++)
-        {
-            const uint64_t partial = multiplier * y[column] + z[row + column] + carry;
-
-            z[row + column] = (tb_xp_digit)partial;
-            carry = partial >> TB_XP_DIGIT_BITS;
-        }
-        z[row + m] = (tb_xp_digit)carry;
     }
 }
 
@@ -674,6 +682,9 @@ tb_xp_result tb_xp_to_string(size_t n, const tb_xp_digit *x, unsigned base, tb_x
             return TB_XP_BUFFER_TOO_SMALL;
         }
     }
+    /* The text fits, so the size is not 0, and the contract requires a
+     * buffer. */
+    TB_ASSERT(buffer != NULL);
     count = xp_render_reversed(x_length, x, base, scratch, buffer);
     xp_reverse(buffer, count);
     buffer[count] = '\0';
