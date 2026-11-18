@@ -338,7 +338,8 @@ TB_TEST(core_decimal, a_float_argument_is_formatted_as_the_double_it_becomes)
     const float third = 1.0f / 3.0f;
     char text[64] = {0};
 
-    (void)tb_fmt_buffer(text, sizeof(text), "%.10f %lf %g", third, 0.5, 1e-5f);
+    /* Passed through `...`, a float becomes a double; the casts say so. */
+    (void)tb_fmt_buffer(text, sizeof(text), "%.10f %lf %g", (double)third, 0.5, (double)1e-5f);
     TB_TEST_EXPECT_STRING(text, ==, "0.3333333433 0.500000 1e-05");
 }
 

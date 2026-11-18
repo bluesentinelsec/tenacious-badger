@@ -588,11 +588,14 @@ static double decimal_round_binary(const tb_xp_digit *number, size_t length, boo
     }
     if (kept_lowest <= lowest)
     {
-        /* Every bit is kept, and fits: there are at most 53 of them. */
+        /* Every bit is kept, and fits: there are at most 53 of them, and
+         * they move up by no more than the room left above them. */
+        const int64_t shift = lowest - kept_lowest;
         uint64_t low_bits = 0;
 
+        TB_ASSERT(shift >= 0 && shift <= DECIMAL_FRACTION_BITS);
         (void)tb_xp_to_u64(length, number, &low_bits);
-        mantissa = low_bits << (unsigned)(lowest - kept_lowest);
+        mantissa = low_bits << (unsigned)shift;
     }
     else
     {
