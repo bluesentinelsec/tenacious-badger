@@ -6,8 +6,9 @@ Integers wider than the machine's. Each layer has one public header under
 | Layer | Header | Use it for |
 | --- | --- | --- |
 | [Extended precision](#extended-precision) | `xp.h` | Unsigned integers of a fixed number of digits, in arrays the caller supplies. Allocates nothing. |
+| [Arbitrary precision](#arbitrary-precision) | `ap.h` | Signed integers that grow as needed. Each value is an object from an allocator. Built on `xp.h`. |
 
-The design follows the `XP` interface of David Hanson's *C Interfaces and
+The design follows the `XP` and `AP` interfaces of David Hanson's *C Interfaces and
 Implementations*, adapted to the engine's conventions.
 
 **Not for cryptography.** The time an operation takes depends on the values
@@ -110,3 +111,81 @@ required, and writes nothing.
 
 Both conversions work several text digits at a time: as many as the largest
 power of the base that fits in one digit, such as nine decimal digits.
+
+## Arbitrary precision
+
+`ap.h` has signed integers of any size. A `tb_ap` holds as many digits as its
+value needs and a sign, in one block from an allocator.
+
+```c
+tb_ap *const base = tb_ap_from_i64(NULL, 3);
+tb_ap *const exponent = tb_ap_from_i64(NULL, 1000);
+tb_ap *const modulus = tb_ap_from_i64(NULL, 1000000007);
+tb_ap *const power = tb_ap_pow(base, exponent, modulus); /* 3^1000 mod 1000000007 */
+
+tb_ap_free(power);
+tb_ap_free(modulus);
+tb_ap_free(exponent);
+tb_ap_free(base);
+```
+
+### Values never change
+
+Every operation leaves its operands as they are and returns a new value, which
+the caller owns and releases with `tb_ap_free`. A value can therefore be an
+operand of any number of operations, both operands of one, and read by any
+number of threads at once. A value made from a native integer or text uses the
+allocator it is given; the result of an operation, and any working space it
+needs for a moment, uses the allocator of its first operand. A computation in
+an arena can drop every intermediate value at once by resetting the arena.
+
+Each value has exactly one representation: zero is positive, and no value
+has leading zero digits.
+
+### Division rounds down
+
+| | `tb_ap_div_floor`, `tb_ap_mod_floor` | C's `/` and `%` |
+| --- | --- | --- |
+| 7 and 2 | 3, 1 | 3, 1 |
+| -7 and 2 | -4, 1 | -3, -1 |
+| 7 and -2 | -4, -1 | -3, 1 |
+| -7 and -2 | 3, -1 | 3, -1 |
+
+The quotient rounds toward negative infinity, as in the book and in Python, and
+the remainder has the sign of the divisor. A remainder modulo a positive
+number is never negative, which is what modular arithmetic, hashing, and
+wrapping an index need. `tb_ap_shift_right` rounds the same way, as an
+arithmetic shift does: -1 shifted right is still -1. The names of the
+functions carry `floor` so that the choice is visible where they are called.
+
+### Native operands
+
+`tb_ap_add_i64`, `tb_ap_sub_i64`, `tb_ap_mul_i64`, `tb_ap_div_floor_i64`,
+`tb_ap_mod_floor_i64`, and `tb_ap_compare_i64` take an `int64_t` as the second
+operand without making a value of it. `tb_ap_mod_floor_i64` returns a native
+integer, since the remainder always fits.
+
+`tb_ap_to_i64` and `tb_ap_to_u64` return `false` for a value outside the
+range of the type, and leave the output as it was; they never wrap.
+
+### Text and formatting
+
+`tb_ap_from_string` reads an optional `+` or `-` and digits in a base from 2
+to 36; `tb_ap_to_string` writes a `-` for a negative value and no leading
+zeros. `tb_ap_format` is a conversion for the formatter: register it under a
+letter, and it writes a value as `%d` writes an integer, flags, width, and
+precision included.
+
+```c
+(void)tb_fmt_register('Z', tb_ap_format);
+tb_fmt_print("%Z\n", power);
+```
+
+### Running out of memory
+
+As everywhere in the engine, running out of memory ends the process through
+the memory failure handler; no operation returns NULL. A result too large for
+memory, such as a power whose exponent came from outside, therefore ends the
+process too: bound such operands before computing with them. The tests refuse
+each allocation of each operation in turn and check that every refusal
+reaches the handler.

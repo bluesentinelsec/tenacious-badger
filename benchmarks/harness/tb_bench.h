@@ -147,6 +147,8 @@ int tb_bench_main(int argument_count, char **arguments);
  * one here, in tb_bench.c, and in CMakeLists.txt.
  * ------------------------------------------------------------------------- */
 
+/** @brief Benchmarks of badger/ap.h. */
+void tb_bench_ap(tb_bench *bench);
 /** @brief Benchmarks of badger/array.h. */
 void tb_bench_array(tb_bench *bench);
 /** @brief Benchmarks of badger/atom.h. */

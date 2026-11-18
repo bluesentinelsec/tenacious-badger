@@ -323,7 +323,9 @@ details are in [Memory allocation](memory.md#in-tests); in short:
   `out of memory`.
 - `tb_test_allocator` is an allocator to hand to a module under test. It checks
   that every block comes back with the size and alignment it was given and that
-  nothing is left allocated.
+  nothing is left allocated. When it refuses a fail-fast allocation, the trap
+  leaves the code under test holding what it had; `tb_test_allocator_release_all`
+  gives those blocks back, so that the case can try the next step.
 
 These are built on case hooks: `tb_test_set_case_hooks` registers functions
 that the framework runs before and after every case, inside the case, so they

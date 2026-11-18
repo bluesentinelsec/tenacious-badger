@@ -182,6 +182,20 @@ void tb_test_allocator_stop_failing(tb_test_allocator *tracker)
     tracker->successes_left = 0;
 }
 
+void tb_test_allocator_release_all(tb_test_allocator *tracker)
+{
+    const tb_allocator heap = tb_allocator_heap();
+
+    while (tracker->live_block_count > 0)
+    {
+        tb_test_allocator_block *const block = &tracker->blocks[tracker->live_block_count - 1];
+
+        tracker->release_count++;
+        tb_allocator_free(&heap, block->memory, block->size, block->alignment);
+        tb_test_allocator_forget(tracker, block);
+    }
+}
+
 bool tb_test_allocator_owns(const tb_test_allocator *tracker, const void *memory, size_t size)
 {
     const uintptr_t begin = (uintptr_t)memory;

@@ -11,6 +11,7 @@
  * checking memory functions) have cases of their own beside their other
  * tests. A thread started by a case only records; the case checks after
  * joining. */
+#include "badger/ap.h"
 #include "badger/arena.h"
 #include "badger/fmt.h"
 #include "badger/fs.h"
@@ -110,8 +111,40 @@ static bool uses_extended_precision(size_t number)
     return is_right;
 }
 
+/* Arbitrary-precision values on the engine's heap: -(number + 1)^40, its text,
+ * and the value read back and divided by (number + 1)^39. */
+static bool uses_arbitrary_precision(size_t number)
+{
+    tb_ap *const base = tb_ap_from_i64(NULL, -(int64_t)number - 1);
+    tb_ap *const exponent = tb_ap_from_i64(NULL, 40);
+    tb_ap *const smaller_exponent = tb_ap_from_i64(NULL, 39);
+    tb_ap *const power = tb_ap_pow(base, exponent, NULL);
+    tb_ap *const divisor = tb_ap_pow(base, smaller_exponent, NULL);
+    tb_ap *read_back = NULL;
+    tb_ap *quotient = NULL;
+    char text[128] = {0};
+    size_t required = 0;
+    int64_t value = 0;
+    bool is_right = tb_ap_to_string(power, 10, text, sizeof(text), &required) == TB_AP_OK;
+
+    is_right = is_right && tb_ap_from_string(NULL, text, required - 1, 10, &read_back) == TB_AP_OK;
+    if (is_right)
+    {
+        quotient = tb_ap_div_floor(read_back, divisor);
+        is_right = tb_ap_to_i64(quotient, &value) && value == -(int64_t)number - 1;
+    }
+    tb_ap_free(quotient);
+    tb_ap_free(read_back);
+    tb_ap_free(divisor);
+    tb_ap_free(power);
+    tb_ap_free(smaller_exponent);
+    tb_ap_free(exponent);
+    tb_ap_free(base);
+    return is_right;
+}
+
 /* Paths, UTF-8, hashing, C strings, formatting to a buffer, and
- * extended-precision arithmetic, each on data that carries the thread's
+ * extended- and arbitrary-precision arithmetic, each on data that carries the thread's
  * number, so that an answer leaking from one thread to another would be a
  * wrong answer. */
 static void use_the_functions_that_keep_no_state(void *argument)
@@ -156,6 +189,7 @@ static void use_the_functions_that_keep_no_state(void *argument)
         count_unless(self, tangled_length > expected_length);
 
         count_unless(self, uses_extended_precision(self->number));
+        count_unless(self, uses_arbitrary_precision(self->number));
     }
 }
 
