@@ -222,11 +222,15 @@ TB_TEST(core_decimal, the_formatter_agrees_with_a_correctly_rounded_c_library)
         EXPECT_SAME_AS_C_LIBRARY("%+.*G", precision, value);
         EXPECT_SAME_AS_C_LIBRARY("%-30.*e|", precision, value);
         EXPECT_SAME_AS_C_LIBRARY("%030.*f", precision, value);
-        /* Apple's C library writes a subnormal %a in normalized form. */
+        /* Apple's C library writes a subnormal %a in normalized form, and
+         * cuts %a at a precision where C requires it to round, so those are
+         * compared with glibc alone. */
         if ((bits & UINT64_C(0x7FF0000000000000)) != 0)
         {
             EXPECT_SAME_AS_C_LIBRARY("%a", value);
+#if defined(__GLIBC__)
             EXPECT_SAME_AS_C_LIBRARY("%.*a", precision % 14, value);
+#endif
         }
     }
 #else
