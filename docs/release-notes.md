@@ -286,6 +286,11 @@ all desktop platforms. `badger/fs.h` adds bounded whole-file reads with custom
 allocators, recursive directory creation, and atomic replacement that preserves
 existing readers. See [file contracts](files.md) for ownership and durability.
 
+Unsigned integers of any fixed length can be added, subtracted, multiplied,
+divided, shifted, compared, and converted to and from text in bases 2 to 36
+with `badger/xp.h`, in arrays of 32-bit digits that the caller supplies and
+without allocation. See [arithmetic](arithmetic.md).
+
 Thread-safe synchronous logging now supports severity/category filters and
 replaceable callbacks, with stderr and native-file sinks. Sink failures and
 recursive logging are reported explicitly. See [logging](logging.md).

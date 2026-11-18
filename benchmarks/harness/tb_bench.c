@@ -52,6 +52,7 @@ static const tb_bench_module tb_bench_modules[] = {
     {"time", tb_bench_time},
     {"utf8", tb_bench_utf8},
     {"vm", tb_bench_vm},
+    {"xp", tb_bench_xp},
 };
 
 #define TB_BENCH_MODULE_COUNT (sizeof(tb_bench_modules) / sizeof(tb_bench_modules[0]))

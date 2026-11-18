@@ -14,6 +14,7 @@ The foundation layer so far, one public header per module under
 | --- | --- |
 | `assert.h` | Developer assertions with a replaceable failure handler |
 | `core.h`, `size.h` | Checked signed addition and checked size arithmetic |
+| `xp.h` | [Extended-precision arithmetic](arithmetic.md): unsigned integers of a fixed number of digits |
 | `memory.h` | [Memory allocation](memory.md) that fails fast, with a replaceable allocator |
 | `arena.h` | [Arenas](memory.md#arenas) for objects that share a lifetime |
 | `allocator.h` | [Allocators chosen per object](memory.md#choosing-the-allocator-of-one-object) |
