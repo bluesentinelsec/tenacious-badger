@@ -193,6 +193,64 @@ tb_fs_result tb_file_write(tb_file *file, const void *bytes, size_t length, size
     *transferred = (size_t)count;
     return TB_FS_OK;
 }
+tb_fs_result tb_file_read_at(tb_file *file, uint64_t offset, void *bytes, size_t capacity,
+                             size_t *transferred)
+{
+    ssize_t count = {0};
+    int descriptor = {0};
+    size_t bounded = {0};
+    tb_fs_result result = {0};
+    TB_ASSERT(transferred != NULL);
+    TB_ASSERT(bytes != NULL || capacity == 0);
+    *transferred = 0;
+    descriptor = tb_file_descriptor(file);
+    result = tb_native_fs_positional_length(offset, capacity, &bounded);
+    if (result != TB_FS_OK || bounded == 0)
+    {
+        return result;
+    }
+    do
+    {
+        count = pread(descriptor, bytes, bounded, (off_t)offset);
+    } while (count < 0 && errno == EINTR);
+    if (count < 0)
+    {
+        return tb_native_fs_errno(errno);
+    }
+    *transferred = (size_t)count;
+    return TB_FS_OK;
+}
+tb_fs_result tb_file_write_at(tb_file *file, uint64_t offset, const void *bytes, size_t length,
+                              size_t *transferred)
+{
+    ssize_t count = {0};
+    int descriptor = {0};
+    size_t bounded = {0};
+    tb_fs_result result = {0};
+    TB_ASSERT(transferred != NULL);
+    TB_ASSERT(bytes != NULL || length == 0);
+    *transferred = 0;
+    descriptor = tb_file_descriptor(file);
+    result = tb_native_fs_positional_length(offset, length, &bounded);
+    if (result != TB_FS_OK || length == 0)
+    {
+        return result;
+    }
+    if (bounded == 0)
+    {
+        return TB_FS_TOO_LARGE;
+    }
+    do
+    {
+        count = pwrite(descriptor, bytes, bounded, (off_t)offset);
+    } while (count < 0 && errno == EINTR);
+    if (count < 0)
+    {
+        return tb_native_fs_errno(errno);
+    }
+    *transferred = (size_t)count;
+    return TB_FS_OK;
+}
 tb_fs_result tb_file_seek(tb_file *file, int64_t offset, tb_file_origin origin, uint64_t *position)
 {
     int native_origin = {0};

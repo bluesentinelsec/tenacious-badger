@@ -22,6 +22,19 @@ EOF is a successful read of zero bytes. Positions are 64-bit, nonnegative, and
 at most INT64_MAX. Seeking beyond EOF does not allocate or extend a file.
 Close consumes a handle even on error and must not be retried.
 
+`tb_file_read_at` and `tb_file_write_at` name an offset instead of using the
+cursor. They are the one exception to external synchronization: any number of
+them may run at once on one handle, which is how many loading jobs read one
+mounted package. Each has the short-transfer and end-of-file rules of its cursor
+counterpart; an offset above INT64_MAX is `TB_FS_INVALID`, and a write that
+cannot place a byte before INT64_MAX is `TB_FS_TOO_LARGE`. Writing past the end
+extends the file with zeros. Linux and macOS use `pread`/`pwrite`, which leave
+the cursor alone; Windows uses `ReadFile`/`WriteFile` with an `OVERLAPPED`
+offset on the synchronous handle, which moves it, so the cursor is unspecified
+after a positional call and a caller seeks before its next `tb_file_read` or
+`tb_file_write`. Windows serializes positional calls on one synchronous handle
+inside the system, so they are safe together but do not overlap on the disk.
+
 Paths are bounded UTF-8 without embedded NUL. POSIX byte names that are not
 Unicode are rejected. Enumeration reports an invalid name and then advances,
 so a caller can continue. A too-small output buffer retains the current entry;

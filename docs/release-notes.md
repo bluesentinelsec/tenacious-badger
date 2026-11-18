@@ -287,6 +287,8 @@ Native binary files and directories are available through `badger/file.h` on
 all desktop platforms. `badger/fs.h` adds bounded whole-file reads with custom
 allocators, recursive directory creation, and atomic replacement that preserves
 existing readers. See [file contracts](files.md) for ownership and durability.
+`tb_file_read_at` and `tb_file_write_at` read and write at an offset without
+the cursor, so many threads can read one open file at once.
 
 Unsigned integers of any fixed length can be added, subtracted, multiplied,
 divided, shifted, compared, and converted to and from text in bases 2 to 36

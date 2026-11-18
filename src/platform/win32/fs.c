@@ -399,6 +399,76 @@ tb_fs_result tb_file_write(tb_file *file, const void *bytes, size_t length, size
     *transferred = count;
     return TB_FS_OK;
 }
+/* An OVERLAPPED offset on a synchronous handle reads or writes at that offset
+ * and returns when the transfer is done. Concurrent calls on one handle are
+ * serialized by the system, and each one moves the cursor. */
+static OVERLAPPED tb_file_overlapped_at(uint64_t offset)
+{
+    OVERLAPPED overlapped = {0};
+    overlapped.Offset = (DWORD)(offset & 0xFFFFFFFFu);
+    overlapped.OffsetHigh = (DWORD)(offset >> 32);
+    return overlapped;
+}
+tb_fs_result tb_file_read_at(tb_file *file, uint64_t offset, void *bytes, size_t capacity,
+                             size_t *transferred)
+{
+    DWORD count = {0};
+    DWORD error = {0};
+    HANDLE handle = NULL;
+    OVERLAPPED overlapped = {0};
+    size_t bounded = {0};
+    tb_fs_result result = {0};
+    TB_ASSERT(transferred != NULL);
+    TB_ASSERT(bytes != NULL || capacity == 0);
+    *transferred = 0;
+    handle = tb_file_handle(file);
+    result = tb_native_fs_positional_length(offset, capacity, &bounded);
+    if (result != TB_FS_OK || bounded == 0)
+    {
+        return result;
+    }
+    overlapped = tb_file_overlapped_at(offset);
+    if (ReadFile(handle, bytes, (DWORD)bounded, &count, &overlapped))
+    {
+        *transferred = count;
+        return TB_FS_OK;
+    }
+    error = GetLastError();
+    if (error == ERROR_HANDLE_EOF)
+    {
+        return TB_FS_OK;
+    }
+    return tb_fs_windows_error(error);
+}
+tb_fs_result tb_file_write_at(tb_file *file, uint64_t offset, const void *bytes, size_t length,
+                              size_t *transferred)
+{
+    DWORD count = {0};
+    HANDLE handle = NULL;
+    OVERLAPPED overlapped = {0};
+    size_t bounded = {0};
+    tb_fs_result result = {0};
+    TB_ASSERT(transferred != NULL);
+    TB_ASSERT(bytes != NULL || length == 0);
+    *transferred = 0;
+    handle = tb_file_handle(file);
+    result = tb_native_fs_positional_length(offset, length, &bounded);
+    if (result != TB_FS_OK || length == 0)
+    {
+        return result;
+    }
+    if (bounded == 0)
+    {
+        return TB_FS_TOO_LARGE;
+    }
+    overlapped = tb_file_overlapped_at(offset);
+    if (!WriteFile(handle, bytes, (DWORD)bounded, &count, &overlapped))
+    {
+        return tb_fs_last_error();
+    }
+    *transferred = count;
+    return TB_FS_OK;
+}
 tb_fs_result tb_file_seek(tb_file *file, int64_t offset, tb_file_origin origin, uint64_t *position)
 {
     DWORD method = {0};

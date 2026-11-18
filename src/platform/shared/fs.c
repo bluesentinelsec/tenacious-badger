@@ -2,6 +2,7 @@
 #include "badger/assert.h"
 #include "badger/platform.h"
 #include <inttypes.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -111,6 +112,28 @@ tb_fs_result tb_native_fs_output(const char *text, char *destination, size_t cap
         return TB_FS_BUFFER_TOO_SMALL;
     }
     memcpy(destination, text, *required);
+    return TB_FS_OK;
+}
+
+tb_fs_result tb_native_fs_positional_length(uint64_t offset, size_t length, size_t *bounded)
+{
+    uint64_t room = {0};
+    TB_ASSERT(bounded != NULL);
+    *bounded = 0;
+    if (offset > (uint64_t)INT64_MAX)
+    {
+        return TB_FS_INVALID;
+    }
+    if (length > (size_t)INT_MAX)
+    {
+        length = (size_t)INT_MAX;
+    }
+    room = (uint64_t)INT64_MAX - offset;
+    if ((uint64_t)length > room)
+    {
+        length = (size_t)room;
+    }
+    *bounded = length;
     return TB_FS_OK;
 }
 

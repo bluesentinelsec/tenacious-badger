@@ -159,6 +159,7 @@ FILES = rule('badger/file.h', 'docs/files.md', {
     'tb_file_open, tb_file_close, tb_file_read, and tb_file_write':
         'fopen fopen_s fclose fread fwrite open close read write CreateFileW CreateFileA '
         'ReadFile WriteFile',
+    'tb_file_read_at and tb_file_write_at': 'pread pwrite pread64 pwrite64',
     'tb_file_seek, tb_file_tell, tb_file_size, and tb_file_flush':
         'fseek fseeko ftell ftello lseek fsync SetFilePointerEx GetFileSizeEx FlushFileBuffers',
     'tb_fs_query, tb_fs_make_directory, tb_fs_remove, and tb_fs_rename':

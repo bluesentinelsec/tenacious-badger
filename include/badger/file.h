@@ -13,6 +13,8 @@
  * externally synchronized: the caller serializes every call that names the
  * same file or directory handle, its cursor included, and closing a handle
  * must not race any other use of it. Different handles are independent.
+ * tb_file_read_at() and tb_file_write_at() are the exception: they use no
+ * cursor, and run together on one handle.
  */
 #ifndef TB_FILE_H
 #define TB_FILE_H
@@ -116,6 +118,42 @@ TB_API tb_fs_result tb_file_read(tb_file *file, void *bytes, size_t capacity, si
  */
 TB_API tb_fs_result tb_file_write(tb_file *file, const void *bytes, size_t length,
                                   size_t *transferred);
+/** @brief Read up to capacity bytes starting at an offset, without using the cursor.
+ *
+ * Many threads can read one open file this way at once, each at an offset of
+ * its own, as loading jobs read one mounted package. An offset at or past the
+ * end succeeds with zero bytes.
+ * @param file Required open readable handle.
+ * @param offset Byte offset from the start of the file; above INT64_MAX is INVALID.
+ * @param bytes Output buffer, NULL only at capacity zero.
+ * @param capacity Maximum bytes to read.
+ * @param[out] transferred Required; always receives bytes completed, even on error.
+ * @return Status; short reads are allowed. Buffer prefix is valid on error.
+ * The cursor is unspecified afterwards: POSIX leaves it, Windows moves it.
+ * Seek before the next tb_file_read or tb_file_write.
+ * @par Threading
+ * Thread-safe with other tb_file_read_at and tb_file_write_at calls on the same
+ * handle. Externally synchronized with every other call that names the handle.
+ * Writes that overlap a read or another write leave unspecified bytes there.
+ */
+TB_API tb_fs_result tb_file_read_at(tb_file *file, uint64_t offset, void *bytes, size_t capacity,
+                                    size_t *transferred);
+/** @brief Write up to length bytes starting at an offset, without using the cursor.
+ *
+ * Writing past the end extends the file; bytes skipped over read as zero.
+ * @param file Required open writable handle.
+ * @param offset Byte offset from the start of the file; above INT64_MAX is INVALID.
+ * @param bytes Borrowed input, NULL only at length zero.
+ * @param length Input bytes. A write that would end past INT64_MAX is shortened,
+ * and one that can write nothing there returns TOO_LARGE.
+ * @param[out] transferred Required; completed prefix length even on error.
+ * @return Status; caller must handle short writes. Data is not durable until a
+ * successful flush. The cursor is unspecified afterwards, as for tb_file_read_at.
+ * @par Threading
+ * As tb_file_read_at.
+ */
+TB_API tb_fs_result tb_file_write_at(tb_file *file, uint64_t offset, const void *bytes,
+                                     size_t length, size_t *transferred);
 /** @brief Seek a regular file; seeking beyond EOF does not extend it.
  * @param file Required open handle.
  * @param offset Signed byte displacement.
