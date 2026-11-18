@@ -86,6 +86,17 @@ void tb_test_allocator_fail_after(tb_test_allocator *tracker, size_t successes);
 void tb_test_allocator_stop_failing(tb_test_allocator *tracker);
 
 /**
+ * @brief Release every live block, as their owner would have.
+ *
+ * For a case whose code under test was left by a trap, such as an exhausted
+ * fail-fast allocation, before it could release what it held. The blocks
+ * are counted as released.
+ *
+ * @param tracker Required non-null.
+ */
+void tb_test_allocator_release_all(tb_test_allocator *tracker);
+
+/**
  * @brief Whether an address range lies inside one live block of the allocator.
  * @param tracker Required non-null.
  * @param memory First byte of the range.

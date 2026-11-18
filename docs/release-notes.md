@@ -289,7 +289,10 @@ existing readers. See [file contracts](files.md) for ownership and durability.
 Unsigned integers of any fixed length can be added, subtracted, multiplied,
 divided, shifted, compared, and converted to and from text in bases 2 to 36
 with `badger/xp.h`, in arrays of 32-bit digits that the caller supplies and
-without allocation. See [arithmetic](arithmetic.md).
+without allocation. Signed integers that grow as needed are in `badger/ap.h`:
+arithmetic, powers with an optional modulus, shifts, comparison, and text,
+with division that rounds toward negative infinity and a conversion for the
+formatter. See [arithmetic](arithmetic.md).
 
 Thread-safe synchronous logging now supports severity/category filters and
 replaceable callbacks, with stderr and native-file sinks. Sink failures and
