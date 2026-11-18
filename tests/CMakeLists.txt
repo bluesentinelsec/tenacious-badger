@@ -12,6 +12,7 @@ set(TB_TEST_CASE_SOURCES
     core/assert_test.c
     core/atom_test.c
     core/bit_test.c
+    core/decimal_test.c
     core/fatal_test.c
     core/fmt_test.c
     core/fs_test.c

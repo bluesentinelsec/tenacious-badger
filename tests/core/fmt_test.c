@@ -677,10 +677,11 @@ static const char *const invalid_formats[] = {
     "%-08.3l", /* ends after a length */
     "%q",      /* no such conversion */
     "%V",      /* a conversion nobody has registered */
-    "%f",      /* reserved for floating point */
-    "%.2e",
-    "%g",
-    "%Lf",
+    "%Lf",     /* a long double, which the formatter does not take */
+    "%LA",
+    "%hf", /* an integer length on a floating-point conversion */
+    "%llg",
+    "%ze",
     "%n",  /* never supported */
     "%ls", /* a length on a conversion that takes none */
     "%hc",

@@ -259,22 +259,53 @@ conversion character, as in C.
 | `%c` | `int` | the byte with that value |
 | `%s` | `const char *` | the string; `(null)` for a null pointer |
 | `%p` | `void *` | `0x` and the address in hexadecimal, the same on every platform |
+| `%f`, `%F` | `double` | fixed notation: `1500.000000` |
+| `%e`, `%E` | `double` | scientific notation: `1.500000e+03` |
+| `%g`, `%G` | `double` | `%e` or `%f` by the exponent, in significant digits, without zeros at the end |
+| `%a`, `%A` | `double` | hexadecimal, exactly: `0x1.77p+10` |
 | `%%` | none | a percent sign |
 
 | Part | Values |
 | --- | --- |
 | Flags | `-` left-justify, `+` always show a sign, space, `0` pad with zeros, `#` alternate form |
 | Width | a number, or `*` to take an `int` argument |
-| Precision | `.` and a number, or `.*`: least digits of an integer, most bytes of a string |
-| Length | `hh`, `h`, `l`, `ll`, `j`, `z`, `t`, for the integer conversions |
+| Precision | `.` and a number, or `.*`: least digits of an integer, most bytes of a string, digits after the point (`%f`, `%e`, `%a`) or significant digits (`%g`) |
+| Length | `hh`, `h`, `l`, `ll`, `j`, `z`, `t`, for the integer conversions; `l` is also accepted, and ignored, for a `double` |
 
 The integer, character, and string conversions behave exactly as the C standard
 specifies for printf; the tests compare them with the C library on tens of
 thousands of random formats.
 
-**Floating point is not converted yet.** `%f`, `%e`, `%g`, and `%a` are
-reserved for a conversion that is correct and the same on every platform, which
-is a project of its own (#49). Until then they are invalid.
+**Floating-point conversions are correctly rounded and the same everywhere.**
+The digits come from the exact value of the `double`, rounded to nearest with
+ties to even, at any precision: `%.1f` of 0.25 is `0.2`, and `%.30f` of 0.1
+shows the exact value's digits. C libraries differ here; the engine does not
+depend on the platform, the locale, or the rounding mode. Infinity is `inf`
+and NaN is `nan`, without a sign (`INF` and `NAN` for the capital
+conversions). `%a` without a precision writes only the digits a value needs.
+`long double` is not supported: `%Lf` is an invalid conversion. The tests
+compare the output with Python's, and with the C library where that is
+correctly rounded (glibc and Apple's).
+
+### Floating-point text that reads back
+
+`%.17g` always reads back as the same value, but most values need fewer digits,
+and saved data, configuration, and JSON are easier to read with the fewest.
+`badger/decimal.h` has the conversions that round-trip:
+
+- `tb_decimal_shortest` writes the shortest text that reads back as exactly
+  the same `double`, in the form of Python's `repr`: `0.1`, `1.0`, `1e+16`,
+  `5e-324`, `-0.0`. Every finite value's text is valid JSON.
+  `TB_DECIMAL_SHORTEST_SIZE` bytes always hold it.
+- `tb_decimal_parse` reads decimal text (`-12.5e3`), hexadecimal text
+  (`0x1.8p+1`, as `%a` writes), and `inf`, `infinity`, or `nan` in any case,
+  into the nearest `double`. Every digit counts, however long the text, and
+  the result is rounded once, correctly. A value too large reads as infinity
+  and one too small as zero, with its sign.
+
+Both compute exactly with big integers (`badger/xp.h`), which costs a few
+microseconds for a value of extreme exponent and well under one for the values
+a game's data holds; `tb_bench decimal` measures them.
 
 **A format string is part of the program.** An unknown conversion, or a format
 that ends inside one, is a contract violation: it fails an assertion, and in
