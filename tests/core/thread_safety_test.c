@@ -19,6 +19,7 @@
 #include "badger/str.h"
 #include "badger/thread.h"
 #include "badger/utf8.h"
+#include "badger/xp.h"
 #include "tb_test.h"
 
 #include <stddef.h>
@@ -78,9 +79,41 @@ static void count_unless(worker *self, bool is_right)
 
 #define STATELESS_ROUNDS ((size_t)2000)
 
-/* Paths, UTF-8, hashing, C strings, and formatting to a buffer, each on text
- * that carries the thread's number, so that an answer leaking from one thread
- * to another would be a wrong answer. */
+/* Extended-precision arithmetic on a number made from the thread's number:
+ * (number + 1) * 10^30, written as text, read back, and divided again. */
+static bool uses_extended_precision(size_t number)
+{
+    tb_xp_digit value[4] = {0};
+    tb_xp_digit power[4] = {0};
+    tb_xp_digit product[8] = {0};
+    tb_xp_digit parsed[8] = {0};
+    tb_xp_digit quotient[8] = {0};
+    tb_xp_digit remainder[4] = {0};
+    tb_xp_digit scratch[TB_XP_DIV_SCRATCH(8, 4)] = {0};
+    char expected[48] = {0};
+    char text[48] = {0};
+    size_t required = 0;
+    uint64_t back = 0;
+    bool is_right = true;
+
+    (void)tb_xp_from_u64(4, value, number + 1);
+    (void)tb_xp_from_string(4, power, "1000000000000000000000000000000", 31, 10);
+    tb_xp_mul(product, 4, value, 4, power);
+    (void)tb_fmt_buffer(expected, sizeof(expected), "%zu000000000000000000000000000000",
+                        number + 1);
+    is_right = is_right &&
+               tb_xp_to_string(8, product, 10, scratch, text, sizeof(text), &required) == TB_XP_OK;
+    is_right = is_right && tb_str_equal(text, expected);
+    is_right = is_right && tb_xp_from_string(8, parsed, text, required - 1, 10) == TB_XP_OK;
+    tb_xp_div(8, quotient, parsed, 4, power, remainder, scratch);
+    is_right = is_right && tb_xp_to_u64(8, quotient, &back) && back == number + 1;
+    return is_right;
+}
+
+/* Paths, UTF-8, hashing, C strings, formatting to a buffer, and
+ * extended-precision arithmetic, each on data that carries the thread's
+ * number, so that an answer leaking from one thread to another would be a
+ * wrong answer. */
 static void use_the_functions_that_keep_no_state(void *argument)
 {
     worker *const self = argument;
@@ -121,6 +154,8 @@ static void use_the_functions_that_keep_no_state(void *argument)
         count_unless(self,
                      tb_str_find(normalized, 0, expected_length, "mesh") == expected_length - 8);
         count_unless(self, tangled_length > expected_length);
+
+        count_unless(self, uses_extended_precision(self->number));
     }
 }
 

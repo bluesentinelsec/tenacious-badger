@@ -16,6 +16,7 @@ add_executable(tb_bench
     core/table_bench.c
     core/text_bench.c
     core/text_units_bench.c
+    core/xp_bench.c
     jobs/jobs_bench.c
     platform/atomic_bench.c
     platform/thread_bench.c

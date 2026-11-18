@@ -30,6 +30,7 @@ set(TB_TEST_CASE_SOURCES
     core/text_test.c
     core/thread_safety_test.c
     core/utf8_test.c
+    core/xp_test.c
     jobs/jobs_test.c
     jobs/loop_test.c
     framework/selftest/checks_test.c
