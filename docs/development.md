@@ -32,6 +32,7 @@ The foundation layer so far, one public header per module under
 | `utf8.h`, `path.h` | UTF-8 and UTF-16 conversion, and [paths](paths.md) as text |
 | `fs.h`, `file.h` | [Files and directories](files.md): `fs.h` is the module's header, and includes the native interface in `file.h` |
 | `log.h` | [Logging](logging.md) with replaceable sinks |
+| `stream.h` | [Streams](streams.md): one interface for reading and writing bytes, over memory, files, and ranges of other streams |
 
 What these headers do the same way, such as how a function reports failure,
 is in [the conventions of the public API](conventions.md).

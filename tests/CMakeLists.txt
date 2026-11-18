@@ -27,6 +27,7 @@ set(TB_TEST_CASE_SOURCES
     core/set_test.c
     core/size_test.c
     core/str_test.c
+    core/stream_test.c
     core/sum_test.c
     core/table_test.c
     core/text_test.c

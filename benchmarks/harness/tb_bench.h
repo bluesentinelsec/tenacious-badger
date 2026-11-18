@@ -189,6 +189,8 @@ void tb_bench_path(tb_bench *bench);
 void tb_bench_utf8(tb_bench *bench);
 /** @brief Benchmarks of badger/virtual_memory.h and of arenas that reserve. */
 void tb_bench_vm(tb_bench *bench);
+/** @brief Benchmarks of streams over memory in badger/stream.h, beside memcpy. */
+void tb_bench_stream(tb_bench *bench);
 /** @brief Benchmarks of badger/xp.h. */
 void tb_bench_xp(tb_bench *bench);
 
