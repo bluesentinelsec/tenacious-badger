@@ -290,6 +290,12 @@ existing readers. See [file contracts](files.md) for ownership and durability.
 `tb_file_read_at` and `tb_file_write_at` read and write at an offset without
 the cursor, so many threads can read one open file at once.
 
+Bytes can be read and written through one interface, `badger/stream.h`, whatever
+holds them: borrowed memory, a buffer that grows, a file, or a window of another
+stream. Streams offer only what they can do, short transfers are looped by
+helpers, a copy stops at a limit, and reads at an offset run together from many
+threads. See [streams](streams.md).
+
 Unsigned integers of any fixed length can be added, subtracted, multiplied,
 divided, shifted, compared, and converted to and from text in bases 2 to 36
 with `badger/xp.h`, in arrays of 32-bit digits that the caller supplies and
