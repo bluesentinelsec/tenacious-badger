@@ -46,6 +46,8 @@ option(TB_ENABLE_COVERAGE
     "Record which lines of the engine the tests run, with the compiler's instrumentation" OFF)
 
 include(cmake/WindowsSigning.cmake)
+# tb_add_package_key, for the engine's tests and for games that build it in their tree.
+include(cmake/BadgerPackageKey.cmake)
 include(cmake/StaticAnalysis.cmake)
 include(cmake/Coverage.cmake)
 include(cmake/CompilerWarnings.cmake)

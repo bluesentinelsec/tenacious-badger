@@ -308,6 +308,12 @@ ChaCha20 (RFC 8439) is in `badger/chacha20.h`, from any byte of its
 keystream, and as a stream that obfuscates what it writes and restores what it
 reads, for packages. See [codecs](codecs.md#chacha20).
 
+A game's package key is compiled in hidden with the CMake function
+`tb_add_package_key`, from a key file it makes and keeps or from a password,
+using nothing but CMake. The key is never stored whole: three parts in arrays
+of their own are put together when it is asked for, so `strings` and a search
+of the executable do not find it. See [packages](packages.md).
+
 JSON reads with `badger/json.h`, as a stream of events or as a document in an
 arena with indexed lookups. Untrusted text cannot exhaust the stack, and every
 error reports its line, column, and reason. A writer writes it back, compact or
