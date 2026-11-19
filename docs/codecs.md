@@ -89,6 +89,7 @@ inputs with the same digest.
   digest.
 
 `tb_bench sha256` times a hash of 1 MiB and one HMAC.
+
 ## ChaCha20
 
 `badger/chacha20.h` is the ChaCha20 stream cipher of RFC 8439, a 256-bit key
