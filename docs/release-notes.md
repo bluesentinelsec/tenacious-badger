@@ -298,7 +298,9 @@ threads. See [streams](streams.md).
 
 JSON reads with `badger/json.h`, as a stream of events or as a document in an
 arena with indexed lookups. Untrusted text cannot exhaust the stack, and every
-error reports its line, column, and reason. See [serialization](serialization.md).
+error reports its line, column, and reason. A writer writes it back, compact or
+indented, with integers exact and doubles as their shortest round-trip text.
+See [serialization](serialization.md).
 
 CRC-32 and Adler-32, the checksums of ZIP, gzip, PNG, and zlib, are in
 `badger/checksum.h`, in one call or in pieces of any size. See [codecs](codecs.md).

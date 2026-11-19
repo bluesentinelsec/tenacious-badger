@@ -1,8 +1,9 @@
 /** @file json.h
- * @brief JSON (RFC 8259): a reader that reports values as it parses, and a
- * document tree built from it in an arena.
+ * @brief JSON (RFC 8259): a reader that reports values as it parses, a
+ * document tree built from it in an arena, and a writer.
  *
- * Configuration, asset metadata, glTF, and tool output are JSON. Two ways in:
+ * Configuration, asset metadata, glTF, and tool output are JSON. Two ways in,
+ * and one way out:
  *
  * - **A reader** walks a text and reports each value as an event: a number,
  *   a string, the start or end of an array or object. It allocates once, a
@@ -10,6 +11,8 @@
  * - **A document** (tb_json_parse()) is the whole text as a tree of values in
  *   an arena of the caller's, with strings decoded and object members
  *   indexed for lookup. The tree does not borrow the text.
+ * - **A writer** writes values to a stream, compact or indented, and can
+ *   write a whole document. Whatever it writes, the reader reads back.
  *
  * **The text is untrusted.** Parsing never recurses, so no text can exhaust
  * the stack; nesting deeper than the limit and texts longer than the limit
@@ -22,7 +25,7 @@
  * there for a caller that wants neither.
  *
  * @par Threading
- * A reader is externally synchronized. A document is immutable once parsed:
+ * A reader and a writer are externally synchronized. A document is immutable once parsed:
  * its accessors are thread-safe, for as long as its arena is neither reset
  * nor destroyed. tb_json_parse() is as thread-safe as the arena it is given.
  */
@@ -32,6 +35,7 @@
 #include "badger/allocator.h"
 #include "badger/api.h"
 #include "badger/arena.h"
+#include "badger/stream.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -40,13 +44,14 @@
 /** @brief Why reading failed. */
 typedef enum tb_json_result
 {
-    TB_JSON_OK,           /**< Success. */
-    TB_JSON_INVALID,      /**< An argument is malformed, such as an unknown flag. */
-    TB_JSON_NO_MEMORY,    /**< The arena could not hold the document. */
-    TB_JSON_TOO_LARGE,    /**< The text is longer than the limit. */
-    TB_JSON_MALFORMED,    /**< The text is not JSON; the error says where and why. */
-    TB_JSON_TOO_DEEP,     /**< Arrays and objects nest deeper than the limit. */
-    TB_JSON_DUPLICATE_KEY /**< An object has a key twice, which is refused unless allowed. */
+    TB_JSON_OK,            /**< Success. */
+    TB_JSON_INVALID,       /**< An argument is malformed, such as an unknown flag. */
+    TB_JSON_NO_MEMORY,     /**< The arena could not hold the document. */
+    TB_JSON_TOO_LARGE,     /**< The text is longer than the limit. */
+    TB_JSON_MALFORMED,     /**< The text is not JSON; the error says where and why. */
+    TB_JSON_TOO_DEEP,      /**< Arrays and objects nest deeper than the limit. */
+    TB_JSON_DUPLICATE_KEY, /**< An object has a key twice, which is refused unless allowed. */
+    TB_JSON_OUTPUT_FAILED  /**< A writer's stream refused what it was given. */
 } tb_json_result;
 
 /** @brief Relaxations of RFC 8259, for files people edit. All are off by default. */
@@ -292,6 +297,121 @@ TB_API const tb_json_value *tb_json_member_at(const tb_json_value *value, size_t
  */
 TB_API const tb_json_value *tb_json_find(const tb_json_value *value, const char *key,
                                          size_t key_length);
+
+/* -------------------------------------------------------------------------
+ * Writing.
+ * ------------------------------------------------------------------------- */
+
+/** @brief How a writer lays out its text. */
+typedef enum tb_json_style
+{
+    TB_JSON_COMPACT, /**< No space at all: the fewest bytes. */
+    TB_JSON_INDENTED /**< A value per line, indented two spaces a level, for people to read. */
+} tb_json_style;
+
+/** @brief A writer of one document to a stream. Opaque. */
+typedef struct tb_json_writer tb_json_writer;
+
+/**
+ * @brief Create a writer of one document.
+ *
+ * The writer holds the text in a buffer of its own and passes it to the sink
+ * when the buffer fills and at tb_json_writer_finish().
+ *
+ * Calls must make one well-formed document: a key before each value of an
+ * object and nowhere else, ends that match their beginnings, and one value at
+ * the top. Breaking that is a contract violation, as is any call after a
+ * finish; a value that cannot be written as JSON is a result.
+ * @param sink Required open stream that can write; borrowed, and must stay
+ * open until the writer is destroyed.
+ * @param style How to lay out the text.
+ * @param allocator Where the writer's state comes from, or NULL for the heap.
+ * @return The writer; never NULL. Release it with tb_json_writer_destroy().
+ * @par Errors Running out of memory ends the process, as allocation does.
+ */
+TB_API tb_json_writer *tb_json_writer_create(tb_stream *sink, tb_json_style style,
+                                             const tb_allocator *allocator);
+
+/** @brief Release a writer, without writing what it holds. @param writer A writer, or NULL. */
+TB_API void tb_json_writer_destroy(tb_json_writer *writer);
+
+/** @brief Write `null`. @param writer Required. @return OK, or a failure kept from before. */
+TB_API tb_json_result tb_json_write_null(tb_json_writer *writer);
+
+/**
+ * @brief Write `true` or `false`. @param writer Required. @param value The value.
+ * @return OK, or a failure kept from before.
+ */
+TB_API tb_json_result tb_json_write_bool(tb_json_writer *writer, bool value);
+
+/**
+ * @brief Write an integer, exactly. @param writer Required. @param value The value.
+ * @return OK, or a failure kept from before.
+ */
+TB_API tb_json_result tb_json_write_int64(tb_json_writer *writer, int64_t value);
+
+/**
+ * @brief Write an unsigned integer, exactly. @param writer Required. @param value The value.
+ * @return OK, or a failure kept from before.
+ */
+TB_API tb_json_result tb_json_write_uint64(tb_json_writer *writer, uint64_t value);
+
+/**
+ * @brief Write a double as the shortest text that reads back as the same double.
+ * @param writer Required. @param value The value.
+ * @return OK; INVALID for infinity or NaN, which JSON cannot hold.
+ */
+TB_API tb_json_result tb_json_write_double(tb_json_writer *writer, double value);
+
+/**
+ * @brief Write a number's text as it is, after checking it is a JSON number.
+ * @param writer Required. @param text The text; NULL only at length zero. @param length Its bytes.
+ * @return OK; INVALID for text that is not a JSON number.
+ */
+TB_API tb_json_result tb_json_write_number_text(tb_json_writer *writer, const char *text,
+                                                size_t length);
+
+/**
+ * @brief Write a string, escaping what JSON requires: `"`, `\`, and control characters.
+ * @param writer Required. @param text UTF-8; NULL only at length zero. @param length Its bytes.
+ * @return OK; INVALID for text that is not UTF-8.
+ */
+TB_API tb_json_result tb_json_write_string(tb_json_writer *writer, const char *text, size_t length);
+
+/**
+ * @brief Write the key of the next member of an object.
+ * @param writer Required; inside an object, before a value.
+ * @param text UTF-8; NULL only at length zero. @param length Its bytes.
+ * @return OK; INVALID for text that is not UTF-8.
+ */
+TB_API tb_json_result tb_json_write_key(tb_json_writer *writer, const char *text, size_t length);
+
+/** @brief Begin an array. @param writer Required. @return OK, or a failure kept from before. */
+TB_API tb_json_result tb_json_write_begin_array(tb_json_writer *writer);
+
+/** @brief End the innermost array. @param writer Required. @return OK, or a failure kept. */
+TB_API tb_json_result tb_json_write_end_array(tb_json_writer *writer);
+
+/** @brief Begin an object. @param writer Required. @return OK, or a failure kept from before. */
+TB_API tb_json_result tb_json_write_begin_object(tb_json_writer *writer);
+
+/** @brief End the innermost object. @param writer Required. @return OK, or a failure kept. */
+TB_API tb_json_result tb_json_write_end_object(tb_json_writer *writer);
+
+/**
+ * @brief Write a value of a document, and everything inside it, without recursion.
+ * @param writer Required. @param value Required.
+ * @return OK, or a failure. Numbers are written as their text.
+ */
+TB_API tb_json_result tb_json_write_value(tb_json_writer *writer, const tb_json_value *value);
+
+/**
+ * @brief Finish the document and pass the rest of it to the sink. In the
+ * indented style the text ends with a line break.
+ * @param writer Required; the document must be complete.
+ * @return OK; OUTPUT_FAILED when the sink refused any of the text.
+ */
+TB_API tb_json_result tb_json_writer_finish(tb_json_writer *writer);
 
 /**
  * @brief Name a result, for a log or a message: "malformed data", "too deep".
