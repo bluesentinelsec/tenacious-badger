@@ -191,6 +191,8 @@ void tb_bench_utf8(tb_bench *bench);
 void tb_bench_vm(tb_bench *bench);
 /** @brief Benchmarks of streams over memory in badger/stream.h, beside memcpy. */
 void tb_bench_stream(tb_bench *bench);
+/** @brief Benchmarks of CRC-32 and Adler-32 in badger/checksum.h. */
+void tb_bench_checksum(tb_bench *bench);
 /** @brief Benchmarks of badger/xp.h. */
 void tb_bench_xp(tb_bench *bench);
 

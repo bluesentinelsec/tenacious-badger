@@ -19,6 +19,7 @@ set_target_properties(badger PROPERTIES
 add_subdirectory(core)
 add_subdirectory(platform)
 add_subdirectory(jobs)
+add_subdirectory(codec)
 tb_strip_release(badger)
 
 # The engine's modules call one another across source files, and a compiler

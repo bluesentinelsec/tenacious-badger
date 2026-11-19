@@ -296,6 +296,9 @@ stream. Streams offer only what they can do, short transfers are looped by
 helpers, a copy stops at a limit, and reads at an offset run together from many
 threads. See [streams](streams.md).
 
+CRC-32 and Adler-32, the checksums of ZIP, gzip, PNG, and zlib, are in
+`badger/checksum.h`, in one call or in pieces of any size. See [codecs](codecs.md).
+
 Unsigned integers of any fixed length can be added, subtracted, multiplied,
 divided, shifted, compared, and converted to and from text in bases 2 to 36
 with `badger/xp.h`, in arrays of 32-bit digits that the caller supplies and
