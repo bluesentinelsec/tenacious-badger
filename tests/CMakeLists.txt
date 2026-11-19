@@ -216,7 +216,7 @@ tb_make_standalone(tb_internal_tests)
 set(TB_PLATFORM_TEST_SOURCES
     platform/fs_test.c platform/virtual_memory_test.c
     platform/atomic_test.c platform/contract_test.c platform/name_test.c
-    platform/semaphore_test.c platform/stack_test.c platform/system_test.c
+    platform/random_test.c platform/semaphore_test.c platform/stack_test.c platform/system_test.c
     platform/thread_local_test.c
     platform/thread_options_test.c platform/thread_test.c platform/time_test.c)
 # An adapter reports a broken contract through tb_assert_fail(), which the
@@ -268,6 +268,7 @@ set(TB_PLATFORM_INTERFACE_HEADERS
     "${PROJECT_SOURCE_DIR}/include/badger/virtual_memory.h"
     "${PROJECT_SOURCE_DIR}/include/badger/file.h"
     "${PROJECT_SOURCE_DIR}/include/badger/platform.h"
+    "${PROJECT_SOURCE_DIR}/include/badger/random.h"
     "${PROJECT_SOURCE_DIR}/include/badger/stack.h"
     "${PROJECT_SOURCE_DIR}/include/badger/system.h"
     "${PROJECT_SOURCE_DIR}/include/badger/thread.h")

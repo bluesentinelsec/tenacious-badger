@@ -7,6 +7,7 @@ set(TB_PLATFORM_DEFAULT_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/abort.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/atomic.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/not_implemented.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/random.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/stack.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/system.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/thread.c"

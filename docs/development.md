@@ -24,6 +24,7 @@ The foundation layer so far, one public header per module under
 | `platform.h` | [Native platform interfaces](platforms.md): the clock, sleeping and pacing, abort, and atomic values |
 | `thread.h` | [Threads, mutexes, condition variables, semaphores, and thread-local values](platforms.md#threads-mutexes-and-condition-variables) |
 | `system.h` | [The processors the process may run on](platforms.md#processors): how many, and which |
+| `random.h` | [Random bytes from the operating system](platforms.md#random-bytes), for keys and nonces |
 | `stack.h` | [The call stack of a thread](platforms.md#call-stacks), and what an address is part of |
 | `fatal.h` | [Fatal errors](platforms.md#fatal-errors): the one way the engine ends the process, with the stack that led there |
 | `jobs.h` | [The job system](jobs.md): worker threads, jobs with dependencies and priorities, and loops that run on every thread |
@@ -324,6 +325,7 @@ replaces:
 | `_mm_pause`, `YieldProcessor`, `sched_yield`, `SwitchToThread` | `tb_thread_relax`, `tb_thread_yield` | [`thread.h`](platforms.md#waiting-without-sleeping) |
 | `Sleep`, `nanosleep`, `clock_nanosleep`, `usleep`, waitable timers | `tb_platform_sleep`, `tb_platform_wait_until` | [`platform.h`](platforms.md#sleeping-and-pacing) |
 | `GetSystemInfo`, `GetLogicalProcessorInformationEx`, `sched_getaffinity`, `get_nprocs`, `_SC_NPROCESSORS_ONLN`, and other native counts of processors | `tb_system_get_processors` | [`system.h`](platforms.md#processors) |
+| `BCryptGenRandom`, `RtlGenRandom`, `rand_s`, `getrandom`, `getentropy`, `arc4random` and its relatives, `SecRandomCopyBytes` | `tb_random_bytes` | [`random.h`](platforms.md#random-bytes) |
 | `<search.h>` | `tb_table`, `tb_set`, `tb_list` | [`table.h`](collections.md) |
 
 `python tools/check_foundation.py --list` prints every name. The check reads

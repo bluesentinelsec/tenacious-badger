@@ -10,6 +10,7 @@ set(TB_PLATFORM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/atomic.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/condition.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/processors.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/random.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/system.c"
     # Naming a thread and giving it a priority are not part of POSIX.
     "${CMAKE_CURRENT_SOURCE_DIR}/thread_native.c"

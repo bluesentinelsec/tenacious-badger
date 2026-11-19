@@ -150,6 +150,12 @@ PROCESSORS = rule('badger/system.h', 'docs/platforms.md', {
         '_SC_NPROCESSORS_ONLN _SC_NPROCESSORS_CONF',
 })
 
+RANDOMNESS = rule('badger/random.h', 'docs/platforms.md', {
+    'tb_random_bytes':
+        'BCryptGenRandom RtlGenRandom SystemFunction036 rand_s getrandom getentropy '
+        'arc4random arc4random_buf arc4random_uniform SecRandomCopyBytes',
+})
+
 COLLECTIONS = rule('badger/table.h', 'docs/collections.md', {
     'tb_table, tb_set, or tb_list':
         '<search.h>',
@@ -170,7 +176,7 @@ FILES = rule('badger/file.h', 'docs/files.md', {
 })
 
 RULES = [ALLOCATION, FORMATTING, STRINGS, FAILURES, TIMING, ATOMICS, THREADS, PROCESSORS,
-         COLLECTIONS, FILES]
+         RANDOMNESS, COLLECTIONS, FILES]
 FORBIDDEN = {name: entry for group in RULES for name, entry in group.items()}
 PREFIXES = sorted((name[:-1] for name in FORBIDDEN if name.endswith('*')), key=len, reverse=True)
 
@@ -212,7 +218,8 @@ AUTHORIZED = {
         {'_Static_assert'},
         'defines TB_STATIC_ASSERT'),
     'src/platform/': (
-        set(TIMING) | set(ATOMICS) | set(THREADS) | set(PROCESSORS) | set(FILES) | {'abort', 'fputs'},
+        set(TIMING) | set(ATOMICS) | set(THREADS) | set(PROCESSORS) | set(RANDOMNESS) | set(FILES)
+        | {'abort', 'fputs'},
         'implements the platform interfaces beneath the foundation modules, and is built '
         'and tested without them'),
 
