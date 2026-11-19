@@ -296,6 +296,10 @@ stream. Streams offer only what they can do, short transfers are looped by
 helpers, a copy stops at a limit, and reads at an offset run together from many
 threads. See [streams](streams.md).
 
+Random bytes for keys and nonces come from the operating system's generator
+for cryptography through `badger/random.h`, on Windows, Linux, and macOS. See
+[platforms](platforms.md#random-bytes).
+
 ChaCha20 (RFC 8439) is in `badger/chacha20.h`, from any byte of its
 keystream, and as a stream that obfuscates what it writes and restores what it
 reads, for packages. See [codecs](codecs.md#chacha20).

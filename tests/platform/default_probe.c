@@ -8,6 +8,7 @@
  * headers for the functions, so a function that is added to a platform
  * interface without a case here fails the test. */
 #include "badger/platform.h"
+#include "badger/random.h"
 #include "badger/stack.h"
 #include "badger/system.h"
 #include "badger/thread.h"
@@ -152,6 +153,13 @@ TB_TEST(platform_default, tb_platform_atomic_pointer_compare_exchange)
     void *expected = NULL;
 
     (void)tb_platform_atomic_pointer_compare_exchange(&atomic, &expected, NULL);
+}
+
+TB_TEST(platform_default, tb_random_bytes)
+{
+    unsigned char byte = 0;
+
+    (void)tb_random_bytes(&byte, 1);
 }
 
 TB_TEST(platform_default, tb_system_get_processors)
