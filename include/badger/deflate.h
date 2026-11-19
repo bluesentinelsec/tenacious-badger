@@ -1,8 +1,10 @@
 /** @file deflate.h
- * @brief DEFLATE decompression (RFC 1951), in zlib (RFC 1950) and gzip
- * (RFC 1952) framing or raw.
+ * @brief DEFLATE compression and decompression (RFC 1951), in zlib
+ * (RFC 1950) and gzip (RFC 1952) framing or raw.
  *
- * DEFLATE is the compression of ZIP, gzip, PNG, and zlib. An inflater
+ * DEFLATE is the compression of ZIP, gzip, PNG, and zlib.
+ *
+ * **Decompression.** An inflater
  * decompresses one stream, fed input and output in ranges of any size: it
  * stops when it needs more input or more room, and continues where it left
  * off. For data that fits in memory, tb_inflate() does it in one call. For a
@@ -20,9 +22,16 @@
  * of its stream, so whatever follows, such as the next member of a gzip file
  * or the next entry of an archive, is left to the caller.
  *
+ * **Compression.** A deflater compresses at a level from 0 (store only) to 9
+ * (smallest), fed in the same way, and tb_deflate() and
+ * tb_deflate_open_stream() are its one-call and stream forms. The same input
+ * gives the same compressed bytes at the same level however it is split into
+ * calls.
+ *
  * @par Threading
- * An inflater is externally synchronized; different inflaters are
- * independent. tb_inflate() and tb_deflate_result_name() are thread-safe.
+ * An inflater or a deflater is externally synchronized; different ones are
+ * independent. tb_inflate(), tb_deflate(), tb_deflate_bound(), and
+ * tb_deflate_result_name() are thread-safe.
  */
 #ifndef TB_DEFLATE_H
 #define TB_DEFLATE_H
@@ -144,6 +153,132 @@ TB_API tb_deflate_result tb_inflate(tb_deflate_format format, const void *input,
  * @par Threading Thread-safe; the new stream is the caller's.
  */
 TB_API tb_stream_result tb_inflate_open_stream(tb_stream *source, tb_deflate_format format,
+                                               const tb_allocator *allocator, tb_stream *stream);
+
+/* -------------------------------------------------------------------------
+ * Compression.
+ * ------------------------------------------------------------------------- */
+
+/** @brief The level that balances size and speed, as zlib's default does. */
+#define TB_DEFLATE_DEFAULT_LEVEL 6
+
+/** @brief The highest level: the smallest output, the slowest. */
+#define TB_DEFLATE_BEST_LEVEL 9
+
+/** @brief What a call to tb_deflater_run() should finish. */
+typedef enum tb_deflate_flush
+{
+    /** Compress what fits; more input follows. */
+    TB_DEFLATE_NO_FLUSH,
+    /** Write out everything given so far, ending on a whole byte, so a reader
+     * can decompress it now; the stream continues afterwards. */
+    TB_DEFLATE_SYNC_FLUSH,
+    /** The input is complete: end the stream, with its checksum. */
+    TB_DEFLATE_FINISH
+} tb_deflate_flush;
+
+/** @brief A compressor of one stream at a time. Opaque. */
+typedef struct tb_deflater tb_deflater;
+
+/**
+ * @brief Create a deflater for streams of one format.
+ * @param format How the streams are framed; any other value is a contract violation.
+ * @param level From 0, which only stores, to 9; any other value is a contract violation.
+ * @param allocator Where its fixed memory comes from, or NULL for the heap.
+ * @return The deflater; never NULL. Release it with tb_deflater_destroy().
+ * @par Errors Running out of memory ends the process, as allocation does. A
+ * deflater holds about 600 KiB, whatever it compresses.
+ * @par Threading Thread-safe; the new deflater is the caller's.
+ */
+TB_API tb_deflater *tb_deflater_create(tb_deflate_format format, int level,
+                                       const tb_allocator *allocator);
+
+/**
+ * @brief Release a deflater. @param deflater A deflater, or NULL to do nothing.
+ */
+TB_API void tb_deflater_destroy(tb_deflater *deflater);
+
+/**
+ * @brief Forget the current stream and start a new one, of the same format and level.
+ * @param deflater Required.
+ */
+TB_API void tb_deflater_reset(tb_deflater *deflater);
+
+/**
+ * @brief Compress as much as the input and the room for output allow.
+ *
+ * Give the input in pieces of any size with TB_DEFLATE_NO_FLUSH, then call
+ * with TB_DEFLATE_FINISH, with the rest of the input or none, until
+ * tb_deflater_finished() is true. A call that returns having written all the
+ * room it was given has more to write.
+ * @param deflater Required.
+ * @param input Bytes to compress, NULL only at length zero.
+ * @param input_length Bytes in `input`.
+ * @param[out] input_used Required; bytes of `input` taken.
+ * @param output Room for compressed bytes, NULL only at capacity zero.
+ * @param output_capacity Bytes of room.
+ * @param[out] output_written Required; bytes written to `output`.
+ * @param flush What the call should complete, once all of `input` is taken.
+ * @return OK; INVALID for an unknown flush. Input given after a finish is not taken.
+ */
+TB_API tb_deflate_result tb_deflater_run(tb_deflater *deflater, const void *input,
+                                         size_t input_length, size_t *input_used, void *output,
+                                         size_t output_capacity, size_t *output_written,
+                                         tb_deflate_flush flush);
+
+/**
+ * @brief Whether the stream has been finished and every byte of it written out.
+ * @param deflater Required.
+ */
+TB_API bool tb_deflater_finished(const tb_deflater *deflater);
+
+/**
+ * @brief The most bytes tb_deflate() can write for an input of a length, in
+ * any format and at any level.
+ * @param input_length Bytes to compress.
+ * @return A capacity that is always enough; SIZE_MAX when it cannot be represented.
+ */
+TB_API size_t tb_deflate_bound(size_t input_length);
+
+/**
+ * @brief Compress bytes into one whole stream, in one call.
+ * @param format How the stream is framed.
+ * @param level From 0 to 9.
+ * @param input Bytes to compress, NULL only at length zero.
+ * @param input_length Bytes in `input`.
+ * @param output Room for the stream, NULL only at capacity zero.
+ * @param capacity Bytes of room; tb_deflate_bound() of the input is always enough.
+ * @param[out] written Required; bytes written, even on failure.
+ * @return Status. TOO_LARGE when the stream does not fit; INVALID for an
+ * unknown format or a level out of range.
+ * @par Errors The deflater it uses is allocated on the heap, and running out
+ * of memory for it ends the process.
+ */
+TB_API tb_deflate_result tb_deflate(tb_deflate_format format, int level, const void *input,
+                                    size_t input_length, void *output, size_t capacity,
+                                    size_t *written);
+
+/**
+ * @brief Open a stream that compresses what is written to it into another.
+ * It can write and flush; it cannot read, seek, report its size, or read at
+ * an offset.
+ *
+ * A flush writes out everything written so far, as TB_DEFLATE_SYNC_FLUSH
+ * does, then flushes the sink. Closing the stream finishes the compressed
+ * stream and writes its end to the sink; a failure to do so is the result of
+ * tb_stream_close(). The sink is not closed.
+ * @param sink Required open stream that can write; borrowed, and must stay
+ * open until this one is closed.
+ * @param format How the data is framed.
+ * @param level From 0 to 9.
+ * @param allocator Where the stream's state is allocated, or NULL for the heap.
+ * @param[out] stream Required zero stream; open on success, zero on failure.
+ * @return Status. UNSUPPORTED if the sink cannot write; INVALID for an unknown
+ * format or a level out of range.
+ * @par Errors Running out of memory for the state ends the process.
+ * @par Threading Thread-safe; the new stream is the caller's.
+ */
+TB_API tb_stream_result tb_deflate_open_stream(tb_stream *sink, tb_deflate_format format, int level,
                                                const tb_allocator *allocator, tb_stream *stream);
 
 /**

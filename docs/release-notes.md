@@ -303,6 +303,8 @@ DEFLATE streams, raw or in zlib or gzip framing, decompress with
 `badger/deflate.h`: in one call, in pieces of any size, or as a stream that
 reads another. The decoder is built for untrusted input: fixed memory, output
 bounded by the caller, and every malformed stream reported as a result.
+Compression is there too, at levels 0 to 9, in the same three forms; the same
+input compresses to the same bytes however it is split, and zlib reads them.
 
 Unsigned integers of any fixed length can be added, subtracted, multiplied,
 divided, shifted, compared, and converted to and from text in bases 2 to 36

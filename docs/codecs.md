@@ -1,8 +1,8 @@
 # Codecs
 
-The `codec` module turns bytes into other bytes: checksums and decompression
-now, compression and encodings as they arrive. Its code lives in `src/codec/`,
-and each part has its own public header. Everything is the engine's own C; no
+The `codec` module turns bytes into other bytes: checksums and compression
+now, encodings as they arrive. Its code lives in `src/codec/`, and each part
+has its own public header. Everything is the engine's own C; no
 codec library is used.
 
 ## Checksums
@@ -97,3 +97,53 @@ every vector and every single flipped bit of the small ones, under the
 sanitizers, and streams built bit by bit that break each rule above.
 
 `tb_bench inflate` times the decoder on those streams.
+
+## Compression
+
+The same header compresses, in the same three framings, at a level from 0 to
+9: 0 only stores, 1 is fastest, `TB_DEFLATE_DEFAULT_LEVEL` (6) balances size
+and speed, and `TB_DEFLATE_BEST_LEVEL` (9) is smallest. The three ways in
+mirror decompression:
+
+- **`tb_deflate`** compresses bytes into one stream in one call.
+  `tb_deflate_bound` gives a capacity that is always enough.
+- **A deflater** (`tb_deflater_create`, `tb_deflater_run`) takes input and
+  room in pieces of any size. `TB_DEFLATE_SYNC_FLUSH` writes out everything so
+  far, ending on a byte with an empty stored block, so a reader can decode it
+  now; `TB_DEFLATE_FINISH` ends the stream with its checksum.
+- **A compressing stream** (`tb_deflate_open_stream`) compresses what is
+  written to it into another stream. Its flush is a sync flush; closing it
+  writes the end of the compressed stream, and reports a failure to do so.
+
+**The same input gives the same bytes**, at the same level and in the same
+framing, however it is split into calls. The matcher works only with a full
+lookahead of 262 bytes, or at a flush; the window slides at a fixed position;
+and blocks end at fixed points. A cooked asset therefore compresses to the
+same package bytes on every machine and every run.
+
+### How it compresses
+
+Input gathers in a window of 64 KiB. A hash of the next three bytes chains
+each position to earlier ones with the same hash, and the matcher follows the
+chain for the longest match within the last 32 KiB. Levels follow zlib's table
+of effort: how long a match must be to shorten the search, to end it, and to
+stop looking one byte ahead, and how many links to follow. Levels 1 to 3 take
+the first good match; levels 4 to 9 look one byte ahead for a longer one.
+
+A block holds up to 16383 symbols and never spans a slide of the window, so
+its bytes are still there to store. It is written in whichever of three forms
+is smallest: stored, the fixed code, or codes built for it. Codes are built
+with the in-place algorithm of Moffat and Katajainen and limited to 15 bits
+(7 for the code-length code), and every code has at least two symbols, so any
+decoder accepts it.
+
+A deflater holds about 600 KiB: the window, its hash chains, a block of
+symbols, and room for an encoded block.
+
+The tests compress empty, tiny, random, repetitive, and text inputs, and sizes
+on each side of the window and of a stored block, at every level and in every
+framing, and decompress them again. During development every stream was also
+decompressed by zlib itself (Python's `zlib` and `gzip` modules), and its sizes
+compared with zlib's at each level.
+
+`tb_bench deflate` times levels 1, 6, and 9 on text, random bytes, and zeros.
