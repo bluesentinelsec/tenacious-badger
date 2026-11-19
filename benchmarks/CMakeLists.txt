@@ -5,6 +5,7 @@ add_executable(tb_bench
     main.c
     harness/tb_bench.c
     codec/checksum_bench.c
+    codec/deflate_bench.c
     codec/inflate_bench.c
     core/ap_bench.c
     core/array_bench.c
