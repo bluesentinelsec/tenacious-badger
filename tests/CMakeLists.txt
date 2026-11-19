@@ -2,7 +2,9 @@ add_subdirectory(framework)
 
 # Embeds the files of a directory of tests/data that match a glob, as the array
 # NAME of tb_test_file (see support/test_data.h), in the C source that OUTPUT
-# names, to add to a test executable's sources.
+# names, to add to a test executable's sources. Several executables share the
+# source, so one target makes it, and each of them waits for that target: with
+# Makefiles, executables that each ran the command would race to write it.
 function(tb_embed_test_data output name directory pattern)
     set(source_directory "${CMAKE_CURRENT_SOURCE_DIR}/data/${directory}")
     file(GLOB files CONFIGURE_DEPENDS "${source_directory}/${pattern}")
@@ -14,6 +16,8 @@ function(tb_embed_test_data output name directory pattern)
         DEPENDS ${files} "${PROJECT_SOURCE_DIR}/cmake/EmbedTestData.cmake"
         COMMENT "Embedding test data ${directory}/${pattern}"
         VERBATIM)
+    add_custom_target(${name}_data DEPENDS "${source}")
+    set_property(GLOBAL APPEND PROPERTY TB_TEST_DATA_TARGETS ${name}_data)
     set(${output} "${source}" PARENT_SCOPE)
 endfunction()
 
@@ -83,6 +87,10 @@ function(tb_add_tests target)
         # The framework's own cases test its internal interfaces.
         "${CMAKE_CURRENT_SOURCE_DIR}/framework/src")
     tb_configure_target(${target})
+    get_property(data_targets GLOBAL PROPERTY TB_TEST_DATA_TARGETS)
+    if(data_targets)
+        add_dependencies(${target} ${data_targets})
+    endif()
 endfunction()
 
 tb_add_tests(tb_tests SOURCES ${TB_TEST_CASE_SOURCES} LIBRARIES TenaciousBadger::badger)
