@@ -218,6 +218,7 @@ static void chacha20_contract(void *context)
 {
     const size_t choice = *(const size_t *)context;
     uint8_t bytes[4] = {0};
+    uint8_t block[TB_CHACHA20_BLOCK] = {0};
     tb_stream stream = {0};
     switch (choice)
     {
@@ -231,7 +232,7 @@ static void chacha20_contract(void *context)
         tb_chacha20_xor(stream_key, stream_nonce, TB_CHACHA20_MAX_LENGTH - 2, bytes, bytes, 4);
         break;
     case 3:
-        tb_chacha20_block(stream_key, 0, NULL, bytes);
+        tb_chacha20_block(stream_key, 0, NULL, block);
         break;
     default:
         (void)tb_chacha20_open_stream(NULL, stream_key, stream_nonce, NULL, &stream);
