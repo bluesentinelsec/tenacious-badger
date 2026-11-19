@@ -89,5 +89,22 @@ Whatever a writer writes, the reader reads back: the tests parse random
 documents, write them in both styles, parse them again, and require the second
 compact writing to equal the first byte for byte.
 
+### Conformance
+
+The tests read all 318 texts of
+[JSONTestSuite](https://github.com/nst/JSONTestSuite)'s parsing corpus, kept in
+`tests/data/jsontestsuite`. Every text RFC 8259 says to accept is accepted, and
+writes back exactly; the two with duplicate keys need
+`TB_JSON_ALLOW_DUPLICATE_KEYS`. Every text it says to reject is rejected. Of
+the texts it leaves to the parser:
+
+- **Numbers beyond a double's range** are accepted. The text is kept, and
+  converting it is the caller's choice.
+- **Strings that do not decode to UTF-8** are rejected: an escaped surrogate
+  without its partner, bytes that are not UTF-8, and text in UTF-16 or
+  Latin-1.
+- **500 nested arrays** are deeper than the default limit.
+- **A byte order mark** is rejected; RFC 8259 forbids writing one.
+
 `tb_bench json` times the reader, the document, and the writer on an asset
 manifest.

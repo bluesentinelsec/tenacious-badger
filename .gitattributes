@@ -6,3 +6,6 @@
 *.gif binary
 *.ico binary
 *.pdf binary
+# Test data is kept byte for byte: a corpus or an archive whose line endings
+# changed would test something else.
+tests/data/** -text
