@@ -296,6 +296,10 @@ stream. Streams offer only what they can do, short transfers are looped by
 helpers, a copy stops at a limit, and reads at an offset run together from many
 threads. See [streams](streams.md).
 
+Random bytes for keys and nonces come from the operating system's generator
+for cryptography through `badger/random.h`, on Windows, Linux, and macOS. See
+[platforms](platforms.md#random-bytes).
+
 SHA-256 and HMAC-SHA256 are in `badger/sha256.h`, in one call or in pieces,
 for turning passwords into keys and naming content. See
 [codecs](codecs.md#sha-256).
