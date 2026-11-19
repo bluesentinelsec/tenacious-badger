@@ -135,11 +135,12 @@ static tb_tar_result tb_tar_skip(tb_tar_reader *reader, uint64_t length)
         {
             return result;
         }
-        if (count < want)
+        if (count != want)
         {
             return TB_TAR_TRUNCATED;
         }
-        length -= count;
+        /* At least one byte each time, since `want` is. */
+        length -= want;
     }
     return TB_TAR_OK;
 }
