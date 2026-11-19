@@ -592,6 +592,26 @@ machine that says nothing, processes confined in several ways, and files that
 are malformed. A second test confines the real process, asks the real system,
 and gives the process back what it had.
 
+## Random bytes
+
+Public declaration: `include/badger/random.h`, `tb_random_bytes(void *,
+size_t)`. It fills a buffer with bytes from the system's generator for
+cryptography, for keys, nonces, and salts: what no one may guess or repeat.
+
+| Platform | Source |
+| --- | --- |
+| Windows | `BCryptGenRandom` with the system's preferred generator, from `bcrypt.dll`, loaded the first time it is needed so no program links `bcrypt.lib` |
+| Linux | `getrandom`, which waits only until the kernel's generator is seeded at boot |
+| macOS | `arc4random_buf`, which cannot fail |
+| Other | "not implemented": standard C has no source fit for a key |
+
+It returns false only when the system has no generator to give, which no
+supported system lacks. It is thread-safe and needs no setup.
+
+These bytes cannot be seeded, so nothing that must repeat (a test, a
+simulation, a replay) may use them; those keep a generator of their own and
+record its seed.
+
 ## Unsupported platforms
 
 Windows, Linux, and macOS are the supported platforms, and each implements

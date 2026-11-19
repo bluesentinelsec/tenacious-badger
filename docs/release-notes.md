@@ -296,6 +296,10 @@ stream. Streams offer only what they can do, short transfers are looped by
 helpers, a copy stops at a limit, and reads at an offset run together from many
 threads. See [streams](streams.md).
 
+Random bytes for keys and nonces come from the operating system's generator
+for cryptography through `badger/random.h`, on Windows, Linux, and macOS. See
+[platforms](platforms.md#random-bytes).
+
 JSON reads with `badger/json.h`, as a stream of events or as a document in an
 arena with indexed lookups. Untrusted text cannot exhaust the stack, and every
 error reports its line, column, and reason. A writer writes it back, compact or
