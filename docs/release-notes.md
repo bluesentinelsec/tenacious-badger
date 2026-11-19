@@ -300,6 +300,10 @@ Random bytes for keys and nonces come from the operating system's generator
 for cryptography through `badger/random.h`, on Windows, Linux, and macOS. See
 [platforms](platforms.md#random-bytes).
 
+SHA-256 and HMAC-SHA256 are in `badger/sha256.h`, in one call or in pieces,
+for turning passwords into keys and naming content. See
+[codecs](codecs.md#sha-256).
+
 ChaCha20 (RFC 8439) is in `badger/chacha20.h`, from any byte of its
 keystream, and as a stream that obfuscates what it writes and restores what it
 reads, for packages. See [codecs](codecs.md#chacha20).

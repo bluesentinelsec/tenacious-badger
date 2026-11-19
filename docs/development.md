@@ -35,6 +35,7 @@ The foundation layer so far, one public header per module under
 | `log.h` | [Logging](logging.md) with replaceable sinks |
 | `base64.h` | [Base64](codecs.md#base64): bytes as text and back, strictly |
 | `checksum.h` | [Checksums](codecs.md#checksums): CRC-32 and Adler-32 |
+| `sha256.h` | [SHA-256 and HMAC-SHA256](codecs.md#sha-256), for keys and content |
 | `chacha20.h` | [ChaCha20](codecs.md#chacha20): a keystream from any offset, and a stream that applies it |
 | `deflate.h` | [Compression](codecs.md#compression) and [decompression](codecs.md#decompression) of DEFLATE, raw or in zlib or gzip framing |
 | `tar.h` | [TAR archives](archives.md#tar), read and written in order through streams |

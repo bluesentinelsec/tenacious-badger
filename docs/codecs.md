@@ -64,6 +64,31 @@ the longest that cannot overflow 32 bits.
 `tb_bench checksum` compares CRC-32 with the classic loop of one table lookup
 per byte.
 
+## SHA-256
+
+`badger/sha256.h` computes SHA-256 (FIPS 180-4) and HMAC-SHA256 (RFC 2104),
+in one call or in pieces of any size. The engine uses them:
+
+- **SHA-256** turns a password into a key, and names content, as a cache of
+  cooked assets does.
+- **HMAC-SHA256** derives one key from another and a salt, as the package
+  format does for each package.
+
+Unlike a checksum, SHA-256 resists tampering: no one knows how to find two
+inputs with the same digest.
+
+- **Secrets are cleared.** A finished state, and HMAC's padded keys, are
+  cleared through a volatile pointer, which the compiler may not remove.
+- **The tests** compare every input length from 0 to 300 bytes, which crosses
+  every place padding can fall, with Python's `hashlib`. They also run the
+  examples of FIPS 180-2, including a million `a`.
+- **HMAC** is checked against the seven cases of RFC 4231, and against keys of
+  every length from 0 to 130 bytes, around the 64-byte block, compared with
+  Python's `hmac`.
+- **Pieces:** every split of the input, and pieces of every size, give the same
+  digest.
+
+`tb_bench sha256` times a hash of 1 MiB and one HMAC.
 ## ChaCha20
 
 `badger/chacha20.h` is the ChaCha20 stream cipher of RFC 8439, a 256-bit key

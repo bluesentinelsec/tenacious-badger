@@ -8,6 +8,7 @@ add_executable(tb_bench
     codec/chacha20_bench.c
     codec/checksum_bench.c
     codec/deflate_bench.c
+    codec/sha256_bench.c
     codec/tar_bench.c
     codec/zip_bench.c
     codec/inflate_bench.c
