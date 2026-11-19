@@ -57,6 +57,7 @@ static const tb_bench_module tb_bench_modules[] = {
     {"ap", tb_bench_ap},
     {"decimal", tb_bench_decimal},
     {"stream", tb_bench_stream},
+    {"chacha20", tb_bench_chacha20},
     {"checksum", tb_bench_checksum},
     {"base64", tb_bench_base64},
     {"inflate", tb_bench_inflate},

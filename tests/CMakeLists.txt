@@ -32,6 +32,7 @@ tb_embed_test_data(TB_TAR_DATA_SOURCE tb_tar_files tar "*.tar*")
 # selects a module (tb_tests "core_*") or a feature (tb_tests "core_sum.*").
 set(TB_TEST_CASE_SOURCES
     codec/base64_test.c
+    codec/chacha20_test.c
     codec/checksum_test.c
     codec/deflate_test.c
     codec/inflate_test.c

@@ -296,6 +296,10 @@ stream. Streams offer only what they can do, short transfers are looped by
 helpers, a copy stops at a limit, and reads at an offset run together from many
 threads. See [streams](streams.md).
 
+ChaCha20 (RFC 8439) is in `badger/chacha20.h`, from any byte of its
+keystream, and as a stream that obfuscates what it writes and restores what it
+reads, for packages. See [codecs](codecs.md#chacha20).
+
 JSON reads with `badger/json.h`, as a stream of events or as a document in an
 arena with indexed lookups. Untrusted text cannot exhaust the stack, and every
 error reports its line, column, and reason. A writer writes it back, compact or
