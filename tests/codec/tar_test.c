@@ -1297,7 +1297,7 @@ TB_TEST(codec_tar, older_and_gnu_headers_read_their_own_way)
     TB_TEST_REQUIRE_UINT(tb_tar_reader_next(reader, &entry), ==, TB_TAR_OK);
     TB_TEST_EXPECT_STRING(entry.name, ==, "last");
     TB_TEST_EXPECT_UINT(entry.type, ==, TB_TAR_FILE);
-    TB_TEST_EXPECT_UINT((unsigned)entry.flag, ==, (unsigned)'7');
+    TB_TEST_EXPECT_INT(entry.flag, ==, '7');
     TB_TEST_EXPECT_UINT(tb_tar_reader_next(reader, &entry), ==, TB_TAR_END);
     tb_tar_reader_destroy(reader);
     (void)tb_stream_close(&source);
@@ -1310,9 +1310,9 @@ TB_TEST(codec_tar, older_and_gnu_headers_read_their_own_way)
     reader = tb_tar_reader_create(&source, NULL, NULL);
     TB_TEST_REQUIRE_UINT(tb_tar_reader_next(reader, &entry), ==, TB_TAR_OK);
     TB_TEST_EXPECT_UINT(entry.type, ==, TB_TAR_OTHER);
-    TB_TEST_EXPECT_UINT((unsigned)entry.flag, ==, (unsigned)'6');
+    TB_TEST_EXPECT_INT(entry.flag, ==, '6');
     TB_TEST_REQUIRE_UINT(tb_tar_reader_next(reader, &entry), ==, TB_TAR_OK);
-    TB_TEST_EXPECT_UINT((unsigned)entry.flag, ==, (unsigned)'V');
+    TB_TEST_EXPECT_INT(entry.flag, ==, 'V');
     tb_tar_reader_destroy(reader);
     (void)tb_stream_close(&source);
 }
