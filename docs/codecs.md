@@ -1,9 +1,41 @@
 # Codecs
 
-The `codec` module turns bytes into other bytes: checksums and compression
-now, encodings as they arrive. Its code lives in `src/codec/`, and each part
+The `codec` module turns bytes into other bytes: checksums, compression, and
+encodings. Its code lives in `src/codec/`, and each part
 has its own public header. Everything is the engine's own C; no
 codec library is used.
+
+## Base64
+
+`badger/base64.h` writes bytes as Base64 text and reads them back (RFC 4648),
+as JSON, configuration files, and glTF data URIs carry binary data. Flags
+choose the form; zero is the standard, padded one:
+
+| Flag | Effect |
+| --- | --- |
+| `TB_BASE64_URL_SAFE` | `-` and `_` in place of `+` and `/` |
+| `TB_BASE64_NO_PADDING` | No `=`: encoding writes none, decoding accepts none |
+| `TB_BASE64_SKIP_WHITESPACE` | Decoding skips space, tab, and line breaks anywhere |
+
+`tb_base64_encode` and `tb_base64_decode` work in buffers of the caller's;
+`tb_base64_encoded_size` gives the exact length of the text, and
+`tb_base64_decoded_size_bound` a capacity always enough to decode. The `_alloc`
+forms return memory of their own, with a NUL after it.
+
+**Decoding is strict**, because the text is untrusted: a character outside the
+alphabet (including the other alphabet's two), padding where it does not
+belong or of the wrong amount, a last group of one character, and non-zero
+bits after the last byte are all `TB_BASE64_INVALID`, with the offset of the
+first offending character. Every byte string thus has exactly one text that
+decodes to it in each form.
+
+**Nothing is written on failure.** Decoding checks and measures all of the
+text before writing a byte. A buffer too small is `TB_BASE64_BUFFER_TOO_SMALL`
+with the size it needs, so a call with no room measures.
+
+The tests check the vectors of RFC 4648 and encodings made by Python's
+`base64` module at development time (`tools/generate_base64_vectors.py`).
+Hexadecimal and streaming forms are not here yet; nothing needs them.
 
 ## Checksums
 

@@ -305,6 +305,9 @@ See [serialization](serialization.md).
 CRC-32 and Adler-32, the checksums of ZIP, gzip, PNG, and zlib, are in
 `badger/checksum.h`, in one call or in pieces of any size. See [codecs](codecs.md).
 
+Base64 in both alphabets, with or without padding, is in `badger/base64.h`.
+Decoding is strict and reports where malformed text goes wrong.
+
 DEFLATE streams, raw or in zlib or gzip framing, decompress with
 `badger/deflate.h`: in one call, in pieces of any size, or as a stream that
 reads another. The decoder is built for untrusted input: fixed memory, output

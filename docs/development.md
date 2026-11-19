@@ -32,6 +32,7 @@ The foundation layer so far, one public header per module under
 | `utf8.h`, `path.h` | UTF-8 and UTF-16 conversion, and [paths](paths.md) as text |
 | `fs.h`, `file.h` | [Files and directories](files.md): `fs.h` is the module's header, and includes the native interface in `file.h` |
 | `log.h` | [Logging](logging.md) with replaceable sinks |
+| `base64.h` | [Base64](codecs.md#base64): bytes as text and back, strictly |
 | `checksum.h` | [Checksums](codecs.md#checksums): CRC-32 and Adler-32 |
 | `deflate.h` | [Compression](codecs.md#compression) and [decompression](codecs.md#decompression) of DEFLATE, raw or in zlib or gzip framing |
 | `tar.h` | [TAR archives](archives.md#tar), read and written in order through streams |
