@@ -193,8 +193,12 @@ void tb_bench_vm(tb_bench *bench);
 void tb_bench_stream(tb_bench *bench);
 /** @brief Benchmarks of Base64 in badger/base64.h. */
 void tb_bench_base64(tb_bench *bench);
+/** @brief Benchmarks of ChaCha20 in badger/chacha20.h. */
+void tb_bench_chacha20(tb_bench *bench);
 /** @brief Benchmarks of CRC-32 and Adler-32 in badger/checksum.h. */
 void tb_bench_checksum(tb_bench *bench);
+/** @brief Benchmarks of SHA-256 and HMAC-SHA256 in badger/sha256.h. */
+void tb_bench_sha256(tb_bench *bench);
 /** @brief Benchmarks of DEFLATE compression in badger/deflate.h. */
 void tb_bench_deflate(tb_bench *bench);
 /** @brief Benchmarks of DEFLATE decompression in badger/deflate.h. */

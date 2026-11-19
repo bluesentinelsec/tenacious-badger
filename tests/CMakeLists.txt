@@ -35,9 +35,11 @@ tb_embed_test_data(TB_ZIP_DATA_SOURCE tb_zip_files zip "*.zip")
 # selects a module (tb_tests "core_*") or a feature (tb_tests "core_sum.*").
 set(TB_TEST_CASE_SOURCES
     codec/base64_test.c
+    codec/chacha20_test.c
     codec/checksum_test.c
     codec/deflate_test.c
     codec/inflate_test.c
+    codec/sha256_test.c
     codec/tar_test.c
     ${TB_TAR_DATA_SOURCE}
     codec/zip_test.c
