@@ -6,6 +6,9 @@
 A file must not begin with a byte-order mark. UTF-8 has no byte order to mark,
 compilers and interpreters differ in what they make of one, and a tool that
 compares the first bytes of a file with what it expects is thrown by it.
+
+Test data under tests/data is exempt: it is kept byte for byte, and a corpus
+may hold a byte-order mark on purpose, to test what a parser makes of one.
 """
 import subprocess
 import sys
@@ -20,6 +23,9 @@ BYTE_ORDER_MARKS = {
 # Files that are not text, by their last suffix.
 BINARY_SUFFIXES = {'.png', '.ico', '.icns', '.bmp', '.zip', '.gz', '.bin'}
 
+# Directories whose files are data, kept byte for byte.
+DATA_DIRECTORIES = ('tests/data/',)
+
 
 def mark_of(data):
     """The name of the byte-order mark that the bytes begin with, or None."""
@@ -29,9 +35,15 @@ def mark_of(data):
     return None
 
 
+def is_data(name):
+    """Whether a tracked file, named relative to the root, is test data."""
+    return name.startswith(DATA_DIRECTORIES)
+
+
 def tracked_files(root):
     listing = subprocess.run(['git', 'ls-files', '-z'], cwd=root, capture_output=True, check=True)
-    return [root / name for name in listing.stdout.decode('utf-8').split('\0') if name]
+    names = listing.stdout.decode('utf-8').split('\0')
+    return [root / name for name in names if name and not is_data(name)]
 
 
 def check(root):
@@ -61,6 +73,16 @@ def self_test():
              if mark_of(data) != expected]
     for data, expected, actual in wrong:
         print(f'self-test: {data!r} gave {actual!r}, expected {expected!r}')
+    exemptions = [
+        ('tests/data/jsontestsuite/test_parsing/y_.json', True),
+        ('tests/data', False),
+        ('tests/database.c', False),
+        ('src/tests/data/x.c', False),
+    ]
+    for name, expected in exemptions:
+        if is_data(name) != expected:
+            print(f'self-test: {name} is data: {is_data(name)}, expected {expected}')
+            wrong.append((name, expected, is_data(name)))
     return wrong
 
 
