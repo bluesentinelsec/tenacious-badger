@@ -339,7 +339,7 @@ static tb_zip_entry entry_of(const char *name, tb_zip_type type, tb_zip_method m
         .name = name,
         .name_length = tb_str_length(name),
         .type = type,
-        .method = method,
+        .method = (uint16_t)method,
         .size = size,
         .modified = MODIFIED,
     };
