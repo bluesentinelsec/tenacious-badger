@@ -21,6 +21,7 @@ write_basic_package_version_file("${PROJECT_BINARY_DIR}/TenaciousBadgerConfigVer
     VERSION "${PROJECT_VERSION}" COMPATIBILITY SameMinorVersion)
 install(FILES "${PROJECT_BINARY_DIR}/TenaciousBadgerConfig.cmake"
     "${PROJECT_BINARY_DIR}/TenaciousBadgerConfigVersion.cmake"
+    "${PROJECT_SOURCE_DIR}/cmake/BadgerPackageKey.cmake"
     DESTINATION lib/cmake/TenaciousBadger)
 
 if(MSVC)
