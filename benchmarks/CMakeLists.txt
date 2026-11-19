@@ -7,6 +7,8 @@ add_executable(tb_bench
     codec/base64_bench.c
     codec/checksum_bench.c
     codec/deflate_bench.c
+    codec/tar_bench.c
+    codec/zip_bench.c
     codec/inflate_bench.c
     core/ap_bench.c
     core/array_bench.c

@@ -319,6 +319,21 @@ bounded by the caller, and every malformed stream reported as a result.
 Compression is there too, at levels 0 to 9, in the same three forms; the same
 input compresses to the same bytes however it is split, and zlib reads them.
 
+TAR archives read and write with `badger/tar.h`, in order through streams, so
+`.tar.gz` is a TAR reader or writer over the gzip streams. The reader reads
+ustar, pax, and GNU long names, checks every header, bounds every extended
+header, and reports hostile names as they are for a rooted join to refuse. The
+writer keeps the permissions and times it is given and nothing of the host, so
+the same entries make the same bytes. See [archives](archives.md).
+
+ZIP archives open with `badger/zip.h` from any stream that reads at an
+offset: entries are listed, found by name, and read as streams that inflate
+and check their CRC-32, from many threads at once. The central directory is
+checked whole before any entry is read: overlapping entries, impossible
+expansion, disagreeing headers, and duplicate names are refused. A writer
+writes entries stored or deflated, with ZIP64 when it is needed, that zipfile,
+Info-ZIP, libarchive, and .NET read. See [archives](archives.md).
+
 Unsigned integers of any fixed length can be added, subtracted, multiplied,
 divided, shifted, compared, and converted to and from text in bases 2 to 36
 with `badger/xp.h`, in arrays of 32-bit digits that the caller supplies and
