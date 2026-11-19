@@ -9,6 +9,7 @@ add_executable(tb_bench
     codec/deflate_bench.c
     codec/sha256_bench.c
     codec/tar_bench.c
+    codec/zip_bench.c
     codec/inflate_bench.c
     core/ap_bench.c
     core/array_bench.c
