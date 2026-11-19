@@ -90,6 +90,41 @@ inputs with the same digest.
 
 `tb_bench sha256` times a hash of 1 MiB and one HMAC.
 
+## ChaCha20
+
+`badger/chacha20.h` is the ChaCha20 stream cipher of RFC 8439, a 256-bit key
+and a 96-bit nonce made into a keystream that is XORed with the data. The same
+call obfuscates and restores. The engine uses it to obfuscate packages.
+
+- **Every position costs the same.** Each 64-byte block of keystream is made
+  from its own index, so `tb_chacha20_xor` starts at any byte offset, and many
+  threads can restore different parts of one package at once.
+- **A stream applies it as bytes pass.** `tb_chacha20_open_stream` wraps
+  another stream, and byte p of the inner stream always meets byte p of the
+  keystream. Reads, reads at an offset, writes, and reads after a seek all line
+  up by themselves.
+  - It offers exactly what the inner stream offers, so a caller's check of
+    what a stream can do stays true.
+  - It starts at the inner stream's position.
+  - Closing it clears its copy of the key.
+- **The keystream** of one key and nonce is 256 GiB long. Positions past it
+  are `TB_STREAM_TOO_LARGE`, and passing them to the function directly is a
+  contract violation.
+- **Never use a nonce twice under one key.** The XOR of two results would be
+  the XOR of their inputs, so take a fresh nonce from `tb_random_bytes` each
+  time.
+
+**Obfuscation is not security.** ChaCha20 alone hides data but does not detect
+changes to it. A key that ships with a game can be recovered by anyone who runs
+the game under a debugger. Obfuscation deters casual extraction, and no more.
+
+The tests check the block function and encryption against RFC 8439's vectors,
+which `tools/generate_chacha20_vectors.py` reads from the RFC's own text. They
+also check that every range of the data, combined from its own offset, matches
+the whole.
+
+`tb_bench chacha20` times 1 MiB in one call and through a stream.
+
 ## Decompression
 
 `badger/deflate.h` decompresses DEFLATE (RFC 1951), the compression of ZIP,

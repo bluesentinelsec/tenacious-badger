@@ -304,6 +304,10 @@ SHA-256 and HMAC-SHA256 are in `badger/sha256.h`, in one call or in pieces,
 for turning passwords into keys and naming content. See
 [codecs](codecs.md#sha-256).
 
+ChaCha20 (RFC 8439) is in `badger/chacha20.h`, from any byte of its
+keystream, and as a stream that obfuscates what it writes and restores what it
+reads, for packages. See [codecs](codecs.md#chacha20).
+
 JSON reads with `badger/json.h`, as a stream of events or as a document in an
 arena with indexed lookups. Untrusted text cannot exhaust the stack, and every
 error reports its line, column, and reason. A writer writes it back, compact or
