@@ -278,6 +278,26 @@ add_test(NAME platform_default.every_function_reports_not_implemented
         "-DTB_HEADERS=${tb_platform_interface_headers}"
         "-DTB_SYSTEM_NAME=${CMAKE_SYSTEM_NAME}"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/ExpectPlatformDefault.cmake")
+# The package key: compiled in from a key file and from a password, it comes
+# back whole and is nowhere in the executable; and keys are made and kept.
+add_executable(tb_package_key_probe tools/package_key_probe.c)
+target_link_libraries(tb_package_key_probe PRIVATE TenaciousBadger::badger)
+tb_configure_target(tb_package_key_probe)
+tb_add_package_key(tb_package_key_probe FUNCTION tb_probe_file_key
+    KEY_FILE "${CMAKE_CURRENT_SOURCE_DIR}/data/keys/test.key")
+tb_add_package_key(tb_package_key_probe FUNCTION tb_probe_password_key
+    PASSWORD_FILE "${CMAKE_CURRENT_SOURCE_DIR}/data/keys/test.password")
+add_test(NAME package_key.comes_back_whole_and_is_nowhere_in_the_executable
+    COMMAND "${CMAKE_COMMAND}" "-DTB_PROBE=$<TARGET_FILE:tb_package_key_probe>"
+        "-DTB_KEY_FILE=${CMAKE_CURRENT_SOURCE_DIR}/data/keys/test.key"
+        "-DTB_PASSWORD_FILE=${CMAKE_CURRENT_SOURCE_DIR}/data/keys/test.password"
+        "-DTB_MODULE=${PROJECT_SOURCE_DIR}/cmake/BadgerPackageKey.cmake"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/ExpectPackageKey.cmake")
+add_test(NAME package_key.keys_are_made_kept_and_refused
+    COMMAND "${CMAKE_COMMAND}" "-DTB_MODULE=${PROJECT_SOURCE_DIR}/cmake/BadgerPackageKey.cmake"
+        "-DTB_DIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/package_key_generation"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/ExpectPackageKeyGeneration.cmake")
+
 add_test(NAME platform_selection.an_unsupported_platform_stops_the_build
     COMMAND "${CMAKE_COMMAND}" -P "${CMAKE_CURRENT_SOURCE_DIR}/ExpectPlatformSelection.cmake")
 
