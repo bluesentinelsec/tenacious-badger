@@ -100,7 +100,7 @@ static tb_zip_result tb_zip_cursor_need(tb_zip_cursor *cursor, size_t length,
     {
         return TB_ZIP_MALFORMED;
     }
-    if (cursor->position >= cursor->buffer_start &&
+    if (cursor->buffer != NULL && cursor->position >= cursor->buffer_start &&
         cursor->position - cursor->buffer_start + length <= cursor->buffer_length)
     {
         *bytes = cursor->buffer + (cursor->position - cursor->buffer_start);
