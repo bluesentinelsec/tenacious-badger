@@ -5,6 +5,7 @@ add_executable(tb_bench
     main.c
     harness/tb_bench.c
     codec/checksum_bench.c
+    codec/inflate_bench.c
     core/ap_bench.c
     core/array_bench.c
     core/atom_bench.c
@@ -25,7 +26,9 @@ add_executable(tb_bench
     platform/atomic_bench.c
     platform/thread_bench.c
     platform/time_bench.c)
-target_include_directories(tb_bench PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/harness")
+target_include_directories(tb_bench PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/harness"
+    # The streams that the decompression tests decode are what it times.
+    "${PROJECT_SOURCE_DIR}/tests/codec")
 # The shared library, as burrow uses it: the calls that are timed cross the
 # same boundary as the game's.
 target_link_libraries(tb_bench PRIVATE TenaciousBadger::badger)

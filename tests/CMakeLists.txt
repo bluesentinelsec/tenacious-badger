@@ -5,6 +5,7 @@ add_subdirectory(framework)
 # selects a module (tb_tests "core_*") or a feature (tb_tests "core_sum.*").
 set(TB_TEST_CASE_SOURCES
     codec/checksum_test.c
+    codec/inflate_test.c
     core/allocator_test.c
     core/ap_test.c
     core/arena_test.c

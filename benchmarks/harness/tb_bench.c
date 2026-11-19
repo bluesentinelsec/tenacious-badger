@@ -57,6 +57,7 @@ static const tb_bench_module tb_bench_modules[] = {
     {"decimal", tb_bench_decimal},
     {"stream", tb_bench_stream},
     {"checksum", tb_bench_checksum},
+    {"inflate", tb_bench_inflate},
 };
 
 #define TB_BENCH_MODULE_COUNT (sizeof(tb_bench_modules) / sizeof(tb_bench_modules[0]))

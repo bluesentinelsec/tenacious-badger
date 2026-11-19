@@ -2,6 +2,7 @@
  * log or a message. The names are checked as a set: each result has one,
  * no two results of a module share one, and a value that is no result is
  * named as such and not as its neighbour. */
+#include "badger/deflate.h"
 #include "badger/fs.h"
 #include "badger/log.h"
 #include "badger/path.h"
@@ -13,6 +14,11 @@
 #include <stddef.h>
 
 typedef const char *name_function(int result);
+
+static const char *name_of_deflate(int result)
+{
+    return tb_deflate_result_name((tb_deflate_result)result);
+}
 
 static const char *name_of_fs(int result)
 {
@@ -47,6 +53,7 @@ TB_TEST(core_result, every_result_has_a_name_of_its_own)
         name_function *name;
         int last; /* The last result of the enumeration. */
     } rows[] = {
+        {"deflate", name_of_deflate, TB_DEFLATE_UNSUPPORTED},
         {"fs", name_of_fs, TB_FS_END},
         {"log", name_of_log, TB_LOG_TOO_LARGE},
         {"path", name_of_path, TB_PATH_TOO_LARGE},
