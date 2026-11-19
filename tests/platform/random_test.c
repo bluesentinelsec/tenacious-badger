@@ -69,7 +69,7 @@ TB_TEST(platform_random, every_bit_is_set_about_half_the_time)
     {
         for (size_t bit = 0; bit < 8; bit++)
         {
-            counts[bit] += (bytes[index] >> bit) & 1u;
+            counts[bit] += ((unsigned)bytes[index] >> bit) & 1u;
         }
     }
     for (size_t bit = 0; bit < 8; bit++)
