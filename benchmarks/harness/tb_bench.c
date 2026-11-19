@@ -61,6 +61,7 @@ static const tb_bench_module tb_bench_modules[] = {
     {"base64", tb_bench_base64},
     {"inflate", tb_bench_inflate},
     {"deflate", tb_bench_deflate},
+    {"sha256", tb_bench_sha256},
     {"tar", tb_bench_tar},
     {"zip", tb_bench_zip},
 };

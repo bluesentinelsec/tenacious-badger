@@ -300,6 +300,10 @@ Random bytes for keys and nonces come from the operating system's generator
 for cryptography through `badger/random.h`, on Windows, Linux, and macOS. See
 [platforms](platforms.md#random-bytes).
 
+SHA-256 and HMAC-SHA256 are in `badger/sha256.h`, in one call or in pieces,
+for turning passwords into keys and naming content. See
+[codecs](codecs.md#sha-256).
+
 JSON reads with `badger/json.h`, as a stream of events or as a document in an
 arena with indexed lookups. Untrusted text cannot exhaust the stack, and every
 error reports its line, column, and reason. A writer writes it back, compact or
