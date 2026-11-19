@@ -1,10 +1,90 @@
 # Packages
 
 A package is the file a game's cooked assets ship in: compressed, and
-optionally obfuscated, so they are not read by casual extraction tools. The
-format and its reader and writer are planned in
-[issue #153](https://github.com/bluesentinelsec/tenacious-badger/issues/153).
-This page starts with the key.
+optionally obfuscated, so they are not read by casual extraction tools.
+`badger/package.h` writes and reads them. ZIP and TAR (see
+[archives](archives.md)) are for exchange with other tools; a package is for
+shipping.
+
+- **Compression is per entry.** Each entry is deflated on its own, or stored
+  when deflating would not make it smaller.
+- **Lookup is fast.** Entries are found by name in O(log n), from an index
+  read once when the package opens.
+- **Reads run in parallel.** Any entry can be read while others are, from as
+  many threads as the source allows (files and memory allow any number).
+- **The package is untrusted.** Opening it checks the whole index first:
+  - every entry lies between the header and the index, and no two share a byte;
+  - names are relative paths, in strict order, so each is unique;
+  - an entry claims no more than its codec can produce;
+  - the index has a CRC-32.
+
+  An entry's stream then ends at its size and checks its CRC-32 there.
+
+```c
+tb_package *package = NULL;
+uint8_t key[32];
+game_package_key(key); /* From tb_add_package_key: see "The key" below. */
+if (tb_package_open(&file, key, NULL, NULL, &package) == TB_PACKAGE_OK)
+{
+    size_t index = 0;
+    if (tb_package_find(package, "textures/rock.tex", 17, &index))
+    {
+        tb_stream entry = {0};
+        tb_package_open_entry(package, index, NULL, &entry);
+        /* ... read it ... */
+        tb_stream_close(&entry);
+    }
+    tb_package_close(package);
+}
+```
+
+Tools write packages with `tb_package_writer_create`, `tb_package_add` (one
+entry, whole, at a level from 0 to 9), and `tb_package_writer_finish`.
+
+## Obfuscation
+
+A package written with a key is obfuscated whole, both its index and every
+entry, with ChaCha20 (see [codecs](codecs.md#chacha20)). Byte p of the
+package meets byte p of the keystream, so any entry is restored from its own
+offset, at the same cost as the first.
+
+- **A key per package.** Each package draws a random 16-byte salt
+  (`tb_random_bytes`). Its own key is HMAC-SHA256 of the game's key, a label,
+  and the salt, so no two packages share a keystream, and the nonce can be
+  fixed.
+- **A wrong key is reported as one.** The header holds the first 8 bytes of
+  HMAC-SHA256 of a label under the package's key. A wrong key is
+  `TB_PACKAGE_WRONG_KEY`, not a damaged package. No key at all is
+  `TB_PACKAGE_KEY_REQUIRED`.
+- **What can still be seen:** the header and the footer, which say how to read
+  the rest; the count of entries; and the sizes of the gaps between them.
+  Names and data cannot be seen.
+
+## Layout
+
+Version 1, little-endian:
+
+| Bytes | Field |
+| --- | --- |
+| 0 | **Header**, 64 bytes: magic `TBPK
+
+` (8), version (2), flags (2: bit 0, obfuscated), reserved (4), salt (16), key check (8), reserved (24). Never obfuscated. |
+| 64 | **Entries' data**, each from an offset that is a multiple of 16, with zeros between. |
+| index offset | **Index**: one record per entry in the order of names, each 32 bytes and then its name: name length (2), codec (1: 0 stored, 1 deflated), reserved (1), CRC-32 (4), offset (8), stored size (8), size (8). |
+| end − 48 | **Footer**, 48 bytes: index offset (8), index size (8), entry count (8), index CRC-32 (4), reserved (12), magic `TBPKEND
+` (8). Never obfuscated. |
+
+- **Newer packages are refused.** A reader refuses any version but its own,
+  and unknown flags, as `TB_PACKAGE_UNSUPPORTED`, so a newer package is never
+  misread.
+- **Writing never seeks.** The index and footer come last, so a writer needs
+  only a stream it can write to.
+- **Entries are not split into blocks.** An entry's stream decompresses it from
+  its start. A later version may split large entries that are read in pieces
+  into blocks that decompress on their own.
+
+`tb_bench package` times reading 1,000 entries of 4 KiB, plain and
+obfuscated.
 
 **Obfuscation is not security.** The key ships inside the game, and anyone who
 runs the game under a debugger can recover it. Obfuscation deters casual
