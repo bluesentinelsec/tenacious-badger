@@ -5,6 +5,7 @@
 #include "badger/base64.h"
 #include "badger/deflate.h"
 #include "badger/fs.h"
+#include "badger/json.h"
 #include "badger/log.h"
 #include "badger/path.h"
 #include "badger/str.h"
@@ -24,6 +25,11 @@ static const char *name_of_base64(int result)
 static const char *name_of_deflate(int result)
 {
     return tb_deflate_result_name((tb_deflate_result)result);
+}
+
+static const char *name_of_json(int result)
+{
+    return tb_json_result_name((tb_json_result)result);
 }
 
 static const char *name_of_fs(int result)
@@ -62,6 +68,7 @@ TB_TEST(core_result, every_result_has_a_name_of_its_own)
         {"base64", name_of_base64, TB_BASE64_BUFFER_TOO_SMALL},
         {"deflate", name_of_deflate, TB_DEFLATE_UNSUPPORTED},
         {"fs", name_of_fs, TB_FS_END},
+        {"json", name_of_json, TB_JSON_OUTPUT_FAILED},
         {"log", name_of_log, TB_LOG_TOO_LARGE},
         {"path", name_of_path, TB_PATH_TOO_LARGE},
         {"stream", name_of_stream, TB_STREAM_OS_ERROR},
