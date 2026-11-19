@@ -41,6 +41,7 @@ The foundation layer so far, one public header per module under
 | `tar.h` | [TAR archives](archives.md#tar), read and written in order through streams |
 | `package.h` | [Packages](packages.md): the engine's archive of cooked assets, compressed and optionally obfuscated |
 | `zip.h` | [ZIP archives](archives.md#zip): entries found by name and read as streams, and written stored or deflated |
+| `vfs.h` | [The virtual file system](vfs.md): directories, archive files, and archives in memory, mounted into one namespace |
 | `json.h` | [JSON](serialization.md): a reader of events, documents in arenas, and a writer |
 | `stream.h` | [Streams](streams.md): one interface for reading and writing bytes, over memory, files, and ranges of other streams |
 

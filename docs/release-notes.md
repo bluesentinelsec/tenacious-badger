@@ -322,6 +322,14 @@ ChaCha20, under a key of its own from a random salt, and a wrong key is told
 from damage. The whole index is checked before any entry is read. See
 [packages](packages.md).
 
+The virtual file system, `badger/vfs.h`, mounts directories (read live),
+archive files, and archives in memory (such as one embedded in the
+executable) into one namespace of game files: packages, ZIP, and TAR are
+recognized by their bytes. Mounts have priorities, so mods replace the base
+game's files, and directories list every mount's names once. Names that could
+leave a mount are refused, archives with such names are not mounted, and links
+on disk are not followed. Many threads read at once. See [vfs](vfs.md).
+
 JSON reads with `badger/json.h`, as a stream of events or as a document in an
 arena with indexed lookups. Untrusted text cannot exhaust the stack, and every
 error reports its line, column, and reason. A writer writes it back, compact or

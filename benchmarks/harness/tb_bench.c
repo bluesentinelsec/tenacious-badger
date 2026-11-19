@@ -66,6 +66,7 @@ static const tb_bench_module tb_bench_modules[] = {
     {"tar", tb_bench_tar},
     {"zip", tb_bench_zip},
     {"package", tb_bench_package},
+    {"vfs", tb_bench_vfs},
 };
 
 #define TB_BENCH_MODULE_COUNT (sizeof(tb_bench_modules) / sizeof(tb_bench_modules[0]))

@@ -12,6 +12,7 @@
 #include "badger/str.h"
 #include "badger/stream.h"
 #include "badger/tar.h"
+#include "badger/vfs.h"
 #include "badger/virtual_memory.h"
 #include "badger/zip.h"
 #include "tb_test.h"
@@ -65,6 +66,11 @@ static const char *name_of_tar(int result)
     return tb_tar_result_name((tb_tar_result)result);
 }
 
+static const char *name_of_vfs(int result)
+{
+    return tb_vfs_result_name((tb_vfs_result)result);
+}
+
 static const char *name_of_vm(int result)
 {
     return tb_vm_result_name((tb_vm_result)result);
@@ -92,6 +98,7 @@ TB_TEST(core_result, every_result_has_a_name_of_its_own)
         {"path", name_of_path, TB_PATH_TOO_LARGE},
         {"stream", name_of_stream, TB_STREAM_OS_ERROR},
         {"tar", name_of_tar, TB_TAR_OUTPUT_FAILED},
+        {"vfs", name_of_vfs, TB_VFS_INPUT_FAILED},
         {"vm", name_of_vm, TB_VM_OS_ERROR},
         {"zip", name_of_zip, TB_ZIP_OUTPUT_FAILED},
     };

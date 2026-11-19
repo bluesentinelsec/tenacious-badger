@@ -21,6 +21,7 @@ add_subdirectory(platform)
 add_subdirectory(jobs)
 add_subdirectory(codec)
 add_subdirectory(serialize)
+add_subdirectory(vfs)
 tb_strip_release(badger)
 
 # The engine's modules call one another across source files, and a compiler
