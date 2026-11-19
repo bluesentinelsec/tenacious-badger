@@ -4,6 +4,7 @@
 add_executable(tb_bench
     main.c
     harness/tb_bench.c
+    codec/base64_bench.c
     codec/checksum_bench.c
     codec/deflate_bench.c
     codec/tar_bench.c

@@ -13,7 +13,10 @@
  * joining. */
 #include "badger/ap.h"
 #include "badger/arena.h"
+#include "badger/base64.h"
+#include "badger/checksum.h"
 #include "badger/decimal.h"
+#include "badger/deflate.h"
 #include "badger/fmt.h"
 #include "badger/fs.h"
 #include "badger/hash.h"
@@ -173,6 +176,45 @@ static bool converts_floating_point(size_t number)
     return is_right;
 }
 
+/* Checksums, Base64, and a DEFLATE round trip of text that carries the
+ * thread's number. Compression, which allocates a deflater, runs every
+ * fiftieth round. */
+static bool uses_codecs(size_t number, size_t round)
+{
+    enum
+    {
+        DEFLATE_EVERY = 50
+    };
+    char text[96] = {0};
+    char encoded[160] = {0};
+    unsigned char decoded[96] = {0};
+    unsigned char compressed[256] = {0};
+    const size_t length = tb_fmt_buffer(
+        text, sizeof(text), "thread %zu compresses its own words, words, words", number);
+    size_t encoded_length = 0;
+    size_t decoded_length = 0;
+    size_t compressed_length = 0;
+    bool is_right =
+        tb_crc32(text, length) == tb_crc32_update(tb_crc32(text, 7), text + 7, length - 7);
+    is_right = is_right && tb_adler32(text, length) ==
+                               tb_adler32_update(tb_adler32(text, 5), text + 5, length - 5);
+    is_right = is_right && tb_base64_encode(text, length, TB_BASE64_URL_SAFE, encoded,
+                                            sizeof(encoded), &encoded_length) == TB_BASE64_OK;
+    is_right = is_right && tb_base64_decode(encoded, encoded_length, TB_BASE64_URL_SAFE, decoded,
+                                            sizeof(decoded), &decoded_length, NULL) == TB_BASE64_OK;
+    is_right = is_right && decoded_length == length && memcmp(decoded, text, length) == 0;
+    if (round % DEFLATE_EVERY == 0)
+    {
+        is_right = is_right &&
+                   tb_deflate(TB_DEFLATE_GZIP, TB_DEFLATE_DEFAULT_LEVEL, text, length, compressed,
+                              sizeof(compressed), &compressed_length) == TB_DEFLATE_OK;
+        is_right = is_right && tb_inflate(TB_DEFLATE_GZIP, compressed, compressed_length, decoded,
+                                          sizeof(decoded), &decoded_length) == TB_DEFLATE_OK;
+        is_right = is_right && decoded_length == length && memcmp(decoded, text, length) == 0;
+    }
+    return is_right;
+}
+
 /* Paths, UTF-8, hashing, C strings, formatting to a buffer, extended- and
  * arbitrary-precision arithmetic, and floating-point text, each on data that carries the thread's
  * number, so that an answer leaking from one thread to another would be a
@@ -221,6 +263,7 @@ static void use_the_functions_that_keep_no_state(void *argument)
         count_unless(self, uses_extended_precision(self->number));
         count_unless(self, uses_arbitrary_precision(self->number));
         count_unless(self, converts_floating_point(self->number));
+        count_unless(self, uses_codecs(self->number, round));
     }
 }
 
