@@ -199,6 +199,8 @@ void tb_bench_deflate(tb_bench *bench);
 void tb_bench_inflate(tb_bench *bench);
 /** @brief Benchmarks of reading and writing TAR archives with badger/tar.h. */
 void tb_bench_tar(tb_bench *bench);
+/** @brief Benchmarks of writing and reading ZIP archives with badger/zip.h. */
+void tb_bench_zip(tb_bench *bench);
 /** @brief Benchmarks of reading and writing JSON with badger/json.h. */
 void tb_bench_json(tb_bench *bench);
 /** @brief Benchmarks of badger/xp.h. */

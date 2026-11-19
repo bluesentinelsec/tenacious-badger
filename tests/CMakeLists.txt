@@ -27,6 +27,9 @@ tb_embed_test_data(TB_JSON_SUITE_SOURCE tb_json_suite_files jsontestsuite/test_p
 # Archives that GNU tar, bsdtar, and Python wrote (tools/make_tar_test_data.py).
 tb_embed_test_data(TB_TAR_DATA_SOURCE tb_tar_files tar "*.tar*")
 
+# Archives that Python, bsdtar, and .NET wrote (tools/make_zip_test_data.py).
+tb_embed_test_data(TB_ZIP_DATA_SOURCE tb_zip_files zip "*.zip")
+
 # Every test case of the project, in one executable: tb_tests. Add the source
 # of a new test here. Suites are named <module>_<feature>, so one pattern
 # selects a module (tb_tests "core_*") or a feature (tb_tests "core_sum.*").
@@ -36,6 +39,8 @@ set(TB_TEST_CASE_SOURCES
     codec/inflate_test.c
     codec/tar_test.c
     ${TB_TAR_DATA_SOURCE}
+    codec/zip_test.c
+    ${TB_ZIP_DATA_SOURCE}
     core/allocator_test.c
     core/ap_test.c
     core/arena_test.c
