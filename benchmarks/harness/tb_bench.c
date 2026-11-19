@@ -60,6 +60,7 @@ static const tb_bench_module tb_bench_modules[] = {
     {"checksum", tb_bench_checksum},
     {"inflate", tb_bench_inflate},
     {"deflate", tb_bench_deflate},
+    {"tar", tb_bench_tar},
 };
 
 #define TB_BENCH_MODULE_COUNT (sizeof(tb_bench_modules) / sizeof(tb_bench_modules[0]))
