@@ -1,6 +1,6 @@
 /* A stream of one entry of an archive or a package, shared by their readers:
  * it reads through layers of streams it owns (a range of the source, then
- * whatever undoes obfuscation and compression), ends after the entry's size,
+ * whatever undoes compression), ends after the entry's size,
  * and checks its CRC-32. */
 #ifndef TB_CODEC_ENTRY_STREAM_H
 #define TB_CODEC_ENTRY_STREAM_H
@@ -11,8 +11,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* The most layers an entry has: a range, de-obfuscation, and decompression. */
-#define TB_ENTRY_MAX_LAYERS 3u
+/* The most layers an entry has: a range, then decompression. */
+#define TB_ENTRY_MAX_LAYERS 2u
 
 /* Open streams, from the source outward: each reads the one before it. */
 typedef struct tb_entry_layers
