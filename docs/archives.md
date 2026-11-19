@@ -108,3 +108,128 @@ also cover:
 - random damage.
 
 `tb_bench tar` times writing and reading an archive of 1,000 files of 4 KiB.
+
+## ZIP
+
+`badger/zip.h` reads ZIP archives from any stream that reports its size and
+reads at an offset, such as a file or memory, and writes them to any stream.
+
+### Reading
+
+`tb_zip_open` reads and checks the whole central directory once. After that
+the archive does not change:
+
+- `tb_zip_count` and `tb_zip_entry_at` list the entries;
+- `tb_zip_find` finds one by name, through a hash table;
+- `tb_zip_open_entry` opens one as a stream.
+
+An entry's stream inflates a deflated entry. It ends at the entry's stated
+size and checks the CRC-32 when it gets there. Entries are read at their
+offsets, so several can be open at once, from as many threads as the source
+allows (files and memory allow any number). This is what a virtual file
+system needs to mount an archive.
+
+An entry reports:
+
+- its name, with no trailing slash;
+- its type: a file, a directory, or a symbolic link (by its Unix mode, with the
+  target as its data);
+- its compression method, and whether it is encrypted;
+- its sizes and CRC-32;
+- its Unix permissions, when the archive has them;
+- its time.
+
+The time comes from the extended timestamp, in UTC, when there is one.
+Otherwise it is the DOS time read as UTC, because DOS times name no zone.
+
+| Feature | Read | Written |
+| --- | --- | --- |
+| Stored and deflated entries | Yes | Yes |
+| Data descriptors | Yes | Yes, after every entry with data |
+| ZIP64: sizes and offsets past 4 GiB, more than 65,535 entries | Yes | Yes, when needed |
+| UTF-8 names (flag 11) and Info-ZIP Unicode paths | Yes | Yes, always flagged |
+| Names in code page 437, without the flag | Converted to UTF-8 | No |
+| Extended timestamps and Unix modes | Yes | Yes |
+| Archive and entry comments, unknown extra fields | Skipped | No |
+| Encryption, other methods | `TB_ZIP_UNSUPPORTED` when opened | No |
+| Archives over several volumes | `TB_ZIP_UNSUPPORTED` | No |
+
+### Untrusted archives
+
+Before any entry is read, `tb_zip_open` checks the whole central directory:
+
+- **The end record** must be the last record, followed only by its own
+  comment, which may be up to 65,535 bytes. Data before the archive or after
+  the record is `TB_ZIP_MALFORMED`. So is a self-extracting archive: the
+  reader does not search for an archive inside another file.
+- **The central directory** must lie inside the archive and hold exactly the
+  entries it claims, each with a well-formed record and extra fields.
+- **No two entries may overlap**, with each other or with the central
+  directory. An archive that reuses the same compressed bytes for many entries
+  to multiply their size is refused.
+- **Sizes must be possible.** A stored entry's two sizes must agree. A
+  deflated entry may not claim more than DEFLATE's 1032:1 expansion.
+- **Entries are limited** to 1,048,576 by default (`tb_zip_options`).
+  Duplicate names are `TB_ZIP_DUPLICATE_NAME` unless
+  `TB_ZIP_ALLOW_DUPLICATE_NAMES` is set, in which case `tb_zip_find` finds the
+  last.
+
+Opening an entry checks its local header:
+
+- its signature;
+- its method;
+- its name, byte for byte against the central record;
+- its sizes and CRC-32, when it has no data descriptor;
+- that its data fits before the next entry.
+
+The stream refuses data that inflates to more or less than the stated size, or
+to a different CRC-32, as `TB_STREAM_MALFORMED`. Memory never depends on what
+an entry claims.
+
+Names are reported as stored, so a name may climb out of its directory or be
+absolute. As with TAR, join each one to its destination with
+`tb_path_rooted_join`.
+
+### Writing
+
+A writer (`tb_zip_writer_create`) writes each entry as a local header, its
+data, and a data descriptor with the CRC-32 and sizes. It writes the central
+directory when it finishes, so it never seeks. The caller gives each file's
+size up front, and the writer requires exactly that much data, as the TAR
+writer does.
+
+- **Methods:** a file is stored, or deflated at levels 1 to 9. Directories and
+  empty files are stored, with no descriptor.
+- **Names** are relative paths of UTF-8 under the same rules as TAR, and a
+  name may not be written twice.
+- **ZIP64 fields** are written for a file of 3.75 GiB or more, and for any size,
+  offset, or count that its 16- or 32-bit field cannot hold.
+- **Permissions and time:** Unix permissions are kept. A mode of 0 means 0644
+  for a file and 0755 for a directory. Each entry gets a DOS time (1980 to
+  2107, clamped), plus an extended timestamp whenever the time fits 32 bits.
+- **Nothing of the host is written.** The same entries make the same bytes.
+
+### Tests
+
+The tests read archives written by Python's zipfile, bsdtar, and .NET. They
+are kept in `tests/data/zip`, and `tools/make_zip_test_data.py` remade them.
+Python's include variants with:
+
+- ZIP64 fields;
+- a 65,535-byte comment;
+- an unknown extra field;
+- a code page 437 name;
+- no entries at all.
+
+Python, Info-ZIP's unzip, bsdtar, and .NET read the writer's archives. That was
+checked at development time.
+
+The tests also cover:
+
+- more than 65,535 entries;
+- an entry of 5 GiB, from a source that makes up its zeros;
+- every truncation, and inconsistent and damaged directories and data;
+- hostile names;
+- random damage.
+
+`tb_bench zip` times writing and reading 1,000 files of 4 KiB.
