@@ -17,6 +17,8 @@
 #include "badger/fmt.h"
 #include "badger/fs.h"
 #include "badger/hash.h"
+#include "badger/json.h"
+#include "badger/memory.h"
 #include "badger/path.h"
 #include "badger/str.h"
 #include "badger/thread.h"
@@ -421,4 +423,51 @@ TB_TEST(core_thread_safety, a_file_replaced_by_several_threads_is_always_one_who
     tb_fs_buffer_free(&whole);
     TB_TEST_EXPECT_UINT(tb_fs_remove(view(path)), ==, TB_FS_OK);
     TB_TEST_EXPECT_UINT(tb_fs_remove(view(root)), ==, TB_FS_OK);
+}
+
+/* --- a JSON document, read by every thread at once ------------------------------ */
+
+#define DOCUMENT_KEYS ((size_t)300)
+
+static const tb_json_value *shared_document;
+
+/* Every thread looks up every member of one document, and reads each value. */
+static void read_the_one_document(void *argument)
+{
+    worker *const self = argument;
+    for (size_t round = 0; round < 20; round++)
+    {
+        for (size_t index = 0; index < DOCUMENT_KEYS; index++)
+        {
+            const size_t key = (index + self->number * 37) % DOCUMENT_KEYS;
+            char name[24] = {0};
+            const size_t length = tb_fmt_buffer(name, sizeof(name), "member%zu", key);
+            const tb_json_value *const value = tb_json_find(shared_document, name, length);
+            int64_t number = 0;
+            count_unless(self, value != NULL && tb_json_as_int64(value, &number) &&
+                                   number == (int64_t)key);
+        }
+    }
+}
+
+TB_TEST(core_thread_safety, every_thread_can_read_one_json_document)
+{
+    worker workers[THREAD_COUNT] = {0};
+    tb_arena *const arena = tb_arena_create(0);
+    char *const text = tb_malloc(DOCUMENT_KEYS * 32 + 2);
+    size_t length = 0;
+    text[length++] = '{';
+    for (size_t key = 0; key < DOCUMENT_KEYS; key++)
+    {
+        length +=
+            tb_fmt_buffer(text + length, 32, "%s\"member%zu\":%zu", key == 0 ? "" : ",", key, key);
+    }
+    text[length++] = '}';
+    TB_TEST_REQUIRE_UINT(tb_json_parse(text, length, NULL, arena, &shared_document, NULL), ==,
+                         TB_JSON_OK);
+    run_on_every_thread(read_the_one_document, workers, NULL);
+    expect_no_wrong_answer(workers);
+    shared_document = NULL;
+    tb_free(text);
+    tb_arena_destroy(arena);
 }
