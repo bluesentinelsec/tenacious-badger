@@ -299,6 +299,11 @@ threads. See [streams](streams.md).
 CRC-32 and Adler-32, the checksums of ZIP, gzip, PNG, and zlib, are in
 `badger/checksum.h`, in one call or in pieces of any size. See [codecs](codecs.md).
 
+DEFLATE streams, raw or in zlib or gzip framing, decompress with
+`badger/deflate.h`: in one call, in pieces of any size, or as a stream that
+reads another. The decoder is built for untrusted input: fixed memory, output
+bounded by the caller, and every malformed stream reported as a result.
+
 Unsigned integers of any fixed length can be added, subtracted, multiplied,
 divided, shifted, compared, and converted to and from text in bases 2 to 36
 with `badger/xp.h`, in arrays of 32-bit digits that the caller supplies and

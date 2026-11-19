@@ -33,6 +33,7 @@ The foundation layer so far, one public header per module under
 | `fs.h`, `file.h` | [Files and directories](files.md): `fs.h` is the module's header, and includes the native interface in `file.h` |
 | `log.h` | [Logging](logging.md) with replaceable sinks |
 | `checksum.h` | [Checksums](codecs.md#checksums): CRC-32 and Adler-32 |
+| `deflate.h` | [Decompression](codecs.md#decompression) of DEFLATE, raw or in zlib or gzip framing |
 | `stream.h` | [Streams](streams.md): one interface for reading and writing bytes, over memory, files, and ranges of other streams |
 
 What these headers do the same way, such as how a function reports failure,
