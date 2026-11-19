@@ -34,7 +34,7 @@ The foundation layer so far, one public header per module under
 | `log.h` | [Logging](logging.md) with replaceable sinks |
 | `checksum.h` | [Checksums](codecs.md#checksums): CRC-32 and Adler-32 |
 | `deflate.h` | [Compression](codecs.md#compression) and [decompression](codecs.md#decompression) of DEFLATE, raw or in zlib or gzip framing |
-| `json.h` | [JSON](serialization.md): a reader of events, and documents in arenas |
+| `json.h` | [JSON](serialization.md): a reader of events, documents in arenas, and a writer |
 | `stream.h` | [Streams](streams.md): one interface for reading and writing bytes, over memory, files, and ranges of other streams |
 
 What these headers do the same way, such as how a function reports failure,

@@ -5,7 +5,7 @@ The `serialize` module reads and writes structured data. Its code lives in
 
 ## JSON
 
-`badger/json.h` reads JSON as RFC 8259 defines it, in two ways:
+`badger/json.h` reads JSON as RFC 8259 defines it, in two ways, and writes it:
 
 - **A reader** (`tb_json_reader_create`, `tb_json_reader_next`) reports each
   value as an event: a null, a boolean, a number, a string, a key, or the
@@ -60,4 +60,34 @@ mark taken before the call and rewound after releases a failed document's
 parts. The work space for open containers is on the heap and freed before
 `tb_json_parse` returns.
 
-`tb_bench json` times the reader and the document on an asset manifest.
+### Writing
+
+A writer (`tb_json_writer_create`) writes one document to a
+[stream](streams.md), through a buffer of 4 KiB, in one of two styles:
+`TB_JSON_COMPACT`, with no space at all, or `TB_JSON_INDENTED`, a value per
+line indented two spaces a level. It writes nulls, booleans, `int64_t` and
+`uint64_t` exactly, doubles as their shortest text that reads back as the same
+double, number text checked against RFC 8259's grammar, strings, keys, and
+arrays and objects. `tb_json_write_value` writes a whole document, without
+recursion; numbers keep their text.
+
+- **What JSON cannot hold is a result.** Infinity, NaN, strings or keys that
+  are not UTF-8, and number text that is not a JSON number are
+  `TB_JSON_INVALID`, nothing is written, and the document can go on.
+- **Misuse is a contract violation.** A key outside an object, a value in an
+  object without a key, an end that does not match its beginning, a second
+  value at the top, and a finish before the document is complete fail an
+  assertion.
+- **Strings escape what JSON requires**: `"`, `\`, and control characters,
+  as `\b`, `\f`, `\n`, `\r`, `\t`, or `\u00XX`. Everything else, including
+  UTF-8 and `/`, is written as it is.
+- **A sink that refuses** makes the writer return `TB_JSON_OUTPUT_FAILED` from
+  then on, including from `tb_json_writer_finish`, which passes the last of the
+  buffer to the sink.
+
+Whatever a writer writes, the reader reads back: the tests parse random
+documents, write them in both styles, parse them again, and require the second
+compact writing to equal the first byte for byte.
+
+`tb_bench json` times the reader, the document, and the writer on an asset
+manifest.

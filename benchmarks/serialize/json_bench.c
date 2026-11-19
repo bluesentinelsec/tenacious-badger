@@ -1,6 +1,6 @@
-/* JSON reading of a document like an asset manifest: an array of objects with
- * strings, numbers, booleans, and a nested array each. Operations are bytes
- * of text, so the numbers are nanoseconds per byte read. */
+/* JSON reading and writing of a document like an asset manifest: an array of
+ * objects with strings, numbers, booleans, and a nested array each.
+ * Operations are bytes of text, so the numbers are nanoseconds per byte. */
 #include "tb_bench.h"
 
 #include "badger/arena.h"
@@ -18,6 +18,8 @@ typedef struct json_state
     char *text;
     size_t length;
     tb_arena *arena;
+    const tb_json_value *document; /* Parsed once, for the writer. */
+    tb_arena *document_arena;
 } json_state;
 
 static void run_reader(void *context)
@@ -47,14 +49,31 @@ static void run_parse(void *context)
     tb_bench_keep(root == NULL ? 0 : tb_json_count(root));
 }
 
+static void run_write(void *context)
+{
+    const json_state *const state = context;
+    tb_stream sink = {0};
+    tb_json_writer *writer = NULL;
+    size_t length = 0;
+    tb_stream_open_buffer(NULL, &sink);
+    writer = tb_json_writer_create(&sink, TB_JSON_COMPACT, NULL);
+    (void)tb_json_write_value(writer, state->document);
+    (void)tb_json_writer_finish(writer);
+    tb_json_writer_destroy(writer);
+    (void)tb_stream_buffer_bytes(&sink, &length);
+    (void)tb_stream_close(&sink);
+    tb_bench_keep(length);
+}
+
 void tb_bench_json(tb_bench *bench)
 {
     json_state state = {0};
     size_t entries = 0;
     size_t capacity = 0;
-    tb_bench_case cases[2] = {
+    tb_bench_case cases[3] = {
         {.name = "read an asset manifest", .variant = "tb_json_reader_next", .run = run_reader},
         {.name = "read an asset manifest", .variant = "tb_json_parse", .run = run_parse},
+        {.name = "write an asset manifest", .variant = "tb_json_write_value", .run = run_write},
     };
     if (!tb_bench_wants(bench, "json"))
     {
@@ -75,12 +94,16 @@ void tb_bench_json(tb_bench *bench)
     }
     state.text[state.length++] = ']';
     state.arena = tb_arena_create(0);
-    for (size_t index = 0; index < 2; index++)
+    state.document_arena = tb_arena_create(0);
+    (void)tb_json_parse(state.text, state.length, NULL, state.document_arena, &state.document,
+                        NULL);
+    for (size_t index = 0; index < 3; index++)
     {
         cases[index].context = &state;
         cases[index].operations = (double)state.length;
     }
-    tb_bench_measure(bench, "json", cases, 2);
+    tb_bench_measure(bench, "json", cases, 3);
+    tb_arena_destroy(state.document_arena);
     tb_arena_destroy(state.arena);
     tb_free(state.text);
 }

@@ -851,6 +851,8 @@ const char *tb_json_result_name(tb_json_result result)
         return "too deep";
     case TB_JSON_DUPLICATE_KEY:
         return "duplicate key";
+    case TB_JSON_OUTPUT_FAILED:
+        return "output failed";
     default:
         return "unknown result";
     }

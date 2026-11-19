@@ -584,6 +584,64 @@ TB_TEST(serialize_json, random_documents_read_the_same_both_ways)
     }
 }
 
+/* Write a document into a buffer stream; return its bytes in `output`. */
+static size_t write_document(const tb_json_value *root, tb_json_style style, char *output,
+                             size_t capacity)
+{
+    tb_stream sink = {0};
+    tb_json_writer *writer = NULL;
+    const unsigned char *bytes = NULL;
+    size_t length = 0;
+    tb_stream_open_buffer(NULL, &sink);
+    writer = tb_json_writer_create(&sink, style, NULL);
+    TB_TEST_REQUIRE_UINT(tb_json_write_value(writer, root), ==, TB_JSON_OK);
+    TB_TEST_REQUIRE_UINT(tb_json_writer_finish(writer), ==, TB_JSON_OK);
+    tb_json_writer_destroy(writer);
+    bytes = tb_stream_buffer_bytes(&sink, &length);
+    TB_TEST_REQUIRE_UINT(length, <, capacity);
+    memcpy(output, bytes, length);
+    output[length] = '\0';
+    (void)tb_stream_close(&sink);
+    return length;
+}
+
+/* Parse, write, and parse again: the second writing is the first, byte for
+ * byte, and the indented style reads back to the same document. */
+TB_TEST(serialize_json, random_documents_round_trip_through_the_writer)
+{
+    static generated text;
+    static char first[1 << 17];
+    static char second[1 << 17];
+    static char indented[1 << 18];
+    for (size_t trial = 0; trial < 300; trial++)
+    {
+        tb_arena *const arena = tb_arena_create(0);
+        const tb_json_value *root = NULL;
+        const tb_json_value *again = NULL;
+        size_t first_length = 0;
+        size_t second_length = 0;
+        size_t indented_length = 0;
+        TB_TEST_CONTEXT("trial %zu", trial);
+        generate(&text);
+        TB_TEST_REQUIRE_UINT(tb_json_parse(text.text, text.length, NULL, arena, &root, NULL), ==,
+                             TB_JSON_OK);
+        first_length = write_document(root, TB_JSON_COMPACT, first, sizeof(first));
+        TB_TEST_REQUIRE_UINT(tb_json_parse(first, first_length, NULL, arena, &again, NULL), ==,
+                             TB_JSON_OK);
+        TB_TEST_REQUIRE_UINT(count_tree_events(again), ==, text.events);
+        second_length = write_document(again, TB_JSON_COMPACT, second, sizeof(second));
+        TB_TEST_REQUIRE_UINT(second_length, ==, first_length);
+        TB_TEST_REQUIRE_BYTES(second, first, first_length);
+        indented_length = write_document(root, TB_JSON_INDENTED, indented, sizeof(indented));
+        TB_TEST_REQUIRE_UINT(tb_json_parse(indented, indented_length, NULL, arena, &again, NULL),
+                             ==, TB_JSON_OK);
+        second_length = write_document(again, TB_JSON_COMPACT, second, sizeof(second));
+        TB_TEST_REQUIRE_UINT(second_length, ==, first_length);
+        TB_TEST_REQUIRE_BYTES(second, first, first_length);
+        tb_arena_destroy(arena);
+    }
+}
+
 /* Every prefix of a valid document is an error, never a crash. */
 TB_TEST(serialize_json, every_truncation_is_an_error)
 {

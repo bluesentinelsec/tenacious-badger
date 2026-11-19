@@ -39,6 +39,7 @@ set(TB_TEST_CASE_SOURCES
     core/xp_test.c
     jobs/jobs_test.c
     serialize/json_test.c
+    serialize/json_writer_test.c
     jobs/loop_test.c
     framework/selftest/checks_test.c
     framework/selftest/options_test.c

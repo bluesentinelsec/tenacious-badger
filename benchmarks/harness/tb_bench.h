@@ -197,7 +197,7 @@ void tb_bench_checksum(tb_bench *bench);
 void tb_bench_deflate(tb_bench *bench);
 /** @brief Benchmarks of DEFLATE decompression in badger/deflate.h. */
 void tb_bench_inflate(tb_bench *bench);
-/** @brief Benchmarks of reading JSON with badger/json.h. */
+/** @brief Benchmarks of reading and writing JSON with badger/json.h. */
 void tb_bench_json(tb_bench *bench);
 /** @brief Benchmarks of badger/xp.h. */
 void tb_bench_xp(tb_bench *bench);
