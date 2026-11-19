@@ -1,5 +1,29 @@
 add_subdirectory(framework)
 
+# Embeds the files of a directory of tests/data that match a glob, as the array
+# NAME of tb_test_file (see support/test_data.h), in the C source that OUTPUT
+# names, to add to a test executable's sources. Several executables share the
+# source, so one target makes it, and each of them waits for that target: with
+# Makefiles, executables that each ran the command would race to write it.
+function(tb_embed_test_data output name directory pattern)
+    set(source_directory "${CMAKE_CURRENT_SOURCE_DIR}/data/${directory}")
+    file(GLOB files CONFIGURE_DEPENDS "${source_directory}/${pattern}")
+    set(source "${CMAKE_CURRENT_BINARY_DIR}/test_data/${name}.c")
+    add_custom_command(OUTPUT "${source}"
+        COMMAND "${CMAKE_COMMAND}" "-DOUTPUT=${source}" "-DNAME=${name}"
+            "-DDIRECTORY=${source_directory}" "-DPATTERN=${pattern}"
+            -P "${PROJECT_SOURCE_DIR}/cmake/EmbedTestData.cmake"
+        DEPENDS ${files} "${PROJECT_SOURCE_DIR}/cmake/EmbedTestData.cmake"
+        COMMENT "Embedding test data ${directory}/${pattern}"
+        VERBATIM)
+    add_custom_target(${name}_data DEPENDS "${source}")
+    set_property(GLOBAL APPEND PROPERTY TB_TEST_DATA_TARGETS ${name}_data)
+    set(${output} "${source}" PARENT_SCOPE)
+endfunction()
+
+# JSONTestSuite's parsing corpus (MIT; see data/jsontestsuite/README.md).
+tb_embed_test_data(TB_JSON_SUITE_SOURCE tb_json_suite_files jsontestsuite/test_parsing "*.json")
+
 # Every test case of the project, in one executable: tb_tests. Add the source
 # of a new test here. Suites are named <module>_<feature>, so one pattern
 # selects a module (tb_tests "core_*") or a feature (tb_tests "core_sum.*").
@@ -40,6 +64,8 @@ set(TB_TEST_CASE_SOURCES
     core/xp_test.c
     jobs/jobs_test.c
     serialize/json_test.c
+    serialize/json_suite_test.c
+    ${TB_JSON_SUITE_SOURCE}
     serialize/json_writer_test.c
     jobs/loop_test.c
     framework/selftest/checks_test.c
@@ -62,6 +88,10 @@ function(tb_add_tests target)
         # The framework's own cases test its internal interfaces.
         "${CMAKE_CURRENT_SOURCE_DIR}/framework/src")
     tb_configure_target(${target})
+    get_property(data_targets GLOBAL PROPERTY TB_TEST_DATA_TARGETS)
+    if(data_targets)
+        add_dependencies(${target} ${data_targets})
+    endif()
 endfunction()
 
 tb_add_tests(tb_tests SOURCES ${TB_TEST_CASE_SOURCES} LIBRARIES TenaciousBadger::badger)

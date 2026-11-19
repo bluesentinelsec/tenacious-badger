@@ -206,6 +206,29 @@ behavior that must terminate. `tb_platform_default_probe` does, for the
 [default platform adapter](platforms.md#unsupported-platforms), whose every
 function reports "not implemented" and ends the process.
 
+### Test data
+
+Most inputs are written in C, or generated into a header by a script in
+`tools/` (such as `tests/codec/deflate_vectors.h`). Data that cannot be, such
+as a published corpus or archives other tools made, lives under `tests/data/`,
+one directory per source, with its license and a README that says where it
+came from. Git keeps it byte for byte (`.gitattributes` turns off line-ending
+conversion there).
+
+`tb_embed_test_data` in `tests/CMakeLists.txt` builds such files into the
+tests, so `tb_tests` still needs nothing beside it:
+
+```cmake
+tb_embed_test_data(TB_JSON_SUITE_SOURCE tb_json_suite_files
+    jsontestsuite/test_parsing "*.json")
+```
+
+It writes a C source that defines `tb_json_suite_files`, an array of
+`tb_test_file` (`tests/support/test_data.h`) in the order of the file names,
+and `tb_json_suite_files_count`; list the variable it sets among the test
+sources. A test declares the array with `extern`. Each file's bytes end in a
+zero its length does not count, so text can be read as a C string.
+
 ### How cases are found
 
 When a test executable builds, a CMake script scans its `SOURCES` for
