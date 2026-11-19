@@ -39,6 +39,7 @@ The foundation layer so far, one public header per module under
 | `chacha20.h` | [ChaCha20](codecs.md#chacha20): a keystream from any offset, and a stream that applies it |
 | `deflate.h` | [Compression](codecs.md#compression) and [decompression](codecs.md#decompression) of DEFLATE, raw or in zlib or gzip framing |
 | `tar.h` | [TAR archives](archives.md#tar), read and written in order through streams |
+| `package.h` | [Packages](packages.md): the engine's archive of cooked assets, compressed and optionally obfuscated |
 | `zip.h` | [ZIP archives](archives.md#zip): entries found by name and read as streams, and written stored or deflated |
 | `json.h` | [JSON](serialization.md): a reader of events, documents in arenas, and a writer |
 | `stream.h` | [Streams](streams.md): one interface for reading and writing bytes, over memory, files, and ranges of other streams |

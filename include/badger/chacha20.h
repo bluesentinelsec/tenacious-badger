@@ -20,7 +20,9 @@
  * @par Threading
  * tb_chacha20_block() and tb_chacha20_xor() are thread-safe. A stream from
  * tb_chacha20_open_stream() is externally synchronized, except that reads at
- * an offset are as thread-safe as the inner stream's.
+ * an offset are as thread-safe as the inner stream's. Opening one is
+ * externally synchronized with the inner stream: open it once, then read it
+ * at offsets from many threads.
  */
 #ifndef TB_CHACHA20_H
 #define TB_CHACHA20_H
@@ -91,7 +93,8 @@ TB_API void tb_chacha20_xor(const uint8_t key[TB_CHACHA20_KEY_SIZE],
  * @return OK, or the inner stream's failure to tell its position.
  * @par Errors Running out of memory ends the process. Positions past
  * TB_CHACHA20_MAX_LENGTH are read and written as TB_STREAM_TOO_LARGE.
- * @par Threading Thread-safe; the new stream is the caller's.
+ * @par Threading Externally synchronized with every other use of `inner`,
+ * since telling its position may move it; the new stream is the caller's.
  */
 TB_API tb_stream_result tb_chacha20_open_stream(tb_stream *inner,
                                                 const uint8_t key[TB_CHACHA20_KEY_SIZE],

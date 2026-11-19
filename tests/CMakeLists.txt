@@ -39,6 +39,7 @@ set(TB_TEST_CASE_SOURCES
     codec/checksum_test.c
     codec/deflate_test.c
     codec/inflate_test.c
+    codec/package_test.c
     codec/sha256_test.c
     codec/tar_test.c
     ${TB_TAR_DATA_SOURCE}

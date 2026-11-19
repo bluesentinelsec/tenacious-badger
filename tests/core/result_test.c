@@ -7,6 +7,7 @@
 #include "badger/fs.h"
 #include "badger/json.h"
 #include "badger/log.h"
+#include "badger/package.h"
 #include "badger/path.h"
 #include "badger/str.h"
 #include "badger/stream.h"
@@ -42,6 +43,11 @@ static const char *name_of_fs(int result)
 static const char *name_of_log(int result)
 {
     return tb_log_result_name((tb_log_result)result);
+}
+
+static const char *name_of_package(int result)
+{
+    return tb_package_result_name((tb_package_result)result);
 }
 
 static const char *name_of_path(int result)
@@ -82,6 +88,7 @@ TB_TEST(core_result, every_result_has_a_name_of_its_own)
         {"fs", name_of_fs, TB_FS_END},
         {"json", name_of_json, TB_JSON_OUTPUT_FAILED},
         {"log", name_of_log, TB_LOG_TOO_LARGE},
+        {"package", name_of_package, TB_PACKAGE_OUTPUT_FAILED},
         {"path", name_of_path, TB_PATH_TOO_LARGE},
         {"stream", name_of_stream, TB_STREAM_OS_ERROR},
         {"tar", name_of_tar, TB_TAR_OUTPUT_FAILED},

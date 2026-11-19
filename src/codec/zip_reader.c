@@ -6,6 +6,7 @@
 #include "badger/deflate.h"
 #include "badger/table.h"
 #include "badger/utf8.h"
+#include "entry_stream.h"
 #include "zip_internal.h"
 
 #include <stdbool.h>
@@ -790,86 +791,6 @@ bool tb_zip_find(const tb_zip_archive *archive, const char *name, size_t length,
  * Entry streams.
  * ------------------------------------------------------------------------- */
 
-typedef struct tb_zip_entry_stream
-{
-    tb_stream range;    /* The compressed bytes. */
-    tb_stream inflated; /* Over the range, for a deflated entry; closed otherwise. */
-    tb_stream *data;    /* Whichever of the two gives the entry's bytes. */
-    tb_allocator allocator;
-    uint64_t remaining;
-    uint32_t crc32;
-    uint32_t expected_crc32;
-    bool failed;
-    bool verified;
-} tb_zip_entry_stream;
-
-/* At the end of the size: nothing may follow, and the CRC-32 must match. */
-static bool tb_zip_entry_verify(tb_zip_entry_stream *stream)
-{
-    unsigned char extra = 0;
-    size_t count = 0;
-    const tb_stream_result result = tb_stream_read(stream->data, &extra, 1, &count);
-    stream->verified = true;
-    return result == TB_STREAM_OK && count == 0 && stream->crc32 == stream->expected_crc32;
-}
-
-static tb_stream_result tb_zip_entry_read(void *state, void *bytes, size_t capacity,
-                                          size_t *transferred)
-{
-    tb_zip_entry_stream *const stream = state;
-    size_t want = capacity;
-    tb_stream_result result = TB_STREAM_OK;
-    *transferred = 0;
-    if (stream->failed)
-    {
-        return TB_STREAM_MALFORMED;
-    }
-    if (stream->remaining < want)
-    {
-        want = (size_t)stream->remaining;
-    }
-    if (want > 0)
-    {
-        result = tb_stream_read(stream->data, bytes, want, transferred);
-        stream->crc32 = tb_crc32_update(stream->crc32, bytes, *transferred);
-        stream->remaining -= *transferred;
-        if (result == TB_STREAM_END || result == TB_STREAM_MALFORMED ||
-            (result == TB_STREAM_OK && *transferred == 0))
-        {
-            stream->failed = true;
-            return TB_STREAM_MALFORMED;
-        }
-        if (result != TB_STREAM_OK)
-        {
-            return result;
-        }
-    }
-    if (stream->remaining == 0 && !stream->verified && !tb_zip_entry_verify(stream))
-    {
-        stream->failed = true;
-        return TB_STREAM_MALFORMED;
-    }
-    return TB_STREAM_OK;
-}
-
-static tb_stream_result tb_zip_entry_release(void *state)
-{
-    tb_zip_entry_stream *const stream = state;
-    const tb_allocator allocator = stream->allocator;
-    if (stream->inflated.functions != NULL)
-    {
-        (void)tb_stream_close(&stream->inflated);
-    }
-    (void)tb_stream_close(&stream->range);
-    TB_ALLOCATOR_DELETE(&allocator, tb_zip_entry_stream, stream);
-    return TB_STREAM_OK;
-}
-
-static const tb_stream_functions tb_zip_entry_functions = {
-    .read_bytes = tb_zip_entry_read,
-    .release = tb_zip_entry_release,
-};
-
 /* Read the local header and find where the entry's data begins. */
 static tb_zip_result tb_zip_locate_data(tb_zip_archive *archive, const tb_zip_record *record,
                                         uint64_t *data_offset)
@@ -936,7 +857,7 @@ tb_zip_result tb_zip_open_entry(tb_zip_archive *archive, size_t index,
     const uint16_t encryption =
         TB_ZIP_FLAG_ENCRYPTED | TB_ZIP_FLAG_STRONG_ENCRYPTION | TB_ZIP_FLAG_MASKED_HEADERS;
     const tb_zip_record *record = NULL;
-    tb_zip_entry_stream *state = NULL;
+    tb_entry_layers layers = {0};
     uint64_t data_offset = 0;
     tb_zip_result result = TB_ZIP_OK;
     TB_ASSERT(archive != NULL);
@@ -954,25 +875,19 @@ tb_zip_result tb_zip_open_entry(tb_zip_archive *archive, size_t index,
     {
         return result;
     }
-    state = TB_ALLOCATOR_NEW(&resolved, tb_zip_entry_stream);
-    state->allocator = resolved;
-    state->remaining = record->size;
-    state->expected_crc32 = record->crc32;
     if (tb_stream_open_range(&archive->source, data_offset, record->compressed_size, &resolved,
-                             &state->range) != TB_STREAM_OK)
+                             &layers.layers[0]) != TB_STREAM_OK)
     {
-        TB_ALLOCATOR_DELETE(&resolved, tb_zip_entry_stream, state);
         return TB_ZIP_MALFORMED;
     }
-    state->data = &state->range;
+    layers.count = 1;
     if (record->method == TB_ZIP_DEFLATED)
     {
         const tb_stream_result opened =
-            tb_inflate_open_stream(&state->range, TB_DEFLATE_RAW, &resolved, &state->inflated);
+            tb_inflate_open_stream(&layers.layers[0], TB_DEFLATE_RAW, &resolved, &layers.layers[1]);
         TB_ASSERT(opened == TB_STREAM_OK);
-        state->data = &state->inflated;
+        layers.count = 2;
     }
-    stream->functions = &tb_zip_entry_functions;
-    stream->state = state;
+    tb_entry_stream_open(&layers, record->size, record->crc32, &resolved, stream);
     return TB_ZIP_OK;
 }

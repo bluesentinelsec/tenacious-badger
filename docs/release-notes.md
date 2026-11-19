@@ -314,6 +314,14 @@ using nothing but CMake. The key is never stored whole: three parts in arrays
 of their own are put together when it is asked for, so `strings` and a search
 of the executable do not find it. See [packages](packages.md).
 
+Packages, the engine's own archive of cooked assets, write and read with
+`badger/package.h`. Each entry is compressed on its own or stored, names are
+found in O(log n), and entries are read at their offsets from many threads at
+once. A package written with the game's key is obfuscated whole with
+ChaCha20, under a key of its own from a random salt, and a wrong key is told
+from damage. The whole index is checked before any entry is read. See
+[packages](packages.md).
+
 JSON reads with `badger/json.h`, as a stream of events or as a document in an
 arena with indexed lookups. Untrusted text cannot exhaust the stack, and every
 error reports its line, column, and reason. A writer writes it back, compact or
