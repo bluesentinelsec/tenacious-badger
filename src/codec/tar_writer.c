@@ -1,9 +1,9 @@
 /* Writing TAR archives in order to a stream. */
 #include "badger/tar.h"
 
+#include "archive_internal.h"
 #include "badger/assert.h"
 #include "badger/str.h"
-#include "badger/utf8.h"
 #include "tar_internal.h"
 
 #include <stdbool.h>
@@ -63,37 +63,6 @@ static size_t tb_tar_padding_of(uint64_t size)
  * What an entry may be.
  * ------------------------------------------------------------------------- */
 
-static bool tb_tar_is_text(const char *text, size_t length)
-{
-    size_t error = 0;
-    return text != NULL && length > 0 && memchr(text, '\0', length) == NULL &&
-           tb_utf8_validate(text, length, &error);
-}
-
-/* A relative path whose components are neither empty, ".", nor "..". */
-static bool tb_tar_is_relative_path(const char *name, size_t length)
-{
-    size_t start = 0;
-    if (!tb_tar_is_text(name, length))
-    {
-        return false;
-    }
-    while (start <= length)
-    {
-        const char *const slash = memchr(name + start, '/', length - start);
-        const size_t end = slash == NULL ? length : (size_t)(slash - name);
-        const size_t component = end - start;
-        const bool dots = (component == 1 && name[start] == '.') ||
-                          (component == 2 && name[start] == '.' && name[start + 1] == '.');
-        if (component == 0 || dots)
-        {
-            return false;
-        }
-        start = end + 1;
-    }
-    return true;
-}
-
 static bool tb_tar_is_link(tb_tar_type type)
 {
     return type == TB_TAR_SYMLINK || type == TB_TAR_HARDLINK;
@@ -106,11 +75,11 @@ static bool tb_tar_entry_is_valid(const tb_tar_entry *entry)
     {
         return false;
     }
-    if (!tb_tar_is_relative_path(entry->name, entry->name_length))
+    if (!tb_archive_is_relative_path(entry->name, entry->name_length))
     {
         return false;
     }
-    if (tb_tar_is_link(entry->type) ? !tb_tar_is_text(entry->link, entry->link_length)
+    if (tb_tar_is_link(entry->type) ? !tb_archive_is_text(entry->link, entry->link_length)
                                     : entry->link_length != 0)
     {
         return false;
