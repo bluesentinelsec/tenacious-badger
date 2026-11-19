@@ -62,6 +62,7 @@ static const tb_bench_module tb_bench_modules[] = {
     {"inflate", tb_bench_inflate},
     {"deflate", tb_bench_deflate},
     {"sha256", tb_bench_sha256},
+    {"tar", tb_bench_tar},
 };
 
 #define TB_BENCH_MODULE_COUNT (sizeof(tb_bench_modules) / sizeof(tb_bench_modules[0]))
