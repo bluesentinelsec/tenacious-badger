@@ -27,7 +27,12 @@ struct tb_package
     tb_allocator allocator;
     bool obfuscated;
     uint8_t key[TB_CHACHA20_KEY_SIZE]; /* The package's own. */
-    tb_package_record *records;        /* In the order of their names. */
+    /* For an obfuscated package, the source as it was before obfuscation.
+     * It is opened once, with the package, because opening it tells the
+     * source's position; entries then only read it at offsets, which many
+     * threads may do at once. */
+    tb_stream restored;
+    tb_package_record *records; /* In the order of their names. */
     size_t count;
     char *names;
     size_t names_size;     /* Bytes used. */
@@ -293,6 +298,15 @@ tb_package_result tb_package_open(tb_stream *source, const uint8_t *key,
     {
         result = tb_package_check_overlaps(opened);
     }
+    if (result == TB_PACKAGE_OK && opened->obfuscated)
+    {
+        const tb_stream_result restored = tb_chacha20_open_stream(
+            &opened->source, opened->key, tb_package_nonce, &resolved, &opened->restored);
+        if (restored != TB_STREAM_OK)
+        {
+            result = TB_PACKAGE_INPUT_FAILED;
+        }
+    }
     if (result != TB_PACKAGE_OK)
     {
         tb_package_close(opened);
@@ -318,6 +332,10 @@ void tb_package_close(tb_package *package)
     if (package->names != NULL)
     {
         tb_allocator_free(&allocator, package->names, package->names_capacity, 1);
+    }
+    if (package->restored.functions != NULL)
+    {
+        (void)tb_stream_close(&package->restored);
     }
     tb_package_wipe(package->key, sizeof(package->key));
     TB_ALLOCATOR_DELETE(&allocator, tb_package, package);
@@ -399,17 +417,10 @@ void tb_package_open_entry(tb_package *package, size_t index, const tb_allocator
     TB_ASSERT_MSG(index < package->count, "no entry at that index");
     record = &package->records[index];
     /* Obfuscated bytes are restored by their offset in the package, so the
-     * keystream wraps the whole source and the range is taken from it. */
-    if (package->obfuscated)
-    {
-        opened = tb_chacha20_open_stream(&package->source, package->key, tb_package_nonce,
-                                         &resolved, &layers.layers[layers.count]);
-        TB_ASSERT(opened == TB_STREAM_OK);
-        layers.count++;
-    }
-    opened = tb_stream_open_range(
-        layers.count == 0 ? &package->source : &layers.layers[layers.count - 1], record->offset,
-        record->stored_size, &resolved, &layers.layers[layers.count]);
+     * range is taken from the restored source, never the other way around. */
+    opened = tb_stream_open_range(package->obfuscated ? &package->restored : &package->source,
+                                  record->offset, record->stored_size, &resolved,
+                                  &layers.layers[layers.count]);
     TB_ASSERT(opened == TB_STREAM_OK);
     layers.count++;
     if (record->codec == TB_PACKAGE_DEFLATED)

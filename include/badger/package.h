@@ -115,7 +115,8 @@ typedef struct tb_package tb_package;
  * @param[out] package Required; the package on OK, for tb_package_close(); NULL otherwise.
  * @return OK; KEY_REQUIRED, WRONG_KEY, UNSUPPORTED, MALFORMED, TOO_LARGE, or INPUT_FAILED.
  * @par Errors Running out of memory ends the process.
- * @par Threading Thread-safe; the package is the caller's.
+ * @par Threading Externally synchronized with every other use of `source`;
+ * the package is the caller's.
  */
 TB_API tb_package_result tb_package_open(tb_stream *source, const uint8_t *key,
                                          const tb_package_options *options,
