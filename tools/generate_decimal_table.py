@@ -1,8 +1,11 @@
-"""Write src/core/decimal_table.h: the powers of ten of the shortest conversion.
+"""Write src/core/decimal_table.h: the powers of ten of the fast conversions.
 
 tb_decimal_shortest() finds the shortest decimal of a double with the
 Schubfach algorithm (Raffaello Giulietti, "The Schubfach way to render
-doubles", 2020). It multiplies by 10^-k, for k from -292 to 326, held as a
+doubles", 2020), which multiplies by 10^-k for k from -292 to 326. Rounding
+to a number of digits (%e, %f, %g) and reading a decimal multiply by the
+same powers, and reading reaches down to 10^-342: the smallest double, about
+4.9e-324, is 49 * 10^-325, and 19 digits go further. Each power is held as a
 number g of 128 bits with the power of two that scales it to [2^127, 2^128):
 
     e = floor(log2(10^k)) + 1 - 128
@@ -10,15 +13,16 @@ number g of 128 bits with the power of two that scales it to [2^127, 2^128):
 
 Each g is computed here exactly, with Python's integers. The table is
 committed so that the build needs no Python; the engine's tests compare the
-conversion with an exact one over every binary exponent, which reaches every
-entry, so a hand edit or a stale generator is caught.
+conversions with exact ones over every binary exponent and over decimals of
+every exponent, which reach every entry, so a hand edit or a stale generator
+is caught.
 
 Run from the repository root: python tools/generate_decimal_table.py
 """
 
 from pathlib import Path
 
-LOWEST = -292
+LOWEST = -342
 HIGHEST = 326
 
 

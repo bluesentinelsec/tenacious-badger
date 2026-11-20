@@ -569,6 +569,388 @@ void tb_decimal_shortest_fast(const tb_decimal_parts *parts, tb_decimal_exact *r
     }
 }
 
+/* --- a fixed number of digits, and reading, fast ----------------------------------------- */
+
+/* Both multiply by a power of ten from the table above, and both must round
+ * a product that may err. An entry of the table is 10^t rounded up, so the
+ * product of a number n with it is at most n above the true product, and
+ * exact for 10^0 to 10^55, which 128 bits hold exactly (10^t = 5^t * 2^t,
+ * and 5^55 < 2^128). Where the error leaves the rounding open, as at a tie
+ * the product cannot see, the fast form gives up, and the exact form, in
+ * big integers, decides. */
+
+/* The highest power of ten that the table holds exactly. */
+#define DECIMAL_TABLE_EXACT_HIGHEST 55
+
+/* The most significant digits rounded fast: the rounded number, and ten
+ * times it while the exponent is being found, fit in 64 bits. */
+#define DECIMAL_FAST_SIGNIFICANT_MAX ((size_t)17)
+
+/* The most decimal digits read fast: 10^19 < 2^64. */
+#define DECIMAL_FAST_READ_DIGITS ((size_t)19)
+
+/* Bits of a product of 64 by 128 bits. */
+#define DECIMAL_PRODUCT_BITS 192
+
+/* A number of 192 bits, lowest word first. */
+typedef struct decimal_u192
+{
+    uint64_t word[3];
+} decimal_u192;
+
+/* `value` times the table's entry g, high word first. */
+static decimal_u192 decimal_multiply_entry(uint64_t value, const uint64_t g[2])
+{
+    const decimal_u128 low = decimal_multiply_64(value, g[1]);
+    const decimal_u128 high = decimal_multiply_64(value, g[0]);
+    decimal_u192 product = {{0}};
+
+    product.word[0] = low.low;
+    product.word[1] = low.high + high.low;
+    product.word[2] = high.high + (product.word[1] < low.high ? 1u : 0u);
+    return product;
+}
+
+static bool decimal_u192_bit(const decimal_u192 *number, unsigned bit)
+{
+    return ((number->word[bit / 64u] >> (bit % 64u)) & 1u) != 0;
+}
+
+/* Whether any bit at or above `bit` is set. */
+static bool decimal_u192_any_from(const decimal_u192 *number, unsigned bit)
+{
+    unsigned word = bit / 64u;
+
+    if (bit >= DECIMAL_PRODUCT_BITS)
+    {
+        return false;
+    }
+    if ((number->word[word] >> (bit % 64u)) != 0)
+    {
+        return true;
+    }
+    for (word++; word < 3u; word++)
+    {
+        if (number->word[word] != 0)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* The 64 bits from `bit` up. */
+static uint64_t decimal_u192_bits_from(const decimal_u192 *number, unsigned bit)
+{
+    const unsigned word = bit / 64u;
+    const unsigned offset = bit % 64u;
+    uint64_t bits = 0;
+
+    if (bit >= DECIMAL_PRODUCT_BITS)
+    {
+        return 0;
+    }
+    bits = number->word[word] >> offset;
+    if (offset != 0 && word + 1u < 3u)
+    {
+        bits |= number->word[word + 1u] << (64u - offset);
+    }
+    return bits;
+}
+
+/* Whether the number formed by the bits below `bit` is at least `value`. */
+static bool decimal_u192_low_at_least(const decimal_u192 *number, unsigned bit, uint64_t value)
+{
+    uint64_t lowest = number->word[0];
+
+    if (bit > 64u)
+    {
+        /* Any bit from 64 up to `bit` makes it larger than any 64-bit value. */
+        for (unsigned word = 1; word * 64u < bit; word++)
+        {
+            const unsigned width = bit - word * 64u;
+            const uint64_t mask = width >= 64u ? UINT64_MAX : (UINT64_C(1) << width) - 1u;
+
+            if ((number->word[word] & mask) != 0)
+            {
+                return true;
+            }
+        }
+    }
+    else if (bit < 64u)
+    {
+        lowest &= (UINT64_C(1) << bit) - 1u;
+    }
+    return lowest >= value;
+}
+
+/* How a product p, at most `error` above the true one, rounds at bit
+ * `shift`: whether the true product's part below that bit is less than
+ * half of it, more, exactly half, or too close to half to say. A true part
+ * that is a little below zero, which the error allows, is a part close to
+ * the whole of the place below, which rounds up to the same result as a
+ * part close to zero rounds down to. */
+typedef enum decimal_rounding
+{
+    DECIMAL_ROUND_DOWN,
+    DECIMAL_ROUND_UP,
+    DECIMAL_ROUND_TIE,
+    DECIMAL_ROUND_UNSURE
+} decimal_rounding;
+
+static decimal_rounding decimal_rounding_of(const decimal_u192 *product, unsigned shift,
+                                            uint64_t error)
+{
+    TB_ASSERT(shift >= 1 && shift <= DECIMAL_PRODUCT_BITS);
+    if (!decimal_u192_bit(product, shift - 1u))
+    {
+        return DECIMAL_ROUND_DOWN;
+    }
+    /* At least half: by how much is the part below the half bit. */
+    if (error == 0)
+    {
+        return decimal_u192_low_at_least(product, shift - 1u, 1) ? DECIMAL_ROUND_UP
+                                                                 : DECIMAL_ROUND_TIE;
+    }
+    return decimal_u192_low_at_least(product, shift - 1u, error) ? DECIMAL_ROUND_UP
+                                                                 : DECIMAL_ROUND_UNSURE;
+}
+
+static unsigned decimal_bit_length_64(uint64_t value)
+{
+    unsigned length = 0;
+
+    while (value != 0)
+    {
+        length++;
+        value >>= 1;
+    }
+    return length;
+}
+
+/* round(c * 2^q * 10^t), ties to even, where 64 by 128 bits decide it and
+ * the result fits in 64 bits. */
+static bool decimal_scaled_round(uint64_t c, int32_t q, int32_t t, uint64_t *rounded)
+{
+    const uint64_t *g = NULL;
+    int32_t shift = 0;
+    decimal_u192 product = {{0}};
+    uint64_t result = 0;
+
+    if (t < TB_DECIMAL_TABLE_LOWEST || t > TB_DECIMAL_TABLE_HIGHEST)
+    {
+        return false;
+    }
+    g = tb_decimal_table[t - TB_DECIMAL_TABLE_LOWEST];
+    /* The entry is 10^t / 2^(floor(log2(10^t)) + 1 - 128). */
+    shift = -(q + decimal_floor_log2_pow10(t) + 1 - 128);
+    if (shift < 1)
+    {
+        return false;
+    }
+    product = decimal_multiply_entry(c, g);
+    if (shift > DECIMAL_PRODUCT_BITS)
+    {
+        /* Less than half: the product has fewer bits than the shift. */
+        *rounded = 0;
+        return true;
+    }
+    if (decimal_u192_any_from(&product, (unsigned)shift + 64u))
+    {
+        return false;
+    }
+    result = decimal_u192_bits_from(&product, (unsigned)shift);
+    switch (decimal_rounding_of(&product, (unsigned)shift,
+                                t >= 0 && t <= DECIMAL_TABLE_EXACT_HIGHEST ? 0 : c))
+    {
+    case DECIMAL_ROUND_DOWN:
+        break;
+    case DECIMAL_ROUND_UP:
+        result++;
+        break;
+    case DECIMAL_ROUND_TIE:
+        result += result & 1u;
+        break;
+    case DECIMAL_ROUND_UNSURE:
+        return false;
+    }
+    /* Rounding up past 64 bits wraps to zero, which no value that rounds
+     * up can be. */
+    if (result == 0 && decimal_u192_bit(&product, (unsigned)shift - 1u))
+    {
+        return false;
+    }
+    *rounded = result;
+    return true;
+}
+
+/* The digits of `value` * 10^exponent, or zero. */
+static void decimal_from_rounded(uint64_t value, int exponent, tb_decimal_exact *result)
+{
+    if (value == 0)
+    {
+        result->count = 0;
+        result->exponent = 0;
+        return;
+    }
+    decimal_from_integer(value, exponent, result);
+}
+
+bool tb_decimal_round_significant_fast(uint64_t mantissa, int exponent, size_t significant,
+                                       tb_decimal_exact *result)
+{
+    uint64_t limit = 1;
+    uint64_t rounded = 0;
+    int32_t t = 0;
+
+    TB_ASSERT(result != NULL);
+    TB_ASSERT(significant >= 1);
+    if (mantissa == 0)
+    {
+        decimal_from_rounded(0, 0, result);
+        return true;
+    }
+    if (significant > DECIMAL_FAST_SIGNIFICANT_MAX)
+    {
+        return false;
+    }
+    for (size_t digit = 0; digit < significant; digit++)
+    {
+        limit *= 10u;
+    }
+    /* The value is in [2^b, 2^(b+1)), so its decimal exponent is this or
+     * one more, and the first try scales it to [10^(s-1), 10^(s+1)). */
+    t = (int32_t)significant - 1 -
+        decimal_floor_log10_pow2(exponent + (int32_t)decimal_bit_length_64(mantissa) - 1, false);
+    if (!decimal_scaled_round(mantissa, exponent, t, &rounded))
+    {
+        return false;
+    }
+    /* Past 10^s, the exponent was one more. Exactly 10^s is a value that
+     * rounds up to it, at either exponent: 1 at the place above. */
+    if (rounded > limit)
+    {
+        t--;
+        if (!decimal_scaled_round(mantissa, exponent, t, &rounded))
+        {
+            return false;
+        }
+    }
+    decimal_from_rounded(rounded, -t, result);
+    return true;
+}
+
+bool tb_decimal_round_fraction_fast(uint64_t mantissa, int exponent, size_t fraction_digits,
+                                    tb_decimal_exact *result)
+{
+    uint64_t rounded = 0;
+
+    TB_ASSERT(result != NULL);
+    if (fraction_digits > (size_t)TB_DECIMAL_TABLE_HIGHEST)
+    {
+        return false;
+    }
+    if (!decimal_scaled_round(mantissa, exponent, (int32_t)fraction_digits, &rounded))
+    {
+        return false;
+    }
+    decimal_from_rounded(rounded, -(int)fraction_digits, result);
+    return true;
+}
+
+void tb_decimal_round_significant(uint64_t mantissa, int exponent, size_t significant,
+                                  tb_decimal_exact *result)
+{
+    if (tb_decimal_round_significant_fast(mantissa, exponent, significant, result))
+    {
+        return;
+    }
+    tb_decimal_exact_of(mantissa, exponent, result);
+    tb_decimal_round(result, (ptrdiff_t)significant);
+}
+
+void tb_decimal_round_fraction(uint64_t mantissa, int exponent, size_t fraction_digits,
+                               tb_decimal_exact *result)
+{
+    if (tb_decimal_round_fraction_fast(mantissa, exponent, fraction_digits, result))
+    {
+        return;
+    }
+    tb_decimal_exact_of(mantissa, exponent, result);
+    if (result->count > 0)
+    {
+        tb_decimal_round(result, (ptrdiff_t)result->exponent + 1 + (ptrdiff_t)fraction_digits);
+    }
+}
+
+bool tb_decimal_read_fast(uint64_t digits, int64_t exponent, bool negative, double *value)
+{
+    const unsigned zeros = 64u - decimal_bit_length_64(digits);
+    uint64_t normalized = 0;
+    const uint64_t *g = NULL;
+    int32_t binary_exponent = 0;
+    decimal_u192 product = {{0}};
+    uint64_t error = 0;
+    unsigned top = 0;
+    unsigned shift = 0;
+    uint64_t mantissa = 0;
+
+    TB_ASSERT(value != NULL);
+    if (digits == 0 || exponent < TB_DECIMAL_TABLE_LOWEST || exponent > TB_DECIMAL_TABLE_HIGHEST)
+    {
+        return false;
+    }
+    normalized = digits << zeros;
+    g = tb_decimal_table[exponent - TB_DECIMAL_TABLE_LOWEST];
+    product = decimal_multiply_entry(normalized, g);
+    error = exponent >= 0 && exponent <= DECIMAL_TABLE_EXACT_HIGHEST ? 0 : normalized;
+    /* The true product, of at least 2^63 and 2^127, is at least 2^190. Its
+     * top bit is 191 only if it is past 2^191 by more than the error. */
+    top = decimal_u192_bit(&product, DECIMAL_PRODUCT_BITS - 1u) ? DECIMAL_PRODUCT_BITS - 1u
+                                                                : DECIMAL_PRODUCT_BITS - 2u;
+    if (top == DECIMAL_PRODUCT_BITS - 1u && error != 0 &&
+        !decimal_u192_low_at_least(&product, top, error))
+    {
+        return false;
+    }
+    /* Keep the 53 bits from the top. */
+    shift = top - DECIMAL_FRACTION_BITS;
+    mantissa = decimal_u192_bits_from(&product, shift);
+    switch (decimal_rounding_of(&product, shift, error))
+    {
+    case DECIMAL_ROUND_DOWN:
+        break;
+    case DECIMAL_ROUND_UP:
+        mantissa++;
+        break;
+    case DECIMAL_ROUND_TIE:
+        mantissa += mantissa & 1u;
+        break;
+    case DECIMAL_ROUND_UNSURE:
+        return false;
+    }
+    /* The value is mantissa * 2^binary_exponent. */
+    binary_exponent =
+        (int32_t)shift + decimal_floor_log2_pow10((int32_t)exponent) + 1 - 128 - (int32_t)zeros;
+    if (mantissa == DECIMAL_HIDDEN_BIT << 1)
+    {
+        mantissa = DECIMAL_HIDDEN_BIT;
+        binary_exponent++;
+    }
+    /* Subnormal and infinite results are left to the exact form. */
+    if (binary_exponent < DECIMAL_LOWEST_BIT_EXPONENT ||
+        binary_exponent >
+            DECIMAL_SPECIAL_EXPONENT - 1 - DECIMAL_EXPONENT_BIAS - DECIMAL_FRACTION_BITS)
+    {
+        return false;
+    }
+    *value = decimal_value_of(
+        (negative ? DECIMAL_SIGN_BIT : 0) |
+        ((uint64_t)(binary_exponent - DECIMAL_LOWEST_BIT_EXPONENT + 1) << DECIMAL_FRACTION_BITS) |
+        (mantissa & DECIMAL_FRACTION_MASK));
+    return true;
+}
+
 /* Appends bytes to a text being built in a buffer that is large enough. */
 typedef struct decimal_text
 {
@@ -999,6 +1381,48 @@ static double decimal_value_of_reading(decimal_reading *reading, bool negative)
         !(tb_xp_length(denominator_length, remainder) == 1 && remainder[0] == 0), -shift, negative);
 }
 
+/* The kept digits as a number, read fast where they fit in 64 bits and
+ * nothing was dropped after them. */
+static bool decimal_read_reading_fast(const decimal_reading *reading, bool negative, double *value)
+{
+    uint64_t digits = 0;
+
+    if (reading->sticky || reading->count > DECIMAL_FAST_READ_DIGITS)
+    {
+        return false;
+    }
+    for (size_t index = 0; index < reading->count; index++)
+    {
+        digits = digits * 10u + (uint64_t)(reading->digits[index] - '0');
+    }
+    return tb_decimal_read_fast(digits, reading->exponent, negative, value);
+}
+
+double tb_decimal_read_exact(uint64_t digits, int64_t exponent, bool negative)
+{
+    decimal_reading reading = {0};
+    char text[DECIMAL_FAST_READ_DIGITS + 2] = {0};
+    size_t count = 0;
+
+    if (digits == 0)
+    {
+        return decimal_value_of(negative ? DECIMAL_SIGN_BIT : 0);
+    }
+    while (digits != 0)
+    {
+        text[count] = (char)('0' + (int)(digits % 10u));
+        count++;
+        digits /= 10u;
+    }
+    for (size_t index = 0; index < count; index++)
+    {
+        reading.digits[index] = text[count - 1 - index];
+    }
+    reading.count = count;
+    reading.exponent = exponent;
+    return decimal_value_of_reading(&reading, negative);
+}
+
 static bool decimal_read_decimal(const char *text, size_t length, bool negative, double *value)
 {
     decimal_reading reading = {0};
@@ -1041,6 +1465,10 @@ static bool decimal_read_decimal(const char *text, size_t length, bool negative,
         return true;
     }
     reading.exponent += exponent;
+    if (decimal_read_reading_fast(&reading, negative, value))
+    {
+        return true;
+    }
     *value = decimal_value_of_reading(&reading, negative);
     return true;
 }

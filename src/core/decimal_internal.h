@@ -52,6 +52,31 @@ void tb_decimal_round(tb_decimal_exact *exact, ptrdiff_t significant);
 void tb_decimal_shortest_fast(const tb_decimal_parts *parts, tb_decimal_exact *result);
 void tb_decimal_shortest_exact(const tb_decimal_parts *parts, tb_decimal_exact *result);
 
+/* The digits of mantissa * 2^exponent rounded to `significant` digits (at
+ * least 1), ties to even: what tb_decimal_exact_of() and tb_decimal_round()
+ * give. The fast form returns false, leaving `result` unspecified, where it
+ * cannot decide in 64 by 128 bits; the plain form then uses the exact one.
+ * The tests hold the fast form to the exact one. */
+bool tb_decimal_round_significant_fast(uint64_t mantissa, int exponent, size_t significant,
+                                       tb_decimal_exact *result);
+void tb_decimal_round_significant(uint64_t mantissa, int exponent, size_t significant,
+                                  tb_decimal_exact *result);
+
+/* The same, rounded at the place of 10^-fraction_digits: the digits that
+ * %f prints. */
+bool tb_decimal_round_fraction_fast(uint64_t mantissa, int exponent, size_t fraction_digits,
+                                    tb_decimal_exact *result);
+void tb_decimal_round_fraction(uint64_t mantissa, int exponent, size_t fraction_digits,
+                               tb_decimal_exact *result);
+
+/* digits * 10^exponent, rounded to the nearest double, ties to even, with
+ * the sign given: true where 64 by 128 bits decide it and the result is a
+ * normal double, and false, leaving `value` alone, otherwise. Reading uses
+ * it before the exact form; the tests hold one to the other through
+ * tb_decimal_read_exact(). */
+bool tb_decimal_read_fast(uint64_t digits, int64_t exponent, bool negative, double *value);
+double tb_decimal_read_exact(uint64_t digits, int64_t exponent, bool negative);
+
 /* The digit at the place of 10^place, as a character; '0' beyond the digits. */
 char tb_decimal_digit_at(const tb_decimal_exact *exact, ptrdiff_t place);
 

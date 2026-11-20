@@ -223,20 +223,14 @@ static size_t float_precision(const tb_fmt_spec *spec)
 static void float_prepare_scientific(float_body *body, const tb_decimal_parts *parts,
                                      size_t precision)
 {
-    tb_decimal_exact_of(parts->mantissa, parts->exponent, &body->decimal);
-    tb_decimal_round(&body->decimal, (ptrdiff_t)precision + 1);
+    tb_decimal_round_significant(parts->mantissa, parts->exponent, precision + 1, &body->decimal);
     body->style = FLOAT_STYLE_SCIENTIFIC;
     body->precision = precision;
 }
 
 static void float_prepare_fixed(float_body *body, const tb_decimal_parts *parts, size_t precision)
 {
-    tb_decimal_exact_of(parts->mantissa, parts->exponent, &body->decimal);
-    if (body->decimal.count > 0)
-    {
-        tb_decimal_round(&body->decimal,
-                         (ptrdiff_t)body->decimal.exponent + 1 + (ptrdiff_t)precision);
-    }
+    tb_decimal_round_fraction(parts->mantissa, parts->exponent, precision, &body->decimal);
     body->style = FLOAT_STYLE_FIXED;
     body->precision = precision;
 }
@@ -252,8 +246,7 @@ static void float_prepare_general(float_body *body, const tb_decimal_parts *part
     ptrdiff_t exponent = 0;
     size_t written = 0;
 
-    tb_decimal_exact_of(parts->mantissa, parts->exponent, &body->decimal);
-    tb_decimal_round(&body->decimal, (ptrdiff_t)significant);
+    tb_decimal_round_significant(parts->mantissa, parts->exponent, significant, &body->decimal);
     exponent = body->decimal.count > 0 ? body->decimal.exponent : 0;
     /* The digits that remain after rounding, beyond the first. */
     written = body->decimal.count > 1 ? body->decimal.count - 1 : 0;

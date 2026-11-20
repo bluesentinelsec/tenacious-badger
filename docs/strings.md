@@ -312,18 +312,37 @@ exponent. The definition it must meet is kept beside it, in big integers
 next number above it. `tests/core/decimal_fast_test.c` holds the one to the
 other over every binary exponent, which reaches every entry of the table, and
 over random and short values. When it was written, 8 million values were
-compared without a difference. `tb_decimal_parse` and the `%e`, `%f`, and `%g`
-of the formatter compute with big integers, which costs a few microseconds
-for a value of extreme exponent and well under one for the values a game's
-data holds. `tb_bench decimal` measures them all:
+compared without a difference.
+
+`tb_decimal_parse` and the `%e`, `%f`, and `%g` of the formatter have fast
+forms on the same table, each in front of an exact form in big integers that
+stays the definition:
+
+- **Rounding to a number of digits** (`%e`, `%g`, up to 17 significant
+  digits; `%f`, while the scaled value fits in 64 bits) multiplies the value
+  by a power of ten, keeps the integer part, and rounds by the part below.
+- **Reading** (up to 19 significant digits, to a normal `double`) multiplies
+  the digits by a power of ten and rounds to 53 bits.
+- **When the fast form gives up.** An entry of the table is the power of ten
+  rounded up, exact only from 10^0 to 10^55. Where that error could put the
+  product on either side of the rounding point, as at a tie that only an exact
+  power shows, the fast form gives up and the exact one decides. That is rare
+  for arbitrary values, and always the case for some, such as
+  `90071992547409930e-1`, which is exactly halfway between two doubles.
+- **Tests.** `tests/core/decimal_rounding_test.c` holds every answer of the
+  fast forms to the exact ones: at every binary exponent, for random values,
+  at ties, and for decimals halfway between doubles. It also checks that the
+  fast forms answer for nearly every value they are meant for.
+
+`tb_bench decimal` measures them all:
 
 | Case | ns |
 | --- | --- |
 | Shortest text, any exponent | 43 |
-| Shortest text, 0.001 to 100000 | 40 |
-| Reading the shortest text, any exponent | 835 |
-| `%.17g`, any exponent | 2120 |
-| `%.3f`, 0.001 to 100000 | 130 |
+| Shortest text, 0.001 to 100000 | 37 |
+| Reading the shortest text, any exponent | 71 |
+| `%.17g`, any exponent | 108 |
+| `%.3f`, 0.001 to 100000 | 60 |
 
 **A format string is part of the program.** An unknown conversion, or a format
 that ends inside one, is a contract violation: it fails an assertion, and in
