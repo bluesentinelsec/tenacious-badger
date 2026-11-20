@@ -11,6 +11,7 @@
 #include "arena_internal.h"
 #include "badger/fmt.h"
 #include "badger/platform.h"
+#include "exclusive.h"
 
 #include "badger/assert.h"
 #include "badger/fatal.h"
@@ -62,6 +63,7 @@ struct tb_arena
     /* Reserved-only metadata follows this header in its first committed page.
      * Fixed and chunked arenas do not pay its space cost. */
     tb_arena_reserved *reserved;
+    tb_exclusive exclusive; /* One thread at a time changes the arena. */
 };
 
 /* A fixed arena places this structure at the first suitably aligned address of
@@ -359,6 +361,7 @@ void tb_arena_set_commit_retention(tb_arena *arena, size_t bytes)
     size_t usable = {0};
     size_t remainder = {0};
     TB_ASSERT(arena != NULL && arena->reserved != NULL);
+    TB_EXCLUSIVE_ENTER(&arena->exclusive, "an arena");
     usable = arena->reserved->region.size - arena->reserved->page_size;
     if (bytes > usable)
     {
@@ -374,6 +377,7 @@ void tb_arena_set_commit_retention(tb_arena *arena, size_t bytes)
         bytes += arena->reserved->page_size - remainder;
     }
     arena->reserved->commit_retention = bytes;
+    TB_EXCLUSIVE_LEAVE(&arena->exclusive);
 }
 size_t tb_arena_reserved_size(const tb_arena *arena)
 {
@@ -394,6 +398,8 @@ void tb_arena_destroy(tb_arena *arena)
     {
         return;
     }
+    /* No thread may be inside an arena that is going away. */
+    TB_EXCLUSIVE_ENTER(&arena->exclusive, "an arena");
     if (arena->reserved != NULL)
     {
         tb_vm_region region = {0};
@@ -520,11 +526,10 @@ static bool tb_arena_advance(tb_arena *arena, size_t size, size_t alignment)
     return true;
 }
 
-void *tb_arena_try_alloc(tb_arena *arena, size_t size, size_t alignment)
+static void *tb_arena_try_alloc_inside(tb_arena *arena, size_t size, size_t alignment)
 {
     void *memory = NULL;
 
-    TB_ASSERT(arena != NULL);
     TB_ASSERT_MSG(tb_arena_is_power_of_two(alignment), "alignment must be a power of two");
     size = tb_arena_at_least_one(size);
     memory = tb_arena_take(arena, size, alignment);
@@ -541,6 +546,17 @@ void *tb_arena_try_alloc(tb_arena *arena, size_t size, size_t alignment)
         return NULL;
     }
     return tb_arena_take(arena, size, alignment);
+}
+
+void *tb_arena_try_alloc(tb_arena *arena, size_t size, size_t alignment)
+{
+    void *memory = NULL;
+
+    TB_ASSERT(arena != NULL);
+    TB_EXCLUSIVE_ENTER(&arena->exclusive, "an arena");
+    memory = tb_arena_try_alloc_inside(arena, size, alignment);
+    TB_EXCLUSIVE_LEAVE(&arena->exclusive);
+    return memory;
 }
 
 void *tb_arena_try_calloc(tb_arena *arena, size_t count, size_t size, size_t alignment)
@@ -594,6 +610,7 @@ void *tb_arena_calloc(tb_arena *arena, size_t count, size_t size, size_t alignme
 void tb_arena_reset(tb_arena *arena)
 {
     TB_ASSERT(arena != NULL);
+    TB_EXCLUSIVE_ENTER(&arena->exclusive, "an arena");
     tb_arena_retire_from(arena, &arena->first, arena->first.begin);
     arena->current = &arena->first;
     arena->cursor = arena->first.begin;
@@ -618,6 +635,7 @@ void tb_arena_reset(tb_arena *arena)
                             (unsigned char *)arena + arena->reserved->committed);
         }
     }
+    TB_EXCLUSIVE_LEAVE(&arena->exclusive);
 }
 
 tb_arena_mark tb_arena_get_mark(const tb_arena *arena)
@@ -660,21 +678,22 @@ void tb_arena_rewind(tb_arena *arena, tb_arena_mark mark)
     unsigned char *const mark_cursor = mark.cursor;
 
     TB_ASSERT(arena != NULL);
+    TB_EXCLUSIVE_ENTER(&arena->exclusive, "an arena");
     TB_ASSERT_MSG(tb_arena_mark_is_live(arena, mark_chunk, mark_cursor),
                   "the mark must come from this arena and must not have been released");
     tb_arena_retire_from(arena, mark_chunk, mark_cursor);
     arena->current = mark_chunk;
     arena->cursor = mark_cursor;
+    TB_EXCLUSIVE_LEAVE(&arena->exclusive);
 }
 
 /* ---------------------------------------------------------------------------
  * An arena as an allocator.
  * ------------------------------------------------------------------------- */
 
-static void *tb_arena_allocator_function(void *context, void *memory, size_t old_size,
-                                         size_t new_size, size_t alignment)
+static void *tb_arena_reallocate_inside(tb_arena *arena, void *memory, size_t old_size,
+                                        size_t new_size, size_t alignment)
 {
-    tb_arena *const arena = context;
     unsigned char *const block = memory;
     unsigned char *moved = NULL;
 
@@ -685,7 +704,7 @@ static void *tb_arena_allocator_function(void *context, void *memory, size_t old
     }
     if (block == NULL)
     {
-        return tb_arena_try_alloc(arena, new_size, alignment);
+        return tb_arena_try_alloc_inside(arena, new_size, alignment);
     }
     if (new_size <= old_size)
     {
@@ -703,13 +722,25 @@ static void *tb_arena_allocator_function(void *context, void *memory, size_t old
         arena->cursor = block + new_size;
         return block;
     }
-    moved = tb_arena_try_alloc(arena, new_size, alignment);
+    moved = tb_arena_try_alloc_inside(arena, new_size, alignment);
     if (moved == NULL)
     {
         return NULL;
     }
     memcpy(moved, block, old_size);
     return moved;
+}
+
+static void *tb_arena_allocator_function(void *context, void *memory, size_t old_size,
+                                         size_t new_size, size_t alignment)
+{
+    tb_arena *const arena = context;
+    void *result = NULL;
+
+    TB_EXCLUSIVE_ENTER(&arena->exclusive, "an arena");
+    result = tb_arena_reallocate_inside(arena, memory, old_size, new_size, alignment);
+    TB_EXCLUSIVE_LEAVE(&arena->exclusive);
+    return result;
 }
 
 tb_allocator tb_arena_allocator(tb_arena *arena)

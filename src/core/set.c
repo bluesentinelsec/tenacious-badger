@@ -5,6 +5,7 @@
 
 #include "badger/assert.h"
 #include "badger/table.h"
+#include "exclusive.h"
 #include "memory_internal.h"
 
 struct tb_set
@@ -14,6 +15,7 @@ struct tb_set
     tb_set_hash_function *hash;   /* As given at creation; NULL for by address. */
     tb_set_equal_function *equal; /* As given at creation; NULL for by address. */
     bool is_being_visited;        /* A visit is running: no member may come or go. */
+    tb_exclusive exclusive;       /* One thread at a time changes it. */
 };
 
 /* The table stores a value with every key. For a member it is the address of
@@ -67,6 +69,8 @@ void tb_set_destroy(tb_set *set)
     {
         return;
     }
+    /* No thread may be inside a set that is going away. */
+    TB_EXCLUSIVE_ENTER(&set->exclusive, "a set");
     allocator = set->allocator;
     tb_table_destroy(set->members);
     TB_ALLOCATOR_DELETE(&allocator, tb_set, set);
@@ -114,14 +118,33 @@ bool tb_set_find(const tb_set *set, const void *member, const void **stored)
     return true;
 }
 
-bool tb_set_put(tb_set *set, const void *member)
+/* What each function that changes the object does once inside its guard. */
+static bool tb_set_put_inside(tb_set *set, const void *member);
+static bool tb_set_remove_inside(tb_set *set, const void *member, const void **stored);
+static void tb_set_clear_inside(tb_set *set);
+static void tb_set_visit_inside(tb_set *set, tb_set_visitor *visitor, void *context);
+static void tb_set_reserve_inside(tb_set *set, size_t capacity);
+static bool tb_set_try_reserve_inside(tb_set *set, size_t capacity);
+static void tb_set_shrink_to_fit_inside(tb_set *set);
+
+static bool tb_set_put_inside(tb_set *set, const void *member)
 {
     TB_ASSERT(set != NULL);
     TB_ASSERT_MSG(!set->is_being_visited, "the set must not be changed while it is visited");
     return tb_table_put(set->members, member, &tb_set_presence) == NULL;
 }
 
-bool tb_set_remove(tb_set *set, const void *member, const void **stored)
+bool tb_set_put(tb_set *set, const void *member)
+{
+    bool result = false;
+    TB_ASSERT(set != NULL);
+    TB_EXCLUSIVE_ENTER(&set->exclusive, "a set");
+    result = tb_set_put_inside(set, member);
+    TB_EXCLUSIVE_LEAVE(&set->exclusive);
+    return result;
+}
+
+static bool tb_set_remove_inside(tb_set *set, const void *member, const void **stored)
 {
     tb_table_entry entry = {0};
 
@@ -138,11 +161,29 @@ bool tb_set_remove(tb_set *set, const void *member, const void **stored)
     return true;
 }
 
-void tb_set_clear(tb_set *set)
+bool tb_set_remove(tb_set *set, const void *member, const void **stored)
+{
+    bool result = false;
+    TB_ASSERT(set != NULL);
+    TB_EXCLUSIVE_ENTER(&set->exclusive, "a set");
+    result = tb_set_remove_inside(set, member, stored);
+    TB_EXCLUSIVE_LEAVE(&set->exclusive);
+    return result;
+}
+
+static void tb_set_clear_inside(tb_set *set)
 {
     TB_ASSERT(set != NULL);
     TB_ASSERT_MSG(!set->is_being_visited, "the set must not be changed while it is visited");
     tb_table_clear(set->members);
+}
+
+void tb_set_clear(tb_set *set)
+{
+    TB_ASSERT(set != NULL);
+    TB_EXCLUSIVE_ENTER(&set->exclusive, "a set");
+    tb_set_clear_inside(set);
+    TB_EXCLUSIVE_LEAVE(&set->exclusive);
 }
 
 /* ---------------------------------------------------------------------------
@@ -164,7 +205,7 @@ bool tb_set_next(const tb_set *set, size_t *cursor, const void **member)
     return true;
 }
 
-void tb_set_visit(tb_set *set, tb_set_visitor *visitor, void *context)
+static void tb_set_visit_inside(tb_set *set, tb_set_visitor *visitor, void *context)
 {
     const void *member = NULL;
     size_t cursor = {0};
@@ -178,6 +219,14 @@ void tb_set_visit(tb_set *set, tb_set_visitor *visitor, void *context)
         visitor(member, context);
     }
     set->is_being_visited = false;
+}
+
+void tb_set_visit(tb_set *set, tb_set_visitor *visitor, void *context)
+{
+    TB_ASSERT(set != NULL);
+    TB_EXCLUSIVE_ENTER(&set->exclusive, "a set");
+    tb_set_visit_inside(set, visitor, context);
+    TB_EXCLUSIVE_LEAVE(&set->exclusive);
 }
 
 size_t tb_set_to_array(const tb_set *set, const void **members, size_t capacity)
@@ -326,25 +375,51 @@ tb_set *tb_set_symmetric_difference(const tb_set *left, const tb_set *right,
  * Storage.
  * ------------------------------------------------------------------------- */
 
-void tb_set_reserve(tb_set *set, size_t capacity)
+static void tb_set_reserve_inside(tb_set *set, size_t capacity)
 {
     TB_ASSERT(set != NULL);
     TB_ASSERT_MSG(!set->is_being_visited, "the set must not be changed while it is visited");
     tb_table_reserve(set->members, capacity);
 }
 
-bool tb_set_try_reserve(tb_set *set, size_t capacity)
+void tb_set_reserve(tb_set *set, size_t capacity)
+{
+    TB_ASSERT(set != NULL);
+    TB_EXCLUSIVE_ENTER(&set->exclusive, "a set");
+    tb_set_reserve_inside(set, capacity);
+    TB_EXCLUSIVE_LEAVE(&set->exclusive);
+}
+
+static bool tb_set_try_reserve_inside(tb_set *set, size_t capacity)
 {
     TB_ASSERT(set != NULL);
     TB_ASSERT_MSG(!set->is_being_visited, "the set must not be changed while it is visited");
     return tb_table_try_reserve(set->members, capacity);
 }
 
-void tb_set_shrink_to_fit(tb_set *set)
+bool tb_set_try_reserve(tb_set *set, size_t capacity)
+{
+    bool result = false;
+    TB_ASSERT(set != NULL);
+    TB_EXCLUSIVE_ENTER(&set->exclusive, "a set");
+    result = tb_set_try_reserve_inside(set, capacity);
+    TB_EXCLUSIVE_LEAVE(&set->exclusive);
+    return result;
+}
+
+static void tb_set_shrink_to_fit_inside(tb_set *set)
 {
     TB_ASSERT(set != NULL);
     TB_ASSERT_MSG(!set->is_being_visited, "the set must not be changed while it is visited");
     tb_table_shrink_to_fit(set->members);
+}
+
+void tb_set_shrink_to_fit(tb_set *set)
+{
+    TB_ASSERT(set != NULL);
+    TB_EXCLUSIVE_ENTER(&set->exclusive, "a set");
+    tb_set_shrink_to_fit_inside(set);
+    TB_EXCLUSIVE_LEAVE(&set->exclusive);
 }
 
 size_t tb_set_capacity(const tb_set *set)

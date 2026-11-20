@@ -10,6 +10,7 @@
 #include "badger/hash.h"
 #include "badger/size.h"
 #include "badger/str.h"
+#include "exclusive.h"
 #include "memory_internal.h"
 
 #include <string.h>
@@ -38,6 +39,7 @@ struct tb_table
     size_t slot_count;              /* 0 or a power of two. */
     size_t length;                  /* Number of entries. */
     bool is_being_visited;          /* A visit is running: no entry may come or go. */
+    tb_exclusive exclusive;         /* One thread at a time changes it. */
 };
 
 /* ---------------------------------------------------------------------------
@@ -176,7 +178,16 @@ static bool tb_table_slot_count_for(size_t capacity, size_t *slot_count)
     return true;
 }
 
-bool tb_table_try_reserve(tb_table *table, size_t capacity)
+/* What each function that changes the object does once inside its guard. */
+static bool tb_table_try_reserve_inside(tb_table *table, size_t capacity);
+static void tb_table_reserve_inside(tb_table *table, size_t capacity);
+static void tb_table_shrink_to_fit_inside(tb_table *table);
+static void *tb_table_put_inside(tb_table *table, const void *key, void *value);
+static bool tb_table_remove_inside(tb_table *table, const void *key, tb_table_entry *entry);
+static void tb_table_clear_inside(tb_table *table);
+static void tb_table_visit_inside(tb_table *table, tb_table_visitor *visitor, void *context);
+
+static bool tb_table_try_reserve_inside(tb_table *table, size_t capacity)
 {
     size_t slot_count = {0};
 
@@ -193,16 +204,34 @@ bool tb_table_try_reserve(tb_table *table, size_t capacity)
     return tb_table_set_slot_count(table, slot_count);
 }
 
-void tb_table_reserve(tb_table *table, size_t capacity)
+bool tb_table_try_reserve(tb_table *table, size_t capacity)
+{
+    bool result = false;
+    TB_ASSERT(table != NULL);
+    TB_EXCLUSIVE_ENTER(&table->exclusive, "a hash table");
+    result = tb_table_try_reserve_inside(table, capacity);
+    TB_EXCLUSIVE_LEAVE(&table->exclusive);
+    return result;
+}
+
+static void tb_table_reserve_inside(tb_table *table, size_t capacity)
 {
     TB_ASSERT(table != NULL);
-    if (!tb_table_try_reserve(table, capacity))
+    if (!tb_table_try_reserve_inside(table, capacity))
     {
         tb_memory_fail(capacity, sizeof(tb_table_slot), _Alignof(tb_table_slot));
     }
 }
 
-void tb_table_shrink_to_fit(tb_table *table)
+void tb_table_reserve(tb_table *table, size_t capacity)
+{
+    TB_ASSERT(table != NULL);
+    TB_EXCLUSIVE_ENTER(&table->exclusive, "a hash table");
+    tb_table_reserve_inside(table, capacity);
+    TB_EXCLUSIVE_LEAVE(&table->exclusive);
+}
+
+static void tb_table_shrink_to_fit_inside(tb_table *table)
 {
     size_t slot_count = {0};
 
@@ -220,6 +249,14 @@ void tb_table_shrink_to_fit(tb_table *table)
     {
         (void)tb_table_set_slot_count(table, slot_count);
     }
+}
+
+void tb_table_shrink_to_fit(tb_table *table)
+{
+    TB_ASSERT(table != NULL);
+    TB_EXCLUSIVE_ENTER(&table->exclusive, "a hash table");
+    tb_table_shrink_to_fit_inside(table);
+    TB_EXCLUSIVE_LEAVE(&table->exclusive);
 }
 
 size_t tb_table_capacity(const tb_table *table)
@@ -280,6 +317,8 @@ void tb_table_destroy(tb_table *table)
     {
         return;
     }
+    /* No thread may be inside a table that is going away. */
+    TB_EXCLUSIVE_ENTER(&table->exclusive, "a hash table");
     allocator = table->allocator;
     tb_allocator_free_array(&allocator, table->slots, table->slot_count, sizeof(*table->slots),
                             _Alignof(tb_table_slot));
@@ -308,7 +347,7 @@ size_t tb_table_length(const tb_table *table)
     return table->length;
 }
 
-void *tb_table_put(tb_table *table, const void *key, void *value)
+static void *tb_table_put_inside(tb_table *table, const void *key, void *value)
 {
     tb_table_slot *slot = NULL;
     void *previous = NULL;
@@ -334,7 +373,7 @@ void *tb_table_put(tb_table *table, const void *key, void *value)
      * full: then its place is among the new slots. */
     if (slot == NULL || table->length >= tb_table_capacity_of(table->slot_count))
     {
-        tb_table_reserve(table, table->length + 1);
+        tb_table_reserve_inside(table, table->length + 1);
         slot = tb_table_slot_of(table, key, hash);
     }
     slot->hash = hash;
@@ -342,6 +381,16 @@ void *tb_table_put(tb_table *table, const void *key, void *value)
     slot->value = value;
     table->length++;
     return NULL;
+}
+
+void *tb_table_put(tb_table *table, const void *key, void *value)
+{
+    void *result = NULL;
+    TB_ASSERT(table != NULL);
+    TB_EXCLUSIVE_ENTER(&table->exclusive, "a hash table");
+    result = tb_table_put_inside(table, key, value);
+    TB_EXCLUSIVE_LEAVE(&table->exclusive);
+    return result;
 }
 
 bool tb_table_find(const tb_table *table, const void *key, tb_table_entry *entry)
@@ -402,7 +451,7 @@ static void tb_table_close_gap(tb_table *table, tb_table_slot *removed)
     table->slots[gap] = (tb_table_slot){0};
 }
 
-bool tb_table_remove(tb_table *table, const void *key, tb_table_entry *entry)
+static bool tb_table_remove_inside(tb_table *table, const void *key, tb_table_entry *entry)
 {
     tb_table_slot *slot = NULL;
 
@@ -423,7 +472,17 @@ bool tb_table_remove(tb_table *table, const void *key, tb_table_entry *entry)
     return true;
 }
 
-void tb_table_clear(tb_table *table)
+bool tb_table_remove(tb_table *table, const void *key, tb_table_entry *entry)
+{
+    bool result = false;
+    TB_ASSERT(table != NULL);
+    TB_EXCLUSIVE_ENTER(&table->exclusive, "a hash table");
+    result = tb_table_remove_inside(table, key, entry);
+    TB_EXCLUSIVE_LEAVE(&table->exclusive);
+    return result;
+}
+
+static void tb_table_clear_inside(tb_table *table)
 {
     TB_ASSERT(table != NULL);
     TB_ASSERT_MSG(!table->is_being_visited, "the table must not be changed while it is visited");
@@ -434,11 +493,19 @@ void tb_table_clear(tb_table *table)
     table->length = 0;
 }
 
+void tb_table_clear(tb_table *table)
+{
+    TB_ASSERT(table != NULL);
+    TB_EXCLUSIVE_ENTER(&table->exclusive, "a hash table");
+    tb_table_clear_inside(table);
+    TB_EXCLUSIVE_LEAVE(&table->exclusive);
+}
+
 /* ---------------------------------------------------------------------------
  * All entries.
  * ------------------------------------------------------------------------- */
 
-void tb_table_visit(tb_table *table, tb_table_visitor *visitor, void *context)
+static void tb_table_visit_inside(tb_table *table, tb_table_visitor *visitor, void *context)
 {
     TB_ASSERT(table != NULL);
     TB_ASSERT(visitor != NULL);
@@ -454,6 +521,14 @@ void tb_table_visit(tb_table *table, tb_table_visitor *visitor, void *context)
         }
     }
     table->is_being_visited = false;
+}
+
+void tb_table_visit(tb_table *table, tb_table_visitor *visitor, void *context)
+{
+    TB_ASSERT(table != NULL);
+    TB_EXCLUSIVE_ENTER(&table->exclusive, "a hash table");
+    tb_table_visit_inside(table, visitor, context);
+    TB_EXCLUSIVE_LEAVE(&table->exclusive);
 }
 
 size_t tb_table_to_array(const tb_table *table, tb_table_entry *entries, size_t capacity)
