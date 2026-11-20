@@ -53,6 +53,7 @@ set(TB_TEST_CASE_SOURCES
     core/assert_test.c
     core/atom_test.c
     core/bit_test.c
+    core/cli_test.c
     core/decimal_test.c
     core/exclusive_test.c
     core/fatal_test.c
@@ -145,7 +146,8 @@ endfunction()
 # own checks. tb_probe holds those cases; a script per topic runs them in a
 # child process and checks the outcome.
 tb_add_tests(tb_probe NO_CTEST
-    SOURCES core/assert_probe.c core/crash_probe.c core/fatal_probe.c core/fmt_probe.c core/memory_probe.c
+    SOURCES core/assert_probe.c core/cli_probe.c core/crash_probe.c core/fatal_probe.c
+        core/fmt_probe.c core/memory_probe.c
         core/memory_debug_probe.c core/fmt_failure_probe.c core/log_probe.c platform/virtual_memory_probe.c support/support_probe.c
     LIBRARIES TenaciousBadger::badger)
 function(tb_add_probe_test name script)
@@ -157,6 +159,7 @@ tb_add_probe_test(core_assert.default_handler_reports_and_aborts ExpectAssertAbo
 tb_add_probe_test(core_fatal.default_handler_reports_and_aborts ExpectFatalAbort.cmake)
 tb_add_probe_test(core_crash.reports_crashes_with_their_stacks ExpectCrashReport.cmake)
 tb_add_probe_test(core_fmt.prints_to_the_standard_streams ExpectFormattedOutput.cmake)
+tb_add_probe_test(core_cli.finishing_writes_to_the_standard_streams ExpectCommandLine.cmake)
 tb_add_probe_test(core_memory.default_handler_reports_and_aborts ExpectOutOfMemoryAbort.cmake)
 tb_add_probe_test(test_support.leaks_and_failure_injection ExpectTestSupport.cmake)
 tb_add_probe_test(core_memory_debug.reports_and_aborts ExpectMemoryDebug.cmake)

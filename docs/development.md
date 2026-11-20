@@ -25,6 +25,7 @@ The foundation layer so far, one public header per module under
 | `thread.h` | [Threads, mutexes, condition variables, semaphores, and thread-local values](platforms.md#threads-mutexes-and-condition-variables) |
 | `system.h` | [The processors the process may run on](platforms.md#processors): how many, and which |
 | `random.h` | [Random bytes from the operating system](platforms.md#random-bytes), for keys and nonces |
+| `library.h` | [Shared libraries loaded at run time](platforms.md#shared-libraries), and the functions and data they export |
 | `stack.h` | [The call stack of a thread](platforms.md#call-stacks), and what an address is part of |
 | `crash.h` | [Crashes](platforms.md#crashes) that the system raises, reported with the stack of the code that crashed |
 | `fatal.h` | [Fatal errors](platforms.md#fatal-errors): the one way the engine ends the process, with the stack that led there |
@@ -34,6 +35,7 @@ The foundation layer so far, one public header per module under
 | `utf8.h`, `path.h` | UTF-8 and UTF-16 conversion, and [paths](paths.md) as text |
 | `fs.h`, `file.h` | [Files and directories](files.md): `fs.h` is the module's header, and includes the native interface in `file.h` |
 | `log.h` | [Logging](logging.md) with replaceable sinks |
+| `cli.h` | [Command lines](command-line.md): options, arguments, subcommands, help, and errors |
 | `base64.h` | [Base64](codecs.md#base64): bytes as text and back, strictly |
 | `checksum.h` | [Checksums](codecs.md#checksums): CRC-32 and Adler-32 |
 | `sha256.h` | [SHA-256 and HMAC-SHA256](codecs.md#sha-256), for keys and content |
