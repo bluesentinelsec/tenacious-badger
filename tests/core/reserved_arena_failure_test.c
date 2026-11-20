@@ -149,3 +149,62 @@ TB_TEST(core_reserved_arena_failure, allocator_growth_failure_and_trim_failure_l
     tb_arena_destroy(arena);
     TB_TEST_EXPECT_UINT(live_reservations, ==, 0);
 }
+/* Growing one page per commit made the system calls the cost of a
+ * reserving arena's allocations, so it commits a step of 64 KiB at a time,
+ * and never more than a step past what it hands out. */
+TB_TEST(core_reserved_arena_failure, growth_commits_in_steps_and_stays_close_to_use)
+{
+    enum
+    {
+        step = 64 * 1024,
+        used = 1024 * 1024,
+        block = 64
+    };
+    tb_arena *arena = NULL;
+    tb_vm_info info = {0};
+    size_t calls = {0};
+    info = tb_vm_get_info();
+    commit_calls = 0;
+    fail_commit = 0;
+    refuse_decommit = false;
+    arena = tb_arena_try_create_reserved_with_operations((size_t)4 * used, &operations);
+    TB_TEST_REQUIRE_POINTER(arena, !=, NULL);
+    calls = commit_calls;
+    for (size_t offset = {0}; offset < used; offset += block)
+    {
+        unsigned char *const bytes = tb_arena_alloc(arena, block, 1);
+        bytes[0] = 1;
+        TB_TEST_EXPECT(tb_arena_committed_size(arena) <=
+                       offset + block + step + info.page_size * 2);
+    }
+    TB_TEST_EXPECT_UINT(commit_calls - calls, <=, used / step + 1);
+    tb_arena_destroy(arena);
+    TB_TEST_EXPECT_UINT(live_reservations, ==, 0);
+}
+/* The last step stops at the end of the reservation, which every byte of
+ * its capacity can then use. */
+TB_TEST(core_reserved_arena_failure, growth_stops_at_the_end_of_the_reservation)
+{
+    tb_arena *arena = NULL;
+    tb_vm_info info = {0};
+    unsigned char *bytes = NULL;
+    size_t capacity = {0};
+    info = tb_vm_get_info();
+    commit_calls = 0;
+    fail_commit = 0;
+    refuse_decommit = false;
+    arena = tb_arena_try_create_reserved_with_operations(info.page_size * 3, &operations);
+    TB_TEST_REQUIRE_POINTER(arena, !=, NULL);
+    capacity = tb_arena_capacity(arena);
+    bytes = tb_arena_alloc(arena, 1, 1);
+    bytes[0] = 1;
+    TB_TEST_EXPECT_UINT(tb_arena_committed_size(arena), <=,
+                        tb_arena_reserved_size(arena) - info.page_size);
+    bytes = tb_arena_alloc(arena, capacity - 1, 1);
+    bytes[capacity - 2] = 2;
+    TB_TEST_EXPECT_UINT(tb_arena_remaining(arena), ==, 0);
+    TB_TEST_EXPECT_UINT(tb_arena_committed_size(arena), ==,
+                        tb_arena_reserved_size(arena) - info.page_size);
+    tb_arena_destroy(arena);
+    TB_TEST_EXPECT_UINT(live_reservations, ==, 0);
+}
