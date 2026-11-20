@@ -5,6 +5,11 @@ set(TB_PLATFORM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/../posix/fs.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/fs_location.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/abort.c"
+    # Catching crashes and writing to stderr are the same on Linux and macOS,
+    # except where a signal's context says which instruction raised it.
+    "${CMAKE_CURRENT_SOURCE_DIR}/../posix/crash.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/crash_context.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../posix/error_stream.c"
     # Capturing a stack and naming an address are the same on Linux and macOS.
     "${CMAKE_CURRENT_SOURCE_DIR}/../posix/stack.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/atomic.c"
@@ -15,6 +20,8 @@ set(TB_PLATFORM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/thread_native.c"
     # Shared by every adapter that names threads.
     "${CMAKE_CURRENT_SOURCE_DIR}/../shared/name.c"
+    # The line that says what a crash was, without the C library.
+    "${CMAKE_CURRENT_SOURCE_DIR}/../shared/crash_text.c"
     # A semaphore is built from the adapter's mutex and condition variable.
     "${CMAKE_CURRENT_SOURCE_DIR}/../shared/semaphore.c"
     # Waiting for a moment is built from the adapter's sleep and clock.

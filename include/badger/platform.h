@@ -98,6 +98,22 @@ TB_API void tb_platform_wait_until(uint64_t deadline);
 TB_API _Noreturn void tb_platform_abort(void);
 
 /**
+ * @brief Write bytes to the standard error stream with the system's own
+ * call, taking no lock of the C library's and allocating nothing.
+ *
+ * For reports written by a process that may be failing, where the C
+ * library's stream may be locked by the thread that failed. The standard
+ * error stream is unbuffered, so what was written to it before stays in
+ * order.
+ *
+ * @param bytes The bytes; NULL only at length zero.
+ * @param length How many.
+ * @par Errors A stream that refuses them loses them: nothing is reported.
+ * @par Threading Thread-safe; writes from two threads at once may interleave.
+ */
+TB_API void tb_platform_write_error(const void *bytes, size_t length);
+
+/**
  * @brief A `size_t` that several threads may update without a lock.
  *
  * Zero-initialize it. Once it is shared between threads, read and write

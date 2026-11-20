@@ -59,6 +59,11 @@ typedef struct tb_win32_debug_library
 
 static tb_win32_debug_library tb_win32_debug = {.lock = SRWLOCK_INIT};
 
+/* Set while the calling thread holds the library's lock. A thread that
+ * crashes in the library, and then describes its own stack, would otherwise
+ * wait for itself. */
+static _Thread_local bool tb_win32_debug_is_held = false;
+
 /* Loads the library and the program's symbols, once. The caller holds the
  * lock. A system without the library, or a function it lacks, leaves names
  * unknown; that is not a failure of the program. */
@@ -172,7 +177,14 @@ static void tb_win32_describe_symbol(const void *address, tb_stack_location *loc
 
     storage.symbol.SizeOfStruct = sizeof(SYMBOL_INFOW);
     storage.symbol.MaxNameLen = TB_WIN32_SYMBOL_NAME_CAPACITY;
+    /* coverage-off: needs a crash inside the debugging library */
+    if (tb_win32_debug_is_held)
+    {
+        return;
+    }
+    /* coverage-on */
     AcquireSRWLockExclusive(&tb_win32_debug.lock);
+    tb_win32_debug_is_held = true;
     tb_win32_debug_load();
     if (tb_win32_debug.is_ready)
     {
@@ -189,6 +201,7 @@ static void tb_win32_describe_symbol(const void *address, tb_stack_location *loc
             location->line = line.LineNumber;
         }
     }
+    tb_win32_debug_is_held = false;
     ReleaseSRWLockExclusive(&tb_win32_debug.lock);
 }
 
