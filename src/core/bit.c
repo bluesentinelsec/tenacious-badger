@@ -4,6 +4,7 @@
 #include "badger/bit.h"
 
 #include "badger/assert.h"
+#include "exclusive.h"
 
 #include <string.h>
 
@@ -16,6 +17,7 @@ struct tb_bit
     size_t length;          /* Number of bits. */
     size_t word_count;      /* Number of words that hold them. */
     uint64_t *words;        /* The words, which follow this structure in memory. */
+    tb_exclusive exclusive; /* One thread at a time changes it. */
 };
 
 /* The words are placed right after the structure, so its size must leave
@@ -170,6 +172,8 @@ void tb_bit_destroy(tb_bit *bits)
     {
         return;
     }
+    /* No thread may be inside a bit set that is going away. */
+    TB_EXCLUSIVE_ENTER(&bits->exclusive, "a bit set");
     allocator = bits->allocator;
     tb_allocator_free(&allocator, bits, tb_bit_block_size(bits->word_count), _Alignof(tb_bit));
 }
@@ -203,7 +207,17 @@ bool tb_bit_get(const tb_bit *bits, size_t index)
     return ((bits->words[index / TB_BIT_WORD_WIDTH] >> (index % TB_BIT_WORD_WIDTH)) & 1u) != 0;
 }
 
-bool tb_bit_put(tb_bit *bits, size_t index, bool value)
+/* What each function that changes the object does once inside its guard. */
+static bool tb_bit_put_inside(tb_bit *bits, size_t index, bool value);
+static void tb_bit_set_inside(tb_bit *bits, size_t begin, size_t end);
+static void tb_bit_clear_inside(tb_bit *bits, size_t begin, size_t end);
+static void tb_bit_flip_inside(tb_bit *bits, size_t begin, size_t end);
+static void tb_bit_union_inside(tb_bit *bits, const tb_bit *other);
+static void tb_bit_intersection_inside(tb_bit *bits, const tb_bit *other);
+static void tb_bit_difference_inside(tb_bit *bits, const tb_bit *other);
+static void tb_bit_symmetric_difference_inside(tb_bit *bits, const tb_bit *other);
+
+static bool tb_bit_put_inside(tb_bit *bits, size_t index, bool value)
 {
     const bool previous = tb_bit_get(bits, index);
     tb_bit_change change = TB_BIT_CHANGE_CLEAR;
@@ -217,23 +231,57 @@ bool tb_bit_put(tb_bit *bits, size_t index, bool value)
     return previous;
 }
 
+bool tb_bit_put(tb_bit *bits, size_t index, bool value)
+{
+    bool result = false;
+    TB_ASSERT(bits != NULL);
+    TB_EXCLUSIVE_ENTER(&bits->exclusive, "a bit set");
+    result = tb_bit_put_inside(bits, index, value);
+    TB_EXCLUSIVE_LEAVE(&bits->exclusive);
+    return result;
+}
+
 /* ---------------------------------------------------------------------------
  * Ranges of bits.
  * ------------------------------------------------------------------------- */
 
-void tb_bit_set(tb_bit *bits, size_t begin, size_t end)
+static void tb_bit_set_inside(tb_bit *bits, size_t begin, size_t end)
 {
     tb_bit_change_range(bits, begin, end, TB_BIT_CHANGE_SET);
 }
 
-void tb_bit_clear(tb_bit *bits, size_t begin, size_t end)
+void tb_bit_set(tb_bit *bits, size_t begin, size_t end)
+{
+    TB_ASSERT(bits != NULL);
+    TB_EXCLUSIVE_ENTER(&bits->exclusive, "a bit set");
+    tb_bit_set_inside(bits, begin, end);
+    TB_EXCLUSIVE_LEAVE(&bits->exclusive);
+}
+
+static void tb_bit_clear_inside(tb_bit *bits, size_t begin, size_t end)
 {
     tb_bit_change_range(bits, begin, end, TB_BIT_CHANGE_CLEAR);
 }
 
-void tb_bit_flip(tb_bit *bits, size_t begin, size_t end)
+void tb_bit_clear(tb_bit *bits, size_t begin, size_t end)
+{
+    TB_ASSERT(bits != NULL);
+    TB_EXCLUSIVE_ENTER(&bits->exclusive, "a bit set");
+    tb_bit_clear_inside(bits, begin, end);
+    TB_EXCLUSIVE_LEAVE(&bits->exclusive);
+}
+
+static void tb_bit_flip_inside(tb_bit *bits, size_t begin, size_t end)
 {
     tb_bit_change_range(bits, begin, end, TB_BIT_CHANGE_FLIP);
+}
+
+void tb_bit_flip(tb_bit *bits, size_t begin, size_t end)
+{
+    TB_ASSERT(bits != NULL);
+    TB_EXCLUSIVE_ENTER(&bits->exclusive, "a bit set");
+    tb_bit_flip_inside(bits, begin, end);
+    TB_EXCLUSIVE_LEAVE(&bits->exclusive);
 }
 
 /* ---------------------------------------------------------------------------
@@ -372,7 +420,7 @@ bool tb_bit_is_proper_subset(const tb_bit *left, const tb_bit *right)
  * structures once, before the loop. A loop that reads them from the structures
  * on every pass must assume that storing a word may have changed them, and
  * cannot combine several words in one step. */
-void tb_bit_union(tb_bit *bits, const tb_bit *other)
+static void tb_bit_union_inside(tb_bit *bits, const tb_bit *other)
 {
     uint64_t *words = NULL;
     const uint64_t *other_words = NULL;
@@ -388,7 +436,15 @@ void tb_bit_union(tb_bit *bits, const tb_bit *other)
     }
 }
 
-void tb_bit_intersection(tb_bit *bits, const tb_bit *other)
+void tb_bit_union(tb_bit *bits, const tb_bit *other)
+{
+    tb_bit_require_pair(bits, other);
+    TB_EXCLUSIVE_ENTER(&bits->exclusive, "a bit set");
+    tb_bit_union_inside(bits, other);
+    TB_EXCLUSIVE_LEAVE(&bits->exclusive);
+}
+
+static void tb_bit_intersection_inside(tb_bit *bits, const tb_bit *other)
 {
     uint64_t *words = NULL;
     const uint64_t *other_words = NULL;
@@ -404,7 +460,15 @@ void tb_bit_intersection(tb_bit *bits, const tb_bit *other)
     }
 }
 
-void tb_bit_difference(tb_bit *bits, const tb_bit *other)
+void tb_bit_intersection(tb_bit *bits, const tb_bit *other)
+{
+    tb_bit_require_pair(bits, other);
+    TB_EXCLUSIVE_ENTER(&bits->exclusive, "a bit set");
+    tb_bit_intersection_inside(bits, other);
+    TB_EXCLUSIVE_LEAVE(&bits->exclusive);
+}
+
+static void tb_bit_difference_inside(tb_bit *bits, const tb_bit *other)
 {
     uint64_t *words = NULL;
     const uint64_t *other_words = NULL;
@@ -420,7 +484,15 @@ void tb_bit_difference(tb_bit *bits, const tb_bit *other)
     }
 }
 
-void tb_bit_symmetric_difference(tb_bit *bits, const tb_bit *other)
+void tb_bit_difference(tb_bit *bits, const tb_bit *other)
+{
+    tb_bit_require_pair(bits, other);
+    TB_EXCLUSIVE_ENTER(&bits->exclusive, "a bit set");
+    tb_bit_difference_inside(bits, other);
+    TB_EXCLUSIVE_LEAVE(&bits->exclusive);
+}
+
+static void tb_bit_symmetric_difference_inside(tb_bit *bits, const tb_bit *other)
 {
     uint64_t *words = NULL;
     const uint64_t *other_words = NULL;
@@ -434,4 +506,12 @@ void tb_bit_symmetric_difference(tb_bit *bits, const tb_bit *other)
     {
         words[word] ^= other_words[word];
     }
+}
+
+void tb_bit_symmetric_difference(tb_bit *bits, const tb_bit *other)
+{
+    tb_bit_require_pair(bits, other);
+    TB_EXCLUSIVE_ENTER(&bits->exclusive, "a bit set");
+    tb_bit_symmetric_difference_inside(bits, other);
+    TB_EXCLUSIVE_LEAVE(&bits->exclusive);
 }

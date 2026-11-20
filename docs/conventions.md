@@ -102,6 +102,25 @@ Functions that keep no state, and objects that are documented as independent
 of one another, are used from eight threads at once in
 `tests/core/thread_safety_test.c`, each thread with data of its own.
 
+**Externally synchronized objects check it.** In builds with assertions, an
+arena, a dynamic array, a hash table, a set, a ring buffer, and a bit set
+each record which thread is inside a function that changes it. A second
+thread that calls such a function while the first is still inside fails an
+assertion that names the kind of object, on every platform, Windows included,
+where there is no ThreadSanitizer. The guard lives in `src/core/exclusive.h`.
+
+- **What is checked:** functions that change the object, its destruction
+  included. Functions that only read take no part, so readers still run
+  together, and a reader that overlaps a writer is not caught.
+- **Re-entry:** a thread may enter an object it is already inside. That also
+  covers a test that leaves a function through a trap: the object stays with
+  the test's own thread, which can go on using it and destroy it.
+- **Cost:** a compare-exchange and a store for each call, about 17 ns in a
+  Debug build (Release, without assertions, has neither).
+- **Not covered:** the intrusive list (`badger/list.h`), whose structure the
+  caller declares, so it has no room for a guard; and stage-owned functions,
+  which are for single-threaded startup.
+
 ## Text files
 
 Source and documentation are UTF-8 without a byte-order mark.

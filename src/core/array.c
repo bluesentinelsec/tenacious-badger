@@ -2,6 +2,7 @@
 
 #include "badger/assert.h"
 #include "badger/size.h"
+#include "exclusive.h"
 #include "memory_internal.h"
 
 #include <string.h>
@@ -18,6 +19,7 @@ struct tb_array
     size_t capacity;          /* Elements the storage holds. */
     size_t element_size;      /* Bytes per element; at least 1. */
     size_t element_alignment; /* Alignment of the storage. */
+    tb_exclusive exclusive;   /* One thread at a time changes it. */
 };
 
 static bool tb_array_is_power_of_two(size_t value)
@@ -60,7 +62,22 @@ static bool tb_array_set_capacity(tb_array *array, size_t capacity)
     return true;
 }
 
-bool tb_array_try_reserve(tb_array *array, size_t capacity)
+/* What each function that changes the object does once inside its guard. */
+static bool tb_array_try_reserve_inside(tb_array *array, size_t capacity);
+static void tb_array_reserve_inside(tb_array *array, size_t capacity);
+static void tb_array_shrink_to_fit_inside(tb_array *array);
+static void tb_array_resize_inside(tb_array *array, size_t length);
+static void tb_array_clear_inside(tb_array *array);
+static void tb_array_put_inside(tb_array *array, size_t index, const void *element);
+static void *tb_array_insert_inside(tb_array *array, size_t index, const void *element);
+static void *tb_array_push_inside(tb_array *array, const void *element);
+static void tb_array_append_inside(tb_array *array, const void *elements, size_t count);
+static void tb_array_remove_inside(tb_array *array, size_t index, void *element);
+static void tb_array_remove_unordered_inside(tb_array *array, size_t index, void *element);
+static void tb_array_pop_inside(tb_array *array, void *element);
+static void *tb_array_push_sized_inside(tb_array *array, size_t element_size);
+
+static bool tb_array_try_reserve_inside(tb_array *array, size_t capacity)
 {
     TB_ASSERT(array != NULL);
     if (capacity <= array->capacity)
@@ -70,13 +87,31 @@ bool tb_array_try_reserve(tb_array *array, size_t capacity)
     return tb_array_set_capacity(array, capacity);
 }
 
-void tb_array_reserve(tb_array *array, size_t capacity)
+bool tb_array_try_reserve(tb_array *array, size_t capacity)
+{
+    bool result = false;
+    TB_ASSERT(array != NULL);
+    TB_EXCLUSIVE_ENTER(&array->exclusive, "a dynamic array");
+    result = tb_array_try_reserve_inside(array, capacity);
+    TB_EXCLUSIVE_LEAVE(&array->exclusive);
+    return result;
+}
+
+static void tb_array_reserve_inside(tb_array *array, size_t capacity)
 {
     TB_ASSERT(array != NULL);
-    if (!tb_array_try_reserve(array, capacity))
+    if (!tb_array_try_reserve_inside(array, capacity))
     {
         tb_memory_fail(capacity, array->element_size, array->element_alignment);
     }
+}
+
+void tb_array_reserve(tb_array *array, size_t capacity)
+{
+    TB_ASSERT(array != NULL);
+    TB_EXCLUSIVE_ENTER(&array->exclusive, "a dynamic array");
+    tb_array_reserve_inside(array, capacity);
+    TB_EXCLUSIVE_LEAVE(&array->exclusive);
 }
 
 /* Makes room for `count` more elements, growing by doubling so that a run of
@@ -111,7 +146,7 @@ static void tb_array_make_room(tb_array *array, size_t count)
     tb_array_reserve(array, required);
 }
 
-void tb_array_shrink_to_fit(tb_array *array)
+static void tb_array_shrink_to_fit_inside(tb_array *array)
 {
     TB_ASSERT(array != NULL);
     if (array->length == array->capacity)
@@ -127,6 +162,14 @@ void tb_array_shrink_to_fit(tb_array *array)
         return;
     }
     (void)tb_array_set_capacity(array, array->length);
+}
+
+void tb_array_shrink_to_fit(tb_array *array)
+{
+    TB_ASSERT(array != NULL);
+    TB_EXCLUSIVE_ENTER(&array->exclusive, "a dynamic array");
+    tb_array_shrink_to_fit_inside(array);
+    TB_EXCLUSIVE_LEAVE(&array->exclusive);
 }
 
 /* ---------------------------------------------------------------------------
@@ -170,6 +213,8 @@ void tb_array_destroy(tb_array *array)
     {
         return;
     }
+    /* No thread may be inside a array that is going away. */
+    TB_EXCLUSIVE_ENTER(&array->exclusive, "a dynamic array");
     allocator = array->allocator;
     tb_allocator_free(&allocator, array->data, array->capacity * array->element_size,
                       array->element_alignment);
@@ -198,22 +243,38 @@ size_t tb_array_element_size(const tb_array *array)
     return array->element_size;
 }
 
-void tb_array_resize(tb_array *array, size_t length)
+static void tb_array_resize_inside(tb_array *array, size_t length)
 {
     TB_ASSERT(array != NULL);
     if (length > array->length)
     {
-        tb_array_reserve(array, length);
+        tb_array_reserve_inside(array, length);
         memset(tb_array_slot(array, array->length), 0,
                (length - array->length) * array->element_size);
     }
     array->length = length;
 }
 
-void tb_array_clear(tb_array *array)
+void tb_array_resize(tb_array *array, size_t length)
+{
+    TB_ASSERT(array != NULL);
+    TB_EXCLUSIVE_ENTER(&array->exclusive, "a dynamic array");
+    tb_array_resize_inside(array, length);
+    TB_EXCLUSIVE_LEAVE(&array->exclusive);
+}
+
+static void tb_array_clear_inside(tb_array *array)
 {
     TB_ASSERT(array != NULL);
     array->length = 0;
+}
+
+void tb_array_clear(tb_array *array)
+{
+    TB_ASSERT(array != NULL);
+    TB_EXCLUSIVE_ENTER(&array->exclusive, "a dynamic array");
+    tb_array_clear_inside(array);
+    TB_EXCLUSIVE_LEAVE(&array->exclusive);
 }
 
 /* ---------------------------------------------------------------------------
@@ -239,10 +300,18 @@ void tb_array_get(const tb_array *array, size_t index, void *element)
     memcpy(element, tb_array_at(array, index), array->element_size);
 }
 
-void tb_array_put(tb_array *array, size_t index, const void *element)
+static void tb_array_put_inside(tb_array *array, size_t index, const void *element)
 {
     TB_ASSERT(element != NULL);
     memcpy(tb_array_at(array, index), element, array->element_size);
+}
+
+void tb_array_put(tb_array *array, size_t index, const void *element)
+{
+    TB_ASSERT(array != NULL);
+    TB_EXCLUSIVE_ENTER(&array->exclusive, "a dynamic array");
+    tb_array_put_inside(array, index, element);
+    TB_EXCLUSIVE_LEAVE(&array->exclusive);
 }
 
 /* Copies an element into a slot, or zero-fills the slot when there is none. */
@@ -265,7 +334,7 @@ static void tb_array_read_slot(const tb_array *array, const unsigned char *slot,
     }
 }
 
-void *tb_array_insert(tb_array *array, size_t index, const void *element)
+static void *tb_array_insert_inside(tb_array *array, size_t index, const void *element)
 {
     unsigned char *slot = NULL;
 
@@ -279,13 +348,33 @@ void *tb_array_insert(tb_array *array, size_t index, const void *element)
     return slot;
 }
 
-void *tb_array_push(tb_array *array, const void *element)
+void *tb_array_insert(tb_array *array, size_t index, const void *element)
 {
+    void *result = NULL;
     TB_ASSERT(array != NULL);
-    return tb_array_insert(array, array->length, element);
+    TB_EXCLUSIVE_ENTER(&array->exclusive, "a dynamic array");
+    result = tb_array_insert_inside(array, index, element);
+    TB_EXCLUSIVE_LEAVE(&array->exclusive);
+    return result;
 }
 
-void tb_array_append(tb_array *array, const void *elements, size_t count)
+static void *tb_array_push_inside(tb_array *array, const void *element)
+{
+    TB_ASSERT(array != NULL);
+    return tb_array_insert_inside(array, array->length, element);
+}
+
+void *tb_array_push(tb_array *array, const void *element)
+{
+    void *result = NULL;
+    TB_ASSERT(array != NULL);
+    TB_EXCLUSIVE_ENTER(&array->exclusive, "a dynamic array");
+    result = tb_array_push_inside(array, element);
+    TB_EXCLUSIVE_LEAVE(&array->exclusive);
+    return result;
+}
+
+static void tb_array_append_inside(tb_array *array, const void *elements, size_t count)
 {
     TB_ASSERT(array != NULL);
     TB_ASSERT(elements != NULL || count == 0);
@@ -298,7 +387,15 @@ void tb_array_append(tb_array *array, const void *elements, size_t count)
     array->length += count;
 }
 
-void tb_array_remove(tb_array *array, size_t index, void *element)
+void tb_array_append(tb_array *array, const void *elements, size_t count)
+{
+    TB_ASSERT(array != NULL);
+    TB_EXCLUSIVE_ENTER(&array->exclusive, "a dynamic array");
+    tb_array_append_inside(array, elements, count);
+    TB_EXCLUSIVE_LEAVE(&array->exclusive);
+}
+
+static void tb_array_remove_inside(tb_array *array, size_t index, void *element)
 {
     unsigned char *slot = NULL;
 
@@ -310,7 +407,15 @@ void tb_array_remove(tb_array *array, size_t index, void *element)
     memmove(slot, slot + array->element_size, (array->length - index) * array->element_size);
 }
 
-void tb_array_remove_unordered(tb_array *array, size_t index, void *element)
+void tb_array_remove(tb_array *array, size_t index, void *element)
+{
+    TB_ASSERT(array != NULL);
+    TB_EXCLUSIVE_ENTER(&array->exclusive, "a dynamic array");
+    tb_array_remove_inside(array, index, element);
+    TB_EXCLUSIVE_LEAVE(&array->exclusive);
+}
+
+static void tb_array_remove_unordered_inside(tb_array *array, size_t index, void *element)
 {
     unsigned char *slot = NULL;
 
@@ -323,11 +428,27 @@ void tb_array_remove_unordered(tb_array *array, size_t index, void *element)
     memmove(slot, tb_array_slot(array, array->length), array->element_size);
 }
 
-void tb_array_pop(tb_array *array, void *element)
+void tb_array_remove_unordered(tb_array *array, size_t index, void *element)
+{
+    TB_ASSERT(array != NULL);
+    TB_EXCLUSIVE_ENTER(&array->exclusive, "a dynamic array");
+    tb_array_remove_unordered_inside(array, index, element);
+    TB_EXCLUSIVE_LEAVE(&array->exclusive);
+}
+
+static void tb_array_pop_inside(tb_array *array, void *element)
 {
     TB_ASSERT(array != NULL);
     TB_ASSERT_MSG(array->length > 0, "the array must not be empty");
-    tb_array_remove(array, array->length - 1, element);
+    tb_array_remove_inside(array, array->length - 1, element);
+}
+
+void tb_array_pop(tb_array *array, void *element)
+{
+    TB_ASSERT(array != NULL);
+    TB_EXCLUSIVE_ENTER(&array->exclusive, "a dynamic array");
+    tb_array_pop_inside(array, element);
+    TB_EXCLUSIVE_LEAVE(&array->exclusive);
 }
 
 /* ---------------------------------------------------------------------------
@@ -348,11 +469,21 @@ void *tb_array_data_sized(const tb_array *array, size_t element_size)
     return tb_array_data(array);
 }
 
-void *tb_array_push_sized(tb_array *array, size_t element_size)
+static void *tb_array_push_sized_inside(tb_array *array, size_t element_size)
 {
     TB_ASSERT(array != NULL);
     TB_ASSERT_MSG(element_size == array->element_size, "the array holds elements of another size");
     tb_array_make_room(array, 1);
     array->length++;
     return tb_array_slot(array, array->length - 1);
+}
+
+void *tb_array_push_sized(tb_array *array, size_t element_size)
+{
+    void *result = NULL;
+    TB_ASSERT(array != NULL);
+    TB_EXCLUSIVE_ENTER(&array->exclusive, "a dynamic array");
+    result = tb_array_push_sized_inside(array, element_size);
+    TB_EXCLUSIVE_LEAVE(&array->exclusive);
+    return result;
 }

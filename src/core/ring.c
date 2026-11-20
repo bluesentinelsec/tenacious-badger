@@ -11,6 +11,7 @@
 
 #include "badger/assert.h"
 #include "badger/size.h"
+#include "exclusive.h"
 #include "memory_internal.h"
 
 #include <string.h>
@@ -27,6 +28,7 @@ struct tb_ring
     size_t head;              /* Storage position of the front element. */
     size_t element_size;      /* Bytes per element; at least 1. */
     size_t element_alignment; /* Alignment of the storage. */
+    tb_exclusive exclusive;   /* One thread at a time changes it. */
 };
 
 static bool tb_ring_is_power_of_two(size_t value)
@@ -195,7 +197,24 @@ static bool tb_ring_set_capacity(tb_ring *ring, size_t capacity)
     return true;
 }
 
-bool tb_ring_try_reserve(tb_ring *ring, size_t capacity)
+/* What each function that changes the object does once inside its guard. */
+static bool tb_ring_try_reserve_inside(tb_ring *ring, size_t capacity);
+static void tb_ring_reserve_inside(tb_ring *ring, size_t capacity);
+static void tb_ring_shrink_to_fit_inside(tb_ring *ring);
+static void tb_ring_clear_inside(tb_ring *ring);
+static void *tb_ring_push_back_inside(tb_ring *ring, const void *element);
+static void *tb_ring_push_front_inside(tb_ring *ring, const void *element);
+static void tb_ring_pop_back_inside(tb_ring *ring, void *element);
+static void tb_ring_pop_front_inside(tb_ring *ring, void *element);
+static void tb_ring_put_inside(tb_ring *ring, size_t index, const void *element);
+static void *tb_ring_insert_inside(tb_ring *ring, size_t index, const void *element);
+static void tb_ring_remove_inside(tb_ring *ring, size_t index, void *element);
+static void tb_ring_rotate_left_inside(tb_ring *ring, size_t count);
+static void tb_ring_rotate_right_inside(tb_ring *ring, size_t count);
+static void *tb_ring_push_back_sized_inside(tb_ring *ring, size_t element_size);
+static void *tb_ring_push_front_sized_inside(tb_ring *ring, size_t element_size);
+
+static bool tb_ring_try_reserve_inside(tb_ring *ring, size_t capacity)
 {
     TB_ASSERT(ring != NULL);
     if (capacity <= ring->capacity)
@@ -205,13 +224,31 @@ bool tb_ring_try_reserve(tb_ring *ring, size_t capacity)
     return tb_ring_set_capacity(ring, capacity);
 }
 
-void tb_ring_reserve(tb_ring *ring, size_t capacity)
+bool tb_ring_try_reserve(tb_ring *ring, size_t capacity)
+{
+    bool result = false;
+    TB_ASSERT(ring != NULL);
+    TB_EXCLUSIVE_ENTER(&ring->exclusive, "a ring buffer");
+    result = tb_ring_try_reserve_inside(ring, capacity);
+    TB_EXCLUSIVE_LEAVE(&ring->exclusive);
+    return result;
+}
+
+static void tb_ring_reserve_inside(tb_ring *ring, size_t capacity)
 {
     TB_ASSERT(ring != NULL);
-    if (!tb_ring_try_reserve(ring, capacity))
+    if (!tb_ring_try_reserve_inside(ring, capacity))
     {
         tb_memory_fail(capacity, ring->element_size, ring->element_alignment);
     }
+}
+
+void tb_ring_reserve(tb_ring *ring, size_t capacity)
+{
+    TB_ASSERT(ring != NULL);
+    TB_EXCLUSIVE_ENTER(&ring->exclusive, "a ring buffer");
+    tb_ring_reserve_inside(ring, capacity);
+    TB_EXCLUSIVE_LEAVE(&ring->exclusive);
 }
 
 /* Makes room for one more element, growing by doubling. */
@@ -245,7 +282,7 @@ static void tb_ring_make_room(tb_ring *ring)
     tb_ring_reserve(ring, required);
 }
 
-void tb_ring_shrink_to_fit(tb_ring *ring)
+static void tb_ring_shrink_to_fit_inside(tb_ring *ring)
 {
     TB_ASSERT(ring != NULL);
     if (ring->length == ring->capacity)
@@ -264,11 +301,27 @@ void tb_ring_shrink_to_fit(tb_ring *ring)
     (void)tb_ring_set_capacity(ring, ring->length);
 }
 
-void tb_ring_clear(tb_ring *ring)
+void tb_ring_shrink_to_fit(tb_ring *ring)
+{
+    TB_ASSERT(ring != NULL);
+    TB_EXCLUSIVE_ENTER(&ring->exclusive, "a ring buffer");
+    tb_ring_shrink_to_fit_inside(ring);
+    TB_EXCLUSIVE_LEAVE(&ring->exclusive);
+}
+
+static void tb_ring_clear_inside(tb_ring *ring)
 {
     TB_ASSERT(ring != NULL);
     ring->length = 0;
     ring->head = 0;
+}
+
+void tb_ring_clear(tb_ring *ring)
+{
+    TB_ASSERT(ring != NULL);
+    TB_EXCLUSIVE_ENTER(&ring->exclusive, "a ring buffer");
+    tb_ring_clear_inside(ring);
+    TB_EXCLUSIVE_LEAVE(&ring->exclusive);
 }
 
 /* ---------------------------------------------------------------------------
@@ -300,6 +353,8 @@ void tb_ring_destroy(tb_ring *ring)
     {
         return;
     }
+    /* No thread may be inside a ring that is going away. */
+    TB_EXCLUSIVE_ENTER(&ring->exclusive, "a ring buffer");
     allocator = ring->allocator;
     tb_allocator_free(&allocator, ring->data, ring->capacity * ring->element_size,
                       ring->element_alignment);
@@ -349,7 +404,7 @@ static unsigned char *tb_ring_add_front(tb_ring *ring)
     return tb_ring_slot(ring, 0);
 }
 
-void *tb_ring_push_back(tb_ring *ring, const void *element)
+static void *tb_ring_push_back_inside(tb_ring *ring, const void *element)
 {
     unsigned char *slot = NULL;
 
@@ -359,7 +414,17 @@ void *tb_ring_push_back(tb_ring *ring, const void *element)
     return slot;
 }
 
-void *tb_ring_push_front(tb_ring *ring, const void *element)
+void *tb_ring_push_back(tb_ring *ring, const void *element)
+{
+    void *result = NULL;
+    TB_ASSERT(ring != NULL);
+    TB_EXCLUSIVE_ENTER(&ring->exclusive, "a ring buffer");
+    result = tb_ring_push_back_inside(ring, element);
+    TB_EXCLUSIVE_LEAVE(&ring->exclusive);
+    return result;
+}
+
+static void *tb_ring_push_front_inside(tb_ring *ring, const void *element)
 {
     unsigned char *slot = NULL;
 
@@ -369,7 +434,17 @@ void *tb_ring_push_front(tb_ring *ring, const void *element)
     return slot;
 }
 
-void tb_ring_pop_back(tb_ring *ring, void *element)
+void *tb_ring_push_front(tb_ring *ring, const void *element)
+{
+    void *result = NULL;
+    TB_ASSERT(ring != NULL);
+    TB_EXCLUSIVE_ENTER(&ring->exclusive, "a ring buffer");
+    result = tb_ring_push_front_inside(ring, element);
+    TB_EXCLUSIVE_LEAVE(&ring->exclusive);
+    return result;
+}
+
+static void tb_ring_pop_back_inside(tb_ring *ring, void *element)
 {
     TB_ASSERT(ring != NULL);
     TB_ASSERT_MSG(ring->length > 0, "the ring must not be empty");
@@ -377,13 +452,29 @@ void tb_ring_pop_back(tb_ring *ring, void *element)
     ring->length--;
 }
 
-void tb_ring_pop_front(tb_ring *ring, void *element)
+void tb_ring_pop_back(tb_ring *ring, void *element)
+{
+    TB_ASSERT(ring != NULL);
+    TB_EXCLUSIVE_ENTER(&ring->exclusive, "a ring buffer");
+    tb_ring_pop_back_inside(ring, element);
+    TB_EXCLUSIVE_LEAVE(&ring->exclusive);
+}
+
+static void tb_ring_pop_front_inside(tb_ring *ring, void *element)
 {
     TB_ASSERT(ring != NULL);
     TB_ASSERT_MSG(ring->length > 0, "the ring must not be empty");
     tb_ring_read_slot(ring, tb_ring_slot(ring, 0), element);
     tb_ring_advance_head(ring);
     ring->length--;
+}
+
+void tb_ring_pop_front(tb_ring *ring, void *element)
+{
+    TB_ASSERT(ring != NULL);
+    TB_EXCLUSIVE_ENTER(&ring->exclusive, "a ring buffer");
+    tb_ring_pop_front_inside(ring, element);
+    TB_EXCLUSIVE_LEAVE(&ring->exclusive);
 }
 
 /* ---------------------------------------------------------------------------
@@ -403,13 +494,21 @@ void tb_ring_get(const tb_ring *ring, size_t index, void *element)
     memcpy(element, tb_ring_at(ring, index), ring->element_size);
 }
 
-void tb_ring_put(tb_ring *ring, size_t index, const void *element)
+static void tb_ring_put_inside(tb_ring *ring, size_t index, const void *element)
 {
     TB_ASSERT(element != NULL);
     memcpy(tb_ring_at(ring, index), element, ring->element_size);
 }
 
-void *tb_ring_insert(tb_ring *ring, size_t index, const void *element)
+void tb_ring_put(tb_ring *ring, size_t index, const void *element)
+{
+    TB_ASSERT(ring != NULL);
+    TB_EXCLUSIVE_ENTER(&ring->exclusive, "a ring buffer");
+    tb_ring_put_inside(ring, index, element);
+    TB_EXCLUSIVE_LEAVE(&ring->exclusive);
+}
+
+static void *tb_ring_insert_inside(tb_ring *ring, size_t index, const void *element)
 {
     unsigned char *slot = NULL;
 
@@ -434,7 +533,17 @@ void *tb_ring_insert(tb_ring *ring, size_t index, const void *element)
     return slot;
 }
 
-void tb_ring_remove(tb_ring *ring, size_t index, void *element)
+void *tb_ring_insert(tb_ring *ring, size_t index, const void *element)
+{
+    void *result = NULL;
+    TB_ASSERT(ring != NULL);
+    TB_EXCLUSIVE_ENTER(&ring->exclusive, "a ring buffer");
+    result = tb_ring_insert_inside(ring, index, element);
+    TB_EXCLUSIVE_LEAVE(&ring->exclusive);
+    return result;
+}
+
+static void tb_ring_remove_inside(tb_ring *ring, size_t index, void *element)
 {
     TB_ASSERT(ring != NULL);
     TB_ASSERT_MSG(index < ring->length, "index must be less than the length");
@@ -454,11 +563,19 @@ void tb_ring_remove(tb_ring *ring, size_t index, void *element)
     ring->length--;
 }
 
+void tb_ring_remove(tb_ring *ring, size_t index, void *element)
+{
+    TB_ASSERT(ring != NULL);
+    TB_EXCLUSIVE_ENTER(&ring->exclusive, "a ring buffer");
+    tb_ring_remove_inside(ring, index, element);
+    TB_EXCLUSIVE_LEAVE(&ring->exclusive);
+}
+
 /* ---------------------------------------------------------------------------
  * Rotating.
  * ------------------------------------------------------------------------- */
 
-void tb_ring_rotate_left(tb_ring *ring, size_t count)
+static void tb_ring_rotate_left_inside(tb_ring *ring, size_t count)
 {
     size_t steps_left = {0};
     size_t steps_right = {0};
@@ -499,14 +616,30 @@ void tb_ring_rotate_left(tb_ring *ring, size_t count)
     }
 }
 
-void tb_ring_rotate_right(tb_ring *ring, size_t count)
+void tb_ring_rotate_left(tb_ring *ring, size_t count)
+{
+    TB_ASSERT(ring != NULL);
+    TB_EXCLUSIVE_ENTER(&ring->exclusive, "a ring buffer");
+    tb_ring_rotate_left_inside(ring, count);
+    TB_EXCLUSIVE_LEAVE(&ring->exclusive);
+}
+
+static void tb_ring_rotate_right_inside(tb_ring *ring, size_t count)
 {
     TB_ASSERT(ring != NULL);
     if (ring->length == 0)
     {
         return;
     }
-    tb_ring_rotate_left(ring, ring->length - count % ring->length);
+    tb_ring_rotate_left_inside(ring, ring->length - count % ring->length);
+}
+
+void tb_ring_rotate_right(tb_ring *ring, size_t count)
+{
+    TB_ASSERT(ring != NULL);
+    TB_EXCLUSIVE_ENTER(&ring->exclusive, "a ring buffer");
+    tb_ring_rotate_right_inside(ring, count);
+    TB_EXCLUSIVE_LEAVE(&ring->exclusive);
 }
 
 /* ---------------------------------------------------------------------------
@@ -520,16 +653,36 @@ void *tb_ring_at_sized(const tb_ring *ring, size_t index, size_t element_size)
     return tb_ring_at(ring, index);
 }
 
-void *tb_ring_push_back_sized(tb_ring *ring, size_t element_size)
+static void *tb_ring_push_back_sized_inside(tb_ring *ring, size_t element_size)
 {
     TB_ASSERT(ring != NULL);
     TB_ASSERT_MSG(element_size == ring->element_size, "the ring holds elements of another size");
     return tb_ring_add_back(ring);
 }
 
-void *tb_ring_push_front_sized(tb_ring *ring, size_t element_size)
+void *tb_ring_push_back_sized(tb_ring *ring, size_t element_size)
+{
+    void *result = NULL;
+    TB_ASSERT(ring != NULL);
+    TB_EXCLUSIVE_ENTER(&ring->exclusive, "a ring buffer");
+    result = tb_ring_push_back_sized_inside(ring, element_size);
+    TB_EXCLUSIVE_LEAVE(&ring->exclusive);
+    return result;
+}
+
+static void *tb_ring_push_front_sized_inside(tb_ring *ring, size_t element_size)
 {
     TB_ASSERT(ring != NULL);
     TB_ASSERT_MSG(element_size == ring->element_size, "the ring holds elements of another size");
     return tb_ring_add_front(ring);
+}
+
+void *tb_ring_push_front_sized(tb_ring *ring, size_t element_size)
+{
+    void *result = NULL;
+    TB_ASSERT(ring != NULL);
+    TB_EXCLUSIVE_ENTER(&ring->exclusive, "a ring buffer");
+    result = tb_ring_push_front_sized_inside(ring, element_size);
+    TB_EXCLUSIVE_LEAVE(&ring->exclusive);
+    return result;
 }

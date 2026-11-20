@@ -1,3 +1,6 @@
+#include "badger/assert.h"
+#include "badger/platform.h"
+#include "badger/thread.h"
 #include "core/arena_internal.h"
 #include "tb_test.h"
 #include <string.h>
@@ -21,8 +24,17 @@ static tb_vm_result reserve_memory(size_t size, tb_vm_region *region)
     }
     return result;
 }
+/* Once armed, the next commit holds its thread until the test lets it go. */
+static tb_platform_atomic_u32 hold_commit = {0};
+static tb_semaphore commit_inside = {0};
+static tb_semaphore commit_release = {0};
 static tb_vm_result commit_memory(tb_vm_region *region, size_t offset, size_t size)
 {
+    if (tb_platform_atomic_u32_exchange(&hold_commit, 0) != 0)
+    {
+        tb_semaphore_signal(&commit_inside, 1);
+        tb_semaphore_wait(&commit_release);
+    }
     commit_calls++;
     if (commit_calls == fail_commit)
     {
@@ -146,6 +158,41 @@ TB_TEST(core_reserved_arena_failure, allocator_growth_failure_and_trim_failure_l
     refuse_decommit = false;
     tb_arena_reset(arena);
     TB_TEST_EXPECT_UINT(tb_arena_committed_size(arena), ==, info.page_size);
+    tb_arena_destroy(arena);
+    TB_TEST_EXPECT_UINT(live_reservations, ==, 0);
+}
+static void grow_the_arena(void *context)
+{
+    unsigned char *const bytes = tb_arena_alloc(context, (size_t)256 * 1024, 1);
+    bytes[0] = 1;
+}
+static void allocate_from_the_test(void *context)
+{
+    (void)tb_arena_alloc(context, 16, 1);
+}
+/* While one thread is inside an arena, committing the pages it grows into,
+ * another that allocates from it fails the check that one thread at a time
+ * changes an arena. Once the first has left, the second may. */
+TB_TEST(core_reserved_arena_failure, two_threads_in_one_arena_fail_the_check)
+{
+    tb_arena *arena = NULL;
+    tb_thread thread = {0};
+    if (!tb_assert_library_enabled())
+    {
+        TB_TEST_SKIP("assertions disabled");
+    }
+    commit_calls = 0;
+    fail_commit = 0;
+    refuse_decommit = false;
+    arena = tb_arena_try_create_reserved_with_operations((size_t)4 * 1024 * 1024, &operations);
+    TB_TEST_REQUIRE_POINTER(arena, !=, NULL);
+    tb_platform_atomic_u32_store(&hold_commit, 1);
+    tb_thread_create(&thread, grow_the_arena, arena);
+    tb_semaphore_wait(&commit_inside);
+    TB_TEST_EXPECT_TRAP(allocate_from_the_test, arena, "one thread at a time");
+    tb_semaphore_signal(&commit_release, 1);
+    tb_thread_join(&thread);
+    allocate_from_the_test(arena);
     tb_arena_destroy(arena);
     TB_TEST_EXPECT_UINT(live_reservations, ==, 0);
 }
