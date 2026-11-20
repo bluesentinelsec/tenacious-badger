@@ -303,9 +303,27 @@ and saved data, configuration, and JSON are easier to read with the fewest.
   the result is rounded once, correctly. A value too large reads as infinity
   and one too small as zero, with its sign.
 
-Both compute exactly with big integers (`badger/xp.h`), which costs a few
-microseconds for a value of extreme exponent and well under one for the values
-a game's data holds; `tb_bench decimal` measures them.
+Both are exact. `tb_decimal_shortest` finds its digits with the Schubfach
+algorithm (Raffaello Giulietti, 2020): multiplications of 64 by 128 bits by a
+table of powers of ten (`src/core/decimal_table.h`, written by
+`tools/generate_decimal_table.py`), in about 40 ns for a value of any
+exponent. The definition it must meet is kept beside it, in big integers
+(`badger/xp.h`): for each count of digits, the value cut to that many and the
+next number above it. `tests/core/decimal_fast_test.c` holds the one to the
+other over every binary exponent, which reaches every entry of the table, and
+over random and short values. When it was written, 8 million values were
+compared without a difference. `tb_decimal_parse` and the `%e`, `%f`, and `%g`
+of the formatter compute with big integers, which costs a few microseconds
+for a value of extreme exponent and well under one for the values a game's
+data holds. `tb_bench decimal` measures them all:
+
+| Case | ns |
+| --- | --- |
+| Shortest text, any exponent | 43 |
+| Shortest text, 0.001 to 100000 | 40 |
+| Reading the shortest text, any exponent | 835 |
+| `%.17g`, any exponent | 2120 |
+| `%.3f`, 0.001 to 100000 | 130 |
 
 **A format string is part of the program.** An unknown conversion, or a format
 that ends inside one, is a contract violation: it fails an assertion, and in

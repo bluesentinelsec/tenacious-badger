@@ -7,8 +7,9 @@
  * on every platform. The C library cannot promise that: printf and strtod
  * differ between platforms in rounding, in the spelling of infinity, and in
  * what they accept, and they follow the process locale. These functions
- * compute exactly, with big integers (xp.h), and give the same bytes
- * everywhere.
+ * compute exactly and give the same bytes everywhere: the shortest text
+ * with the Schubfach algorithm and a table of powers of ten, and reading
+ * with big integers (xp.h).
  *
  * @code
  * char text[TB_DECIMAL_SHORTEST_SIZE] = {0};
