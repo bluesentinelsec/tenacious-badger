@@ -44,6 +44,18 @@ TB_API void tb_fs_buffer_free(tb_fs_buffer *buffer);
  * @param length Payload bytes. @return Status; failure may leave a partial file.
  * Parents must exist. Use tb_fs_replace_file when the previous file must survive. */
 TB_API tb_fs_result tb_fs_write_file(tb_path_view path, const void *bytes, size_t length);
+/** @brief Write a file as tb_fs_write_file() does, but leave the bytes in the
+ * system's cache, for the system to put on the disk later.
+ *
+ * A program that reads the file after this returns, this one or another,
+ * reads the bytes written. A loss of power before the system writes them may
+ * lose them. That suits a cache, a log, or a tool writing many files that it
+ * can write again; a save game or a setting the player chose wants
+ * tb_fs_write_file() or tb_fs_replace_file(). Writing 4 KiB takes about a
+ * tenth of the time.
+ * @param path Borrowed filename. @param bytes Input, NULL only at length zero.
+ * @param length Payload bytes. @return As tb_fs_write_file(). */
+TB_API tb_fs_result tb_fs_write_file_cached(tb_path_view path, const void *bytes, size_t length);
 /** @brief Replace a file after a complete write, flush, and close in its directory.
  * @param path Borrowed filename; must have a non-dot final component.
  * @param bytes Input, NULL only at length zero. @param length Payload bytes.
@@ -54,6 +66,17 @@ TB_API tb_fs_result tb_fs_write_file(tb_path_view path, const void *bytes, size_
  * prevent removal of a temporary file named tb-*. No directory is created.
  */
 TB_API tb_fs_result tb_fs_replace_file(tb_path_view path, const void *bytes, size_t length);
+/** @brief Replace a file as tb_fs_replace_file() does, but leave the new
+ * bytes in the system's cache, for the system to put on the disk later.
+ *
+ * If the program ends, however it ends, readers see the old file or the new
+ * one, whole. If the power is lost before the system writes the bytes, the
+ * new file may be found empty or partly written: use tb_fs_replace_file()
+ * for anything that must survive that.
+ * @param path Borrowed filename; must have a non-dot final component.
+ * @param bytes Input, NULL only at length zero. @param length Payload bytes.
+ * @return As tb_fs_replace_file(). */
+TB_API tb_fs_result tb_fs_replace_file_cached(tb_path_view path, const void *bytes, size_t length);
 /** @brief Create missing directories, accepting directories already present.
  * @param path Borrowed UTF-8 directory. Native host syntax is used.
  * Ordinary dot components are normalized lexically before creation.

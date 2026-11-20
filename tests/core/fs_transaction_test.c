@@ -5,6 +5,7 @@
 
 static size_t failure_stage = {0};
 static size_t write_calls = {0};
+static size_t flush_calls = {0};
 static tb_path_view view(const char *text)
 {
     return (tb_path_view){text, tb_str_length(text)};
@@ -25,6 +26,7 @@ static tb_fs_result injected_write(tb_file *file, const void *bytes, size_t leng
 }
 static tb_fs_result injected_flush(tb_file *file)
 {
+    flush_calls++;
     return failure_stage == 3 ? TB_FS_OS_ERROR : tb_file_flush(file);
 }
 static tb_fs_result injected_close(tb_file *file)
@@ -57,7 +59,8 @@ TB_TEST(core_files_transaction, failure_at_every_step_preserves_old_file_and_rem
         TB_TEST_REQUIRE_UINT(tb_fs_write_file(view(path), "old", 3), ==, TB_FS_OK);
         failure_stage = stage;
         write_calls = 0;
-        result = tb_fs_replace_with_operations(view(path), "replacement", 11, &operations);
+        result = tb_fs_replace_with_operations(view(path), "replacement", 11, TB_FS_FLUSHED,
+                                               &operations);
         if (stage == 0)
         {
             TB_TEST_EXPECT_UINT(result, ==, TB_FS_OK);
@@ -78,6 +81,41 @@ TB_TEST(core_files_transaction, failure_at_every_step_preserves_old_file_and_rem
                             TB_FS_END);
         TB_TEST_EXPECT_UINT(tb_directory_close(&directory), ==, TB_FS_OK);
     }
+    TB_TEST_EXPECT_UINT(tb_fs_remove(view(path)), ==, TB_FS_OK);
+    TB_TEST_EXPECT_UINT(tb_fs_remove(view(root)), ==, TB_FS_OK);
+}
+/* A cached replacement skips only the flush: every other failure still
+ * leaves the old file and no temporary behind. Stage 3, a failed flush,
+ * cannot happen to it, so it succeeds there. */
+TB_TEST(core_files_transaction, cached_replacement_never_flushes_and_fails_as_safely)
+{
+    static const tb_fs_write_operations operations = {injected_write, injected_flush,
+                                                      injected_close, injected_rename};
+    char root[32768] = {0};
+    char path[32768] = {0};
+    size_t required = {0};
+    TB_TEST_REQUIRE_UINT(tb_fs_temp_directory((tb_path_view){0}, root, sizeof(root)), ==, TB_FS_OK);
+    TB_TEST_REQUIRE_UINT(tb_path_join(tb_fs_native_style(), view(root), view("target"), path,
+                                      sizeof(path), &required),
+                         ==, TB_PATH_OK);
+    for (size_t stage = {0}; stage < 6; stage++)
+    {
+        tb_fs_buffer content = {0};
+        const bool succeeds = stage == 0 || stage == 3;
+        tb_fs_result result = {0};
+        TB_TEST_REQUIRE_UINT(tb_fs_write_file(view(path), "old", 3), ==, TB_FS_OK);
+        failure_stage = stage;
+        write_calls = 0;
+        flush_calls = 0;
+        result =
+            tb_fs_replace_with_operations(view(path), "replacement", 11, TB_FS_CACHED, &operations);
+        TB_TEST_EXPECT_UINT(flush_calls, ==, 0);
+        TB_TEST_EXPECT(succeeds ? result == TB_FS_OK : result != TB_FS_OK);
+        TB_TEST_REQUIRE_UINT(tb_fs_read_file(view(path), NULL, 100, &content), ==, TB_FS_OK);
+        TB_TEST_EXPECT_STRING((const char *)content.data, ==, succeeds ? "replacement" : "old");
+        tb_fs_buffer_free(&content);
+    }
+    failure_stage = 0;
     TB_TEST_EXPECT_UINT(tb_fs_remove(view(path)), ==, TB_FS_OK);
     TB_TEST_EXPECT_UINT(tb_fs_remove(view(root)), ==, TB_FS_OK);
 }

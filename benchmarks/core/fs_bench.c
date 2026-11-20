@@ -7,9 +7,9 @@
  * with the C library beside it, not one machine with another.
  *
  * The writes are not alike. tb_fs_write_file() and tb_fs_replace_file() ask
- * the system to put the bytes on the disk before they return, and fwrite()
- * leaves them in the system's cache. The difference in the numbers is the
- * price of that promise, most of it the disk's. */
+ * the system to put the bytes on the disk before they return; their _cached
+ * forms, and fwrite(), leave them in the system's cache. The difference in
+ * the numbers is the price of that promise, most of it the disk's. */
 #include "tb_bench.h"
 
 #include "badger/fmt.h"
@@ -72,6 +72,36 @@ static void run_replace(void *context)
     for (size_t round = 0; round < state->rounds; round++)
     {
         if (tb_fs_replace_file(fs_view(state->path), state->bytes, state->size) != TB_FS_OK)
+        {
+            failures++;
+        }
+    }
+    tb_bench_keep(failures);
+}
+
+static void run_write_cached(void *context)
+{
+    const fs_state *const state = context;
+    uint64_t failures = 0;
+
+    for (size_t round = 0; round < state->rounds; round++)
+    {
+        if (tb_fs_write_file_cached(fs_view(state->path), state->bytes, state->size) != TB_FS_OK)
+        {
+            failures++;
+        }
+    }
+    tb_bench_keep(failures);
+}
+
+static void run_replace_cached(void *context)
+{
+    const fs_state *const state = context;
+    uint64_t failures = 0;
+
+    for (size_t round = 0; round < state->rounds; round++)
+    {
+        if (tb_fs_replace_file_cached(fs_view(state->path), state->bytes, state->size) != TB_FS_OK)
         {
             failures++;
         }
@@ -158,6 +188,8 @@ static void measure_size(tb_bench *bench, fs_state *state, const char *label, si
     tb_bench_case writing[] = {
         {.variant = "tb_fs_write_file", .run = run_write},
         {.variant = "tb_fs_replace_file", .run = run_replace},
+        {.variant = "tb_fs_write_file_cached", .run = run_write_cached},
+        {.variant = "tb_fs_replace_file_cached", .run = run_replace_cached},
         {.variant = "fopen, fwrite, fclose", .run = run_write_with_streams},
     };
     tb_bench_case reading[] = {
@@ -174,7 +206,7 @@ static void measure_size(tb_bench *bench, fs_state *state, const char *label, si
     }
     (void)tb_fmt_buffer(names[0], sizeof(names[0]), "write a file of %s", label);
     (void)tb_fmt_buffer(names[1], sizeof(names[1]), "read a file of %s", label);
-    for (size_t index = 0; index < 3; index++)
+    for (size_t index = 0; index < sizeof(writing) / sizeof(writing[0]); index++)
     {
         writing[index].name = names[0];
         writing[index].context = state;
@@ -186,7 +218,7 @@ static void measure_size(tb_bench *bench, fs_state *state, const char *label, si
         reading[index].context = state;
         reading[index].operations = (double)state->rounds;
     }
-    tb_bench_measure(bench, "fs", writing, 3);
+    tb_bench_measure(bench, "fs", writing, sizeof(writing) / sizeof(writing[0]));
     tb_bench_measure(bench, "fs", reading, 2);
 }
 

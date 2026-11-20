@@ -10,6 +10,14 @@ typedef struct tb_fs_write_operations
     tb_fs_result (*close_file)(tb_file *);
     tb_fs_result (*rename_file)(tb_path_view, tb_path_view);
 } tb_fs_write_operations;
+/* Whether a write asks the system to put the bytes on the disk before it
+ * returns, or leaves them in the system's cache. */
+typedef enum tb_fs_durability
+{
+    TB_FS_FLUSHED,
+    TB_FS_CACHED
+} tb_fs_durability;
 tb_fs_result tb_fs_replace_with_operations(tb_path_view path, const void *bytes, size_t length,
+                                           tb_fs_durability durability,
                                            const tb_fs_write_operations *operations);
 #endif
