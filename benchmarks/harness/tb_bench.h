@@ -209,6 +209,8 @@ void tb_bench_tar(tb_bench *bench);
 void tb_bench_zip(tb_bench *bench);
 /** @brief Benchmarks of reading packages with badger/package.h, plain and obfuscated. */
 void tb_bench_package(tb_bench *bench);
+/** @brief Benchmarks of opening files through badger/vfs.h. */
+void tb_bench_vfs(tb_bench *bench);
 /** @brief Benchmarks of reading and writing JSON with badger/json.h. */
 void tb_bench_json(tb_bench *bench);
 /** @brief Benchmarks of badger/xp.h. */

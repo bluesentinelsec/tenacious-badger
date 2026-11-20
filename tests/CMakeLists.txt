@@ -81,6 +81,7 @@ set(TB_TEST_CASE_SOURCES
     ${TB_JSON_SUITE_SOURCE}
     serialize/json_writer_test.c
     jobs/loop_test.c
+    vfs/vfs_test.c
     framework/selftest/checks_test.c
     framework/selftest/options_test.c
     framework/selftest/pattern_test.c
@@ -125,7 +126,7 @@ set(TB_INTERNAL_TEST_CASE_SOURCES
     codec/crc32_table_test.c
     jobs/deque_test.c)
 set(TB_ENGINE_SOURCES ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES} ${TB_JOBS_SOURCES}
-    ${TB_CODEC_SOURCES} ${TB_SERIALIZE_SOURCES})
+    ${TB_CODEC_SOURCES} ${TB_SERIALIZE_SOURCES} ${TB_VFS_SOURCES})
 
 # The arguments go to tb_add_tests.
 function(tb_add_internal_tests target)

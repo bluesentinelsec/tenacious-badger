@@ -31,6 +31,7 @@ add_executable(tb_bench
     core/xp_bench.c
     jobs/jobs_bench.c
     serialize/json_bench.c
+    vfs/vfs_bench.c
     platform/atomic_bench.c
     platform/thread_bench.c
     platform/time_bench.c)
