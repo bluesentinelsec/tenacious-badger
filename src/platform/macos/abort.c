@@ -1,5 +1,6 @@
 #include "badger/platform.h"
 
+#include <signal.h>
 #include <stdlib.h>
 
 #if defined(TB_COVERAGE)
@@ -10,6 +11,9 @@ void __gcov_dump(void);
 
 void tb_platform_abort(void)
 {
+    /* A handler of SIGABRT, such as the one of tb_crash_catch(), would report
+     * this end as a crash: whatever ends the process here has reported. */
+    (void)signal(SIGABRT, SIG_DFL);
 #if defined(TB_COVERAGE)
     __gcov_dump();
 #endif

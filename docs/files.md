@@ -97,6 +97,24 @@ cleanup. Replacement uses new-file permissions and does not preserve the old
 file's permissions, timestamps, or other metadata. The containing directory is
 not synced, so this provides atomic visibility, not power-loss durability.
 
+Both wait for the system to put the bytes on the disk. `tb_fs_write_file_cached`
+and `tb_fs_replace_file_cached` do the same work without that flush, leaving the
+bytes in the system's cache to be written later. Any reader sees them at once,
+and a cached replacement is still whole to readers if the program ends however
+it ends; only a loss of power before the system writes the bytes can lose
+them, or leave the replaced file empty or partly written. Use the cached forms
+for caches, logs, and tools that write many files they could write again, and
+the flushed forms for saves and settings. `tb_bench fs` measures the
+difference (Release, MSVC, i9-14900HX, an NVMe disk):
+
+| Write a file of 4 KiB | ms |
+| --- | --- |
+| `tb_fs_write_file` | 2.3 |
+| `tb_fs_replace_file` | 2.7 |
+| `tb_fs_write_file_cached` | 0.18 |
+| `tb_fs_replace_file_cached` | 0.33 |
+| `fopen`, `fwrite`, `fclose` | 0.13 |
+
 `tb_fs_make_directories` normalizes ordinary dot components lexically, creates
 missing prefixes, and accepts existing directories, including native directory
 aliases such as macOS `/var`. Directory links are followed; directory races still require a separate containment design. It may

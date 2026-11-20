@@ -3,6 +3,7 @@
 #include "badger/assert.h"
 #include "badger/xp.h"
 #include "decimal_internal.h"
+#include "decimal_table.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -332,12 +333,14 @@ static bool decimal_is_between(const tb_decimal_exact *candidate, const tb_decim
 }
 
 /* The fewest significant digits that read back as the value, and of those
- * the nearest to it, ties to even. The values that read as the double are
+ * the nearest to it, ties to even, found by trying each count of digits in
+ * exact arithmetic. It is the definition that the fast conversion below is
+ * checked against, by the engine's tests. The values that read as the double are
  * those between the halfway points to its neighbors. For each count of
  * digits, the only candidates are the value cut to that many digits and the
  * next number of that many digits above it, since the range holds the value
  * and so holds one of them if it holds any number of that many digits. */
-static void decimal_shortest_digits(const tb_decimal_parts *parts, tb_decimal_exact *result)
+void tb_decimal_shortest_exact(const tb_decimal_parts *parts, tb_decimal_exact *result)
 {
     tb_decimal_exact value = {0};
     tb_decimal_exact low = {0};
@@ -395,6 +398,175 @@ static void decimal_shortest_digits(const tb_decimal_parts *parts, tb_decimal_ex
     }
     *result = value;
     tb_decimal_round(result, DECIMAL_MAXIMUM_SHORTEST_DIGITS);
+}
+
+/* --- the shortest digits, fast: Schubfach ---------------------------------------------- */
+
+/* Raffaello Giulietti, "The Schubfach way to render doubles" (2020). The
+ * values that read as the double lie in an interval whose width is the
+ * double's spacing, 2^q. With k = floor(log10(2^q)), the interval holds at
+ * most one multiple of 10^(k+1), and at least one of 10^k: the shortest
+ * decimal is the one multiple of 10^(k+1) inside it, if there is one, and
+ * otherwise the multiple of 10^k nearest the value, ties to even. Each is
+ * found by multiplying the value and the interval's ends by 10^-k, rounded
+ * to odd from a product of 64 by 128 bits, which keeps every comparison
+ * exact. */
+
+/* The 128 bits of a product of two 64-bit numbers. */
+typedef struct decimal_u128
+{
+    uint64_t high;
+    uint64_t low;
+} decimal_u128;
+
+static decimal_u128 decimal_multiply_64(uint64_t left, uint64_t right)
+{
+    const uint64_t left_low = left & UINT32_MAX;
+    const uint64_t left_high = left >> 32;
+    const uint64_t right_low = right & UINT32_MAX;
+    const uint64_t right_high = right >> 32;
+    const uint64_t low_low = left_low * right_low;
+    const uint64_t high_low = left_high * right_low;
+    const uint64_t low_high = left_low * right_high;
+    const uint64_t high_high = left_high * right_high;
+    /* No sum of 32-bit halves here can carry out of 64 bits. */
+    const uint64_t middle = (low_low >> 32) + (high_low & UINT32_MAX) + low_high;
+    decimal_u128 product = {0};
+
+    product.high = high_high + (high_low >> 32) + (middle >> 32);
+    product.low = (middle << 32) | (low_low & UINT32_MAX);
+    return product;
+}
+
+/* floor(value / 2^shift), rounding toward negative infinity for a negative
+ * value, which C's shift of a signed number does not promise. */
+static int32_t decimal_floor_shift(int32_t value, unsigned shift)
+{
+    if (value >= 0)
+    {
+        return value >> shift;
+    }
+    return -(int32_t)((((uint32_t)-value) + ((UINT32_C(1) << shift) - 1u)) >> shift);
+}
+
+/* floor(log10(2^exponent)), and floor(log10(3/4 * 2^exponent)), for
+ * exponents from -1500 to 1500, and floor(log2(10^exponent)) for exponents
+ * from -400 to 400: fixed-point approximations exact over those ranges. */
+static int32_t decimal_floor_log10_pow2(int32_t exponent, bool three_quarters)
+{
+    return decimal_floor_shift(exponent * 1262611 - (three_quarters ? 524031 : 0), 22);
+}
+
+static int32_t decimal_floor_log2_pow10(int32_t exponent)
+{
+    return decimal_floor_shift(exponent * 1741647, 19);
+}
+
+/* floor(g * value / 2^128), with its lowest bit set when anything was cut
+ * off. g is 10^k scaled into [2^127, 2^128) and rounded up, which errs by
+ * less than one unit of the 64 bits below the result. */
+static uint64_t decimal_round_to_odd(const uint64_t g[2], uint64_t value)
+{
+    const decimal_u128 low = decimal_multiply_64(g[1], value);
+    const decimal_u128 high = decimal_multiply_64(g[0], value);
+    const uint64_t middle = high.low + low.high;
+    const uint64_t top = high.high + (middle < high.low ? 1u : 0u);
+
+    return top | (middle > 1 ? 1u : 0u);
+}
+
+/* The digits of `value` times 10^exponent, its trailing zeros removed. */
+static void decimal_from_integer(uint64_t value, int exponent, tb_decimal_exact *result)
+{
+    char text[DECIMAL_MAXIMUM_SHORTEST_DIGITS + 4] = {0};
+    size_t count = 0;
+
+    TB_ASSERT(value != 0);
+    while (value % 10u == 0)
+    {
+        value /= 10u;
+        exponent++;
+    }
+    while (value != 0)
+    {
+        text[count] = (char)('0' + (int)(value % 10u));
+        count++;
+        value /= 10u;
+    }
+    for (size_t index = 0; index < count; index++)
+    {
+        result->digits[index] = text[count - 1 - index];
+    }
+    result->count = count;
+    result->exponent = exponent + (int)count - 1;
+}
+
+void tb_decimal_shortest_fast(const tb_decimal_parts *parts, tb_decimal_exact *result)
+{
+    const uint64_t c = parts->mantissa;
+    const int32_t q = parts->exponent;
+    const bool includes_bounds = (c % 2u) == 0;
+    /* Below a power of two the gap to the next smaller double is half as
+     * wide, unless that double is subnormal. */
+    const bool lower_is_closer =
+        parts->is_normal && c == DECIMAL_HIDDEN_BIT && q > DECIMAL_LOWEST_BIT_EXPONENT;
+    int32_t k = 0;
+    int32_t h = 0;
+    const uint64_t *g = NULL;
+    uint64_t lower = 0;
+    uint64_t middle = 0;
+    uint64_t upper = 0;
+    uint64_t s = 0;
+
+    TB_ASSERT(c != 0);
+    /* An integer below 2^53 is its own shortest decimal. */
+    if (q <= 0 && q > -DECIMAL_FRACTION_BITS - 1 && (c & ((UINT64_C(1) << -q) - 1u)) == 0)
+    {
+        decimal_from_integer(c >> -q, 0, result);
+        return;
+    }
+    k = decimal_floor_log10_pow2(q, lower_is_closer);
+    h = q + decimal_floor_log2_pow10(-k) + 1;
+    TB_ASSERT(-k >= TB_DECIMAL_TABLE_LOWEST && -k <= TB_DECIMAL_TABLE_HIGHEST);
+    TB_ASSERT(h >= 1 && h <= 4);
+    g = tb_decimal_table[-k - TB_DECIMAL_TABLE_LOWEST];
+    /* The value and the interval's ends, in units of 2^(q-2), times 10^-k. */
+    lower = decimal_round_to_odd(g, (4u * c - 2u + (lower_is_closer ? 1u : 0u)) << h);
+    middle = decimal_round_to_odd(g, (4u * c) << h);
+    upper = decimal_round_to_odd(g, (4u * c + 2u) << h);
+    if (!includes_bounds)
+    {
+        lower++;
+        upper--;
+    }
+    s = middle / 4u;
+    if (s >= 10u)
+    {
+        const uint64_t tens = s / 10u;
+        const bool down_inside = lower <= 40u * tens;
+        const bool up_inside = 40u * tens + 40u <= upper;
+
+        if (down_inside != up_inside)
+        {
+            decimal_from_integer(tens + (up_inside ? 1u : 0u), k + 1, result);
+            return;
+        }
+    }
+    {
+        const bool down_inside = lower <= 4u * s;
+        const bool up_inside = 4u * s + 4u <= upper;
+        if (down_inside != up_inside)
+        {
+            decimal_from_integer(s + (up_inside ? 1u : 0u), k, result);
+            return;
+        }
+    }
+    /* Both are inside: the nearer, ties to even. */
+    {
+        const uint64_t halfway = 4u * s + 2u;
+        const bool round_up = middle > halfway || (middle == halfway && (s & 1u) != 0);
+        decimal_from_integer(s + (round_up ? 1u : 0u), k, result);
+    }
 }
 
 /* Appends bytes to a text being built in a buffer that is large enough. */
@@ -505,7 +677,7 @@ tb_decimal_result tb_decimal_shortest(double value, char *buffer, size_t size, s
         {
             tb_decimal_exact digits = {0};
 
-            decimal_shortest_digits(&parts, &digits);
+            tb_decimal_shortest_fast(&parts, &digits);
             decimal_write_repr(&digits, &text);
         }
     }

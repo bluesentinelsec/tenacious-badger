@@ -133,8 +133,10 @@ waits on an error dialog, runs no exit handlers, and does not return.
 | macOS | `src/platform/macos/abort.c` | Calls `abort()`: `SIGABRT`, and a crash report where the system is configured for one. |
 
 Reporting any failure needs a way to end the process, so this is also the one
-function that the [default adapter](#unsupported-platforms) implements. Crash dumps and stack traces belong to
-the planned system-information interface and will hook in here.
+function that the [default adapter](#unsupported-platforms) implements. On Linux and macOS it
+restores the system's handling of `SIGABRT` before calling `abort()`, so that
+a process that reported its failure and is ending is not reported again as a
+crash by [`tb_crash_catch`](#crashes).
 
 A child process checks in CI that a failed assertion reports its location and
 ends the process promptly on every platform.
@@ -196,10 +198,12 @@ to add something writes its own part and calls `tb_fatal_write` for the rest.
 | A fault found by the checking memory functions | Through the handler of `memory_debug.h`; here when none is installed |
 | A system call that an adapter cannot do without, such as starting a thread | Here |
 | More unfinished jobs than the scheduler can hold | Here |
+| A crash the system raises, after `tb_crash_catch` | Here, through `tb_fatal_with_stack` (see [Crashes](#crashes)) |
 
 The platform adapters are beneath the foundation modules and use none of
-them, with two exceptions that are both reports: a broken contract goes to
-`tb_assert_fail`, and a system call that failed goes to `tb_fatal_message`.
+them, with exceptions that are all reports: a broken contract goes to
+`tb_assert_fail`, a system call that failed to `tb_fatal_message`, and a crash
+to `tb_fatal_with_stack`.
 In the adapters' own tests both are traps of the test framework.
 
 The default adapter for an unsupported platform is the exception: it reports
@@ -208,7 +212,54 @@ there is no stack to capture.
 
 **A report allocates nothing of the engine's**, so exhausted memory can be
 reported like anything else. Naming the frames does allocate inside the
-system's library on Windows.
+system's library on Windows. Each line is written with
+`tb_platform_write_error`, the system's own call (`WriteFile`, `write`),
+which takes no lock of the C library's.
+
+## Crashes
+
+Public declaration: `include/badger/crash.h`. After `tb_crash_catch`, a crash
+that the system raises is reported as a fatal error is: to the fatal handler,
+or to stderr as a line that says what happened and where, then the stack of
+the code that crashed. Then the process ends. Burrow calls it first thing.
+
+```
+crash: access violation writing 0x0000000000000000, at 0x00007ff7070b7d39
+    #0 crash_probe_write_through_null (tb_probe.exe+0x7d39) crash_probe.c:25
+    #1 tb_test_body_crash_probe__a_null_pointer_is_reported_with_its_stack (tb_probe.exe+0x7dc4) crash_probe.c:51
+```
+
+| Platform | Source | What is caught | The stack |
+| --- | --- | --- | --- |
+| Windows | `src/platform/win32/crash.c` | Any exception no handler of the program's handles (`SetUnhandledExceptionFilter`), and `abort()` (a handler of `SIGABRT`) | Unwound from the registers of the code that raised it (`RtlVirtualUnwind`, on x64) |
+| Linux / Steam Deck | `src/platform/posix/crash.c` | `SIGSEGV`, `SIGBUS`, `SIGILL`, `SIGFPE`, `SIGABRT` (`sigaction`) | `backtrace` in the handler, from the instruction that raised the signal |
+| macOS | `src/platform/posix/crash.c` | The same | The same |
+
+**What a crash handler may do.** The heap may be damaged and the crashed
+thread may hold any lock, so a report allocates nothing, formats its first
+line with code of the adapter's own, and writes without the C library.
+Naming the frames asks the system: on Windows through DbgHelp, whose lock a
+thread that crashed holding it skips, reporting its stack without names.
+
+- **Running out of stack.** On Linux and macOS the thread that called
+  `tb_crash_catch` reports on a stack of its own (`sigaltstack`); other
+  threads that run out of stack are not reported. On Windows that thread is
+  guaranteed 64 KiB for the report (`SetThreadStackGuarantee`).
+- **Installed only when asked.** A library must not take over a program's
+  crashes, so nothing is caught until the program calls `tb_crash_catch`.
+- **`abort()` and the C library.** A handler of `SIGABRT` belongs to one copy
+  of the C library. The engine's DLL is built with MSVC's static runtime, so
+  a program's `abort()` reaches the program's own copy, and the program also
+  calls `signal(SIGABRT, tb_crash_report_abort)`, as Burrow does.
+- **Not done:** a minidump on Windows, and a stack for each block of the
+  checking memory functions. Both were left optional by the issue that asked
+  for crash reports.
+
+`tests/core/crash_probe.c` crashes on purpose in child processes, and
+`tests/ExpectCrashReport.cmake` checks each report: a null pointer, `abort()`,
+a crash on another thread, a crash inside a log's sink while the log holds
+its lock, and a fatal error after `tb_crash_catch`, which is reported once
+and not again as a crash.
 
 ## Atomic values
 

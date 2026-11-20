@@ -109,11 +109,34 @@ TB_API _Noreturn void tb_fatal(const char *format, ...);
 TB_API _Noreturn void tb_fatal_message(const char *message);
 
 /**
+ * @brief Report a fatal condition with a call stack the caller captured, and
+ * end the process.
+ *
+ * As tb_fatal_message(), for a caller whose stack of interest is not its
+ * own: the handler of `badger/crash.h` gives the stack of the code that
+ * crashed, not of itself. Unlike tb_fatal(), it flushes no output before
+ * the process ends, since the thread that crashed may hold a stream's lock.
+ *
+ * @param message Required non-null; copied.
+ * @param frames The stack, the innermost frame first; NULL only when
+ * `frame_count` is 0.
+ * @param frame_count How many frames; more than TB_FATAL_FRAMES_MAX are not
+ * reported.
+ * @par Threading Thread-safe.
+ */
+TB_API _Noreturn void tb_fatal_with_stack(const char *message, void *const *frames,
+                                          size_t frame_count);
+
+/**
  * @brief Write a report to stderr, as the default does.
  *
  * The message on a line, then a line for each frame of the stack: its
  * number, its function where that is known, its module and the offset within
  * it, and its source file and line where those are known.
+ *
+ * Each line is written with tb_platform_write_error(), so a report takes no
+ * lock of the C library's and allocates nothing, and can be written by a
+ * thread that crashed holding one.
  *
  * A fatal condition that is met while a report is being written ends the
  * process at once, without a second report.

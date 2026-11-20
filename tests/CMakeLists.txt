@@ -122,6 +122,7 @@ target_compile_definitions(tb_memory_checked_tests PRIVATE TB_TEST_CHECK_MEMORY)
 # engine is named here as it is named within the engine, such as
 # "jobs/deque.h".
 set(TB_INTERNAL_TEST_CASE_SOURCES
+    core/decimal_fast_test.c
     core/fs_transaction_test.c
     core/reserved_arena_failure_test.c
     codec/crc32_table_test.c
@@ -142,7 +143,7 @@ endfunction()
 # own checks. tb_probe holds those cases; a script per topic runs them in a
 # child process and checks the outcome.
 tb_add_tests(tb_probe NO_CTEST
-    SOURCES core/assert_probe.c core/fatal_probe.c core/fmt_probe.c core/memory_probe.c
+    SOURCES core/assert_probe.c core/crash_probe.c core/fatal_probe.c core/fmt_probe.c core/memory_probe.c
         core/memory_debug_probe.c core/fmt_failure_probe.c core/log_probe.c platform/virtual_memory_probe.c support/support_probe.c
     LIBRARIES TenaciousBadger::badger)
 function(tb_add_probe_test name script)
@@ -152,6 +153,7 @@ function(tb_add_probe_test name script)
 endfunction()
 tb_add_probe_test(core_assert.default_handler_reports_and_aborts ExpectAssertAbort.cmake)
 tb_add_probe_test(core_fatal.default_handler_reports_and_aborts ExpectFatalAbort.cmake)
+tb_add_probe_test(core_crash.reports_crashes_with_their_stacks ExpectCrashReport.cmake)
 tb_add_probe_test(core_fmt.prints_to_the_standard_streams ExpectFormattedOutput.cmake)
 tb_add_probe_test(core_memory.default_handler_reports_and_aborts ExpectOutOfMemoryAbort.cmake)
 tb_add_probe_test(test_support.leaks_and_failure_injection ExpectTestSupport.cmake)
@@ -220,7 +222,7 @@ tb_make_standalone(tb_internal_tests)
 # test call a function that is private to an adapter.
 set(TB_PLATFORM_TEST_SOURCES
     platform/fs_test.c platform/virtual_memory_test.c
-    platform/atomic_test.c platform/contract_test.c platform/name_test.c
+    platform/atomic_test.c platform/contract_test.c platform/crash_text_test.c platform/name_test.c
     platform/random_test.c platform/semaphore_test.c platform/stack_test.c platform/system_test.c
     platform/thread_local_test.c
     platform/thread_options_test.c platform/thread_test.c platform/time_test.c)
@@ -270,6 +272,7 @@ target_include_directories(tb_platform_default_probe PRIVATE
 tb_configure_target(tb_platform_default_probe)
 tb_make_standalone(tb_platform_default_probe)
 set(TB_PLATFORM_INTERFACE_HEADERS
+    "${PROJECT_SOURCE_DIR}/include/badger/crash.h"
     "${PROJECT_SOURCE_DIR}/include/badger/virtual_memory.h"
     "${PROJECT_SOURCE_DIR}/include/badger/file.h"
     "${PROJECT_SOURCE_DIR}/include/badger/platform.h"

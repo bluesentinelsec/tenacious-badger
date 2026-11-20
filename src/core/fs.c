@@ -111,6 +111,7 @@ cleanup: {
     return result;
 }
 static tb_fs_result tb_fs_write_all(tb_file *file, const void *bytes, size_t length,
+                                    tb_fs_durability durability,
                                     const tb_fs_write_operations *operations)
 {
     size_t written = {0};
@@ -130,12 +131,13 @@ static tb_fs_result tb_fs_write_all(tb_file *file, const void *bytes, size_t len
         }
         written += count;
     }
-    return operations->flush(file);
+    return durability == TB_FS_FLUSHED ? operations->flush(file) : TB_FS_OK;
 }
 static const tb_fs_write_operations tb_fs_native_writes = {tb_file_write, tb_file_flush,
                                                            tb_file_close, tb_fs_rename};
 
-tb_fs_result tb_fs_write_file(tb_path_view path, const void *bytes, size_t length)
+static tb_fs_result tb_fs_write_whole(tb_path_view path, const void *bytes, size_t length,
+                                      tb_fs_durability durability)
 {
     tb_file file = {0};
     tb_fs_result result = {0};
@@ -146,12 +148,21 @@ tb_fs_result tb_fs_write_file(tb_path_view path, const void *bytes, size_t lengt
     {
         return result;
     }
-    result = tb_fs_write_all(&file, bytes, length, &tb_fs_native_writes);
+    result = tb_fs_write_all(&file, bytes, length, durability, &tb_fs_native_writes);
     closed = tb_file_close(&file);
     return result == TB_FS_OK ? closed : result;
 }
+tb_fs_result tb_fs_write_file(tb_path_view path, const void *bytes, size_t length)
+{
+    return tb_fs_write_whole(path, bytes, length, TB_FS_FLUSHED);
+}
+tb_fs_result tb_fs_write_file_cached(tb_path_view path, const void *bytes, size_t length)
+{
+    return tb_fs_write_whole(path, bytes, length, TB_FS_CACHED);
+}
 
 tb_fs_result tb_fs_replace_with_operations(tb_path_view path, const void *bytes, size_t length,
+                                           tb_fs_durability durability,
                                            const tb_fs_write_operations *operations)
 {
     tb_file file = {0};
@@ -215,7 +226,7 @@ tb_fs_result tb_fs_replace_with_operations(tb_path_view path, const void *bytes,
         goto cleanup;
     }
     created = true;
-    result = tb_fs_write_all(&file, bytes, length, operations);
+    result = tb_fs_write_all(&file, bytes, length, durability, operations);
     {
         tb_fs_result closed = {0};
         closed = operations->close_file(&file);
@@ -247,7 +258,11 @@ cleanup:
 }
 tb_fs_result tb_fs_replace_file(tb_path_view path, const void *bytes, size_t length)
 {
-    return tb_fs_replace_with_operations(path, bytes, length, &tb_fs_native_writes);
+    return tb_fs_replace_with_operations(path, bytes, length, TB_FS_FLUSHED, &tb_fs_native_writes);
+}
+tb_fs_result tb_fs_replace_file_cached(tb_path_view path, const void *bytes, size_t length)
+{
+    return tb_fs_replace_with_operations(path, bytes, length, TB_FS_CACHED, &tb_fs_native_writes);
 }
 tb_fs_result tb_fs_make_directories(tb_path_view path)
 {

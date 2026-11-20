@@ -42,3 +42,12 @@ void tb_fatal_message(const char *message)
 {
     tb_test_trap(__FILE__, __LINE__, message);
 }
+
+/* A crash handler reports through tb_fatal_with_stack(), which the core
+ * defines. Here it is a trap too. */
+void tb_fatal_with_stack(const char *message, void *const *frames, size_t frame_count)
+{
+    (void)frames;
+    (void)frame_count;
+    tb_test_trap(__FILE__, __LINE__, message);
+}

@@ -38,7 +38,9 @@
 #define TB_DEFLATE_HASH_SIZE ((size_t)1 << TB_DEFLATE_HASH_BITS)
 /* A match of three bytes this far back costs more than three literals. */
 #define TB_DEFLATE_TOO_FAR 4096u
-#define TB_DEFLATE_NO_POSITION UINT32_MAX
+/* The hash chains hold a position plus one, so that 0 can mean none and
+ * every position of the 64 KiB window fits in 16 bits. */
+#define TB_DEFLATE_NO_LINK 0u
 #define TB_DEFLATE_SYMBOLS ((size_t)16383)
 #define TB_DEFLATE_LITERALS 286u
 #define TB_DEFLATE_DISTANCES 30u
@@ -94,6 +96,20 @@ typedef enum tb_deflate_phase
     TB_DEFLATE_PHASE_DONE
 } tb_deflate_phase;
 
+/* Room for all 288 fixed literal codes, though 286 and 287 are never written. */
+#define TB_DEFLATE_FIXED_LITERALS ((size_t)288)
+
+typedef struct tb_deflate_code
+{
+    uint8_t length[TB_DEFLATE_FIXED_LITERALS];
+    uint16_t bits[TB_DEFLATE_FIXED_LITERALS]; /* Reversed, ready to write lowest bit first. */
+} tb_deflate_code;
+
+/* Distances up to this have a symbol each in the table; longer ones share a
+ * symbol by 128s, as every distance code past 256 spans a multiple of 128. */
+#define TB_DEFLATE_NEAR_DISTANCES ((size_t)256)
+#define TB_DEFLATE_FAR_SHIFT 7u
+
 /* One symbol of a block: a literal (distance 0) or a match. */
 typedef struct tb_deflate_symbol
 {
@@ -107,6 +123,13 @@ struct tb_deflater
     tb_deflate_format format;
     int level;
     tb_deflate_effort effort;
+
+    /* Made once, when the deflater is created: the fixed code, and the
+     * symbol of every match length and distance, which each match needs. */
+    tb_deflate_code fixed_literal;
+    tb_deflate_code fixed_distance;
+    uint8_t length_symbol[TB_DEFLATE_MAX_MATCH + 1];
+    uint8_t distance_symbol[2 * TB_DEFLATE_NEAR_DISTANCES];
     tb_deflate_phase phase;
     uint32_t checksum;
     uint64_t total_in;
@@ -115,8 +138,8 @@ struct tb_deflater
     unsigned char window[TB_DEFLATE_BUFFER];
     size_t window_end;
     size_t position;
-    uint32_t head[TB_DEFLATE_HASH_SIZE];
-    uint32_t previous[TB_DEFLATE_BUFFER];
+    uint16_t head[TB_DEFLATE_HASH_SIZE];
+    uint16_t previous[TB_DEFLATE_BUFFER];
 
     /* The lazy matcher's state between positions. */
     unsigned previous_length;
@@ -196,37 +219,59 @@ static void tb_deflate_put32_little(tb_deflater *deflater, uint32_t value)
  * Huffman codes for a block.
  * ------------------------------------------------------------------------- */
 
-/* Room for all 288 fixed literal codes, though 286 and 287 are never written. */
-#define TB_DEFLATE_FIXED_LITERALS ((size_t)288)
-
-typedef struct tb_deflate_code
-{
-    uint8_t length[TB_DEFLATE_FIXED_LITERALS];
-    uint16_t bits[TB_DEFLATE_FIXED_LITERALS]; /* Reversed, ready to write lowest bit first. */
-} tb_deflate_code;
-
 typedef struct tb_deflate_leaf
 {
     uint32_t key; /* The frequency, then the parent, then the depth. */
     uint16_t symbol;
 } tb_deflate_leaf;
 
-/* Sort leaves by frequency, rising; equal frequencies by symbol, so the
- * result never depends on the sort. Insertion sort: at most 286 leaves. */
+static bool tb_deflate_leaf_before(tb_deflate_leaf left, tb_deflate_leaf right)
+{
+    return left.key < right.key || (left.key == right.key && left.symbol < right.symbol);
+}
+
+/* Sort leaves by frequency, rising; equal frequencies by symbol. That order
+ * is total, so the result never depends on how it is sorted. A merge sort,
+ * bottom up, since a block has up to 286 leaves and an insertion sort's cost
+ * grows with their square. */
 static void tb_deflate_sort_leaves(tb_deflate_leaf *leaves, size_t count)
 {
-    for (size_t index = 1; index < count; index++)
+    tb_deflate_leaf scratch[TB_DEFLATE_LITERALS] = {{0}};
+    tb_deflate_leaf *from = leaves;
+    tb_deflate_leaf *to = scratch;
+    TB_ASSERT(count <= TB_DEFLATE_LITERALS);
+    for (size_t width = 1; width < count; width *= 2)
     {
-        const tb_deflate_leaf leaf = leaves[index];
-        size_t place = index;
-        while (place > 0 &&
-               (leaves[place - 1].key > leaf.key ||
-                (leaves[place - 1].key == leaf.key && leaves[place - 1].symbol > leaf.symbol)))
+        for (size_t start = 0; start < count; start += 2 * width)
         {
-            leaves[place] = leaves[place - 1];
-            place--;
+            const size_t middle = start + width < count ? start + width : count;
+            const size_t end = middle + width < count ? middle + width : count;
+            size_t left = start;
+            size_t right = middle;
+            for (size_t out = start; out < end; out++)
+            {
+                if (left < middle &&
+                    (right >= end || !tb_deflate_leaf_before(from[right], from[left])))
+                {
+                    to[out] = from[left];
+                    left++;
+                }
+                else
+                {
+                    to[out] = from[right];
+                    right++;
+                }
+            }
         }
-        leaves[place] = leaf;
+        {
+            tb_deflate_leaf *const swap = from;
+            from = to;
+            to = swap;
+        }
+    }
+    if (from != leaves)
+    {
+        memcpy(leaves, from, count * sizeof(*leaves));
     }
 }
 
@@ -427,24 +472,55 @@ static void tb_deflate_fixed_codes(tb_deflate_code *literal, tb_deflate_code *di
     tb_deflate_assign_codes(distance, TB_DEFLATE_DISTANCES);
 }
 
-static unsigned tb_deflate_length_symbol(unsigned length)
+/* The symbol of each length and distance, by search of the base tables. */
+static void tb_deflate_build_symbols(tb_deflater *deflater)
 {
     unsigned symbol = 0;
-    while (symbol + 1 < 29 && tb_deflate_length_base[symbol + 1] <= length)
+    for (unsigned length = TB_DEFLATE_MIN_MATCH; length <= TB_DEFLATE_MAX_MATCH; length++)
     {
-        symbol++;
+        while (symbol + 1 < 29 && tb_deflate_length_base[symbol + 1] <= length)
+        {
+            symbol++;
+        }
+        deflater->length_symbol[length] = (uint8_t)symbol;
     }
-    return symbol;
+    symbol = 0;
+    for (unsigned distance = 1; distance <= TB_DEFLATE_NEAR_DISTANCES; distance++)
+    {
+        while (symbol + 1 < 30 && tb_deflate_distance_base[symbol + 1] <= distance)
+        {
+            symbol++;
+        }
+        deflater->distance_symbol[distance - 1] = (uint8_t)symbol;
+    }
+    for (size_t slot = 0; slot < TB_DEFLATE_NEAR_DISTANCES; slot++)
+    {
+        /* The first distance of each 128 past 256; each 128 has one symbol. */
+        const size_t distance = ((slot + 2) << TB_DEFLATE_FAR_SHIFT) + 1;
+        symbol = 0;
+        while (symbol + 1 < 30 && tb_deflate_distance_base[symbol + 1] <= distance)
+        {
+            symbol++;
+        }
+        deflater->distance_symbol[TB_DEFLATE_NEAR_DISTANCES + slot] = (uint8_t)symbol;
+    }
 }
 
-static unsigned tb_deflate_distance_symbol(unsigned distance)
+static unsigned tb_deflate_length_symbol(const tb_deflater *deflater, unsigned length)
 {
-    unsigned symbol = 0;
-    while (symbol + 1 < 30 && tb_deflate_distance_base[symbol + 1] <= distance)
+    TB_ASSERT(length >= TB_DEFLATE_MIN_MATCH && length <= TB_DEFLATE_MAX_MATCH);
+    return deflater->length_symbol[length];
+}
+
+static unsigned tb_deflate_distance_symbol(const tb_deflater *deflater, unsigned distance)
+{
+    TB_ASSERT(distance >= 1 && distance <= TB_DEFLATE_WINDOW);
+    if (distance <= TB_DEFLATE_NEAR_DISTANCES)
     {
-        symbol++;
+        return deflater->distance_symbol[distance - 1];
     }
-    return symbol;
+    return deflater
+        ->distance_symbol[TB_DEFLATE_NEAR_DISTANCES - 2 + ((distance - 1) >> TB_DEFLATE_FAR_SHIFT)];
 }
 
 /* -------------------------------------------------------------------------
@@ -622,8 +698,9 @@ static void tb_deflate_write_symbols(tb_deflater *deflater, const tb_deflate_cod
             continue;
         }
         {
-            const unsigned length_symbol = tb_deflate_length_symbol(symbol.literal_or_length);
-            const unsigned distance_symbol = tb_deflate_distance_symbol(symbol.distance);
+            const unsigned length_symbol =
+                tb_deflate_length_symbol(deflater, symbol.literal_or_length);
+            const unsigned distance_symbol = tb_deflate_distance_symbol(deflater, symbol.distance);
             tb_deflate_put_bits(deflater, literal->bits[257 + length_symbol],
                                 literal->length[257 + length_symbol]);
             tb_deflate_put_bits(deflater,
@@ -682,21 +759,22 @@ static void tb_deflate_write_stored(tb_deflater *deflater, size_t start, size_t 
 /* Write the block collected, in its smallest form, and start the next. */
 static void tb_deflate_end_block(tb_deflater *deflater, bool final)
 {
-    tb_deflate_code fixed_literal = {0};
-    tb_deflate_code fixed_distance = {0};
     tb_deflate_dynamic plan = {0};
     const size_t raw = deflater->covered - deflater->block_start;
     uint64_t stored_bits = 0;
     uint64_t fixed_bits = 0;
     uint64_t dynamic_bits = 0;
     deflater->literal_frequency[TB_DEFLATE_END_OF_BLOCK]++;
-    tb_deflate_fixed_codes(&fixed_literal, &fixed_distance);
-    tb_deflate_plan_dynamic(deflater, &plan);
-    fixed_bits = 3 + tb_deflate_data_bits(deflater, &fixed_literal, &fixed_distance);
-    dynamic_bits =
-        3 + plan.header_bits + tb_deflate_data_bits(deflater, &plan.literal, &plan.distance);
     /* A stored block: up to 7 bits to the byte, then four bytes of lengths. */
     stored_bits = (uint64_t)(raw / TB_DEFLATE_STORED_MAX + 1) * (3 + 7 + 32) + 8 * (uint64_t)raw;
+    if (deflater->level > 0)
+    {
+        tb_deflate_plan_dynamic(deflater, &plan);
+        fixed_bits =
+            3 + tb_deflate_data_bits(deflater, &deflater->fixed_literal, &deflater->fixed_distance);
+        dynamic_bits =
+            3 + plan.header_bits + tb_deflate_data_bits(deflater, &plan.literal, &plan.distance);
+    }
     if (deflater->level == 0 || (stored_bits <= fixed_bits && stored_bits <= dynamic_bits))
     {
         tb_deflate_write_stored(deflater, deflater->block_start, raw, final);
@@ -705,7 +783,7 @@ static void tb_deflate_end_block(tb_deflater *deflater, bool final)
     {
         tb_deflate_put_bits(deflater, final ? 1u : 0u, 1);
         tb_deflate_put_bits(deflater, 1, 2);
-        tb_deflate_write_symbols(deflater, &fixed_literal, &fixed_distance);
+        tb_deflate_write_symbols(deflater, &deflater->fixed_literal, &deflater->fixed_distance);
     }
     else
     {
@@ -732,25 +810,51 @@ static uint32_t tb_deflate_hash(const unsigned char *bytes)
 }
 
 /* Link a position into the chain of its hash; return the previous head. */
-static uint32_t tb_deflate_insert(tb_deflater *deflater, size_t position)
+static unsigned tb_deflate_insert(tb_deflater *deflater, size_t position)
 {
     uint32_t hash = 0;
-    uint32_t previous_head = 0;
+    unsigned previous_head = 0;
     if (position + TB_DEFLATE_MIN_MATCH > deflater->window_end)
     {
-        return TB_DEFLATE_NO_POSITION;
+        return TB_DEFLATE_NO_LINK;
     }
+    /* A position with three bytes after it is below the window's last two. */
+    TB_ASSERT(position + 1 < TB_DEFLATE_BUFFER);
     hash = tb_deflate_hash(deflater->window + position);
     previous_head = deflater->head[hash];
-    deflater->previous[position] = previous_head;
-    deflater->head[hash] = (uint32_t)position;
+    deflater->previous[position] = (uint16_t)previous_head;
+    deflater->head[hash] = (uint16_t)(position + 1);
     return previous_head;
+}
+
+/* How many of the first `limit` bytes of two strings are equal: eight
+ * bytes at a time while they all are, then one at a time. */
+static unsigned tb_deflate_common_length(const unsigned char *here, const unsigned char *there,
+                                         unsigned limit)
+{
+    unsigned length = 0;
+    while (length + sizeof(uint64_t) <= limit)
+    {
+        uint64_t mine = 0;
+        uint64_t theirs = 0;
+        memcpy(&mine, here + length, sizeof(mine));
+        memcpy(&theirs, there + length, sizeof(theirs));
+        if (mine != theirs)
+        {
+            break;
+        }
+        length += (unsigned)sizeof(uint64_t);
+    }
+    while (length < limit && there[length] == here[length])
+    {
+        length++;
+    }
+    return length;
 }
 
 /* The longest match at `position` along the chain from `candidate`. */
 static unsigned tb_deflate_longest_match(const tb_deflater *deflater, size_t position,
-                                         uint32_t candidate, unsigned previous_length,
-                                         size_t *match)
+                                         unsigned link, unsigned previous_length, size_t *match)
 {
     const size_t available = deflater->window_end - position;
     const unsigned limit =
@@ -760,21 +864,24 @@ static unsigned tb_deflate_longest_match(const tb_deflater *deflater, size_t pos
     unsigned chain = deflater->effort.max_chain;
     unsigned best = previous_length;
     const unsigned char *const here = deflater->window + position;
+    TB_ASSERT(previous_length >= TB_DEFLATE_MIN_MATCH - 1);
     if (previous_length >= deflater->effort.good_length)
     {
         chain >>= 2;
     }
-    while (candidate != TB_DEFLATE_NO_POSITION && candidate >= lowest && candidate < position &&
-           chain > 0)
+    /* A link is its position plus one, and none is 0: links above `lowest`
+     * are positions within reach. */
+    while (link > lowest && link <= position && chain > 0)
     {
+        const size_t candidate = (size_t)link - 1;
         const unsigned char *const there = deflater->window + candidate;
         unsigned length = 0;
-        if (best < limit && there[best] == here[best])
+        /* Only a candidate whose first best + 1 bytes all match can do
+         * better; test the bytes most likely to differ before the rest. */
+        if (best < limit && there[best] == here[best] && there[best - 1] == here[best - 1] &&
+            there[0] == here[0] && there[1] == here[1])
         {
-            while (length < limit && there[length] == here[length])
-            {
-                length++;
-            }
+            length = tb_deflate_common_length(here, there, limit);
             if (length > best)
             {
                 best = length;
@@ -785,7 +892,7 @@ static unsigned tb_deflate_longest_match(const tb_deflater *deflater, size_t pos
                 }
             }
         }
-        candidate = deflater->previous[candidate];
+        link = deflater->previous[candidate];
         chain--;
     }
     return best;
@@ -811,8 +918,8 @@ static void tb_deflate_emit_match(tb_deflater *deflater, size_t position, unsign
     deflater->symbols[deflater->symbol_count] =
         (tb_deflate_symbol){(uint16_t)length, (uint16_t)distance};
     deflater->symbol_count++;
-    deflater->literal_frequency[257 + tb_deflate_length_symbol(length)]++;
-    deflater->distance_frequency[tb_deflate_distance_symbol((unsigned)distance)]++;
+    deflater->literal_frequency[257 + tb_deflate_length_symbol(deflater, length)]++;
+    deflater->distance_frequency[tb_deflate_distance_symbol(deflater, (unsigned)distance)]++;
     deflater->covered = position + length;
 }
 
@@ -836,13 +943,13 @@ static bool tb_deflate_worth(unsigned length, size_t distance)
 static void tb_deflate_step_greedy(tb_deflater *deflater)
 {
     const size_t position = deflater->position;
-    const uint32_t candidate = tb_deflate_insert(deflater, position);
+    const unsigned link = tb_deflate_insert(deflater, position);
     size_t match = 0;
     unsigned length = 0;
-    if (candidate != TB_DEFLATE_NO_POSITION)
+    if (link != TB_DEFLATE_NO_LINK)
     {
-        length = tb_deflate_longest_match(deflater, position, candidate, TB_DEFLATE_MIN_MATCH - 1,
-                                          &match);
+        length =
+            tb_deflate_longest_match(deflater, position, link, TB_DEFLATE_MIN_MATCH - 1, &match);
     }
     if (length >= TB_DEFLATE_MIN_MATCH && tb_deflate_worth(length, position - match))
     {
@@ -860,15 +967,15 @@ static void tb_deflate_step_greedy(tb_deflater *deflater)
 static void tb_deflate_step_lazy(tb_deflater *deflater)
 {
     const size_t position = deflater->position;
-    const uint32_t candidate = tb_deflate_insert(deflater, position);
+    const unsigned link = tb_deflate_insert(deflater, position);
     const unsigned previous_length = deflater->previous_length;
     const size_t previous_match = deflater->previous_match;
     size_t match = 0;
     unsigned length = TB_DEFLATE_MIN_MATCH - 1;
-    if (candidate != TB_DEFLATE_NO_POSITION && previous_length < deflater->effort.lazy_length)
+    if (link != TB_DEFLATE_NO_LINK && previous_length < deflater->effort.lazy_length)
     {
-        length = tb_deflate_longest_match(deflater, position, candidate, TB_DEFLATE_MIN_MATCH - 1,
-                                          &match);
+        length =
+            tb_deflate_longest_match(deflater, position, link, TB_DEFLATE_MIN_MATCH - 1, &match);
         if (length >= TB_DEFLATE_MIN_MATCH && !tb_deflate_worth(length, position - match))
         {
             length = TB_DEFLATE_MIN_MATCH - 1;
@@ -908,19 +1015,18 @@ static void tb_deflate_slide(tb_deflater *deflater)
     deflater->previous_match = deflater->previous_match >= TB_DEFLATE_WINDOW
                                    ? deflater->previous_match - TB_DEFLATE_WINDOW
                                    : 0;
+    /* A link to the lower half, which is gone, becomes none. */
     for (size_t index = 0; index < TB_DEFLATE_HASH_SIZE; index++)
     {
-        const uint32_t value = deflater->head[index];
-        deflater->head[index] = (value == TB_DEFLATE_NO_POSITION || value < TB_DEFLATE_WINDOW)
-                                    ? TB_DEFLATE_NO_POSITION
-                                    : value - (uint32_t)TB_DEFLATE_WINDOW;
+        const unsigned link = deflater->head[index];
+        deflater->head[index] =
+            (uint16_t)(link > TB_DEFLATE_WINDOW ? link - TB_DEFLATE_WINDOW : TB_DEFLATE_NO_LINK);
     }
     for (size_t index = 0; index < TB_DEFLATE_WINDOW; index++)
     {
-        const uint32_t value = deflater->previous[index + TB_DEFLATE_WINDOW];
-        deflater->previous[index] = (value == TB_DEFLATE_NO_POSITION || value < TB_DEFLATE_WINDOW)
-                                        ? TB_DEFLATE_NO_POSITION
-                                        : value - (uint32_t)TB_DEFLATE_WINDOW;
+        const unsigned link = deflater->previous[index + TB_DEFLATE_WINDOW];
+        deflater->previous[index] =
+            (uint16_t)(link > TB_DEFLATE_WINDOW ? link - TB_DEFLATE_WINDOW : TB_DEFLATE_NO_LINK);
     }
 }
 
@@ -1011,7 +1117,7 @@ void tb_deflater_reset(tb_deflater *deflater)
     memset(deflater->distance_frequency, 0, sizeof(deflater->distance_frequency));
     for (size_t index = 0; index < TB_DEFLATE_HASH_SIZE; index++)
     {
-        deflater->head[index] = TB_DEFLATE_NO_POSITION;
+        deflater->head[index] = TB_DEFLATE_NO_LINK;
     }
 }
 
@@ -1029,6 +1135,8 @@ tb_deflater *tb_deflater_create(tb_deflate_format format, int level, const tb_al
     deflater->format = format;
     deflater->level = level;
     deflater->effort = tb_deflate_efforts[level];
+    tb_deflate_fixed_codes(&deflater->fixed_literal, &deflater->fixed_distance);
+    tb_deflate_build_symbols(deflater);
     tb_deflater_reset(deflater);
     return deflater;
 }

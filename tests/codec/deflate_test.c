@@ -3,6 +3,7 @@
  * split; flushes end on a byte that a reader can decode up to; and the codes
  * of a block stay within 15 bits however skewed the data. */
 #include "badger/assert.h"
+#include "badger/checksum.h"
 #include "badger/deflate.h"
 #include "badger/memory.h"
 #include "tb_test.h"
@@ -237,6 +238,97 @@ TB_TEST(codec_deflate, the_output_does_not_depend_on_the_split)
         }
     }
     tb_free(whole);
+    tb_free(input);
+}
+
+/* Records of a little-endian counter, a tag, and padding: binary data with
+ * matches at fixed distances and lengths of every size. */
+static void record_bytes(unsigned char *output, size_t length, uint32_t seed)
+{
+    uint32_t state = seed;
+    for (size_t index = 0; index < length; index++)
+    {
+        const size_t record = index / 24;
+        const size_t field = index % 24;
+        if (field < 4)
+        {
+            output[index] = (unsigned char)(record >> (8 * field));
+        }
+        else if (field < 8)
+        {
+            state = state * 1103515245u + 12345u;
+            output[index] = (unsigned char)("ABCD"[(state >> 16) % 4]);
+        }
+        else
+        {
+            output[index] = (unsigned char)(field * 7);
+        }
+    }
+}
+
+/* The exact bytes of every level, held by their CRC-32 and length, so a
+ * change made for speed cannot change a single byte of the output. The
+ * inputs make every form of block, slide the window many times, and reach
+ * every length and distance code. Should the output ever change on purpose,
+ * these are the numbers to update, with the reason in the change. */
+TB_TEST(codec_deflate, the_output_of_every_level_stays_the_same)
+{
+    enum
+    {
+        LENGTH = 400000,
+        KINDS = 4,
+        LEVELS = 10
+    };
+    static const uint32_t expected_crc[KINDS][LEVELS] = {
+        {0x8D98CEF2u, 0xA8AC292Du, 0x75A629B6u, 0x65A16A16u, 0x8F82D2B2u, 0x2B97F8D2u, 0xD36FC09Eu,
+         0xC6875476u, 0x8359B76Au, 0x8359B76Au},
+        {0x79B8A7A1u, 0x6189002Cu, 0x6189002Cu, 0x6189002Cu, 0x25BFAE24u, 0x25BFAE24u, 0x25BFAE24u,
+         0x25BFAE24u, 0x25BFAE24u, 0x25BFAE24u},
+        {0x78789425u, 0x5986AC94u, 0x4738D4FBu, 0xDD6631FFu, 0xD0AB4B83u, 0x6780A992u, 0x834737C3u,
+         0x90DBA96Bu, 0x5FF4FA16u, 0x5FF4FA16u},
+        {0x1786C7FFu, 0xD179D74Au, 0x195FFAC2u, 0x50D7DB06u, 0xA9EF4DA8u, 0x2AD62544u, 0xF642EBA9u,
+         0xE1680C6Du, 0xB5E30648u, 0xB5E30648u}};
+    static const size_t expected_length[KINDS][LEVELS] = {
+        {400175u, 88222u, 83862u, 72392u, 78045u, 72182u, 67001u, 64567u, 63210u, 63210u},
+        {400175u, 400125u, 400125u, 400125u, 400125u, 400125u, 400125u, 400125u, 400125u, 400125u},
+        {400175u, 79224u, 77301u, 73336u, 75295u, 73692u, 67894u, 65354u, 65117u, 65117u},
+        {400175u, 95977u, 93039u, 85887u, 89395u, 85450u, 82129u, 80905u, 80455u, 80455u}};
+    static const char *const kinds[KINDS] = {"text", "random", "records", "mixed"};
+    unsigned char *const input = tb_malloc(LENGTH);
+    const size_t bound = tb_deflate_bound(LENGTH);
+    unsigned char *const output = tb_malloc(bound);
+    for (size_t kind = 0; kind < KINDS; kind++)
+    {
+        switch (kind)
+        {
+        case 0:
+            text_bytes(input, LENGTH, 11u);
+            break;
+        case 1:
+            random_bytes(input, LENGTH, 11u);
+            break;
+        case 2:
+            record_bytes(input, LENGTH, 11u);
+            break;
+        default:
+            text_bytes(input, LENGTH, 13u);
+            random_bytes(input + 100000, 30000, 13u);
+            memset(input + 200000, 'z', 70000);
+            record_bytes(input + 300000, 60000, 13u);
+            break;
+        }
+        for (int level = 0; level < LEVELS; level++)
+        {
+            size_t written = 0;
+            TB_TEST_CONTEXT("%s at level %d", kinds[kind], level);
+            TB_TEST_REQUIRE_UINT(
+                tb_deflate(TB_DEFLATE_RAW, level, input, LENGTH, output, bound, &written), ==,
+                TB_DEFLATE_OK);
+            TB_TEST_EXPECT_UINT(written, ==, expected_length[kind][level]);
+            TB_TEST_EXPECT_UINT(tb_crc32(output, written), ==, expected_crc[kind][level]);
+        }
+    }
+    tb_free(output);
     tb_free(input);
 }
 

@@ -278,6 +278,9 @@ AUTHORIZED = {
     'tests/core/text_test.c': (
         {'strlen'},
         'checks badger/text.h against the C library'),
+    'tests/core/crash_probe.c': (
+        {'abort'},
+        'calls abort() on purpose, to check that tb_crash_catch() reports it'),
     'tests/platform/time_test.c': (
         {'timespec_get'},
         'checks the engine clock against the C library'),

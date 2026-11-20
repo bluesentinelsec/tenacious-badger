@@ -48,7 +48,9 @@ Native references: [Windows page management](https://learn.microsoft.com/en-us/w
 
 `tb_arena_create_reserved` reserves one stable range (64 MiB by default), commits
 one bookkeeping page initially, and commits additional pages as allocations
-reach them. Objects never move. A final inaccessible guard page catches overruns
+reach them, 64 KiB at a time where the reservation has room: each commit is a
+call to the system, and committing a page at a time made those calls most of
+an allocation's cost. Objects never move. A final inaccessible guard page catches overruns
 past the usable range. The maximum reservation includes bookkeeping, excludes
 the guard, and rounds up to native pages. Exhaustion and commit failure return
 NULL from the try APIs without changing existing objects, marks, or accounting.
@@ -60,6 +62,20 @@ Rewind preserves commitment for reuse. If decommit fails, reset restores access
 and retains those pages; failure to restore access is fatal. Capacity and
 remaining space describe virtual payload space, whereas reserved/committed size
 queries include bookkeeping. Reservations are separate from core heap counters.
+
+Pages that a reset gives back are committed, and zeroed by the system, again
+when the arena next grows past the retention. `tb_bench vm` measures 64-byte
+allocations after each reset of an arena using 12.8 MB (Release, MSVC,
+i9-14900HX):
+
+| Arena | ns per allocation |
+| --- | --- |
+| Reserving, default retention | 9.7 |
+| Reserving, retention covering its use | 3.2 |
+| Chunked | 3.2 |
+
+An arena reset every frame with more in use than its retention pays the
+difference each frame; set a retention that covers what it uses.
 Destroy releases the complete mapping; a native release failure is fatal.
 
 A reserved arena supports the existing allocator adapter, marks, checked sizes,

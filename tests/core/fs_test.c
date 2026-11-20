@@ -35,7 +35,16 @@ TB_TEST(core_files, whole_file_roundtrips_limits_and_allocator_ownership)
         size_t length = {0};
         tb_fs_buffer content = {0};
         length = trial == 0 ? 0 : (size_t)tb_test_random_below(sizeof(payload));
-        TB_TEST_REQUIRE_UINT(tb_fs_write_file(view(path), payload, length), ==, TB_FS_OK);
+        /* Cached and flushed writes alike are read back at once. */
+        if (trial % 2 == 0)
+        {
+            TB_TEST_REQUIRE_UINT(tb_fs_write_file(view(path), payload, length), ==, TB_FS_OK);
+        }
+        else
+        {
+            TB_TEST_REQUIRE_UINT(tb_fs_write_file_cached(view(path), payload, length), ==,
+                                 TB_FS_OK);
+        }
         TB_TEST_REQUIRE_UINT(tb_fs_read_file(view(path), &allocator, length, &content), ==,
                              TB_FS_OK);
         TB_TEST_EXPECT_UINT(content.length, ==, length);
@@ -155,6 +164,11 @@ TB_TEST(core_files, directory_creation_and_replacement_report_bad_inputs)
     TB_TEST_EXPECT_UINT(tb_fs_replace_file(view("."), "new", 3), ==, TB_FS_INVALID);
     TB_TEST_EXPECT_UINT(tb_fs_replace_file(view(".."), "new", 3), ==, TB_FS_INVALID);
     TB_TEST_EXPECT_UINT(tb_fs_replace_file(view(""), "new", 3), ==, TB_FS_INVALID);
+    TB_TEST_EXPECT_UINT(tb_fs_replace_file_cached(view(".."), "new", 3), ==, TB_FS_INVALID);
+    TB_TEST_EXPECT_UINT(tb_fs_replace_file_cached(view(path), "newer", 5), ==, TB_FS_OK);
+    TB_TEST_REQUIRE_UINT(tb_fs_read_file(view(path), NULL, 100, &content), ==, TB_FS_OK);
+    TB_TEST_EXPECT_STRING((const char *)content.data, ==, "newer");
+    tb_fs_buffer_free(&content);
     TB_TEST_EXPECT_UINT(tb_fs_replace_file(view("bad\xFF"), "new", 3), ==, TB_FS_INVALID);
     TB_TEST_EXPECT_UINT(tb_fs_make_directories(view("bad\xFF")), ==, TB_FS_INVALID);
     TB_TEST_EXPECT_UINT(tb_fs_make_directories(view("")), ==, TB_FS_INVALID);
@@ -230,10 +244,21 @@ TB_TEST(core_files, concurrent_readers_never_observe_partial_atomic_replacements
         tb_condition_wait(&reader.ready, &reader.start_lock);
     }
     tb_mutex_unlock(&reader.start_lock);
+    /* A replacement left in the system's cache is as whole to a reader as a
+     * flushed one: every fourth round is cached. */
     for (size_t round = {0}; round < 200; round++)
     {
+        tb_fs_result result = {0};
         memset(payload, round % 2 == 0 ? 'b' : 'a', sizeof(payload));
-        if (tb_fs_replace_file(view(path), payload, sizeof(payload)) != TB_FS_OK)
+        if (round % 4 == 3)
+        {
+            result = tb_fs_replace_file_cached(view(path), payload, sizeof(payload));
+        }
+        else
+        {
+            result = tb_fs_replace_file(view(path), payload, sizeof(payload));
+        }
+        if (result != TB_FS_OK)
         {
             failures++;
         }
@@ -273,6 +298,12 @@ static void invalid_file_helper_contract(void *context)
     case 5:
         (void)tb_fs_make_directories((tb_path_view){NULL, 1});
         break;
+    case 6:
+        (void)tb_fs_write_file_cached(view("x"), NULL, 1);
+        break;
+    case 7:
+        (void)tb_fs_replace_file_cached(view("x"), NULL, 1);
+        break;
     default:
         break;
     }
@@ -283,7 +314,7 @@ TB_TEST(core_files, helper_required_pointers_and_empty_output_are_contracts)
     {
         TB_TEST_SKIP("assertions disabled");
     }
-    for (size_t choice = {0}; choice < 6; choice++)
+    for (size_t choice = {0}; choice < 8; choice++)
     {
         TB_TEST_EXPECT_TRAP(invalid_file_helper_contract, &choice, "assertion failed");
     }

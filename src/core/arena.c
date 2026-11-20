@@ -29,6 +29,13 @@
  * assertions: on in development builds, off in optimized ones. */
 #define TB_ARENA_FILLS_UNUSED_MEMORY TB_ASSERT_ENABLED
 
+/* The least a reserving arena commits at once, where its reservation has
+ * room. Each commit is a call to the system: an arena that grew a page at a
+ * time spent most of an allocation's time in them. A step of 64 KiB
+ * makes a sixteenth as many calls, and commits at most that much more than
+ * the arena uses. */
+#define TB_ARENA_COMMIT_STEP ((size_t)64 * 1024)
+
 typedef struct tb_arena_chunk
 {
     struct tb_arena_chunk *next; /* Next chunk in the chain, or NULL. */
@@ -144,12 +151,27 @@ static void tb_arena_retire_from(const tb_arena *arena, const tb_arena_chunk *ch
     tb_arena_retire(position, arena->cursor);
 }
 
-/* Commit only the new suffix. Cursor and accounting change after success,
- * so a failed allocation leaves every previous object and mark intact. */
+/* Rounds a size within the reservation up to whole pages. */
+static size_t tb_arena_round_to_page(const tb_arena *arena, size_t size)
+{
+    const size_t remainder = size % arena->reserved->page_size;
+    if (remainder == 0)
+    {
+        return size;
+    }
+    /* Sizes are within the page-rounded usable range, bounded by PTRDIFF_MAX. */
+    return size + (arena->reserved->page_size - remainder);
+}
+
+/* Commit the new suffix, at least a step of it where the reservation has
+ * room. Cursor and accounting change after success, so a failed allocation
+ * leaves every previous object and mark intact. */
 static bool tb_arena_ensure_committed(tb_arena *arena, const unsigned char *end)
 {
+    size_t limit = {0};
+    size_t step = {0};
+    size_t grown = {0};
     size_t needed = {0};
-    size_t remainder = {0};
     if (arena->reserved == NULL)
     {
         return true;
@@ -159,11 +181,14 @@ static bool tb_arena_ensure_committed(tb_arena *arena, const unsigned char *end)
     {
         return true;
     }
-    remainder = needed % arena->reserved->page_size;
-    if (remainder != 0)
+    needed = tb_arena_round_to_page(arena, needed);
+    limit = (size_t)(arena->first.end - (const unsigned char *)arena);
+    step = tb_arena_round_to_page(arena, TB_ARENA_COMMIT_STEP);
+    /* committed never passes limit, so the sum stays within it. */
+    grown = limit - arena->reserved->committed > step ? arena->reserved->committed + step : limit;
+    if (needed < grown)
     {
-        /* end is within the page-rounded usable range, bounded by PTRDIFF_MAX. */
-        needed += arena->reserved->page_size - remainder;
+        needed = grown;
     }
     if (arena->reserved->vm.commit(&arena->reserved->region, arena->reserved->committed,
                                    needed - arena->reserved->committed) != TB_VM_OK)
