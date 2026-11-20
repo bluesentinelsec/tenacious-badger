@@ -124,6 +124,7 @@ target_compile_definitions(tb_memory_checked_tests PRIVATE TB_TEST_CHECK_MEMORY)
 set(TB_INTERNAL_TEST_CASE_SOURCES
     core/decimal_fast_test.c
     core/decimal_rounding_test.c
+    core/exclusive_list_test.c
     core/fs_transaction_test.c
     core/reserved_arena_failure_test.c
     codec/crc32_table_test.c

@@ -7,6 +7,14 @@
 
 #include <string.h>
 
+/* What each function that reads the object does once inside its guard. */
+static tb_array *tb_array_copy_reading(const tb_array *array, const tb_allocator *allocator);
+static void *tb_array_at_reading(const tb_array *array, size_t index);
+static void *tb_array_data_reading(const tb_array *array);
+static void tb_array_get_reading(const tb_array *array, size_t index, void *element);
+static void *tb_array_at_sized_reading(const tb_array *array, size_t index, size_t element_size);
+static void *tb_array_data_sized_reading(const tb_array *array, size_t element_size);
+
 /* The first storage an array allocates holds this many elements, so that a
  * short array does not grow through capacities of one, two, and four. */
 #define TB_ARRAY_FIRST_CAPACITY ((size_t)8)
@@ -193,7 +201,7 @@ tb_array *tb_array_create(const tb_allocator *allocator, size_t element_size,
     return array;
 }
 
-tb_array *tb_array_copy(const tb_array *array, const tb_allocator *allocator)
+static tb_array *tb_array_copy_reading(const tb_array *array, const tb_allocator *allocator)
 {
     tb_array *copy = NULL;
 
@@ -203,6 +211,16 @@ tb_array *tb_array_copy(const tb_array *array, const tb_allocator *allocator)
     tb_array_reserve(copy, array->length);
     tb_array_append(copy, array->data, array->length);
     return copy;
+}
+
+tb_array *tb_array_copy(const tb_array *array, const tb_allocator *allocator)
+{
+    tb_array *result = NULL;
+    TB_ASSERT(array != NULL);
+    const size_t array_generation = TB_EXCLUSIVE_READ_ENTER(&array->exclusive, "a dynamic array");
+    result = tb_array_copy_reading(array, allocator);
+    TB_EXCLUSIVE_READ_LEAVE(&array->exclusive, array_generation, "a dynamic array");
+    return result;
 }
 
 void tb_array_destroy(tb_array *array)
@@ -281,23 +299,51 @@ void tb_array_clear(tb_array *array)
  * Elements.
  * ------------------------------------------------------------------------- */
 
-void *tb_array_at(const tb_array *array, size_t index)
+static void *tb_array_at_reading(const tb_array *array, size_t index)
 {
     TB_ASSERT(array != NULL);
     TB_ASSERT_MSG(index < array->length, "index must be less than the length");
     return tb_array_slot(array, index);
 }
 
-void *tb_array_data(const tb_array *array)
+void *tb_array_at(const tb_array *array, size_t index)
+{
+    void *result = NULL;
+    TB_ASSERT(array != NULL);
+    const size_t array_generation = TB_EXCLUSIVE_READ_ENTER(&array->exclusive, "a dynamic array");
+    result = tb_array_at_reading(array, index);
+    TB_EXCLUSIVE_READ_LEAVE(&array->exclusive, array_generation, "a dynamic array");
+    return result;
+}
+
+static void *tb_array_data_reading(const tb_array *array)
 {
     TB_ASSERT(array != NULL);
     return array->data;
 }
 
-void tb_array_get(const tb_array *array, size_t index, void *element)
+void *tb_array_data(const tb_array *array)
+{
+    void *result = NULL;
+    TB_ASSERT(array != NULL);
+    const size_t array_generation = TB_EXCLUSIVE_READ_ENTER(&array->exclusive, "a dynamic array");
+    result = tb_array_data_reading(array);
+    TB_EXCLUSIVE_READ_LEAVE(&array->exclusive, array_generation, "a dynamic array");
+    return result;
+}
+
+static void tb_array_get_reading(const tb_array *array, size_t index, void *element)
 {
     TB_ASSERT(element != NULL);
-    memcpy(element, tb_array_at(array, index), array->element_size);
+    memcpy(element, tb_array_at_reading(array, index), array->element_size);
+}
+
+void tb_array_get(const tb_array *array, size_t index, void *element)
+{
+    TB_ASSERT(array != NULL);
+    const size_t array_generation = TB_EXCLUSIVE_READ_ENTER(&array->exclusive, "a dynamic array");
+    tb_array_get_reading(array, index, element);
+    TB_EXCLUSIVE_READ_LEAVE(&array->exclusive, array_generation, "a dynamic array");
 }
 
 static void tb_array_put_inside(tb_array *array, size_t index, const void *element)
@@ -455,18 +501,38 @@ void tb_array_pop(tb_array *array, void *element)
  * Typed access.
  * ------------------------------------------------------------------------- */
 
-void *tb_array_at_sized(const tb_array *array, size_t index, size_t element_size)
+static void *tb_array_at_sized_reading(const tb_array *array, size_t index, size_t element_size)
 {
     TB_ASSERT(array != NULL);
     TB_ASSERT_MSG(element_size == array->element_size, "the array holds elements of another size");
-    return tb_array_at(array, index);
+    return tb_array_at_reading(array, index);
+}
+
+void *tb_array_at_sized(const tb_array *array, size_t index, size_t element_size)
+{
+    void *result = NULL;
+    TB_ASSERT(array != NULL);
+    const size_t array_generation = TB_EXCLUSIVE_READ_ENTER(&array->exclusive, "a dynamic array");
+    result = tb_array_at_sized_reading(array, index, element_size);
+    TB_EXCLUSIVE_READ_LEAVE(&array->exclusive, array_generation, "a dynamic array");
+    return result;
+}
+
+static void *tb_array_data_sized_reading(const tb_array *array, size_t element_size)
+{
+    TB_ASSERT(array != NULL);
+    TB_ASSERT_MSG(element_size == array->element_size, "the array holds elements of another size");
+    return tb_array_data_reading(array);
 }
 
 void *tb_array_data_sized(const tb_array *array, size_t element_size)
 {
+    void *result = NULL;
     TB_ASSERT(array != NULL);
-    TB_ASSERT_MSG(element_size == array->element_size, "the array holds elements of another size");
-    return tb_array_data(array);
+    const size_t array_generation = TB_EXCLUSIVE_READ_ENTER(&array->exclusive, "a dynamic array");
+    result = tb_array_data_sized_reading(array, element_size);
+    TB_EXCLUSIVE_READ_LEAVE(&array->exclusive, array_generation, "a dynamic array");
+    return result;
 }
 
 static void *tb_array_push_sized_inside(tb_array *array, size_t element_size)

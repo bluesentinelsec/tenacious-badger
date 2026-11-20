@@ -103,23 +103,36 @@ of one another, are used from eight threads at once in
 `tests/core/thread_safety_test.c`, each thread with data of its own.
 
 **Externally synchronized objects check it.** In builds with assertions, an
-arena, a dynamic array, a hash table, a set, a ring buffer, and a bit set
-each record which thread is inside a function that changes it. A second
-thread that calls such a function while the first is still inside fails an
-assertion that names the kind of object, on every platform, Windows included,
-where there is no ThreadSanitizer. The guard lives in `src/core/exclusive.h`.
+arena, a dynamic array, a hash table, a set, a ring buffer, a bit set, and a
+list each record which thread is inside a function that changes it. A second
+thread that changes or reads the object while the first is still inside fails
+an assertion that names the kind of object, on every platform, Windows
+included, where there is no ThreadSanitizer. The guard lives in
+`src/core/exclusive.h`; its room in a public structure, such as a list, is
+`tb_exclusive_check` (`badger/exclusive.h`).
 
 - **What is checked:** functions that change the object, its destruction
-  included. Functions that only read take no part, so readers still run
-  together, and a reader that overlaps a writer is not caught.
-- **Re-entry:** a thread may enter an object it is already inside. That also
-  covers a test that leaves a function through a trap: the object stays with
-  the test's own thread, which can go on using it and destroy it.
-- **Cost:** a compare-exchange and a store for each call, about 17 ns in a
-  Debug build (Release, without assertions, has neither).
-- **Not covered:** the intrusive list (`badger/list.h`), whose structure the
-  caller declares, so it has no room for a guard; and stage-owned functions,
-  which are for single-threaded startup.
+  included, and functions that read its contents. A read fails when it begins
+  while another thread is changing the object, and when it ends after
+  another thread began a change: every change counts itself in the guard, and
+  a read compares the count when it ends. Readers leave nothing in the object,
+  so they run together, and a read that leaves through a trap leaves no
+  trace.
+- **What is not:** accessors that read one field, such as a length or a
+  capacity; memory the object handed out (a pointer from `tb_array_at()`),
+  once the function that returned it has left; a set's own functions, which
+  its hash table checks for it; the list functions that name only a link
+  (`tb_list_remove()`, `tb_list_insert_before()`, `tb_list_insert_after()`),
+  which cannot reach the list; and stage-owned functions, which are for
+  single-threaded startup.
+- **Re-entry:** a thread may enter an object it is already inside, and may
+  read an object it is changing. That also covers a test that leaves a
+  function through a trap: the object stays with the test's own thread,
+  which can go on using it and destroy it.
+- **Cost, in a Debug build:** about 17 ns for a call that changes the object
+  (a compare-exchange, an addition, and a store), and about 12 ns for a call
+  that reads it (two loads on entry, one on leaving). Release, without
+  assertions, has none of it.
 
 ## Text files
 
