@@ -8,6 +8,7 @@
  * headers for the functions, so a function that is added to a platform
  * interface without a case here fails the test. */
 #include "badger/crash.h"
+#include "badger/library.h"
 #include "badger/platform.h"
 #include "badger/random.h"
 #include "badger/stack.h"
@@ -44,6 +45,37 @@ TB_TEST(platform_default, tb_crash_report_abort)
 TB_TEST(platform_default, tb_crash_write_dumps)
 {
     (void)tb_crash_write_dumps(NULL);
+}
+
+TB_TEST(platform_default, tb_library_open)
+{
+    tb_library *library = NULL;
+
+    (void)tb_library_open("library", TB_LIBRARY_SEARCH_SYSTEM, &library, NULL);
+}
+
+TB_TEST(platform_default, tb_library_close)
+{
+    tb_library_close(NULL);
+}
+
+TB_TEST(platform_default, tb_library_find_function)
+{
+    tb_library_function function = NULL;
+
+    (void)tb_library_find_function(NULL, "function", &function, NULL);
+}
+
+TB_TEST(platform_default, tb_library_find_data)
+{
+    void *data = NULL;
+
+    (void)tb_library_find_data(NULL, "data", &data, NULL);
+}
+
+TB_TEST(platform_default, tb_library_bind)
+{
+    (void)tb_library_bind(NULL, NULL, 0, NULL);
 }
 
 TB_TEST(platform_default, tb_platform_clock_nanoseconds)

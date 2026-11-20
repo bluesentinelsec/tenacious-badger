@@ -68,7 +68,7 @@ Running the Windows D3D12 build under Proton on the Steam Deck and the Linux lap
 - **Threads and synchronization:** threads, mutexes (SRW locks), condition variables, semaphores, atomics, thread-local storage, affinity, and fibers if we need them.
 - **Memory:** reserve/commit/decommit virtual memory, page sizes and large pages.
 - **Files and async I/O:** native file handles, overlapped I/O / IOCP, directory watching for hot reload.
-- **Dynamic libraries:** `LoadLibraryW`/`GetProcAddress`, mapping to `dlopen`/`dlsym`. Every runtime-loaded vendor DLL goes through this interface.
+- **Dynamic libraries:** `LoadLibraryExW`/`GetProcAddress`, mapping to `dlopen`/`dlsym` (`include/badger/library.h`). Every platform library the engine calls, and every vendor DLL, is loaded through this interface (see [Loading platform libraries](#loading-platform-libraries)).
 - **Audio device:** WASAPI output feeding the engine's own mixer, mapping to PipeWire/ALSA and Core Audio later.
 - **System information:** CPU topology, memory, OS version, crash dumps and stack traces.
 
@@ -80,13 +80,13 @@ Every platform interface is implemented on Windows, macOS and Linux in the chang
 
 | Interface | Windows | Linux and Steam Deck | macOS |
 | --- | --- | --- | --- |
-| Windowing and events | Win32 | Wayland, with X11 to be decided | Cocoa (AppKit) |
+| Windowing and events | Win32 | Wayland and X11, both supported | Cocoa (AppKit) |
 | Input | Raw Input, XInput | evdev | Game Controller framework, IOKit HID |
 | Time | `QueryPerformanceCounter` | `clock_gettime` | `mach_absolute_time` |
 | Threads and synchronization | Win32 threads, SRW locks, condition variables | pthreads | pthreads |
 | Memory | `VirtualAlloc`/`VirtualFree` | `mmap`/`munmap` | `mmap`/`munmap` |
 | Files and async I/O | Overlapped I/O, IOCP, `ReadDirectoryChangesW` | io_uring or epoll, inotify | kqueue, FSEvents |
-| Dynamic libraries | `LoadLibraryW`/`GetProcAddress` | `dlopen`/`dlsym` | `dlopen`/`dlsym` |
+| Dynamic libraries | `LoadLibraryExW`/`GetProcAddress` | `dlopen`/`dlsym` | `dlopen`/`dlsym` |
 | Audio device | WASAPI | PipeWire or ALSA | Core Audio |
 | System information and crashes | DbgHelp minidumps, stack walking | `/proc`, signal handlers | `sysctl`, signal handlers |
 
@@ -98,6 +98,15 @@ Rendering backends and vendor plugins are not platform interfaces, and arrive on
 | Upscaler and latency plugins | DLSS, FSR, XeSS, Reflex, Anti-Lag 2 | Vendor plugins that support Vulkan on Linux | MetalFX |
 
 A missing vendor plugin on a platform where it will never exist (DLSS on macOS, for example) is an *unavailable capability*, not missing work.
+
+### Loading platform libraries
+
+The engine calls the platform's own libraries (Direct3D, DXGI, Vulkan, OpenGL, Metal, X11, Wayland, PipeWire, ALSA and the like) by loading them at run time through the dynamic-library interface (`tb_library_open`, `tb_library_bind`), not by linking them. Later, vendor libraries (NVIDIA, AMD, Intel) load the same way. This is our dependency strategy:
+
+- **Most libraries we call are already part of the OS.** The engine ships none of them, links none of them, and needs no import libraries or development packages to build.
+- **A missing library is an unavailable capability, never a failed start.** Every failure to load a library or find a symbol returns an error that the caller handles: it reports why, and falls back (Wayland to X11, one RHI backend to another).
+- **No DLL hell.** Every load names where it looks: the system's libraries, the application's directory, or one absolute path. None uses the default search order or the working directory. On Linux, libraries are named by their major version (`libX11.so.6`, never `libX11.so`).
+- **Linking stays for the base system only.** The C runtime and the core system libraries the toolchain links by default (`kernel32` and its peers on Windows, `libc` on Linux, `libSystem` on macOS) stay linked. A new direct link to any other platform library needs the author's approval.
 
 ### Unsupported platforms
 

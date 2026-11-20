@@ -10,6 +10,12 @@ set(TB_PLATFORM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/../posix/crash.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/crash_context.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../posix/error_stream.c"
+    # Loading a library is the same on Linux and macOS, except where the
+    # system's own libraries are.
+    "${CMAKE_CURRENT_SOURCE_DIR}/../posix/library.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/library_system.c"
+    # A loaded library's record, the checks of its name, and its messages.
+    "${CMAKE_CURRENT_SOURCE_DIR}/../shared/library.c"
     # Capturing a stack and naming an address are the same on Linux and macOS.
     "${CMAKE_CURRENT_SOURCE_DIR}/../posix/stack.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/atomic.c"

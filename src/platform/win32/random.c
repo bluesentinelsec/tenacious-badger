@@ -4,6 +4,7 @@
 #include "badger/random.h"
 
 #include "badger/assert.h"
+#include "badger/library.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -16,20 +17,26 @@ typedef NTSTATUS WINAPI tb_win32_gen_random(BCRYPT_ALG_HANDLE algorithm, PUCHAR 
 static INIT_ONCE tb_win32_random_once = INIT_ONCE_STATIC_INIT;
 static tb_win32_gen_random *tb_win32_random_function;
 
+/* The library stays loaded for the life of the process. */
 static BOOL CALLBACK tb_win32_random_load(PINIT_ONCE once, PVOID parameter, PVOID *context)
 {
-    HMODULE library = NULL;
+    tb_library *library = NULL;
+    tb_library_function function = NULL;
     (void)once;
     (void)parameter;
     (void)context;
-    library = LoadLibraryExW(L"bcrypt.dll", NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
     /* coverage-off: the library is part of every Windows the engine supports */
-    if (library != NULL)
+    if (tb_library_open("bcrypt.dll", TB_LIBRARY_SEARCH_SYSTEM, &library, NULL) != TB_LIBRARY_OK)
     {
-        tb_win32_random_function =
-            (tb_win32_gen_random *)(void *)GetProcAddress(library, "BCryptGenRandom");
+        return TRUE;
+    }
+    if (tb_library_find_function(library, "BCryptGenRandom", &function, NULL) != TB_LIBRARY_OK)
+    {
+        tb_library_close(library);
+        return TRUE;
     }
     /* coverage-on */
+    tb_win32_random_function = (tb_win32_gen_random *)function;
     return TRUE;
 }
 
