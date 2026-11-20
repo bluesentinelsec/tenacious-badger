@@ -41,6 +41,11 @@ TB_TEST(platform_default, tb_crash_report_abort)
     tb_crash_report_abort(0);
 }
 
+TB_TEST(platform_default, tb_crash_write_dumps)
+{
+    (void)tb_crash_write_dumps(NULL);
+}
+
 TB_TEST(platform_default, tb_platform_clock_nanoseconds)
 {
     (void)tb_platform_clock_nanoseconds();

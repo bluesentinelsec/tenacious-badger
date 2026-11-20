@@ -11,6 +11,8 @@
  * nothing for it. */
 #include <dbghelp.h>
 
+#include "debug_library.h"
+
 #include <string.h>
 
 /* The most frames that one capture asks the system for. */
@@ -47,6 +49,11 @@ typedef BOOL(WINAPI tb_win32_sym_from_address)(HANDLE process, DWORD64 address,
                                                PDWORD64 displacement, PSYMBOL_INFOW symbol);
 typedef BOOL(WINAPI tb_win32_sym_line_from_address)(HANDLE process, DWORD64 address,
                                                     PDWORD displacement, PIMAGEHLP_LINEW64 line);
+typedef BOOL(WINAPI tb_win32_write_dump)(HANDLE process, DWORD process_id, HANDLE file,
+                                         MINIDUMP_TYPE type,
+                                         PMINIDUMP_EXCEPTION_INFORMATION exception,
+                                         PMINIDUMP_USER_STREAM_INFORMATION user_streams,
+                                         PMINIDUMP_CALLBACK_INFORMATION callback);
 
 typedef struct tb_win32_debug_library
 {
@@ -55,6 +62,7 @@ typedef struct tb_win32_debug_library
     bool is_ready;      /* The functions below can be called. */
     tb_win32_sym_from_address *from_address;
     tb_win32_sym_line_from_address *line_from_address;
+    tb_win32_write_dump *write_dump; /* NULL where the library lacks it. */
 } tb_win32_debug_library;
 
 static tb_win32_debug_library tb_win32_debug = {.lock = SRWLOCK_INIT};
@@ -85,6 +93,8 @@ static void tb_win32_debug_load(void)
         return;
     }
     /* coverage-on */
+    tb_win32_debug.write_dump =
+        (tb_win32_write_dump *)(void *)GetProcAddress(library, "MiniDumpWriteDump");
     initialize = (tb_win32_sym_initialize *)(void *)GetProcAddress(library, "SymInitializeW");
     set_options = (tb_win32_sym_set_options *)(void *)GetProcAddress(library, "SymSetOptions");
     tb_win32_debug.from_address =
@@ -216,4 +226,64 @@ void tb_stack_describe(const void *address, tb_stack_location *location)
     }
     tb_win32_describe_module(address, location);
     tb_win32_describe_symbol(address, location);
+}
+
+/* ---------------------------------------------------------------------------
+ * Crash dumps.
+ * ------------------------------------------------------------------------- */
+
+/* How long a dump waits for the library's lock, in milliseconds, before it
+ * is written without it: a crashed thread that holds the lock never lets it
+ * go. */
+#define TB_WIN32_DUMP_LOCK_WAIT_MS 2000
+
+/* What a dump holds: the threads with their stacks, the memory they point
+ * at, and what is known of each thread. Enough to see where every thread
+ * was and the values it worked with, at a few megabytes. */
+#define TB_WIN32_DUMP_TYPE                                                                         \
+    ((MINIDUMP_TYPE)(MiniDumpWithIndirectlyReferencedMemory | MiniDumpWithThreadInfo |             \
+                     MiniDumpWithUnloadedModules))
+
+bool tb_win32_debug_can_write_dump(void)
+{
+    bool can_write = false;
+
+    AcquireSRWLockExclusive(&tb_win32_debug.lock);
+    tb_win32_debug_load();
+    can_write = tb_win32_debug.write_dump != NULL;
+    ReleaseSRWLockExclusive(&tb_win32_debug.lock);
+    return can_write;
+}
+
+bool tb_win32_debug_write_dump(HANDLE file, DWORD thread_id, EXCEPTION_POINTERS *pointers)
+{
+    MINIDUMP_EXCEPTION_INFORMATION exception = {0};
+    bool is_locked = false;
+    BOOL written = FALSE;
+
+    /* coverage-off: tb_win32_debug_can_write_dump() said it could */
+    if (tb_win32_debug.write_dump == NULL)
+    {
+        return false;
+    }
+    /* coverage-on */
+    for (DWORD waited = 0; waited < TB_WIN32_DUMP_LOCK_WAIT_MS && !is_locked; waited++)
+    {
+        is_locked = TryAcquireSRWLockExclusive(&tb_win32_debug.lock) != FALSE;
+        if (!is_locked)
+        {
+            Sleep(1);
+        }
+    }
+    exception.ThreadId = thread_id;
+    exception.ExceptionPointers = pointers;
+    exception.ClientPointers = FALSE;
+    written = tb_win32_debug.write_dump(GetCurrentProcess(), GetCurrentProcessId(), file,
+                                        TB_WIN32_DUMP_TYPE, pointers != NULL ? &exception : NULL,
+                                        NULL, NULL);
+    if (is_locked)
+    {
+        ReleaseSRWLockExclusive(&tb_win32_debug.lock);
+    }
+    return written != FALSE;
 }

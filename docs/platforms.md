@@ -251,15 +251,30 @@ thread that crashed holding it skips, reporting its stack without names.
   of the C library. The engine's DLL is built with MSVC's static runtime, so
   a program's `abort()` reaches the program's own copy, and the program also
   calls `signal(SIGABRT, tb_crash_report_abort)`, as Burrow does.
-- **Not done:** a minidump on Windows, and a stack for each block of the
-  checking memory functions. Both were left optional by the issue that asked
-  for crash reports.
+- **Crash dumps.** After `tb_crash_write_dumps`, a crash on Windows also
+  writes a minidump (`MiniDumpWriteDump`, from DbgHelp, loaded at run time)
+  to the directory given, or to the system's temporary one, named after the
+  program and the process (`burrow-1234.dmp`). The report's first line ends
+  with `; dump: ` and the path. A thread cannot reliably dump itself, so a
+  thread that `tb_crash_write_dumps` starts waits to write it, and the
+  crashed thread hands it the exception and waits up to a minute. Only the
+  first crash is dumped. The dump holds every thread's stack, the memory
+  they point at, and the loaded and unloaded modules: a few hundred
+  kilobytes, which Visual Studio and WinDbg open beside the program's
+  symbols. On Linux and macOS the function returns false: the system writes
+  a core file where its settings allow (`ulimit -c`, and on Linux
+  `/proc/sys/kernel/core_pattern`). Burrow asks for dumps.
+- **Not done:** a stack for each block of the checking memory functions,
+  left optional by the issue that asked for crash reports.
 
 `tests/core/crash_probe.c` crashes on purpose in child processes, and
 `tests/ExpectCrashReport.cmake` checks each report: a null pointer, `abort()`,
 a crash on another thread, a crash inside a log's sink while the log holds
 its lock, and a fatal error after `tb_crash_catch`, which is reported once
-and not again as a crash.
+and not again as a crash. Two more crash after `tb_crash_write_dumps`, by a
+null pointer and by `abort()`: on Windows the report names the dump, and the
+file there is a minidump (it begins `MDMP`), which the script then deletes;
+elsewhere the report mentions no dump.
 
 ## Atomic values
 
