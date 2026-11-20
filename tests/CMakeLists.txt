@@ -203,6 +203,18 @@ if(TARGET burrow)
         COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tools/burrow_output_test.py"
             "$<TARGET_FILE:burrow>")
     set_tests_properties(burrow.smoke PROPERTIES PASS_REGULAR_EXPRESSION "2 \\+ 3 = 5")
+    # Its command line: help, the version, and a wrong option, each with the
+    # status it must exit with, which a pass expression would not check.
+    function(tb_add_burrow_test name argument status expected)
+        add_test(NAME burrow.${name}
+            COMMAND "${CMAKE_COMMAND}" "-DTB_PROGRAM=$<TARGET_FILE:burrow>"
+                "-DTB_ARGUMENT=${argument}" "-DTB_STATUS=${status}" "-DTB_EXPECTED=${expected}"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/ExpectProgramOutput.cmake")
+    endfunction()
+    tb_add_burrow_test(help_is_written --help 0 "^usage: burrow \\[options\\]")
+    tb_add_burrow_test(the_version_is_written --version 0 "^burrow ${PROJECT_VERSION}")
+    tb_add_burrow_test(a_wrong_option_is_refused --nope 2
+        "burrow: error: unknown option '--nope'")
 endif()
 
 add_executable(tb_static_tests consumers/static/main.c)
@@ -228,7 +240,7 @@ tb_make_standalone(tb_internal_tests)
 set(TB_PLATFORM_TEST_SOURCES
     platform/fs_test.c platform/virtual_memory_test.c
     platform/atomic_test.c platform/contract_test.c platform/crash_text_test.c
-    platform/library_test.c platform/name_test.c
+    platform/library_test.c platform/name_test.c platform/process_test.c
     platform/random_test.c platform/semaphore_test.c platform/stack_test.c platform/system_test.c
     platform/thread_local_test.c
     platform/thread_options_test.c platform/thread_test.c platform/time_test.c)
@@ -241,6 +253,7 @@ if(WIN32)
     list(APPEND TB_PLATFORM_TEST_SOURCES
         platform/win32/affinity_test.c platform/win32/counter_test.c
         platform/win32/crash_dump_test.c platform/win32/library_test.c
+        platform/win32/process_test.c
         platform/win32/processors_test.c platform/win32/thread_priority_test.c
         platform/win32/thread_wait_test.c)
     set(TB_PLATFORM_PRIVATE_DIRECTORY "${PROJECT_SOURCE_DIR}/src/platform/win32")
@@ -297,6 +310,7 @@ set(TB_PLATFORM_INTERFACE_HEADERS
     "${PROJECT_SOURCE_DIR}/include/badger/file.h"
     "${PROJECT_SOURCE_DIR}/include/badger/library.h"
     "${PROJECT_SOURCE_DIR}/include/badger/platform.h"
+    "${PROJECT_SOURCE_DIR}/include/badger/process.h"
     "${PROJECT_SOURCE_DIR}/include/badger/random.h"
     "${PROJECT_SOURCE_DIR}/include/badger/stack.h"
     "${PROJECT_SOURCE_DIR}/include/badger/system.h"

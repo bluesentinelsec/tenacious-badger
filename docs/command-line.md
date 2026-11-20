@@ -136,4 +136,21 @@ A command declares at most 128 entries, and commands nest at most 8 deep.
 
 Messages and help are UTF-8. Arguments are not checked for UTF-8, because a
 file name on Linux or macOS need not be. On Windows, the C runtime gives
-`main` its arguments in the system's code page, not in UTF-8.
+`main` its arguments in the system's code page, not in UTF-8: get them from
+`tb_process_get_arguments()` ([command-line arguments](platforms.md#command-line-arguments))
+and parse those.
+
+```c
+int main(int count, char **values)
+{
+    tb_arguments arguments = TB_ARGUMENTS_INIT;
+    int status = EXIT_FAILURE;
+    if (!tb_process_get_arguments(count, values, &arguments))
+    {
+        return EXIT_FAILURE;
+    }
+    status = tb_cli_run(&program, arguments.count, arguments.values, NULL);
+    tb_process_release_arguments(&arguments);
+    return status;
+}
+```

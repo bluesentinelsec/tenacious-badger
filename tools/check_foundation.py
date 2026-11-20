@@ -221,6 +221,12 @@ AUTHORIZED = {
            'src/platform/linux/library_system.c': 'malloc strlen',
            'src/platform/macos/library_system.c': 'malloc strlen strchr',
        }.items()},
+    # The arguments are converted beneath the foundation too, for main.
+    **{path: (set(names.split()),
+              'implements the process arguments beneath the foundation modules')
+       for path, names in {
+           'src/platform/win32/process.c': 'malloc free',
+       }.items()},
 
     # The modules that implement the replacements.
     'src/core/memory.c': (

@@ -14,6 +14,8 @@ set(TB_PLATFORM_SOURCES
     # system's own libraries are.
     "${CMAKE_CURRENT_SOURCE_DIR}/../posix/library.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/library_system.c"
+    # The arguments are main's own on Linux and macOS.
+    "${CMAKE_CURRENT_SOURCE_DIR}/../posix/process.c"
     # A loaded library's record, the checks of its name, and its messages.
     "${CMAKE_CURRENT_SOURCE_DIR}/../shared/library.c"
     # Capturing a stack and naming an address are the same on Linux and macOS.

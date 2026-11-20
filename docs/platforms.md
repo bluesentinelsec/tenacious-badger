@@ -678,6 +678,24 @@ These bytes cannot be seeded, so nothing that must repeat (a test, a
 simulation, a replay) may use them; those keep a generator of their own and
 record its seed.
 
+## Command-line arguments
+
+Public declaration: `include/badger/process.h`. `tb_process_get_arguments`
+gives a program its arguments as UTF-8, the program's name first, and
+`tb_process_release_arguments` lets them go.
+
+| Platform | Source |
+| --- | --- |
+| Windows | `GetCommandLineW`, split by `CommandLineToArgvW` and converted from UTF-16; an unpaired surrogate becomes U+FFFD |
+| Linux, macOS | `main`'s own `argc` and `argv`, unchanged: the bytes the program was started with, which for a file name need not be UTF-8 |
+| Other | "not implemented" |
+
+On Windows the C runtime gives `main` its arguments in the ANSI code page,
+so a name outside it arrives as question marks; this is the way around that.
+`CommandLineToArgvW` splits quotes and backslashes as the C runtime does in
+all but rare cases. A program passes the result to `tb_cli_parse()`
+([command lines](command-line.md)), as Burrow does.
+
 ## Shared libraries
 
 Public declaration: `include/badger/library.h`. `tb_library_open` loads a
