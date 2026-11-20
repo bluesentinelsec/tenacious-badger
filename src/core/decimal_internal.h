@@ -45,6 +45,13 @@ void tb_decimal_exact_of(uint64_t mantissa, int exponent, tb_decimal_exact *exac
  * than half of it. */
 void tb_decimal_round(tb_decimal_exact *exact, ptrdiff_t significant);
 
+/* The fewest significant digits of a finite, nonzero double that read back
+ * as it, and of those the nearest to it, ties to even. The fast form is the
+ * one the engine uses; the exact form is its definition, in big integers,
+ * and the tests hold one to the other. */
+void tb_decimal_shortest_fast(const tb_decimal_parts *parts, tb_decimal_exact *result);
+void tb_decimal_shortest_exact(const tb_decimal_parts *parts, tb_decimal_exact *result);
+
 /* The digit at the place of 10^place, as a character; '0' beyond the digits. */
 char tb_decimal_digit_at(const tb_decimal_exact *exact, ptrdiff_t place);
 
