@@ -156,6 +156,14 @@ RANDOMNESS = rule('badger/random.h', 'docs/platforms.md', {
         'arc4random arc4random_buf arc4random_uniform SecRandomCopyBytes',
 })
 
+LIBRARIES = rule('badger/library.h', 'docs/platforms.md', {
+    'tb_library_open and tb_library_close':
+        'LoadLibraryW LoadLibraryA LoadLibraryExW LoadLibraryExA FreeLibrary dlopen dlclose '
+        '<dlfcn.h>',
+    'tb_library_find_function, tb_library_find_data, or tb_library_bind':
+        'GetProcAddress dlsym',
+})
+
 COLLECTIONS = rule('badger/table.h', 'docs/collections.md', {
     'tb_table, tb_set, or tb_list':
         '<search.h>',
@@ -176,7 +184,7 @@ FILES = rule('badger/file.h', 'docs/files.md', {
 })
 
 RULES = [ALLOCATION, FORMATTING, STRINGS, FAILURES, TIMING, ATOMICS, THREADS, PROCESSORS,
-         RANDOMNESS, COLLECTIONS, FILES]
+         RANDOMNESS, LIBRARIES, COLLECTIONS, FILES]
 FORBIDDEN = {name: entry for group in RULES for name, entry in group.items()}
 PREFIXES = sorted((name[:-1] for name in FORBIDDEN if name.endswith('*')), key=len, reverse=True)
 
@@ -203,6 +211,16 @@ AUTHORIZED = {
            'src/platform/linux/fs_location.c': 'malloc free strlen',
            'src/platform/macos/fs_location.c': 'malloc free strlen',
        }.items()},
+    # Loaded libraries' records and paths are made beneath the foundation too.
+    **{path: (set(names.split()),
+              'implements loading libraries beneath the foundation modules')
+       for path, names in {
+           'src/platform/shared/library.c': 'malloc strlen strcmp',
+           'src/platform/win32/library.c': 'malloc free strlen',
+           'src/platform/posix/library.c': 'malloc free strlen',
+           'src/platform/linux/library_system.c': 'malloc strlen',
+           'src/platform/macos/library_system.c': 'malloc strlen strchr',
+       }.items()},
 
     # The modules that implement the replacements.
     'src/core/memory.c': (
@@ -219,7 +237,7 @@ AUTHORIZED = {
         'defines TB_STATIC_ASSERT'),
     'src/platform/': (
         set(TIMING) | set(ATOMICS) | set(THREADS) | set(PROCESSORS) | set(RANDOMNESS) | set(FILES)
-        | {'abort', 'fputs'},
+        | set(LIBRARIES) | {'abort', 'fputs'},
         'implements the platform interfaces beneath the foundation modules, and is built '
         'and tested without them'),
 

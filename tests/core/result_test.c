@@ -6,6 +6,7 @@
 #include "badger/deflate.h"
 #include "badger/fs.h"
 #include "badger/json.h"
+#include "badger/library.h"
 #include "badger/log.h"
 #include "badger/package.h"
 #include "badger/path.h"
@@ -39,6 +40,11 @@ static const char *name_of_json(int result)
 static const char *name_of_fs(int result)
 {
     return tb_fs_result_name((tb_fs_result)result);
+}
+
+static const char *name_of_library(int result)
+{
+    return tb_library_result_name((tb_library_result)result);
 }
 
 static const char *name_of_log(int result)
@@ -93,6 +99,7 @@ TB_TEST(core_result, every_result_has_a_name_of_its_own)
         {"deflate", name_of_deflate, TB_DEFLATE_UNSUPPORTED},
         {"fs", name_of_fs, TB_FS_END},
         {"json", name_of_json, TB_JSON_OUTPUT_FAILED},
+        {"library", name_of_library, TB_LIBRARY_NO_MEMORY},
         {"log", name_of_log, TB_LOG_TOO_LARGE},
         {"package", name_of_package, TB_PACKAGE_OUTPUT_FAILED},
         {"path", name_of_path, TB_PATH_TOO_LARGE},
@@ -134,6 +141,7 @@ TB_TEST(core_result, shared_conditions_have_the_same_name_in_every_module)
     TB_TEST_EXPECT_STRING(tb_path_result_name(TB_PATH_BUFFER_TOO_SMALL), ==, "buffer too small");
     TB_TEST_EXPECT_STRING(tb_fs_result_name(TB_FS_NO_MEMORY), ==, "out of memory");
     TB_TEST_EXPECT_STRING(tb_vm_result_name(TB_VM_NO_MEMORY), ==, "out of memory");
+    TB_TEST_EXPECT_STRING(tb_library_result_name(TB_LIBRARY_NO_MEMORY), ==, "out of memory");
     TB_TEST_EXPECT_STRING(tb_fs_result_name(TB_FS_TOO_LARGE), ==, "too large");
     TB_TEST_EXPECT_STRING(tb_path_result_name(TB_PATH_TOO_LARGE), ==, "too large");
     TB_TEST_EXPECT_STRING(tb_log_result_name(TB_LOG_TOO_LARGE), ==, "too large");
@@ -142,4 +150,5 @@ TB_TEST(core_result, shared_conditions_have_the_same_name_in_every_module)
     TB_TEST_EXPECT_STRING(tb_fs_result_name(TB_FS_INVALID), ==, "invalid argument");
     TB_TEST_EXPECT_STRING(tb_vm_result_name(TB_VM_INVALID), ==, "invalid argument");
     TB_TEST_EXPECT_STRING(tb_log_result_name(TB_LOG_INVALID), ==, "invalid argument");
+    TB_TEST_EXPECT_STRING(tb_library_result_name(TB_LIBRARY_INVALID), ==, "invalid argument");
 }

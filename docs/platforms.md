@@ -666,7 +666,7 @@ cryptography, for keys, nonces, and salts: what no one may guess or repeat.
 
 | Platform | Source |
 | --- | --- |
-| Windows | `BCryptGenRandom` with the system's preferred generator, from `bcrypt.dll`, loaded the first time it is needed so no program links `bcrypt.lib` |
+| Windows | `BCryptGenRandom` with the system's preferred generator, from `bcrypt.dll`, loaded through `badger/library.h` the first time it is needed so no program links `bcrypt.lib` |
 | Linux | `getrandom`, which waits only until the kernel's generator is seeded at boot |
 | macOS | `arc4random_buf`, which cannot fail |
 | Other | "not implemented": standard C has no source fit for a key |
@@ -677,6 +677,77 @@ supported system lacks. It is thread-safe and needs no setup.
 These bytes cannot be seeded, so nothing that must repeat (a test, a
 simulation, a replay) may use them; those keep a generator of their own and
 record its seed.
+
+## Shared libraries
+
+Public declaration: `include/badger/library.h`. `tb_library_open` loads a
+shared library at run time, `tb_library_find_function` and
+`tb_library_find_data` find what it exports, `tb_library_bind` fills a table
+of functions at once, and `tb_library_close` lets it go.
+
+**What goes through it.** The engine calls the platform's graphics,
+windowing, and audio libraries (Direct3D, DXGI, Vulkan, OpenGL, Metal, X11,
+Wayland, PipeWire, and others) through this interface rather than linking
+them, and later the vendor libraries (DLSS, FSR, XeSS, Reflex). Most of
+these are part of the system already, so the engine ships none of them, and
+a program that links the engine starts on a machine that lacks one: the
+backend that needs it reports itself unavailable, and the engine falls back.
+The foundation check (`tools/check_foundation.py`) refuses `LoadLibrary`,
+`GetProcAddress`, `dlopen`, and `dlsym` outside `src/platform/`.
+
+**Every load says where it looks**, and none uses the system's default
+search order:
+
+| Search | Windows | Linux | macOS |
+| --- | --- | --- | --- |
+| `TB_LIBRARY_SEARCH_SYSTEM` | The system directory, by full path | The dynamic linker's search, by a file name such as `libX11.so.6` | `/usr/lib/<name>`, or `/System/Library/Frameworks/<Name>.framework/<Name>` |
+| `TB_LIBRARY_SEARCH_APPLICATION` | The executable's directory, by full path | The same | The same |
+| `TB_LIBRARY_SEARCH_PATH` | One absolute path | The same | The same |
+
+- **No planted library is loaded.** A name is never looked for in the
+  working directory or `PATH`. On Windows every load is by full path, so a
+  module of the same name already loaded from elsewhere is not taken for the
+  one meant; the libraries the loaded one depends on come from beside it or
+  from the system directory. A relative path is refused.
+- **Linux names libraries by their major version.** `libX11.so.6` is the
+  library a player's system has; `libX11.so` belongs to the development
+  packages, and may be a version the engine was not written for. The
+  dynamic linker's search includes `LD_LIBRARY_PATH`, as the Steam runtime
+  expects.
+- **A library is complete or not loaded.** Linux and macOS open with
+  `RTLD_NOW`, so a symbol the library needs and no loaded library has fails
+  the open, not a call in the middle of a frame; and with `RTLD_LOCAL`, so
+  its symbols do not take the place of another library's. Windows shows no
+  dialog box for a damaged library.
+- **An exact path is exact.** Windows adds `.dll` to a name without an
+  extension; the adapter prevents it.
+
+**Every failure is the caller's to handle.** Nothing in the interface ends
+the process. A call returns a `tb_library_result` and, when asked, fills a
+`tb_library_error` with a message that names the library or symbol and gives
+the system's reason:
+
+| Result | Meaning |
+| --- | --- |
+| `TB_LIBRARY_INVALID` | The name cannot be used with its search; nothing was looked for |
+| `TB_LIBRARY_UNAVAILABLE` | The library is missing, or there but unusable: another architecture, a missing dependency, an unresolved symbol |
+| `TB_LIBRARY_SYMBOL_MISSING` | The library does not export the symbol; `tb_library_bind` names every required one that is missing |
+| `TB_LIBRARY_NO_MEMORY` | The system ran out of memory or another resource |
+
+```
+libwayland-client.so.0: missing wl_proxy_marshal_flags, wl_proxy_get_version
+```
+
+Functions and data are found by separate calls, because standard C converts
+neither kind of pointer to the other. A function comes back as
+`tb_library_function`, which the caller converts to the function's real
+type.
+
+Opening and finding are thread-safe; the system counts the opens of a
+library, and each is closed. What was found in a library stays valid until
+it is closed. The tests load a library the build puts beside them
+(`tests/platform/library_fixture.c`) on every platform, and one of the
+system's on each.
 
 ## Unsupported platforms
 
@@ -748,8 +819,9 @@ For each new platform interface, add in one change:
   which is the list the default adapter is checked against.
 
 No interface is implemented on fewer than the three platforms. Planned
-services include windowing/events, input, asynchronous files, dynamic
-libraries, audio devices, and system/crash information.
+services include windowing/events, input, asynchronous files, audio devices,
+and system information. Each loads the system libraries it needs through
+`badger/library.h`.
 Native APIs and future RHI backends are catalogued in the binding vision.
 
 A rendering backend or a vendor plugin is not a platform interface. One that
