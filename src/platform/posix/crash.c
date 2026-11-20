@@ -148,7 +148,8 @@ void tb_crash_catch(void)
     action.sa_sigaction = tb_posix_crash_handler;
     /* The handler runs once: a crash while reporting one ends the process
      * as the system would have. */
-    action.sa_flags = SA_SIGINFO | SA_ONSTACK | SA_RESETHAND | SA_NODEFER;
+    /* Some systems define the flags as unsigned; the field is an int. */
+    action.sa_flags = (int)(SA_SIGINFO | SA_ONSTACK | SA_RESETHAND | SA_NODEFER);
     (void)sigemptyset(&action.sa_mask);
     for (size_t index = 0;
          index < sizeof(tb_posix_crash_signals) / sizeof(tb_posix_crash_signals[0]); index++)

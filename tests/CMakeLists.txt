@@ -220,7 +220,7 @@ tb_make_standalone(tb_internal_tests)
 # test call a function that is private to an adapter.
 set(TB_PLATFORM_TEST_SOURCES
     platform/fs_test.c platform/virtual_memory_test.c
-    platform/atomic_test.c platform/contract_test.c platform/name_test.c
+    platform/atomic_test.c platform/contract_test.c platform/crash_text_test.c platform/name_test.c
     platform/random_test.c platform/semaphore_test.c platform/stack_test.c platform/system_test.c
     platform/thread_local_test.c
     platform/thread_options_test.c platform/thread_test.c platform/time_test.c)
