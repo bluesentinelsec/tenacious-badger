@@ -45,12 +45,20 @@
  *
  * @par Threading
  * Externally synchronized: the caller serializes every call that names the
- * same list or the links in it.
+ * same list or the links in it. In builds with assertions, two threads that
+ * overlap in calls that name the list itself, at least one of them changing
+ * it, fail an assertion. Calls that name only a link (tb_list_remove(),
+ * tb_list_insert_before(), tb_list_insert_after()) cannot reach the list, so
+ * they are not checked.
+ *
+ * A list is never defined `const`: in builds with assertions, reading one
+ * records the reader in the list.
  */
 #ifndef TB_LIST_H
 #define TB_LIST_H
 
 #include "badger/api.h"
+#include "badger/exclusive.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -73,19 +81,15 @@ typedef struct tb_list_link
  */
 typedef struct tb_list
 {
-    tb_list_link head; /**< Private: joins the last element to the first. */
+    tb_list_link head;        /**< Private: joins the last element to the first. */
+    tb_exclusive_check check; /**< Private: one thread at a time changes it. */
 } tb_list;
 
 /**
  * @brief Initializer for an empty list: `tb_list active = TB_LIST_INIT(active);`.
  * @param list The list variable being initialized.
  */
-#define TB_LIST_INIT(list)                                                                         \
-    {                                                                                              \
-        {                                                                                          \
-            &(list).head, &(list).head                                                             \
-        }                                                                                          \
-    }
+#define TB_LIST_INIT(list) {{&(list).head, &(list).head}, TB_EXCLUSIVE_CHECK_INIT}
 
 /**
  * @brief Get the element that contains a link:

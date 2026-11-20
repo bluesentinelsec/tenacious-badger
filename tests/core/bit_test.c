@@ -122,9 +122,10 @@ TB_TEST(core_bit, a_new_vector_has_every_bit_clear)
             TB_TEST_EXPECT(!tb_bit_get(bits, index));
         }
         TB_TEST_EXPECT_UINT(tb_bit_find_set(bits, 0), ==, TB_BIT_NOT_FOUND);
-        /* One block holds the vector, and it is no larger than its bits need. */
+        /* One block holds the vector, and it is no larger than its bits need,
+         * after a header of a few words. */
         TB_TEST_EXPECT_UINT(tracker.live_block_count, ==, 1);
-        TB_TEST_EXPECT_UINT(tracker.live_byte_count, <=, lengths[row] / 8 + 64);
+        TB_TEST_EXPECT_UINT(tracker.live_byte_count, <=, lengths[row] / 8 + 80);
         tb_bit_destroy(bits);
         TB_TEST_EXPECT_UINT(tracker.live_block_count, ==, 0);
         TB_TEST_EXPECT_STRING(tracker.first_violation, ==, "none");
