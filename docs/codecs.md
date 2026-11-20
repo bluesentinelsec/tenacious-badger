@@ -230,8 +230,10 @@ with the in-place algorithm of Moffat and Katajainen and limited to 15 bits
 (7 for the code-length code), and every code has at least two symbols, so any
 decoder accepts it.
 
-A deflater holds about 600 KiB: the window, its hash chains, a block of
-symbols, and room for an encoded block.
+A deflater holds about 390 KiB: the window, its hash chains, a block of
+symbols, and room for an encoded block. The chains hold 16-bit links, a
+position plus one, which keeps them small enough that following them costs
+less time waiting on memory.
 
 The tests compress empty, tiny, random, repetitive, and text inputs, and sizes
 on each side of the window and of a stored block, at every level and in every
@@ -239,4 +241,15 @@ framing, and decompress them again. During development every stream was also
 decompressed by zlib itself (Python's `zlib` and `gzip` modules), and its sizes
 compared with zlib's at each level.
 
-`tb_bench deflate` times levels 1, 6, and 9 on text, random bytes, and zeros.
+The test `the_output_of_every_level_stays_the_same` holds the length and
+CRC-32 of the output at every level, for text, random bytes, binary records,
+and a mix of them, so a change made for speed cannot change a byte.
+
+`tb_bench deflate` times levels 1, 6, and 9 on text, random bytes, and zeros
+(1 MiB, Release, MSVC, i9-14900HX), in nanoseconds per byte:
+
+| Input | Level 1 | Level 6 | Level 9 |
+| --- | --- | --- | --- |
+| Text | 4.7 | 25.7 | 127 to 147 |
+| Random bytes | 11.1 | 11.6 | 11.7 |
+| Zeros | 1.25 | 1.25 | 1.25 |
