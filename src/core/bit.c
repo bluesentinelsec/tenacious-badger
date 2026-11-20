@@ -8,6 +8,17 @@
 
 #include <string.h>
 
+/* What each function that reads the object does once inside its guard. */
+static tb_bit *tb_bit_copy_reading(const tb_bit *bits, const tb_allocator *allocator);
+static size_t tb_bit_count_reading(const tb_bit *bits);
+static bool tb_bit_get_reading(const tb_bit *bits, size_t index);
+static size_t tb_bit_find_set_reading(const tb_bit *bits, size_t from);
+static size_t tb_bit_find_clear_reading(const tb_bit *bits, size_t from);
+static bool tb_bit_next_set_reading(const tb_bit *bits, tb_bit_cursor *cursor, size_t *index);
+static bool tb_bit_is_subset_reading(const tb_bit *left, const tb_bit *right);
+static bool tb_bit_equal_reading(const tb_bit *left, const tb_bit *right);
+static bool tb_bit_is_proper_subset_reading(const tb_bit *left, const tb_bit *right);
+
 #define TB_BIT_WORD_WIDTH ((size_t)64)
 #define TB_BIT_ALL_ONES UINT64_MAX
 
@@ -151,7 +162,7 @@ tb_bit *tb_bit_create(const tb_allocator *allocator, size_t length)
     return bits;
 }
 
-tb_bit *tb_bit_copy(const tb_bit *bits, const tb_allocator *allocator)
+static tb_bit *tb_bit_copy_reading(const tb_bit *bits, const tb_allocator *allocator)
 {
     tb_bit *copy = NULL;
 
@@ -162,6 +173,16 @@ tb_bit *tb_bit_copy(const tb_bit *bits, const tb_allocator *allocator)
         memcpy(copy->words, bits->words, bits->word_count * sizeof(uint64_t));
     }
     return copy;
+}
+
+tb_bit *tb_bit_copy(const tb_bit *bits, const tb_allocator *allocator)
+{
+    tb_bit *result = NULL;
+    TB_ASSERT(bits != NULL);
+    const size_t bits_generation = TB_EXCLUSIVE_READ_ENTER(&bits->exclusive, "a bit set");
+    result = tb_bit_copy_reading(bits, allocator);
+    TB_EXCLUSIVE_READ_LEAVE(&bits->exclusive, bits_generation, "a bit set");
+    return result;
 }
 
 void tb_bit_destroy(tb_bit *bits)
@@ -188,7 +209,7 @@ size_t tb_bit_length(const tb_bit *bits)
     return bits->length;
 }
 
-size_t tb_bit_count(const tb_bit *bits)
+static size_t tb_bit_count_reading(const tb_bit *bits)
 {
     size_t count = {0};
 
@@ -200,11 +221,31 @@ size_t tb_bit_count(const tb_bit *bits)
     return count;
 }
 
-bool tb_bit_get(const tb_bit *bits, size_t index)
+size_t tb_bit_count(const tb_bit *bits)
+{
+    size_t result = 0;
+    TB_ASSERT(bits != NULL);
+    const size_t bits_generation = TB_EXCLUSIVE_READ_ENTER(&bits->exclusive, "a bit set");
+    result = tb_bit_count_reading(bits);
+    TB_EXCLUSIVE_READ_LEAVE(&bits->exclusive, bits_generation, "a bit set");
+    return result;
+}
+
+static bool tb_bit_get_reading(const tb_bit *bits, size_t index)
 {
     TB_ASSERT(bits != NULL);
     TB_ASSERT_MSG(index < bits->length, "index must be less than the length");
     return ((bits->words[index / TB_BIT_WORD_WIDTH] >> (index % TB_BIT_WORD_WIDTH)) & 1u) != 0;
+}
+
+bool tb_bit_get(const tb_bit *bits, size_t index)
+{
+    bool result = false;
+    TB_ASSERT(bits != NULL);
+    const size_t bits_generation = TB_EXCLUSIVE_READ_ENTER(&bits->exclusive, "a bit set");
+    result = tb_bit_get_reading(bits, index);
+    TB_EXCLUSIVE_READ_LEAVE(&bits->exclusive, bits_generation, "a bit set");
+    return result;
 }
 
 /* What each function that changes the object does once inside its guard. */
@@ -328,17 +369,37 @@ static size_t tb_bit_find(const tb_bit *bits, size_t from, bool inverted)
     return TB_BIT_NOT_FOUND;
 }
 
-size_t tb_bit_find_set(const tb_bit *bits, size_t from)
+static size_t tb_bit_find_set_reading(const tb_bit *bits, size_t from)
 {
     return tb_bit_find(bits, from, false);
 }
 
-size_t tb_bit_find_clear(const tb_bit *bits, size_t from)
+size_t tb_bit_find_set(const tb_bit *bits, size_t from)
+{
+    size_t result = 0;
+    TB_ASSERT(bits != NULL);
+    const size_t bits_generation = TB_EXCLUSIVE_READ_ENTER(&bits->exclusive, "a bit set");
+    result = tb_bit_find_set_reading(bits, from);
+    TB_EXCLUSIVE_READ_LEAVE(&bits->exclusive, bits_generation, "a bit set");
+    return result;
+}
+
+static size_t tb_bit_find_clear_reading(const tb_bit *bits, size_t from)
 {
     return tb_bit_find(bits, from, true);
 }
 
-bool tb_bit_next_set(const tb_bit *bits, tb_bit_cursor *cursor, size_t *index)
+size_t tb_bit_find_clear(const tb_bit *bits, size_t from)
+{
+    size_t result = 0;
+    TB_ASSERT(bits != NULL);
+    const size_t bits_generation = TB_EXCLUSIVE_READ_ENTER(&bits->exclusive, "a bit set");
+    result = tb_bit_find_clear_reading(bits, from);
+    TB_EXCLUSIVE_READ_LEAVE(&bits->exclusive, bits_generation, "a bit set");
+    return result;
+}
+
+static bool tb_bit_next_set_reading(const tb_bit *bits, tb_bit_cursor *cursor, size_t *index)
 {
     TB_ASSERT(bits != NULL);
     TB_ASSERT(cursor != NULL);
@@ -364,6 +425,16 @@ bool tb_bit_next_set(const tb_bit *bits, tb_bit_cursor *cursor, size_t *index)
     return true;
 }
 
+bool tb_bit_next_set(const tb_bit *bits, tb_bit_cursor *cursor, size_t *index)
+{
+    bool result = false;
+    TB_ASSERT(bits != NULL);
+    const size_t bits_generation = TB_EXCLUSIVE_READ_ENTER(&bits->exclusive, "a bit set");
+    result = tb_bit_next_set_reading(bits, cursor, index);
+    TB_EXCLUSIVE_READ_LEAVE(&bits->exclusive, bits_generation, "a bit set");
+    return result;
+}
+
 void tb_bit_visit(const tb_bit *bits, tb_bit_visitor *visitor, void *context)
 {
     TB_ASSERT(bits != NULL);
@@ -385,7 +456,7 @@ static void tb_bit_require_pair(const tb_bit *left, const tb_bit *right)
     TB_ASSERT_MSG(left->length == right->length, "the vectors must have the same length");
 }
 
-bool tb_bit_is_subset(const tb_bit *left, const tb_bit *right)
+static bool tb_bit_is_subset_reading(const tb_bit *left, const tb_bit *right)
 {
     tb_bit_require_pair(left, right);
     for (size_t word = 0; word < left->word_count; word++)
@@ -398,7 +469,20 @@ bool tb_bit_is_subset(const tb_bit *left, const tb_bit *right)
     return true;
 }
 
-bool tb_bit_equal(const tb_bit *left, const tb_bit *right)
+bool tb_bit_is_subset(const tb_bit *left, const tb_bit *right)
+{
+    bool result = false;
+    TB_ASSERT(left != NULL);
+    TB_ASSERT(right != NULL);
+    const size_t left_generation = TB_EXCLUSIVE_READ_ENTER(&left->exclusive, "a bit set");
+    const size_t right_generation = TB_EXCLUSIVE_READ_ENTER(&right->exclusive, "a bit set");
+    result = tb_bit_is_subset_reading(left, right);
+    TB_EXCLUSIVE_READ_LEAVE(&right->exclusive, right_generation, "a bit set");
+    TB_EXCLUSIVE_READ_LEAVE(&left->exclusive, left_generation, "a bit set");
+    return result;
+}
+
+static bool tb_bit_equal_reading(const tb_bit *left, const tb_bit *right)
 {
     tb_bit_require_pair(left, right);
     for (size_t word = 0; word < left->word_count; word++)
@@ -411,9 +495,35 @@ bool tb_bit_equal(const tb_bit *left, const tb_bit *right)
     return true;
 }
 
+bool tb_bit_equal(const tb_bit *left, const tb_bit *right)
+{
+    bool result = false;
+    TB_ASSERT(left != NULL);
+    TB_ASSERT(right != NULL);
+    const size_t left_generation = TB_EXCLUSIVE_READ_ENTER(&left->exclusive, "a bit set");
+    const size_t right_generation = TB_EXCLUSIVE_READ_ENTER(&right->exclusive, "a bit set");
+    result = tb_bit_equal_reading(left, right);
+    TB_EXCLUSIVE_READ_LEAVE(&right->exclusive, right_generation, "a bit set");
+    TB_EXCLUSIVE_READ_LEAVE(&left->exclusive, left_generation, "a bit set");
+    return result;
+}
+
+static bool tb_bit_is_proper_subset_reading(const tb_bit *left, const tb_bit *right)
+{
+    return tb_bit_is_subset_reading(left, right) && !tb_bit_equal_reading(left, right);
+}
+
 bool tb_bit_is_proper_subset(const tb_bit *left, const tb_bit *right)
 {
-    return tb_bit_is_subset(left, right) && !tb_bit_equal(left, right);
+    bool result = false;
+    TB_ASSERT(left != NULL);
+    TB_ASSERT(right != NULL);
+    const size_t left_generation = TB_EXCLUSIVE_READ_ENTER(&left->exclusive, "a bit set");
+    const size_t right_generation = TB_EXCLUSIVE_READ_ENTER(&right->exclusive, "a bit set");
+    result = tb_bit_is_proper_subset_reading(left, right);
+    TB_EXCLUSIVE_READ_LEAVE(&right->exclusive, right_generation, "a bit set");
+    TB_EXCLUSIVE_READ_LEAVE(&left->exclusive, left_generation, "a bit set");
+    return result;
 }
 
 /* The four functions below read the words and their number out of the
@@ -440,7 +550,9 @@ void tb_bit_union(tb_bit *bits, const tb_bit *other)
 {
     tb_bit_require_pair(bits, other);
     TB_EXCLUSIVE_ENTER(&bits->exclusive, "a bit set");
+    const size_t other_generation = TB_EXCLUSIVE_READ_ENTER(&other->exclusive, "a bit set");
     tb_bit_union_inside(bits, other);
+    TB_EXCLUSIVE_READ_LEAVE(&other->exclusive, other_generation, "a bit set");
     TB_EXCLUSIVE_LEAVE(&bits->exclusive);
 }
 
@@ -464,7 +576,9 @@ void tb_bit_intersection(tb_bit *bits, const tb_bit *other)
 {
     tb_bit_require_pair(bits, other);
     TB_EXCLUSIVE_ENTER(&bits->exclusive, "a bit set");
+    const size_t other_generation = TB_EXCLUSIVE_READ_ENTER(&other->exclusive, "a bit set");
     tb_bit_intersection_inside(bits, other);
+    TB_EXCLUSIVE_READ_LEAVE(&other->exclusive, other_generation, "a bit set");
     TB_EXCLUSIVE_LEAVE(&bits->exclusive);
 }
 
@@ -488,7 +602,9 @@ void tb_bit_difference(tb_bit *bits, const tb_bit *other)
 {
     tb_bit_require_pair(bits, other);
     TB_EXCLUSIVE_ENTER(&bits->exclusive, "a bit set");
+    const size_t other_generation = TB_EXCLUSIVE_READ_ENTER(&other->exclusive, "a bit set");
     tb_bit_difference_inside(bits, other);
+    TB_EXCLUSIVE_READ_LEAVE(&other->exclusive, other_generation, "a bit set");
     TB_EXCLUSIVE_LEAVE(&bits->exclusive);
 }
 
@@ -512,6 +628,8 @@ void tb_bit_symmetric_difference(tb_bit *bits, const tb_bit *other)
 {
     tb_bit_require_pair(bits, other);
     TB_EXCLUSIVE_ENTER(&bits->exclusive, "a bit set");
+    const size_t other_generation = TB_EXCLUSIVE_READ_ENTER(&other->exclusive, "a bit set");
     tb_bit_symmetric_difference_inside(bits, other);
+    TB_EXCLUSIVE_READ_LEAVE(&other->exclusive, other_generation, "a bit set");
     TB_EXCLUSIVE_LEAVE(&bits->exclusive);
 }

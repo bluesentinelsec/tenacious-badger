@@ -15,6 +15,13 @@
 
 #include <string.h>
 
+/* What each function that reads the object does once inside its guard. */
+static tb_table *tb_table_copy_reading(const tb_table *table, const tb_allocator *allocator);
+static bool tb_table_find_reading(const tb_table *table, const void *key, tb_table_entry *entry);
+static size_t tb_table_to_array_reading(const tb_table *table, tb_table_entry *entries,
+                                        size_t capacity);
+static bool tb_table_next_reading(const tb_table *table, size_t *cursor, tb_table_entry *entry);
+
 /* The first array of slots. A power of two, like every later one, so that a
  * hash is reduced to a slot by masking. */
 #define TB_TABLE_FIRST_SLOT_COUNT ((size_t)16)
@@ -290,7 +297,7 @@ tb_table *tb_table_create(const tb_allocator *allocator, size_t capacity_hint,
     return table;
 }
 
-tb_table *tb_table_copy(const tb_table *table, const tb_allocator *allocator)
+static tb_table *tb_table_copy_reading(const tb_table *table, const tb_allocator *allocator)
 {
     tb_table *copy = NULL;
 
@@ -307,6 +314,16 @@ tb_table *tb_table_copy(const tb_table *table, const tb_allocator *allocator)
     }
     copy->length = table->length;
     return copy;
+}
+
+tb_table *tb_table_copy(const tb_table *table, const tb_allocator *allocator)
+{
+    tb_table *result = NULL;
+    TB_ASSERT(table != NULL);
+    const size_t table_generation = TB_EXCLUSIVE_READ_ENTER(&table->exclusive, "a hash table");
+    result = tb_table_copy_reading(table, allocator);
+    TB_EXCLUSIVE_READ_LEAVE(&table->exclusive, table_generation, "a hash table");
+    return result;
 }
 
 void tb_table_destroy(tb_table *table)
@@ -393,7 +410,7 @@ void *tb_table_put(tb_table *table, const void *key, void *value)
     return result;
 }
 
-bool tb_table_find(const tb_table *table, const void *key, tb_table_entry *entry)
+static bool tb_table_find_reading(const tb_table *table, const void *key, tb_table_entry *entry)
 {
     const tb_table_slot *slot = NULL;
 
@@ -409,6 +426,16 @@ bool tb_table_find(const tb_table *table, const void *key, tb_table_entry *entry
         entry->value = slot->value;
     }
     return true;
+}
+
+bool tb_table_find(const tb_table *table, const void *key, tb_table_entry *entry)
+{
+    bool result = false;
+    TB_ASSERT(table != NULL);
+    const size_t table_generation = TB_EXCLUSIVE_READ_ENTER(&table->exclusive, "a hash table");
+    result = tb_table_find_reading(table, key, entry);
+    TB_EXCLUSIVE_READ_LEAVE(&table->exclusive, table_generation, "a hash table");
+    return result;
 }
 
 void *tb_table_get(const tb_table *table, const void *key)
@@ -531,7 +558,8 @@ void tb_table_visit(tb_table *table, tb_table_visitor *visitor, void *context)
     TB_EXCLUSIVE_LEAVE(&table->exclusive);
 }
 
-size_t tb_table_to_array(const tb_table *table, tb_table_entry *entries, size_t capacity)
+static size_t tb_table_to_array_reading(const tb_table *table, tb_table_entry *entries,
+                                        size_t capacity)
 {
     size_t count = {0};
 
@@ -551,7 +579,17 @@ size_t tb_table_to_array(const tb_table *table, tb_table_entry *entries, size_t 
     return table->length;
 }
 
-bool tb_table_next(const tb_table *table, size_t *cursor, tb_table_entry *entry)
+size_t tb_table_to_array(const tb_table *table, tb_table_entry *entries, size_t capacity)
+{
+    size_t result = 0;
+    TB_ASSERT(table != NULL);
+    const size_t table_generation = TB_EXCLUSIVE_READ_ENTER(&table->exclusive, "a hash table");
+    result = tb_table_to_array_reading(table, entries, capacity);
+    TB_EXCLUSIVE_READ_LEAVE(&table->exclusive, table_generation, "a hash table");
+    return result;
+}
+
+static bool tb_table_next_reading(const tb_table *table, size_t *cursor, tb_table_entry *entry)
 {
     TB_ASSERT(table != NULL);
     TB_ASSERT(cursor != NULL);
@@ -571,4 +609,14 @@ bool tb_table_next(const tb_table *table, size_t *cursor, tb_table_entry *entry)
     }
     *cursor = table->slot_count;
     return false;
+}
+
+bool tb_table_next(const tb_table *table, size_t *cursor, tb_table_entry *entry)
+{
+    bool result = false;
+    TB_ASSERT(table != NULL);
+    const size_t table_generation = TB_EXCLUSIVE_READ_ENTER(&table->exclusive, "a hash table");
+    result = tb_table_next_reading(table, cursor, entry);
+    TB_EXCLUSIVE_READ_LEAVE(&table->exclusive, table_generation, "a hash table");
+    return result;
 }

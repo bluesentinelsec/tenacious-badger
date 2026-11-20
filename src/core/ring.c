@@ -16,6 +16,11 @@
 
 #include <string.h>
 
+/* What each function that reads the object does once inside its guard. */
+static void *tb_ring_at_reading(const tb_ring *ring, size_t index);
+static void tb_ring_get_reading(const tb_ring *ring, size_t index, void *element);
+static void *tb_ring_at_sized_reading(const tb_ring *ring, size_t index, size_t element_size);
+
 /* The first storage a ring allocates holds this many elements. */
 #define TB_RING_FIRST_CAPACITY ((size_t)8)
 
@@ -481,17 +486,35 @@ void tb_ring_pop_front(tb_ring *ring, void *element)
  * Elements by index.
  * ------------------------------------------------------------------------- */
 
-void *tb_ring_at(const tb_ring *ring, size_t index)
+static void *tb_ring_at_reading(const tb_ring *ring, size_t index)
 {
     TB_ASSERT(ring != NULL);
     TB_ASSERT_MSG(index < ring->length, "index must be less than the length");
     return tb_ring_slot(ring, index);
 }
 
-void tb_ring_get(const tb_ring *ring, size_t index, void *element)
+void *tb_ring_at(const tb_ring *ring, size_t index)
+{
+    void *result = NULL;
+    TB_ASSERT(ring != NULL);
+    const size_t ring_generation = TB_EXCLUSIVE_READ_ENTER(&ring->exclusive, "a ring buffer");
+    result = tb_ring_at_reading(ring, index);
+    TB_EXCLUSIVE_READ_LEAVE(&ring->exclusive, ring_generation, "a ring buffer");
+    return result;
+}
+
+static void tb_ring_get_reading(const tb_ring *ring, size_t index, void *element)
 {
     TB_ASSERT(element != NULL);
-    memcpy(element, tb_ring_at(ring, index), ring->element_size);
+    memcpy(element, tb_ring_at_reading(ring, index), ring->element_size);
+}
+
+void tb_ring_get(const tb_ring *ring, size_t index, void *element)
+{
+    TB_ASSERT(ring != NULL);
+    const size_t ring_generation = TB_EXCLUSIVE_READ_ENTER(&ring->exclusive, "a ring buffer");
+    tb_ring_get_reading(ring, index, element);
+    TB_EXCLUSIVE_READ_LEAVE(&ring->exclusive, ring_generation, "a ring buffer");
 }
 
 static void tb_ring_put_inside(tb_ring *ring, size_t index, const void *element)
@@ -646,11 +669,21 @@ void tb_ring_rotate_right(tb_ring *ring, size_t count)
  * Typed access.
  * ------------------------------------------------------------------------- */
 
-void *tb_ring_at_sized(const tb_ring *ring, size_t index, size_t element_size)
+static void *tb_ring_at_sized_reading(const tb_ring *ring, size_t index, size_t element_size)
 {
     TB_ASSERT(ring != NULL);
     TB_ASSERT_MSG(element_size == ring->element_size, "the ring holds elements of another size");
-    return tb_ring_at(ring, index);
+    return tb_ring_at_reading(ring, index);
+}
+
+void *tb_ring_at_sized(const tb_ring *ring, size_t index, size_t element_size)
+{
+    void *result = NULL;
+    TB_ASSERT(ring != NULL);
+    const size_t ring_generation = TB_EXCLUSIVE_READ_ENTER(&ring->exclusive, "a ring buffer");
+    result = tb_ring_at_sized_reading(ring, index, element_size);
+    TB_EXCLUSIVE_READ_LEAVE(&ring->exclusive, ring_generation, "a ring buffer");
+    return result;
 }
 
 static void *tb_ring_push_back_sized_inside(tb_ring *ring, size_t element_size)

@@ -3,13 +3,15 @@
  *
  * Two threads are made to overlap without a race in the test itself: an
  * allocator holds one thread inside a function that grows the object, and
- * the test's thread then changes the same object. That must fail the check.
- * One thread after another, readers together, and a thread that re-enters an
+ * the test's thread then changes or reads the same object. That must fail
+ * the check, as must a change that begins while a read is under way. One
+ * thread after another, readers together, and a thread that re-enters an
  * object it is already inside must not. */
 #include "badger/allocator.h"
 #include "badger/arena.h"
 #include "badger/array.h"
 #include "badger/assert.h"
+#include "badger/bit.h"
 #include "badger/platform.h"
 #include "badger/ring.h"
 #include "badger/set.h"
@@ -48,7 +50,7 @@ static tb_allocator holding(holding_allocator *holder)
 }
 
 /* One kind of object: how to make it, grow it so that it allocates, change
- * it a little, read it, and destroy it. */
+ * it a little, count it, read its contents, and destroy it. */
 typedef struct object_kind
 {
     const char *name;
@@ -56,6 +58,7 @@ typedef struct object_kind
     void (*grow)(void *object);
     void (*change)(void *object);
     size_t (*measure)(void *object);
+    void (*look)(void *object);
     void (*destroy)(void *object);
 } object_kind;
 
@@ -75,6 +78,10 @@ static void change_array(void *object)
 static size_t read_array(void *object)
 {
     return tb_array_length(object);
+}
+static void look_array(void *object)
+{
+    tb_array_destroy(tb_array_copy(object, NULL));
 }
 static void destroy_array(void *object)
 {
@@ -98,6 +105,11 @@ static size_t read_table(void *object)
 {
     return tb_table_length(object);
 }
+static void look_table(void *object)
+{
+    static int key = 0;
+    (void)tb_table_contains(object, &key);
+}
 static void destroy_table(void *object)
 {
     tb_table_destroy(object);
@@ -119,6 +131,11 @@ static void change_set(void *object)
 static size_t read_set(void *object)
 {
     return tb_set_length(object);
+}
+static void look_set(void *object)
+{
+    static int member = 0;
+    (void)tb_set_contains(object, &member);
 }
 static void destroy_set(void *object)
 {
@@ -142,16 +159,22 @@ static size_t read_ring(void *object)
 {
     return tb_ring_length(object);
 }
+/* The ring may be empty: the check comes before the index's own, so the
+ * read is only ever made where it fails the check. */
+static void look_ring(void *object)
+{
+    (void)tb_ring_at(object, 0);
+}
 static void destroy_ring(void *object)
 {
     tb_ring_destroy(object);
 }
 
 static const object_kind kinds[] = {
-    {"array", create_array, grow_array, change_array, read_array, destroy_array},
-    {"table", create_table, grow_table, change_table, read_table, destroy_table},
-    {"set", create_set, grow_set, change_set, read_set, destroy_set},
-    {"ring", create_ring, grow_ring, change_ring, read_ring, destroy_ring},
+    {"array", create_array, grow_array, change_array, read_array, look_array, destroy_array},
+    {"table", create_table, grow_table, change_table, read_table, look_table, destroy_table},
+    {"set", create_set, grow_set, change_set, read_set, look_set, destroy_set},
+    {"ring", create_ring, grow_ring, change_ring, read_ring, look_ring, destroy_ring},
 };
 
 typedef struct grower
@@ -245,7 +268,7 @@ TB_TEST(core_exclusive, threads_that_take_turns_pass_the_check)
     }
 }
 
-/* Reading changes nothing, so readers do not take the object. */
+/* Reading changes nothing, so readers run together. */
 typedef struct reading
 {
     const object_kind *kind;
@@ -258,6 +281,7 @@ static void read_many_times(void *context)
     reading *const reader = context;
     for (size_t round = 0; round < 2000; round++)
     {
+        reader->kind->look(reader->object);
         reader->total += reader->kind->measure(reader->object);
     }
 }
@@ -300,4 +324,169 @@ TB_TEST(core_exclusive, a_container_in_an_arena_passes_the_check)
     TB_TEST_EXPECT_UINT(tb_array_length(array), ==, 1000);
     tb_array_destroy(array);
     tb_arena_destroy(arena);
+}
+
+static void look_from_the_test(void *context)
+{
+    const grower *const work = context;
+    work->kind->look(work->object);
+}
+
+/* A thread that reads an object while another is changing it fails the
+ * check, as two that change it do. The failed read leaves nothing behind:
+ * once the other thread has left, the test's thread reads and changes the
+ * object as before. */
+TB_TEST(core_exclusive, a_read_while_another_thread_changes_the_object_fails_the_check)
+{
+    if (!tb_assert_library_enabled())
+    {
+        TB_TEST_SKIP("assertions disabled");
+    }
+    for (size_t index = 0; index < TB_TEST_COUNT_OF(kinds); index++)
+    {
+        holding_allocator holder = {0};
+        const tb_allocator allocator = holding(&holder);
+        grower work = {&kinds[index], NULL};
+        tb_thread thread = {0};
+        TB_TEST_CONTEXT("%s", kinds[index].name);
+        work.object = kinds[index].create(&allocator);
+        tb_platform_atomic_u32_store(&holder.armed, 1);
+        tb_thread_create(&thread, grow_on_a_thread, &work);
+        tb_semaphore_wait(&holder.inside);
+        TB_TEST_EXPECT_TRAP(look_from_the_test, &work, "no thread reads the object while");
+        tb_semaphore_signal(&holder.release, 1);
+        tb_thread_join(&thread);
+        change_from_the_test(&work);
+        work.kind->look(work.object);
+        TB_TEST_EXPECT_UINT(kinds[index].measure(work.object), ==, 1);
+        kinds[index].destroy(work.object);
+    }
+}
+
+/* The other order: a change that another thread begins while a read is under
+ * way fails the check when the read ends. A copy reads the whole object, and
+ * allocates while it does; the allocator runs the change on another thread,
+ * to its end, from inside the copy. The change rewrites what is there and
+ * moves nothing, so the copy itself stays sound. */
+typedef struct interrupting_allocator
+{
+    tb_allocator under;     /* Supplies the memory. */
+    void (*change)(void *); /* Run once, on another thread, at the next allocation. */
+    void *object;
+    tb_platform_atomic_u32 armed;
+} interrupting_allocator;
+
+static void *interrupt_then_allocate(void *context, void *memory, size_t old_size, size_t new_size,
+                                     size_t alignment)
+{
+    interrupting_allocator *const interrupter = context;
+    if (new_size != 0 && tb_platform_atomic_u32_exchange(&interrupter->armed, 0) != 0)
+    {
+        tb_thread thread = {0};
+        tb_thread_create(&thread, interrupter->change, interrupter->object);
+        tb_thread_join(&thread);
+    }
+    return interrupter->under.function(interrupter->under.context, memory, old_size, new_size,
+                                       alignment);
+}
+
+static void put_first_element(void *object)
+{
+    const uint32_t value = 9;
+    tb_array_put(object, 0, &value);
+}
+static void put_the_same_key(void *object)
+{
+    static int key = 0;
+    (void)tb_table_put(object, &key, NULL);
+}
+static void put_the_same_member(void *object)
+{
+    static int member = 0;
+    (void)tb_set_put(object, &member);
+}
+static void set_the_first_bit(void *object)
+{
+    tb_bit_set(object, 0, 1);
+}
+
+typedef struct copying
+{
+    void *(*copy)(const void *object, const tb_allocator *allocator);
+    void *object;
+    const tb_allocator *allocator;
+} copying;
+
+static void copy_from_the_test(void *context)
+{
+    const copying *const work = context;
+    (void)work->copy(work->object, work->allocator);
+}
+
+static void *copy_array(const void *object, const tb_allocator *allocator)
+{
+    return tb_array_copy(object, allocator);
+}
+static void *copy_table(const void *object, const tb_allocator *allocator)
+{
+    return tb_table_copy(object, allocator);
+}
+static void *copy_set(const void *object, const tb_allocator *allocator)
+{
+    return tb_set_copy(object, allocator);
+}
+static void *copy_bits(const void *object, const tb_allocator *allocator)
+{
+    return tb_bit_copy(object, allocator);
+}
+
+TB_TEST(core_exclusive, a_change_that_begins_during_a_read_fails_the_check)
+{
+    static const struct
+    {
+        const char *name;
+        void *(*copy)(const void *object, const tb_allocator *allocator);
+        void (*change)(void *object);
+    } cases[] = {
+        {"array", copy_array, put_first_element},
+        {"table", copy_table, put_the_same_key},
+        {"set", copy_set, put_the_same_member},
+        {"bit set", copy_bits, set_the_first_bit},
+    };
+    if (!tb_assert_library_enabled())
+    {
+        TB_TEST_SKIP("assertions disabled");
+    }
+    for (size_t index = 0; index < TB_TEST_COUNT_OF(cases); index++)
+    {
+        /* The interrupted copy is left behind by the trap; the arena takes
+         * it back. */
+        tb_arena *const arena = tb_arena_create(0);
+        interrupting_allocator interrupter = {
+            tb_arena_allocator(arena), cases[index].change, NULL, {0}};
+        const tb_allocator allocator = {.function = interrupt_then_allocate,
+                                        .context = &interrupter};
+        tb_array *const array = tb_array_create(NULL, sizeof(uint32_t), _Alignof(uint32_t));
+        tb_table *const table = tb_table_create(NULL, 0, NULL, NULL);
+        tb_set *const set = tb_set_create(NULL, 0, NULL, NULL);
+        tb_bit *const bits = tb_bit_create(NULL, 64);
+        void *const objects[] = {array, table, set, bits};
+        copying work = {cases[index].copy, objects[index], &allocator};
+        TB_TEST_CONTEXT("%s", cases[index].name);
+        tb_array_resize(array, 1);
+        put_first_element(array);
+        put_the_same_key(table);
+        put_the_same_member(set);
+        interrupter.object = objects[index];
+        tb_platform_atomic_u32_store(&interrupter.armed, 1);
+        TB_TEST_EXPECT_TRAP(copy_from_the_test, &work, "no thread reads the object while");
+        /* Without the change, the same copy passes. */
+        tb_arena_reset(arena);
+        (void)work.copy(work.object, &allocator);
+        tb_bit_destroy(bits);
+        tb_set_destroy(set);
+        tb_table_destroy(table);
+        tb_array_destroy(array);
+        tb_arena_destroy(arena);
+    }
 }
