@@ -44,6 +44,24 @@ static void begin(void)
     (void)tb_fmt_flush();
 }
 
+/* As begin(), and asks for crash dumps in the system's temporary directory,
+ * saying whether the platform writes them. */
+static void begin_with_dumps(void)
+{
+    tb_crash_catch();
+    (void)signal(SIGABRT, tb_crash_report_abort);
+    if (tb_crash_write_dumps(NULL))
+    {
+        (void)tb_fmt_print("dumps: yes\n");
+    }
+    else
+    {
+        (void)tb_fmt_print("dumps: no\n");
+    }
+    (void)tb_fmt_print("before-crash\n");
+    (void)tb_fmt_flush();
+}
+
 TB_TEST(crash_probe, a_null_pointer_is_reported_with_its_stack)
 {
     begin();
@@ -101,4 +119,18 @@ TB_TEST(crash_probe, a_fatal_condition_is_reported_once)
 {
     begin();
     tb_fatal("probe: fatal after catching crashes");
+}
+
+TB_TEST(crash_probe, a_crash_is_dumped_where_the_platform_has_dumps)
+{
+    begin_with_dumps();
+    write_through_null();
+    (void)tb_fmt_print("after-crash\n");
+}
+
+TB_TEST(crash_probe, abort_is_dumped_where_the_platform_has_dumps)
+{
+    begin_with_dumps();
+    abort_now();
+    (void)tb_fmt_print("after-crash\n");
 }

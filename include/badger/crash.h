@@ -55,6 +55,8 @@
 
 #include "badger/api.h"
 
+#include <stdbool.h>
+
 /**
  * @brief Report every crash the system raises from now on, then end the
  * process. Calling it again changes nothing.
@@ -73,5 +75,41 @@ TB_API void tb_crash_catch(void);
  * @par Threading Thread-safe; it runs on the thread that called abort().
  */
 TB_API void tb_crash_report_abort(int signal_number);
+
+/**
+ * @brief Also write a crash dump when a crash is reported, where the
+ * platform has them: a file a debugger opens to show every thread of the
+ * process, its stack, and the memory it pointed at, as they were.
+ *
+ * The dump is named after the program and the process, as in
+ * `burrow-1234.dmp`, and the report's first line ends with where it is:
+ *
+ * @code
+ * crash: access violation writing 0x0000000000000000, at 0x00007FF6A2C41F3A; dump:
+ * C:\Temp\burrow-1234.dmp
+ * @endcode
+ *
+ * Only crashes that tb_crash_catch() reports are dumped, and only the first
+ * of them: the process ends after it.
+ *
+ * - **Windows:** a minidump (`MiniDumpWriteDump`), written by a thread that
+ *   the engine starts here, since a thread cannot reliably dump itself.
+ *   Visual Studio and WinDbg open it beside the program's symbols.
+ * - **Linux and macOS:** no dump of the engine's: the system writes a core
+ *   file where its settings allow one (`ulimit -c`, and on Linux
+ *   `/proc/sys/kernel/core_pattern`). The function returns false.
+ *
+ * @param directory UTF-8 path of an existing directory to write dumps in,
+ * or NULL for the system's temporary directory. Copied; the caller keeps
+ * ownership.
+ * @return true when crashes will be dumped there. false, changing nothing,
+ * where the platform has no dumps of the engine's, or where `directory` is
+ * not an existing directory, is not UTF-8, or makes too long a path.
+ * @par Errors A system that refuses the thread that writes dumps ends the
+ * process through tb_fatal().
+ * @par Threading Stage-owned: call during single-threaded startup. Calling
+ * it again changes where later dumps go.
+ */
+TB_API bool tb_crash_write_dumps(const char *directory);
 
 #endif

@@ -160,3 +160,11 @@ void tb_crash_catch(void)
         }
     }
 }
+
+/* The system writes a core file where its settings allow; the engine adds no
+ * dump of its own. */
+bool tb_crash_write_dumps(const char *directory)
+{
+    (void)directory;
+    return false;
+}

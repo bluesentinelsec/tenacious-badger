@@ -15,6 +15,10 @@ int main(void)
      * library of its own beside the engine's, so abort() is caught here too. */
     tb_crash_catch();
     (void)signal(SIGABRT, tb_crash_report_abort);
+    /* Where the platform writes crash dumps, a crash also leaves one in the
+     * temporary directory, for a debugger; elsewhere the system's core files
+     * serve. */
+    (void)tb_crash_write_dumps(NULL);
     /* coverage-off: 2 + 3 cannot overflow; the result of a fallible function is checked all the
      * same */
     if (!tb_sum_i32(2, 3, &sum))

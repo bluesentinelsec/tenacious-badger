@@ -234,16 +234,18 @@ set(TB_PLATFORM_PRIVATE_DIRECTORY "")
 if(WIN32)
     list(APPEND TB_PLATFORM_TEST_SOURCES
         platform/win32/affinity_test.c platform/win32/counter_test.c
+        platform/win32/crash_dump_test.c
         platform/win32/processors_test.c platform/win32/thread_priority_test.c
         platform/win32/thread_wait_test.c)
     set(TB_PLATFORM_PRIVATE_DIRECTORY "${PROJECT_SOURCE_DIR}/src/platform/win32")
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     list(APPEND TB_PLATFORM_TEST_SOURCES
         platform/linux/affinity_test.c platform/linux/processors_test.c
-        platform/linux/thread_priority_test.c)
+        platform/linux/thread_priority_test.c platform/posix/crash_dump_test.c)
     set(TB_PLATFORM_PRIVATE_DIRECTORY "${PROJECT_SOURCE_DIR}/src/platform/linux")
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-    list(APPEND TB_PLATFORM_TEST_SOURCES platform/macos/thread_priority_test.c)
+    list(APPEND TB_PLATFORM_TEST_SOURCES platform/macos/thread_priority_test.c
+        platform/posix/crash_dump_test.c)
 endif()
 
 # The arguments go to tb_add_test_executable.
