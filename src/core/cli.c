@@ -544,6 +544,8 @@ static tb_cli_result tb_cli_apply(tb_cli_parser *parser, const tb_cli_found *fou
     }
     else
     {
+        /* The one destination left, which the declaration's check found. */
+        TB_ASSERT(option->texts != NULL && option->count != NULL);
         if (*option->count >= option->capacity)
         {
             return tb_cli_fail(parser, "%s: given more than %zu times", label, option->capacity);
