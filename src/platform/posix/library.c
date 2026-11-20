@@ -111,7 +111,6 @@ tb_library_result tb_library_open(const char *name, tb_library_search search, tb
     TB_ASSERT(search == TB_LIBRARY_SEARCH_SYSTEM || search == TB_LIBRARY_SEARCH_APPLICATION ||
               search == TB_LIBRARY_SEARCH_PATH);
     *library = NULL;
-    result = TB_LIBRARY_INVALID;
     switch (search)
     {
     case TB_LIBRARY_SEARCH_SYSTEM:
