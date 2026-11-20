@@ -3,6 +3,8 @@ set(TB_PLATFORM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/../shared/fs.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/fs.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/abort.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/crash.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/error_stream.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/stack.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/atomic.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/random.c"
@@ -11,6 +13,8 @@ set(TB_PLATFORM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/time.c"
     # Shared by every adapter that names threads.
     "${CMAKE_CURRENT_SOURCE_DIR}/../shared/name.c"
+    # The line that says what a crash was, without the C library.
+    "${CMAKE_CURRENT_SOURCE_DIR}/../shared/crash_text.c"
     # A semaphore is built from the adapter's mutex and condition variable.
     "${CMAKE_CURRENT_SOURCE_DIR}/../shared/semaphore.c"
     # Waiting for a moment is built from the adapter's sleep and clock.

@@ -21,11 +21,12 @@ The foundation layer so far, one public header per module under
 | `array.h`, `bit.h`, `ring.h`, `list.h`, `table.h`, `set.h` | [Collections](collections.md): a dynamic array, a bit vector, a ring, an intrusive list, a hash table, and a set |
 | `str.h`, `text.h`, `fmt.h`, `atom.h`, `hash.h` | [Strings](strings.md): C strings, text values, formatted output, atoms, and hash functions |
 | `decimal.h` | [Floating-point text that reads back](strings.md#floating-point-text-that-reads-back): the shortest text of a `double`, and reading text into one |
-| `platform.h` | [Native platform interfaces](platforms.md): the clock, sleeping and pacing, abort, and atomic values |
+| `platform.h` | [Native platform interfaces](platforms.md): the clock, sleeping and pacing, abort, writing to stderr without the C library, and atomic values |
 | `thread.h` | [Threads, mutexes, condition variables, semaphores, and thread-local values](platforms.md#threads-mutexes-and-condition-variables) |
 | `system.h` | [The processors the process may run on](platforms.md#processors): how many, and which |
 | `random.h` | [Random bytes from the operating system](platforms.md#random-bytes), for keys and nonces |
 | `stack.h` | [The call stack of a thread](platforms.md#call-stacks), and what an address is part of |
+| `crash.h` | [Crashes](platforms.md#crashes) that the system raises, reported with the stack of the code that crashed |
 | `fatal.h` | [Fatal errors](platforms.md#fatal-errors): the one way the engine ends the process, with the stack that led there |
 | `jobs.h` | [The job system](jobs.md): worker threads, jobs with dependencies and priorities, and loops that run on every thread |
 | `memory_debug.h` | [Memory functions that check how memory is used](memory.md) |

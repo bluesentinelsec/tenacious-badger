@@ -7,6 +7,7 @@
  * A case is named after the function it calls. The script reads the public
  * headers for the functions, so a function that is added to a platform
  * interface without a case here fails the test. */
+#include "badger/crash.h"
 #include "badger/platform.h"
 #include "badger/random.h"
 #include "badger/stack.h"
@@ -23,6 +24,21 @@ static void do_nothing(void *argument)
 TB_TEST(platform_default, tb_platform_abort)
 {
     tb_platform_abort();
+}
+
+TB_TEST(platform_default, tb_platform_write_error)
+{
+    tb_platform_write_error("x", 1);
+}
+
+TB_TEST(platform_default, tb_crash_catch)
+{
+    tb_crash_catch();
+}
+
+TB_TEST(platform_default, tb_crash_report_abort)
+{
+    tb_crash_report_abort(0);
 }
 
 TB_TEST(platform_default, tb_platform_clock_nanoseconds)
