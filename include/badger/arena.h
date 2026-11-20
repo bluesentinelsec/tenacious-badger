@@ -84,10 +84,19 @@ typedef struct tb_arena tb_arena;
 
 /** @brief Default contiguous reservation, including bookkeeping but excluding guard page. */
 #define TB_ARENA_DEFAULT_RESERVE_SIZE ((size_t)64 * 1024 * 1024)
-/** @brief Default maximum committed bytes retained by a reserved arena after reset. */
+/** @brief Default maximum committed bytes retained by a reserved arena after reset.
+ *
+ * Pages given back by a reset must be committed, and zeroed by the system,
+ * again when the arena next grows past this. An arena reset every frame
+ * with more in use than this pays for that each frame; give such an arena
+ * a retention that covers what it uses, with tb_arena_set_commit_retention(). */
 #define TB_ARENA_DEFAULT_COMMIT_RETENTION ((size_t)64 * 1024)
 
 /** @brief Reserve a contiguous arena and commit pages only as needed.
+ *
+ * Pages are committed 64 KiB at a time where the reservation has room, so
+ * growing costs few calls to the system, and at most that much more is
+ * committed than the arena uses.
  * @param reserve_size Bytes including bookkeeping, rounded up to pages; zero
  * selects TB_ARENA_DEFAULT_RESERVE_SIZE. A further inaccessible guard page is
  * always reserved after the usable range. Sizes below the minimum are raised.

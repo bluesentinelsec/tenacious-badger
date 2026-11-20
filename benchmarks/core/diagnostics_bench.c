@@ -185,6 +185,7 @@ void tb_bench_vm(tb_bench *bench)
 {
     vm_state state = {0};
     vm_state reserved = {0};
+    vm_state retaining = {0};
     vm_state chunked = {0};
     tb_bench_case system[] = {
         {.name = "reserve 64 MiB of address space and release it",
@@ -197,6 +198,10 @@ void tb_bench_vm(tb_bench *bench)
     tb_bench_case arenas[] = {
         {.name = "allocate 64 bytes from an arena, 200,000 times after a reset",
          .variant = "an arena that reserves",
+         .setup = reset_the_arena,
+         .run = run_arena_blocks},
+        {.name = "allocate 64 bytes from an arena, 200,000 times after a reset",
+         .variant = "an arena that reserves, retaining what it uses",
          .setup = reset_the_arena,
          .run = run_arena_blocks},
         {.name = "allocate 64 bytes from an arena, 200,000 times after a reset",
@@ -222,16 +227,25 @@ void tb_bench_vm(tb_bench *bench)
         (void)tb_vm_release(&state.region);
     }
 
+    /* The default retention gives back most of what the first arena uses at
+     * each reset, which the system must zero again; the second keeps it. */
     reserved.arena = tb_arena_create_reserved(VM_REGION_SIZE);
+    retaining.arena = tb_arena_create_reserved(VM_REGION_SIZE);
+    tb_arena_set_commit_retention(retaining.arena, VM_REGION_SIZE);
     chunked.arena = tb_arena_create(TB_ARENA_DEFAULT_CHUNK_SIZE);
     reserved.blocks = tb_bench_size(bench, ARENA_BLOCKS);
+    retaining.blocks = reserved.blocks;
     chunked.blocks = reserved.blocks;
     arenas[0].context = &reserved;
-    arenas[1].context = &chunked;
-    arenas[0].operations = (double)reserved.blocks;
-    arenas[1].operations = (double)chunked.blocks;
-    tb_bench_measure(bench, "vm", arenas, 2);
+    arenas[1].context = &retaining;
+    arenas[2].context = &chunked;
+    for (size_t index = 0; index < (sizeof(arenas) / sizeof(arenas[0])); index++)
+    {
+        arenas[index].operations = (double)reserved.blocks;
+    }
+    tb_bench_measure(bench, "vm", arenas, (sizeof(arenas) / sizeof(arenas[0])));
     tb_arena_destroy(reserved.arena);
+    tb_arena_destroy(retaining.arena);
     tb_arena_destroy(chunked.arena);
 }
 
