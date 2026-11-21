@@ -952,6 +952,28 @@ static void tb_cocoa_close(tb_window_system *system)
     tb_free(native);
 }
 
+/* NSAlert's answer when its first button, "Quit", is chosen. */
+#define TB_COCOA_FIRST_BUTTON 1000l
+
+static tb_window_result tb_cocoa_confirm(tb_window *window, const char *title, const char *message,
+                                         bool *confirmed)
+{
+    void *const pool = tb_cocoa.pool_push();
+    const tb_id alert = tb_send(tb_send(tb_class("NSAlert"), "alloc"), "init");
+    long answer = 0;
+
+    (void)window;
+    tb_send_id(alert, "setMessageText:", tb_string(title));
+    tb_send_id(alert, "setInformativeText:", tb_string(message));
+    (void)tb_send_id(alert, "addButtonWithTitle:", tb_string("Yes"));
+    (void)tb_send_id(alert, "addButtonWithTitle:", tb_string("No"));
+    answer = ((long (*)(tb_id, tb_sel))tb_cocoa.send)(alert, tb_sel_of("runModal"));
+    (void)tb_send(alert, "release");
+    tb_cocoa.pool_pop(pool);
+    *confirmed = answer == TB_COCOA_FIRST_BUTTON;
+    return TB_WINDOW_OK;
+}
+
 static const tb_window_ops tb_cocoa_ops = {
     .close = tb_cocoa_close,
     .pump = tb_cocoa_pump,
@@ -960,6 +982,7 @@ static const tb_window_ops tb_cocoa_ops = {
     .destroy = tb_cocoa_destroy,
     .configure = tb_cocoa_configure,
     .native = tb_cocoa_native,
+    .confirm = tb_cocoa_confirm,
 };
 
 tb_window_result tb_native_window_open(tb_window_system *system, tb_window_backend requested,

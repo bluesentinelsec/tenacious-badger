@@ -158,6 +158,15 @@ static void a_new_window_has_the_default_size_and_a_title_on(tb_window_system *s
     tb_window_native_of(window, &native);
     TB_TEST_EXPECT_UINT(native.backend, ==, tb_window_system_backend(system));
     TB_TEST_EXPECT(native.window != NULL || native.x11_window != 0);
+    /* Wayland and X11 have no dialog of their own; the others' would wait
+     * for a person, so they are not asked here. */
+    if (native.backend == TB_WINDOW_BACKEND_WAYLAND || native.backend == TB_WINDOW_BACKEND_X11)
+    {
+        bool confirmed = true;
+        TB_TEST_EXPECT_UINT(tb_window_confirm(window, "Quit?", "Really?", &confirmed), ==,
+                            TB_WINDOW_UNAVAILABLE);
+        TB_TEST_EXPECT(confirmed);
+    }
     tb_window_destroy(window);
     tb_window_destroy(NULL);
 }

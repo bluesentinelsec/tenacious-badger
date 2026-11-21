@@ -491,7 +491,7 @@ tb_window_result tb_window_configure(tb_window *window, const tb_window_options 
                                      tb_window_error *error)
 {
     tb_window_options previous = {0};
-    char *const previous_title = window->title;
+    char *previous_title = NULL;
     tb_window_result result = TB_WINDOW_OK;
 
     TB_ASSERT(window != NULL);
@@ -499,8 +499,9 @@ tb_window_result tb_window_configure(tb_window *window, const tb_window_options 
     tb_window_check_options(options);
     tb_window_succeed(error);
     previous = window->options;
+    previous_title = window->title;
     window->options = *options;
-    window->title = tb_window_copy_title(options->title);
+    window->title = tb_window_copy_title(options->title != NULL ? options->title : previous_title);
     window->options.title = window->title;
     result = window->system->ops->configure(window, &previous, error);
     if (result != TB_WINDOW_OK)
@@ -527,6 +528,15 @@ void tb_window_native_of(const tb_window *window, tb_window_native *native)
     TB_ASSERT(native != NULL);
     *native = (tb_window_native){.backend = window->system->backend};
     window->system->ops->native(window, native);
+}
+
+tb_window_result tb_window_confirm(tb_window *window, const char *title, const char *message,
+                                   bool *confirmed)
+{
+    TB_ASSERT(window != NULL);
+    TB_ASSERT(title != NULL && message != NULL);
+    TB_ASSERT(confirmed != NULL);
+    return window->system->ops->confirm(window, title, message, confirmed);
 }
 
 /* ---------------------------------------------------------------------------

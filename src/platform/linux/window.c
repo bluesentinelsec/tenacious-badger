@@ -112,6 +112,16 @@ static const tb_linux_key_row tb_linux_keys[] = {
     {108, TB_KEY_DOWN},
 };
 
+tb_window_result tb_linux_confirm(tb_window *window, const char *title, const char *message,
+                                  bool *confirmed)
+{
+    (void)window;
+    (void)title;
+    (void)message;
+    (void)confirmed;
+    return TB_WINDOW_UNAVAILABLE;
+}
+
 tb_key tb_linux_key(uint32_t code)
 {
     for (size_t index = 0; index < sizeof(tb_linux_keys) / sizeof(tb_linux_keys[0]); index++)

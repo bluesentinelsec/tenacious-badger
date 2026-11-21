@@ -550,6 +550,8 @@ static struct
  * The keyboard.
  * ------------------------------------------------------------------------- */
 
+/* coverage-off: the headless compositor that CI tests under has no seat, so no keyboard;
+ * keys are tested through X11 and Win32, which share the key tables */
 static tb_window *tb_wl_window_of_surface(tb_wl_system *native, tb_wl_proxy *surface)
 {
     for (size_t index = 0; index < tb_array_length(native->system->windows); index++)
@@ -665,9 +667,7 @@ static void tb_wl_release_keyboard(tb_wl_system *native)
     }
     else
     {
-        /* coverage-off: every current compositor has version 3 */
         native->wl.destroy(native->keyboard);
-        /* coverage-on */
     }
     native->keyboard = NULL;
     native->keyboard_focus = NULL;
@@ -691,6 +691,7 @@ static void tb_wl_seat_capabilities(void *data, tb_wl_proxy *seat, uint32_t capa
         tb_wl_release_keyboard(native);
     }
 }
+/* coverage-on */
 
 /* ---------------------------------------------------------------------------
  * Buffers.
@@ -1271,6 +1272,7 @@ static const tb_window_ops tb_wl_ops = {
     .destroy = tb_wl_destroy,
     .configure = tb_wl_configure,
     .native = tb_wl_native,
+    .confirm = tb_linux_confirm,
 };
 
 /* ---------------------------------------------------------------------------

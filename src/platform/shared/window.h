@@ -33,6 +33,10 @@ typedef struct tb_window_ops
                                   tb_window_error *error);
     /* The window's handles. */
     void (*native)(const tb_window *window, tb_window_native *native);
+    /* Ask a yes-or-no question in the system's dialog; UNAVAILABLE without
+     * one. */
+    tb_window_result (*confirm)(tb_window *window, const char *title, const char *message,
+                                bool *confirmed);
 } tb_window_ops;
 
 struct tb_window_system

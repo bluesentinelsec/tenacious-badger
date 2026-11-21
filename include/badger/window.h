@@ -164,7 +164,9 @@ typedef struct tb_window_system_options
  * window of the defaults. */
 typedef struct tb_window_options
 {
-    const char *title; /**< UTF-8; NULL for none. */
+    /** UTF-8; NULL for none, or for tb_window_configure() the title the
+     * window has. */
+    const char *title;
     tb_window_mode mode;
     /** The display: an index of tb_window_system_display(); 0 is the
      * primary. One that does not exist is the primary. */
@@ -438,6 +440,25 @@ TB_API void tb_window_state_of(const tb_window *window, tb_window_state *state);
  * window is destroyed.
  */
 TB_API void tb_window_native_of(const tb_window *window, tb_window_native *native);
+
+/**
+ * @brief Ask the player a yes-or-no question in the system's own dialog, over
+ * a window: "Quit? Unsaved progress may be lost."
+ *
+ * The dialog is modal: the call returns when the player answers, and the
+ * window's events wait until then. Windows and macOS have such a dialog;
+ * Wayland and X11 have none, until the engine's interface draws its own.
+ *
+ * @param window Required non-null.
+ * @param title The question, short, in UTF-8; required.
+ * @param message More about it, in UTF-8; required.
+ * @param[out] confirmed Receives whether the player said yes; required.
+ * Unchanged unless the result is #TB_WINDOW_OK.
+ * @return #TB_WINDOW_OK when the player answered; #TB_WINDOW_UNAVAILABLE
+ * where the system has no dialog to ask with.
+ */
+TB_API tb_window_result tb_window_confirm(tb_window *window, const char *title, const char *message,
+                                          bool *confirmed);
 
 /** @brief Name a backend: "wayland". @param backend Any value.
  * @return A string with static storage duration; "unknown backend" for no backend. */

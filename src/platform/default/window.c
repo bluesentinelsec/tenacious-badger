@@ -99,6 +99,16 @@ void tb_window_native_of(const tb_window *window, tb_window_native *native)
     tb_default_not_implemented("platform.window", "tb_window_native_of");
 }
 
+tb_window_result tb_window_confirm(tb_window *window, const char *title, const char *message,
+                                   bool *confirmed)
+{
+    (void)window;
+    (void)title;
+    (void)message;
+    (void)confirmed;
+    tb_default_not_implemented("platform.window", "tb_window_confirm");
+}
+
 const char *tb_window_backend_name(tb_window_backend backend)
 {
     (void)backend;

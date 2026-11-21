@@ -13,6 +13,10 @@ tb_window_result tb_wayland_open(tb_window_system *system, tb_window_error *erro
 /* Connect to an X server; UNAVAILABLE without one. */
 tb_window_result tb_x11_open(tb_window_system *system, tb_window_error *error);
 
+/* Wayland and X11 have no dialog of their own to ask a question with. */
+tb_window_result tb_linux_confirm(tb_window *window, const char *title, const char *message,
+                                  bool *confirmed);
+
 /* The key a Linux input event code names: evdev's KEY_* values, which both
  * Wayland and X11 (less 8) report. */
 tb_key tb_linux_key(uint32_t code);

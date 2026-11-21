@@ -623,6 +623,13 @@ TB_TEST(platform_default, tb_window_native_of)
     tb_window_native_of(NULL, &native);
 }
 
+TB_TEST(platform_default, tb_window_confirm)
+{
+    bool confirmed = false;
+
+    (void)tb_window_confirm(NULL, "title", "message", &confirmed);
+}
+
 TB_TEST(platform_default, tb_window_backend_name)
 {
     (void)tb_window_backend_name(TB_WINDOW_BACKEND_AUTOMATIC);

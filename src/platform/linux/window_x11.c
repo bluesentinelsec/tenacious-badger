@@ -885,6 +885,7 @@ static const tb_window_ops tb_x11_ops = {
     .destroy = tb_x11_destroy,
     .configure = tb_x11_configure,
     .native = tb_x11_native,
+    .confirm = tb_linux_confirm,
 };
 
 static void tb_x11_intern_atoms(tb_x11_system *native)

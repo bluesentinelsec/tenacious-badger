@@ -754,6 +754,22 @@ static void tb_win32_native(const tb_window *window, tb_window_native *native)
     native->window = tb_win32_window_of(window)->handle;
 }
 
+static tb_window_result tb_win32_confirm(tb_window *window, const char *title, const char *message,
+                                         bool *confirmed)
+{
+    wchar_t *const wide_title = tb_win32_wide(title);
+    wchar_t *const wide_message = tb_win32_wide(message);
+    int answer = 0;
+
+    answer = MessageBoxW(
+        tb_win32_window_of(window)->handle, wide_message != NULL ? wide_message : L"",
+        wide_title != NULL ? wide_title : L"", MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2);
+    tb_free(wide_message);
+    tb_free(wide_title);
+    *confirmed = answer == IDYES;
+    return TB_WINDOW_OK;
+}
+
 static const tb_window_ops tb_win32_ops = {
     .close = tb_win32_close,
     .pump = tb_win32_pump,
@@ -762,6 +778,7 @@ static const tb_window_ops tb_win32_ops = {
     .destroy = tb_win32_destroy,
     .configure = tb_win32_configure,
     .native = tb_win32_native,
+    .confirm = tb_win32_confirm,
 };
 
 static bool tb_win32_register(tb_win32_system *native, const wchar_t *name, WNDPROC procedure)
