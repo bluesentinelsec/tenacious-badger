@@ -156,6 +156,12 @@ RANDOMNESS = rule('badger/random.h', 'docs/platforms.md', {
         'arc4random arc4random_buf arc4random_uniform SecRandomCopyBytes',
 })
 
+GENERATORS = rule('badger/rng.h', 'docs/random.md', {
+    'a tb_rng seeded with tb_rng_seed, and tb_rng_below or tb_rng_double':
+        'rand srand rand_r random srandom initstate setstate drand48 erand48 lrand48 nrand48 '
+        'mrand48 jrand48 srand48 seed48 lcong48',
+})
+
 LIBRARIES = rule('badger/library.h', 'docs/platforms.md', {
     'tb_library_open and tb_library_close':
         'LoadLibraryW LoadLibraryA LoadLibraryExW LoadLibraryExA FreeLibrary dlopen dlclose '
@@ -191,7 +197,7 @@ FILES = rule('badger/file.h', 'docs/files.md', {
 })
 
 RULES = [ALLOCATION, FORMATTING, STRINGS, FAILURES, TIMING, ATOMICS, THREADS, PROCESSORS,
-         RANDOMNESS, LIBRARIES, SORTING, COLLECTIONS, FILES]
+         RANDOMNESS, GENERATORS, LIBRARIES, SORTING, COLLECTIONS, FILES]
 FORBIDDEN = {name: entry for group in RULES for name, entry in group.items()}
 PREFIXES = sorted((name[:-1] for name in FORBIDDEN if name.endswith('*')), key=len, reverse=True)
 
@@ -405,7 +411,7 @@ def find_uses(text):
             rule_name = rule_name_of(match.group(0))
             # POSIX uses ordinary English names that are also legitimate
             # local variables. Check calls for those ambiguous names.
-            if rule_name in {'open', 'close', 'read', 'write', 'remove', 'rename'}:
+            if rule_name in {'open', 'close', 'read', 'write', 'remove', 'rename', 'random'}:
                 if not line[match.end():].lstrip().startswith('('):
                     continue
             if rule_name is not None:
@@ -559,6 +565,10 @@ def self_test():
         ('file calls', 'read(fd, b, n); write(fd, b, n); fopen(p, mode);',
          ['read', 'write', 'fopen']),
         ('file-like variables', 'size_t read = 0; bool write = true; ++read;', []),
+        ('the C library\'s generators', 'srand(1); x = rand(); y = random(); z = drand48();',
+         ['srand', 'rand', 'random', 'drand48']),
+        ('a variable named random, and the engine\'s generator',
+         'uint64_t random = 3; tb_rng_seed(&rng, random); x = tb_rng_below(&rng, 6);', []),
         ('strings', 'n = strlen(s); if (strcmp(a, b) == 0) { p = strstr(a, b); }',
          ['strlen', 'strcmp', 'strstr']),
         ('engine strings and memory blocks',

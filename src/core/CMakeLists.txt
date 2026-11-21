@@ -22,6 +22,7 @@ set(TB_CORE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/memory_debug.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/path.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/ring.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/rng.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/set.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/size.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/sort.c"
