@@ -78,9 +78,13 @@ with tempfile.TemporaryDirectory(prefix='tb-burrow-settings-') as temporary:
     expect(status == 0, f'status {status}', err)
     expect('2 + 3 = 5' in out, 'the game starts', out)
 
-    # The game runs without a window for as many frames as asked, and saves
-    # nothing, since nothing changed while it ran.
+    # The game runs without a window for as many frames as asked.
     status, out, err = run(*common, '--headless', '--set', 'developer.frame_count=30',
                            '--set', 'display.frame_limit=0')
     expect(status == 0, f'headless: status {status}', err)
-    expect(not player.exists(), 'nothing is saved', err)
+
+    # In a window where there is a display, and with an error saying how to
+    # run without one where there is not.
+    status, out, err = run(*common, '--set', 'developer.frame_count=10',
+                           '--set', 'display.window_mode=windowed')
+    expect(status == 0 or 'no window' in err, f'windowed: status {status}', err)

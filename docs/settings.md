@@ -297,7 +297,7 @@ the executable, then the player's file, then the command line.
 | Command line | Does |
 | --- | --- |
 | `burrow settings` | Lists every setting, its value, and the layer it comes from |
-| `burrow` | Plays, and saves the settings changed while it ran when it quits |
+| `burrow` | Plays |
 | `--set NAME=VALUE` | Gives a setting a value for this session; may be repeated |
 | `--reset-settings` | Sets the player's file aside and starts from the defaults |
 | `--settings-file FILE` | Uses another settings file in place of the player's |

@@ -75,8 +75,7 @@ hatch for running a game for a fixed number of frames in tests and CI.
 `burrow` opens a window as the display settings say and runs the loop; nothing
 renders yet. `burrow --headless` runs without a window, and
 `burrow --headless --set developer.frame_count=30` runs thirty frames and
-exits. Settings changed while it runs are saved to the player's file when it
-quits. `burrow check` prints a line that proves the game starts against its
+exits. `burrow check` prints a line that proves the game starts against its
 engine, which the packaged exports run.
 
 ## Known gaps
