@@ -205,33 +205,57 @@ static void fill_some(void *argument, size_t first, size_t count)
     }
 }
 
-/* The frame loop of an engine: workers allocate from frame memory in every
- * frame, and the owner begins each new frame after waiting for them. Once
- * every thread's arenas have grown to their working size, frames allocate
- * nothing more from the heap. */
-TB_TEST(core_frame_memory, frames_on_worker_threads_stop_allocating_once_warmed_up)
+/* A loop body that allocates nothing, to let the job system set itself up. */
+static void do_nothing(void *argument, size_t first, size_t count)
 {
-    const tb_jobs_options jobs_options = {.worker_count = 3};
-    tb_jobs *const jobs = tb_jobs_create(&jobs_options);
-    tb_frame_memory *const memory = tb_frame_memory_create(NULL);
-    frame_loop loop = {.memory = memory};
-    size_t blocks_after_warm_up = 0;
+    (void)argument;
+    (void)first;
+    (void)count;
+}
 
-    for (uint64_t frame = 0; frame < 40; frame++)
+/* The shape of each frame of the loop below: 40 ranges of 500 values, each
+ * range one allocation of 4000 bytes. A 64 KiB chunk holds 16 of them, so
+ * even a thread that ran every range of a frame needs 3 chunks for it. */
+#define LOOP_WORKERS 3
+#define LOOP_THREADS (LOOP_WORKERS + 1) /* The workers and the caller. */
+#define LOOP_VALUES 20000
+#define LOOP_GRAIN 500
+#define LOOP_FRAMES 40
+#define LOOP_CHUNKS_FOR_A_WHOLE_FRAME 3
+
+/* The frame loop of an engine: workers allocate from frame memory in every
+ * frame, and the owner begins each new frame after waiting for them.
+ *
+ * Which thread runs which ranges changes from frame to frame, so a thread's
+ * arena keeps growing until it can hold the most that thread ever needed in
+ * one frame, which may take many frames. What is bounded is the total: a
+ * lane for each thread, and for each thread and frame in flight an arena of
+ * at most the chunks a whole frame needs. Memory that was not released when
+ * its frame came round again would grow by a frame's worth every frame. */
+TB_TEST(core_frame_memory, frames_on_worker_threads_take_a_bounded_amount_of_memory)
+{
+    const tb_jobs_options jobs_options = {.worker_count = LOOP_WORKERS};
+    tb_jobs *const jobs = tb_jobs_create(&jobs_options);
+    size_t blocks_before = 0;
+    tb_frame_memory *memory = NULL;
+    frame_loop loop = {0};
+    const size_t most_blocks =
+        1 /* the frame memory */ + LOOP_THREADS /* lanes */ +
+        LOOP_THREADS * TB_FRAME_MEMORY_DEFAULT_FRAMES * LOOP_CHUNKS_FOR_A_WHOLE_FRAME;
+
+    /* Whatever the job system allocates the first time it runs a loop is
+     * not the frame memory's. */
+    tb_jobs_for(jobs, LOOP_VALUES, LOOP_GRAIN, do_nothing, NULL);
+    blocks_before = tb_memory_allocation_count();
+    memory = tb_frame_memory_create(NULL);
+    loop.memory = memory;
+    for (uint64_t frame = 0; frame < LOOP_FRAMES; frame++)
     {
         loop.frame = frame;
-        tb_jobs_for(jobs, 20000, 500, fill_some, &loop);
-        if (frame == 9)
-        {
-            blocks_after_warm_up = tb_memory_allocation_count();
-        }
+        tb_jobs_for(jobs, LOOP_VALUES, LOOP_GRAIN, fill_some, &loop);
         tb_frame_memory_begin(memory);
     }
-    /* A worker that first joins a loop late can still add a lane, or an
-     * arena for a frame it had not used; anything more would be growth
-     * without bound. */
-    TB_TEST_EXPECT_UINT(tb_memory_allocation_count(), <=,
-                        blocks_after_warm_up + 4 * TB_FRAME_MEMORY_DEFAULT_FRAMES);
+    TB_TEST_EXPECT_UINT(tb_memory_allocation_count() - blocks_before, <=, most_blocks);
     TB_TEST_EXPECT_UINT(tb_platform_atomic_size_load(&loop.overwritten), ==, 0);
     tb_frame_memory_destroy(memory);
     tb_jobs_destroy(jobs);
