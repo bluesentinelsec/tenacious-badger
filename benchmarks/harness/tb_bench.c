@@ -48,6 +48,7 @@ static const tb_bench_module tb_bench_modules[] = {
     {"path", tb_bench_path},
     {"ring", tb_bench_ring},
     {"rng", tb_bench_rng},
+    {"sort", tb_bench_sort},
     {"table", tb_bench_table},
     {"text", tb_bench_text},
     {"thread", tb_bench_thread},

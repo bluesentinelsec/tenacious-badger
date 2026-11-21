@@ -2,10 +2,10 @@
 #include "vfs_internal.h"
 
 #include "badger/assert.h"
+#include "badger/sort.h"
 #include "badger/str.h"
 #include "badger/table.h"
 
-#include <stdlib.h>
 #include <string.h>
 
 typedef struct tb_vfs_mount_point
@@ -312,12 +312,13 @@ static void tb_vfs_collect(void *context, const char *name, size_t length, const
     (void)tb_table_put(listing->seen, key, listed);
 }
 
-static int tb_vfs_compare_listed(const void *left, const void *right)
+static int tb_vfs_compare_listed(const void *left, const void *right, void *context)
 {
     const tb_vfs_listed *const first = ((const tb_table_entry *)left)->value;
     const tb_vfs_listed *const second = ((const tb_table_entry *)right)->value;
     const size_t shorter = first->length < second->length ? first->length : second->length;
     const int order = memcmp(first->name, second->name, shorter);
+    (void)context;
     if (order != 0)
     {
         return order;
@@ -335,7 +336,7 @@ static void tb_vfs_deliver(tb_vfs_listing *listing, tb_vfs_list_function *functi
     (void)tb_table_to_array(listing->seen, entries, count);
     if (count > 1)
     {
-        qsort(entries, count, sizeof(entries[0]), tb_vfs_compare_listed);
+        tb_sort(entries, count, sizeof(entries[0]), tb_vfs_compare_listed, NULL);
     }
     for (size_t index = 0; index < count; index++)
     {

@@ -25,6 +25,7 @@ set(TB_CORE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/rng.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/set.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/size.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/sort.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/str.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/stream.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/stream_file.c"

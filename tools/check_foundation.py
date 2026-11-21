@@ -170,6 +170,13 @@ LIBRARIES = rule('badger/library.h', 'docs/platforms.md', {
         'GetProcAddress dlsym',
 })
 
+SORTING = rule('badger/sort.h', 'docs/collections.md', {
+    'tb_sort, or tb_sort_stable to keep equal elements in order':
+        'qsort qsort_s qsort_r',
+    'tb_sort_lower_bound':
+        'bsearch bsearch_s',
+})
+
 COLLECTIONS = rule('badger/table.h', 'docs/collections.md', {
     'tb_table, tb_set, or tb_list':
         '<search.h>',
@@ -190,7 +197,7 @@ FILES = rule('badger/file.h', 'docs/files.md', {
 })
 
 RULES = [ALLOCATION, FORMATTING, STRINGS, FAILURES, TIMING, ATOMICS, THREADS, PROCESSORS,
-         RANDOMNESS, GENERATORS, LIBRARIES, COLLECTIONS, FILES]
+         RANDOMNESS, GENERATORS, LIBRARIES, SORTING, COLLECTIONS, FILES]
 FORBIDDEN = {name: entry for group in RULES for name, entry in group.items()}
 PREFIXES = sorted((name[:-1] for name in FORBIDDEN if name.endswith('*')), key=len, reverse=True)
 
@@ -263,6 +270,9 @@ AUTHORIZED = {
     'benchmarks/core/fs_bench.c': (
         {'fopen', 'fclose', 'fread', 'fwrite'},
         'measures the C library\'s streams beside badger/fs.h'),
+    'benchmarks/core/sort_bench.c': (
+        {'qsort'},
+        'measures the C library beside badger/sort.h'),
     'benchmarks/core/text_bench.c': (
         {'strstr', 'strrchr', 'strcspn'},
         'measures the C library beside badger/str.h'),

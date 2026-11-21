@@ -5,9 +5,9 @@
 #include "badger/assert.h"
 #include "badger/checksum.h"
 #include "badger/deflate.h"
+#include "badger/sort.h"
 #include "entry_stream.h"
 
-#include <stdlib.h>
 #include <string.h>
 
 typedef struct tb_package_record
@@ -157,10 +157,11 @@ static tb_package_result tb_package_parse_index(tb_package *package, const unsig
     return at == index_size ? TB_PACKAGE_OK : TB_PACKAGE_MALFORMED;
 }
 
-static int tb_package_compare_offsets(const void *left, const void *right)
+static int tb_package_compare_offsets(const void *left, const void *right, void *context)
 {
     const tb_package_record *const first = *(tb_package_record *const *)left;
     const tb_package_record *const second = *(tb_package_record *const *)right;
+    (void)context;
     if (first->offset != second->offset)
     {
         return first->offset < second->offset ? -1 : 1;
@@ -187,7 +188,7 @@ static tb_package_result tb_package_check_overlaps(tb_package *package)
     {
         order[index] = &package->records[index];
     }
-    qsort(order, package->count, sizeof(order[0]), tb_package_compare_offsets);
+    tb_sort(order, package->count, sizeof(order[0]), tb_package_compare_offsets, NULL);
     for (size_t index = 1; index < package->count; index++)
     {
         const tb_package_record *const before = order[index - 1];

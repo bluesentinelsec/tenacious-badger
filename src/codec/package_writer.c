@@ -7,8 +7,8 @@
 #include "badger/deflate.h"
 #include "badger/random.h"
 #include "badger/set.h"
+#include "badger/sort.h"
 
-#include <stdlib.h>
 #include <string.h>
 
 /* Bytes obfuscated at a time on their way to the sink. */
@@ -220,13 +220,14 @@ tb_package_result tb_package_add(tb_package_writer *writer, const char *name, si
     return result;
 }
 
-static int tb_package_compare_names(const void *left, const void *right)
+static int tb_package_compare_names(const void *left, const void *right, void *context)
 {
     const tb_package_written *const first = left;
     const tb_package_written *const second = right;
     const size_t shorter =
         first->name_length < second->name_length ? first->name_length : second->name_length;
     const int order = memcmp(first->name, second->name, shorter);
+    (void)context;
     if (order != 0)
     {
         return order;
@@ -248,7 +249,8 @@ tb_package_result tb_package_writer_finish(tb_package_writer *writer)
     writer->finished = true;
     if (writer->count > 0)
     {
-        qsort(writer->entries, writer->count, sizeof(writer->entries[0]), tb_package_compare_names);
+        tb_sort(writer->entries, writer->count, sizeof(writer->entries[0]),
+                tb_package_compare_names, NULL);
     }
     for (size_t entry = 0; entry < writer->count; entry++)
     {
