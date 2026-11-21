@@ -21,7 +21,8 @@ The API reference is the documented header
 | Aligned bytes | `tb_aligned_alloc(alignment, size)` | `tb_try_aligned_alloc(alignment, size)` |
 | Release | `tb_free(memory)`, or `tb_aligned_free(memory)` for aligned blocks | |
 
-Objects that share a lifetime are better served by an [arena](#arenas).
+Objects that share a lifetime are better served by an [arena](#arenas), and
+many objects of one size that come and go one at a time by a [pool](#pools).
 For stable addresses with on-demand commitment and reset trimming, see
 [reserved arenas](virtual-memory.md#reserved-arenas).
 
@@ -260,6 +261,62 @@ state still shows it.
 An arena has no lock. Give each thread its own, or serialize every call that
 names the same arena. Creating and growing an arena uses the allocation
 functions, which are thread-safe.
+
+## Pools
+
+`include/badger/pool.h` holds objects of one size, and allocates and frees
+them one at a time in constant time, in any order. Use a pool for many objects
+of one type whose lifetimes differ: components, jobs, asset records, particles,
+nodes of a tree. The heap serves the same pattern with a general-purpose
+allocator, which costs more and scatters the objects; an arena cannot free one
+object at all.
+
+```c
+const tb_pool_options options = {.object_size = sizeof(particle),
+                                  .alignment = _Alignof(particle)};
+tb_pool *const particles = tb_pool_create(&options);
+
+particle *const spark = tb_pool_alloc(particles);
+...
+tb_pool_free(particles, spark);
+tb_pool_destroy(particles);
+```
+
+| Need | Use |
+| --- | --- |
+| Create, destroy | `tb_pool_create(&options)`, `tb_pool_destroy` |
+| An object | `tb_pool_alloc`, which fails fast; `tb_pool_try_alloc`, which returns NULL |
+| Free one, or all | `tb_pool_free(pool, object)`; `tb_pool_reset`, which keeps the blocks |
+| Accounting | `tb_pool_count` (live objects), `tb_pool_capacity` (slots held) |
+
+**Options.** `object_size` is required. `alignment` is a power of two, or 0
+for what `tb_malloc` guarantees. `objects_per_block` sets how many objects
+each block holds; 0 fits 16 KiB of them, and never fewer than 8.
+`object_limit` caps how many may be live at once; at the limit,
+`tb_pool_alloc` ends the process as running out of memory does, and
+`tb_pool_try_alloc` returns NULL. `allocator` is where the pool's record and
+its blocks come from: NULL for the heap, or any allocator, an arena's
+included.
+
+**Growth and reuse.** A pool takes its first block when the first object is
+allocated, and another each time every slot is in use. It keeps them until it
+is destroyed, so a pool that has grown to its working size stops allocating.
+A freed slot goes to the front of a list that the next allocation takes from;
+the most recently freed object, still in the cache, is reused first. Objects
+never move: a pointer is valid until the object is freed, the pool is reset,
+or the pool is destroyed.
+
+**Finding mistakes.** In builds with assertions every slot carries a small
+header naming its pool and whether its object is live. Freeing an object
+twice, freeing one after a reset, or freeing one into the wrong pool fails an
+assertion that says which. New objects are filled with `TB_POOL_FILL_BYTE`
+(`0xDD`). Under AddressSanitizer every slot that is not in use is poisoned,
+so touching a freed object is a `use-after-poison` report.
+
+**Threading.** A pool has no lock: give each thread its own, or serialize the
+calls. Builds with assertions detect two threads using one pool at once.
+
+`tb_bench pool` measures a pool beside `tb_malloc` and `malloc`.
 
 ## Replacing the allocator
 

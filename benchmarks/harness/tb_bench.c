@@ -46,6 +46,7 @@ static const tb_bench_module tb_bench_modules[] = {
     {"memory", tb_bench_memory},
     {"memory_debug", tb_bench_memory_debug},
     {"path", tb_bench_path},
+    {"pool", tb_bench_pool},
     {"ring", tb_bench_ring},
     {"rng", tb_bench_rng},
     {"sort", tb_bench_sort},

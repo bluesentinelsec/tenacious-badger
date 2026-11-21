@@ -264,6 +264,9 @@ AUTHORIZED = {
     'benchmarks/core/memory_bench.c': (
         {'malloc', 'free'},
         'measures the C library beside badger/memory.h'),
+    'benchmarks/core/pool_bench.c': (
+        {'malloc', 'free'},
+        'measures the C library beside badger/pool.h'),
     'benchmarks/core/fmt_bench.c': (
         {'snprintf'},
         'measures the C library beside badger/fmt.h'),

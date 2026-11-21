@@ -23,6 +23,7 @@ add_executable(tb_bench
     core/fs_bench.c
     core/hash_bench.c
     core/memory_bench.c
+    core/pool_bench.c
     core/ring_bench.c
     core/rng_bench.c
     core/sort_bench.c

@@ -65,6 +65,7 @@ set(TB_TEST_CASE_SOURCES
     core/memory_test.c
     core/memory_debug_test.c
     core/path_test.c
+    core/pool_test.c
     core/result_test.c
     core/ring_test.c
     core/rng_test.c
