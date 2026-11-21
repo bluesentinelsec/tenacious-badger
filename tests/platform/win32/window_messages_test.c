@@ -132,7 +132,8 @@ TB_TEST(platform_win32_window, closing_is_a_request_that_leaves_the_window_open)
     (void)SendMessageW(made.handle, WM_CLOSE, 0, 0);
     TB_TEST_EXPECT(received(made.system, TB_WINDOW_EVENT_CLOSE_REQUESTED, NULL));
     TB_TEST_EXPECT(IsWindow(made.handle));
-    (void)SendMessageW(made.handle, WM_SYSKEYDOWN, VK_F4, key_parameter(0x3E, false, true));
+    /* Alt+F4 reaches a window as the close command. */
+    (void)SendMessageW(made.handle, WM_SYSCOMMAND, SC_CLOSE, 0);
     TB_TEST_EXPECT(received(made.system, TB_WINDOW_EVENT_CLOSE_REQUESTED, NULL));
     TB_TEST_EXPECT(IsWindow(made.handle));
     /* Alt alone opens no menu. */
