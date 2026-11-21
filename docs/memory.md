@@ -21,7 +21,8 @@ The API reference is the documented header
 | Aligned bytes | `tb_aligned_alloc(alignment, size)` | `tb_try_aligned_alloc(alignment, size)` |
 | Release | `tb_free(memory)`, or `tb_aligned_free(memory)` for aligned blocks | |
 
-Objects that share a lifetime are better served by an [arena](#arenas).
+Objects that share a lifetime are better served by an [arena](#arenas), and
+many objects of one size that come and go one at a time by a [pool](#pools).
 For stable addresses with on-demand commitment and reset trimming, see
 [reserved arenas](virtual-memory.md#reserved-arenas).
 
@@ -261,6 +262,111 @@ An arena has no lock. Give each thread its own, or serialize every call that
 names the same arena. Creating and growing an arena uses the allocation
 functions, which are thread-safe.
 
+## Pools
+
+`include/badger/pool.h` holds objects of one size, and allocates and frees
+them one at a time in constant time, in any order. Use a pool for many objects
+of one type whose lifetimes differ: components, jobs, asset records, particles,
+nodes of a tree. The heap serves the same pattern with a general-purpose
+allocator, which costs more and scatters the objects; an arena cannot free one
+object at all.
+
+```c
+const tb_pool_options options = {.object_size = sizeof(particle),
+                                  .alignment = _Alignof(particle)};
+tb_pool *const particles = tb_pool_create(&options);
+
+particle *const spark = tb_pool_alloc(particles);
+...
+tb_pool_free(particles, spark);
+tb_pool_destroy(particles);
+```
+
+| Need | Use |
+| --- | --- |
+| Create, destroy | `tb_pool_create(&options)`, `tb_pool_destroy` |
+| An object | `tb_pool_alloc`, which fails fast; `tb_pool_try_alloc`, which returns NULL |
+| Free one, or all | `tb_pool_free(pool, object)`; `tb_pool_reset`, which keeps the blocks |
+| Accounting | `tb_pool_count` (live objects), `tb_pool_capacity` (slots held) |
+
+**Options.** `object_size` is required. `alignment` is a power of two, or 0
+for what `tb_malloc` guarantees. `objects_per_block` sets how many objects
+each block holds; 0 fits 16 KiB of them, and never fewer than 8.
+`object_limit` caps how many may be live at once; at the limit,
+`tb_pool_alloc` ends the process as running out of memory does, and
+`tb_pool_try_alloc` returns NULL. `allocator` is where the pool's record and
+its blocks come from: NULL for the heap, or any allocator, an arena's
+included.
+
+**Growth and reuse.** A pool takes its first block when the first object is
+allocated, and another each time every slot is in use. It keeps them until it
+is destroyed, so a pool that has grown to its working size stops allocating.
+A freed slot goes to the front of a list that the next allocation takes from;
+the most recently freed object, still in the cache, is reused first. Objects
+never move: a pointer is valid until the object is freed, the pool is reset,
+or the pool is destroyed.
+
+**Finding mistakes.** In builds with assertions every slot carries a small
+header naming its pool and whether its object is live. Freeing an object
+twice, freeing one after a reset, or freeing one into the wrong pool fails an
+assertion that says which. New objects are filled with `TB_POOL_FILL_BYTE`
+(`0xDD`). Under AddressSanitizer every slot that is not in use is poisoned,
+so touching a freed object is a `use-after-poison` report.
+
+**Threading.** A pool has no lock: give each thread its own, or serialize the
+calls. Builds with assertions detect two threads using one pool at once.
+
+`tb_bench pool` measures a pool beside `tb_malloc` and `malloc`.
+
+## Frame memory
+
+`include/badger/frame_memory.h` serves what a frame makes and then forgets:
+render requests, culling results, draw lists, temporary strings. Each thread
+allocates from an arena of its own, with no lock and no atomic operation, and
+everything is released at once when the frame's memory comes round again.
+
+```c
+tb_frame_memory *const frame_memory = tb_frame_memory_create(NULL);
+
+for (;;)
+{
+    tb_frame_memory_begin(frame_memory);
+    /* On any thread, during the frame: */
+    draw *const draws = TB_ARENA_NEW_ARRAY(tb_frame_memory_arena(frame_memory), draw, count);
+    ...
+}
+```
+
+| Need | Use |
+| --- | --- |
+| Create, destroy | `tb_frame_memory_create(&options)` or `(NULL)`, `tb_frame_memory_destroy` |
+| Start the next frame | `tb_frame_memory_begin`, on the thread that runs the frame loop |
+| Memory for this frame, on this thread | `tb_frame_memory_arena`, then any arena function; or `tb_frame_memory_alloc(memory, size, alignment)` |
+| Which frame it is | `tb_frame_memory_frame`: 0 at creation, one more for each begin |
+
+**Frames in flight.** A pipelined frame reads the previous frame's data while
+it builds its own, so frame memory keeps a set of arenas for each frame in
+flight (`frames_in_flight`, two by default, up to four) and uses them in turn.
+Memory allocated during frame N is valid until frame N + `frames_in_flight`
+begins: with two, the render work of frame N can read what the game work of
+frame N made while frame N + 1 is being simulated.
+
+**Each thread's arena.** The first time a thread asks during a frame's turn
+it gets an arena of its own, and it keeps it until the frame memory is
+destroyed, so once every thread has grown its arenas to their working size,
+frames allocate nothing from the heap. A thread allocates only from its own
+arena, and only during the frame; pointers into it may go to any thread. A
+thread that ends leaves its arenas behind until the frame memory is
+destroyed, which suits the engine's fixed set of worker threads.
+
+**Threading.** `tb_frame_memory_arena` and `tb_frame_memory_alloc` are
+thread-safe. `tb_frame_memory_begin` is stage-owned: the owner of the frame
+loop calls it between frames, after every thread that used the frame memory
+has finished in a way that synchronizes with the owner, as waiting for its
+jobs does.
+
+`tb_bench frame_memory` measures frame memory beside `tb_malloc` and `tb_free`.
+
 ## Replacing the allocator
 
 An application can supply the four functions every allocation goes through,
@@ -480,8 +586,7 @@ writes without the checker.
 
 ## Not here yet
 
-- A scratch arena for each thread. A variable for each thread is available
-  ([platforms.md](platforms.md#threads-mutexes-and-condition-variables)); the
-  arena itself is not written.
+- A scratch arena for each thread that lives beyond frames. Within a frame,
+  [frame memory](#frame-memory) gives each thread an arena of its own.
 - Arenas that reserve address space and commit it as they grow, which need the
   platform memory interface (#38).

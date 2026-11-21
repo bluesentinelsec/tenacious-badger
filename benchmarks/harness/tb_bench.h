@@ -161,12 +161,16 @@ void tb_bench_bit(tb_bench *bench);
 void tb_bench_decimal(tb_bench *bench);
 /** @brief Benchmarks of badger/fmt.h. */
 void tb_bench_fmt(tb_bench *bench);
+/** @brief Benchmarks of badger/frame_memory.h, beside the heap. */
+void tb_bench_frame_memory(tb_bench *bench);
 /** @brief Benchmarks of badger/hash.h. */
 void tb_bench_hash(tb_bench *bench);
 /** @brief Benchmarks of the scheduler of badger/jobs.h. */
 void tb_bench_jobs(tb_bench *bench);
 /** @brief Benchmarks of badger/memory.h, badger/arena.h, and badger/allocator.h. */
 void tb_bench_memory(tb_bench *bench);
+/** @brief Benchmarks of badger/pool.h, beside the heap and the C library. */
+void tb_bench_pool(tb_bench *bench);
 /** @brief Benchmarks of badger/ring.h. */
 void tb_bench_ring(tb_bench *bench);
 /** @brief Benchmarks of badger/rng.h. */

@@ -58,6 +58,7 @@ set(TB_TEST_CASE_SOURCES
     core/exclusive_test.c
     core/fatal_test.c
     core/fmt_test.c
+    core/frame_memory_test.c
     core/fs_test.c
     core/hash_test.c
     core/list_test.c
@@ -65,6 +66,7 @@ set(TB_TEST_CASE_SOURCES
     core/memory_test.c
     core/memory_debug_test.c
     core/path_test.c
+    core/pool_test.c
     core/result_test.c
     core/ring_test.c
     core/rng_test.c
