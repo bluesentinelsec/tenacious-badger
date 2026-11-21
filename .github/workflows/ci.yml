@@ -61,7 +61,7 @@ jobs:
       - name: Build
         run: cmake --build build/ci --config ${{ matrix.build_type }} --parallel
       - name: Test shared library, consumer, and native adapter
-        run: ctest --test-dir build/ci -C ${{ matrix.build_type }} --output-on-failure --no-tests=error
+        run: ctest --test-dir build/ci -C ${{ matrix.build_type }} --output-on-failure --no-tests=error --timeout 300
       - name: Install the dynamic/static SDK and public headers
         run: cmake --install build/ci --config ${{ matrix.build_type }} --prefix stage/sdk
       - name: Invoke the installed shared library from Python ctypes
