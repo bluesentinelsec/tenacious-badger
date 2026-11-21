@@ -67,6 +67,7 @@ set(TB_TEST_CASE_SOURCES
     core/path_test.c
     core/result_test.c
     core/ring_test.c
+    core/rng_test.c
     core/set_test.c
     core/size_test.c
     core/str_test.c

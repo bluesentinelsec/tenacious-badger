@@ -169,6 +169,8 @@ void tb_bench_jobs(tb_bench *bench);
 void tb_bench_memory(tb_bench *bench);
 /** @brief Benchmarks of badger/ring.h. */
 void tb_bench_ring(tb_bench *bench);
+/** @brief Benchmarks of badger/rng.h. */
+void tb_bench_rng(tb_bench *bench);
 /** @brief Benchmarks of badger/table.h. */
 void tb_bench_table(tb_bench *bench);
 /** @brief Benchmarks of the searches of badger/str.h and badger/text.h. */

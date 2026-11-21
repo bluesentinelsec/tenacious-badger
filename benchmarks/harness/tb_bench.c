@@ -47,6 +47,7 @@ static const tb_bench_module tb_bench_modules[] = {
     {"memory_debug", tb_bench_memory_debug},
     {"path", tb_bench_path},
     {"ring", tb_bench_ring},
+    {"rng", tb_bench_rng},
     {"table", tb_bench_table},
     {"text", tb_bench_text},
     {"thread", tb_bench_thread},

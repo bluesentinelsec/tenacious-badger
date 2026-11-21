@@ -25,6 +25,7 @@ The foundation layer so far, one public header per module under
 | `thread.h` | [Threads, mutexes, condition variables, semaphores, and thread-local values](platforms.md#threads-mutexes-and-condition-variables) |
 | `system.h` | [The processors the process may run on](platforms.md#processors): how many, and which |
 | `random.h` | [Random bytes from the operating system](platforms.md#random-bytes), for keys and nonces |
+| `rng.h` | [Random numbers that repeat from a seed](random.md), the same on every platform |
 | `library.h` | [Shared libraries loaded at run time](platforms.md#shared-libraries), and the functions and data they export |
 | `stack.h` | [The call stack of a thread](platforms.md#call-stacks), and what an address is part of |
 | `crash.h` | [Crashes](platforms.md#crashes) that the system raises, reported with the stack of the code that crashed |
@@ -335,6 +336,7 @@ replaces:
 | `Sleep`, `nanosleep`, `clock_nanosleep`, `usleep`, waitable timers | `tb_platform_sleep`, `tb_platform_wait_until` | [`platform.h`](platforms.md#sleeping-and-pacing) |
 | `GetSystemInfo`, `GetLogicalProcessorInformationEx`, `sched_getaffinity`, `get_nprocs`, `_SC_NPROCESSORS_ONLN`, and other native counts of processors | `tb_system_get_processors` | [`system.h`](platforms.md#processors) |
 | `BCryptGenRandom`, `RtlGenRandom`, `rand_s`, `getrandom`, `getentropy`, `arc4random` and its relatives, `SecRandomCopyBytes` | `tb_random_bytes` | [`random.h`](platforms.md#random-bytes) |
+| `rand`, `srand`, `rand_r`, `random`, `srandom`, and the `drand48` family | `tb_rng` and its functions | [`rng.h`](random.md) |
 | `<search.h>` | `tb_table`, `tb_set`, `tb_list` | [`table.h`](collections.md) |
 
 `python tools/check_foundation.py --list` prints every name. The check reads

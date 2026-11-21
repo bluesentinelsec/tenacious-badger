@@ -675,7 +675,7 @@ It returns false only when the system has no generator to give, which no
 supported system lacks. It is thread-safe and needs no setup.
 
 These bytes cannot be seeded, so nothing that must repeat (a test, a
-simulation, a replay) may use them; those keep a generator of their own and
+simulation, a replay) may use them; those use a [generator](random.md) and
 record its seed.
 
 ## Command-line arguments

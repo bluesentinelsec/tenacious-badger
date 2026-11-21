@@ -4,7 +4,7 @@
  * These come from the system's generator for cryptography: BCryptGenRandom
  * on Windows, getrandom on Linux, and arc4random_buf on macOS. They cannot
  * be seeded or repeated; for random numbers a test or a simulation must be
- * able to repeat, use a generator of its own with a recorded seed.
+ * able to repeat, use a generator from badger/rng.h with a recorded seed.
  * Implementations are build-selected.
  */
 #ifndef TB_RANDOM_H

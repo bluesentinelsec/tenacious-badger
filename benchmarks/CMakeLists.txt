@@ -24,6 +24,7 @@ add_executable(tb_bench
     core/hash_bench.c
     core/memory_bench.c
     core/ring_bench.c
+    core/rng_bench.c
     core/stream_bench.c
     core/table_bench.c
     core/text_bench.c
