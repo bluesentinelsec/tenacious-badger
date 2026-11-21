@@ -18,7 +18,7 @@ The foundation layer so far, one public header per module under
 | `memory.h` | [Memory allocation](memory.md) that fails fast, with a replaceable allocator |
 | `arena.h` | [Arenas](memory.md#arenas) for objects that share a lifetime |
 | `allocator.h` | [Allocators chosen per object](memory.md#choosing-the-allocator-of-one-object) |
-| `array.h`, `bit.h`, `ring.h`, `list.h`, `table.h`, `set.h` | [Collections](collections.md): a dynamic array, a bit vector, a ring, an intrusive list, a hash table, and a set |
+| `array.h`, `bit.h`, `ring.h`, `list.h`, `table.h`, `set.h`, `sort.h` | [Collections](collections.md): a dynamic array, a bit vector, a ring, an intrusive list, a hash table, a set, and sorting |
 | `str.h`, `text.h`, `fmt.h`, `atom.h`, `hash.h` | [Strings](strings.md): C strings, text values, formatted output, atoms, and hash functions |
 | `decimal.h` | [Floating-point text that reads back](strings.md#floating-point-text-that-reads-back): the shortest text of a `double`, and reading text into one |
 | `platform.h` | [Native platform interfaces](platforms.md): the clock, sleeping and pacing, abort, writing to stderr without the C library, and atomic values |
@@ -335,6 +335,7 @@ replaces:
 | `Sleep`, `nanosleep`, `clock_nanosleep`, `usleep`, waitable timers | `tb_platform_sleep`, `tb_platform_wait_until` | [`platform.h`](platforms.md#sleeping-and-pacing) |
 | `GetSystemInfo`, `GetLogicalProcessorInformationEx`, `sched_getaffinity`, `get_nprocs`, `_SC_NPROCESSORS_ONLN`, and other native counts of processors | `tb_system_get_processors` | [`system.h`](platforms.md#processors) |
 | `BCryptGenRandom`, `RtlGenRandom`, `rand_s`, `getrandom`, `getentropy`, `arc4random` and its relatives, `SecRandomCopyBytes` | `tb_random_bytes` | [`random.h`](platforms.md#random-bytes) |
+| `qsort`, `qsort_s`, `qsort_r`, `bsearch`, `bsearch_s` | `tb_sort`, `tb_sort_stable`, `tb_sort_lower_bound` | [`sort.h`](collections.md#sorting) |
 | `<search.h>` | `tb_table`, `tb_set`, `tb_list` | [`table.h`](collections.md) |
 
 `python tools/check_foundation.py --list` prints every name. The check reads

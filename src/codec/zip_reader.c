@@ -4,13 +4,13 @@
 #include "badger/assert.h"
 #include "badger/checksum.h"
 #include "badger/deflate.h"
+#include "badger/sort.h"
 #include "badger/table.h"
 #include "badger/utf8.h"
 #include "entry_stream.h"
 #include "zip_internal.h"
 
 #include <stdbool.h>
-#include <stdlib.h>
 #include <string.h>
 
 /* Bytes of the central directory read at a time. */
@@ -444,10 +444,11 @@ static tb_zip_result tb_zip_check_record(const tb_zip_archive *archive, const tb
     return TB_ZIP_OK;
 }
 
-static int tb_zip_compare_offsets(const void *left, const void *right)
+static int tb_zip_compare_offsets(const void *left, const void *right, void *context)
 {
     const tb_zip_record *const first = *(tb_zip_record *const *)left;
     const tb_zip_record *const second = *(tb_zip_record *const *)right;
+    (void)context;
     if (first->local_offset != second->local_offset)
     {
         return first->local_offset < second->local_offset ? -1 : 1;
@@ -470,7 +471,7 @@ static tb_zip_result tb_zip_check_overlaps(tb_zip_archive *archive)
     {
         order[index] = &archive->records[index];
     }
-    qsort(order, archive->count, sizeof(order[0]), tb_zip_compare_offsets);
+    tb_sort(order, archive->count, sizeof(order[0]), tb_zip_compare_offsets, NULL);
     for (size_t index = 0; index < archive->count; index++)
     {
         tb_zip_record *const record = order[index];

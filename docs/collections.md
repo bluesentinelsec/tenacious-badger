@@ -11,6 +11,7 @@ The engine's general-purpose containers. Each has one public header under
 | [List](#list) | `list.h` | Membership: objects that join and leave sets in constant time, without allocation. |
 | [Table](#table) | `table.h` | Lookup: a value found by its key in constant time, with keys of any kind. |
 | [Set](#set) | `set.h` | Membership by value: whether something is in, with union, intersection, and difference. |
+| [Sorting](#sorting) | `sort.h` | Putting an array in order, and finding a place in a sorted one. |
 
 ## What they have in common
 
@@ -409,3 +410,63 @@ and has no members.
 **Members that are small numbers from a fixed range** belong in a
 [bit vector](#bit-vector), which is far smaller and combines whole words at a
 time.
+
+## Sorting
+
+`sort.h` sorts arrays of any element type in place, and finds where a key
+belongs in a sorted array. It replaces the C library's `qsort` and `bsearch`,
+which `tools/check_foundation.py` rejects elsewhere.
+
+```c
+static int by_depth(const void *left, const void *right, void *context)
+{
+    const draw *const first = left;
+    const draw *const second = right;
+
+    (void)context;
+    return (first->depth > second->depth) - (first->depth < second->depth);
+}
+
+tb_sort(draws, draw_count, sizeof(draws[0]), by_depth, NULL);
+```
+
+| Need | Use |
+| --- | --- |
+| Sort, with no memory and no promise about equal elements | `tb_sort(elements, count, size, compare, context)` |
+| Sort, keeping equal elements in the order they had | `tb_sort_stable(elements, count, size, compare, context, allocator)` |
+| Find a key, or where to insert it | `tb_sort_lower_bound(elements, count, size, &key, compare, context)` |
+
+**The comparison takes a context**, the last argument of each function, so it
+can reach whatever else it needs (a table of names, a camera position, a sort
+direction) without a global. It returns negative, zero, or positive, as for
+`qsort`, and must be a consistent order. One that is not, such as a
+floating-point comparison that meets a NaN, gives an unspecified order but
+never loses, duplicates, or reaches past an element.
+
+**The order is the same on every platform.** `qsort` is not stable, and the C
+libraries of Windows, Linux, and macOS order equal elements differently. These
+algorithms are the engine's own, so for the same input and comparison every
+platform and every build gives the same result, equal elements included. A
+test checks a fixed sort against one digest on every platform in CI. This is
+what deterministic simulation and replays rely on.
+
+**Which to use.**
+
+- **`tb_sort`** is introsort: quicksort with a median pivot, finished by
+  heapsort if the pivots turn out poor and by insertion sort for short ranges.
+  It is O(n log n) in the worst case, even on input built to defeat its pivot
+  choice, and allocates nothing. Equal elements end in an unspecified but
+  fixed order.
+- **`tb_sort_stable`** is merge sort, and keeps equal elements in the order
+  they had. It takes a scratch buffer of half the array from the allocator
+  given (NULL for the heap; a frame's arena suits it), and releases it before
+  returning. An array that is already sorted costs one comparison per
+  element, and an array of up to 16 elements needs no memory.
+- **`tb_sort_lower_bound`** is binary search. It returns the index of the
+  first element that does not go before the key, or the count when every
+  element does: the key is present when the element there compares equal.
+  The comparison gets an element as its left argument and the key as its
+  right, so the key may be of another type, such as a name to find among
+  records.
+
+`tb_bench sort` measures both sorts beside `qsort`.
