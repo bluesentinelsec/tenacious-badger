@@ -2,9 +2,9 @@
 #include "vfs_internal.h"
 
 #include "badger/assert.h"
+#include "badger/sort.h"
 #include "badger/utf8.h"
 
-#include <stdlib.h>
 #include <string.h>
 
 bool tb_vfs_name_is_valid(const char *name, size_t length, bool allow_root)
@@ -110,16 +110,14 @@ static int tb_vfs_compare_bytes(const char *left, size_t left_length, const char
     return left_length < right_length ? -1 : (left_length > right_length ? 1 : 0);
 }
 
-/* qsort has no context, so the names it compares are found through this. */
-static _Thread_local const char *tb_vfs_sorting_names;
-
-static int tb_vfs_compare_nodes(const void *left, const void *right)
+/* `context` is the index's names, which the nodes refer into. */
+static int tb_vfs_compare_nodes(const void *left, const void *right, void *context)
 {
+    const char *const names = context;
     const tb_vfs_node *const first = left;
     const tb_vfs_node *const second = right;
-    const int order =
-        tb_vfs_compare_bytes(tb_vfs_sorting_names + first->name, first->name_length,
-                             tb_vfs_sorting_names + second->name, second->name_length);
+    const int order = tb_vfs_compare_bytes(names + first->name, first->name_length,
+                                           names + second->name, second->name_length);
     if (order != 0)
     {
         return order;
@@ -153,9 +151,8 @@ tb_vfs_result tb_vfs_index_finish(tb_vfs_index *index)
     }
     if (index->count > 1)
     {
-        tb_vfs_sorting_names = index->names;
-        qsort(index->nodes, index->count, sizeof(index->nodes[0]), tb_vfs_compare_nodes);
-        tb_vfs_sorting_names = NULL;
+        tb_sort(index->nodes, index->count, sizeof(index->nodes[0]), tb_vfs_compare_nodes,
+                index->names);
     }
     for (size_t entry = 0; entry < index->count; entry++)
     {
