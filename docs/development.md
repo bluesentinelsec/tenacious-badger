@@ -36,6 +36,7 @@ The foundation layer so far, one public header per module under
 | `fs.h`, `file.h` | [Files and directories](files.md): `fs.h` is the module's header, and includes the native interface in `file.h` |
 | `log.h` | [Logging](logging.md) with replaceable sinks |
 | `cli.h` | [Command lines](command-line.md): options, arguments, subcommands, help, and errors |
+| `process.h` | [The process's command-line arguments](platforms.md#command-line-arguments), as UTF-8 on every platform |
 | `base64.h` | [Base64](codecs.md#base64): bytes as text and back, strictly |
 | `checksum.h` | [Checksums](codecs.md#checksums): CRC-32 and Adler-32 |
 | `sha256.h` | [SHA-256 and HMAC-SHA256](codecs.md#sha-256), for keys and content |
@@ -51,7 +52,8 @@ The foundation layer so far, one public header per module under
 What these headers do the same way, such as how a function reports failure,
 is in [the conventions of the public API](conventions.md).
 
-`burrow` calls the shared library and prints `2 + 3 = 5`. Rendering, windowing,
+`burrow` calls the shared library and prints `2 + 3 = 5`; `burrow --help` and
+`burrow --version` answer as a command-line program does. Rendering, windowing,
 gameplay, vendor integrations, and the other planned modules remain future work.
 
 The [release and distribution requirements](../AGENTS.md#releases-and-distribution)

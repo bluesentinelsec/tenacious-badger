@@ -10,6 +10,7 @@
 #include "badger/crash.h"
 #include "badger/library.h"
 #include "badger/platform.h"
+#include "badger/process.h"
 #include "badger/random.h"
 #include "badger/stack.h"
 #include "badger/system.h"
@@ -76,6 +77,22 @@ TB_TEST(platform_default, tb_library_find_data)
 TB_TEST(platform_default, tb_library_bind)
 {
     (void)tb_library_bind(NULL, NULL, 0, NULL);
+}
+
+TB_TEST(platform_default, tb_process_get_arguments)
+{
+    char program[] = "program";
+    char *values[] = {program, NULL};
+    tb_arguments arguments = TB_ARGUMENTS_INIT;
+
+    (void)tb_process_get_arguments(1, values, &arguments);
+}
+
+TB_TEST(platform_default, tb_process_release_arguments)
+{
+    tb_arguments arguments = TB_ARGUMENTS_INIT;
+
+    tb_process_release_arguments(&arguments);
 }
 
 TB_TEST(platform_default, tb_platform_clock_nanoseconds)

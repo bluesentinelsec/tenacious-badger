@@ -6,6 +6,7 @@ set(TB_PLATFORM_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/crash.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/error_stream.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/library.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/process.c"
     # A loaded library's record, the checks of its name, and its messages.
     "${CMAKE_CURRENT_SOURCE_DIR}/../shared/library.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/stack.c"
