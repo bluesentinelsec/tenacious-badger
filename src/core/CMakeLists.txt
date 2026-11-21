@@ -37,6 +37,7 @@ set(TB_CORE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/text.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/utf8.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/virtual_memory.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/window.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/xp.c"
     CACHE INTERNAL "Platform-independent core sources")
 target_sources(badger PRIVATE ${TB_CORE_SOURCES})

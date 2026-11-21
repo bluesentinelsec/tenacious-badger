@@ -277,6 +277,24 @@ jobs:
           -DCMAKE_C_COMPILER=${{ matrix.cc }} -DTB_ENABLE_COVERAGE=ON
           -DTB_BUILD_BENCHMARKS=OFF
       - run: cmake --build build/coverage --parallel
+      # The window tests run on every windowing that opens. A runner has no
+      # display, so Linux gets both kinds it supports: an X server in memory
+      # and a Wayland compositor without an output device, each on its own
+      # socket.
+      - name: Start an X server and a Wayland compositor for the window tests
+        if: matrix.platform == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends xvfb weston
+          Xvfb :99 -screen 0 1920x1080x24 &
+          runtime="$(mktemp -d)"
+          chmod 700 "$runtime"
+          XDG_RUNTIME_DIR="$runtime" weston --backend=headless --socket=wayland-tb \
+            --width=1920 --height=1080 &
+          sleep 3
+          echo "DISPLAY=:99" >> "$GITHUB_ENV"
+          echo "XDG_RUNTIME_DIR=$runtime" >> "$GITHUB_ENV"
+          echo "WAYLAND_DISPLAY=wayland-tb" >> "$GITHUB_ENV"
       - name: Run every test
         run: ctest --test-dir build/coverage --output-on-failure --timeout 120 --no-tests=error
       - name: Require 80 percent of the lines of every engine source to be run

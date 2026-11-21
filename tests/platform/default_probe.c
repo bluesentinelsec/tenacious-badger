@@ -15,6 +15,7 @@
 #include "badger/stack.h"
 #include "badger/system.h"
 #include "badger/thread.h"
+#include "badger/window.h"
 
 #include "tb_test.h"
 
@@ -541,4 +542,93 @@ TB_TEST(platform_default, tb_vm_release)
 TB_TEST(platform_default, tb_vm_allocate_large)
 {
     (void)tb_vm_allocate_large(0, NULL);
+}
+
+TB_TEST(platform_default, tb_window_system_open)
+{
+    tb_window_system *system = NULL;
+
+    (void)tb_window_system_open(NULL, &system, NULL);
+}
+
+TB_TEST(platform_default, tb_window_system_close)
+{
+    tb_window_system_close(NULL);
+}
+
+TB_TEST(platform_default, tb_window_system_backend)
+{
+    (void)tb_window_system_backend(NULL);
+}
+
+TB_TEST(platform_default, tb_window_system_display_count)
+{
+    (void)tb_window_system_display_count(NULL);
+}
+
+TB_TEST(platform_default, tb_window_system_display)
+{
+    tb_display display = {0};
+
+    tb_window_system_display(NULL, 0, &display);
+}
+
+TB_TEST(platform_default, tb_window_system_poll)
+{
+    tb_window_event event = {0};
+
+    (void)tb_window_system_poll(NULL, &event);
+}
+
+TB_TEST(platform_default, tb_window_system_wait)
+{
+    tb_window_system_wait(NULL, 0);
+}
+
+TB_TEST(platform_default, tb_window_system_wake)
+{
+    tb_window_system_wake(NULL);
+}
+
+TB_TEST(platform_default, tb_window_create)
+{
+    tb_window *window = NULL;
+
+    (void)tb_window_create(NULL, NULL, &window, NULL);
+}
+
+TB_TEST(platform_default, tb_window_destroy)
+{
+    tb_window_destroy(NULL);
+}
+
+TB_TEST(platform_default, tb_window_configure)
+{
+    const tb_window_options options = {0};
+
+    (void)tb_window_configure(NULL, &options, NULL);
+}
+
+TB_TEST(platform_default, tb_window_state_of)
+{
+    tb_window_state state = {0};
+
+    tb_window_state_of(NULL, &state);
+}
+
+TB_TEST(platform_default, tb_window_native_of)
+{
+    tb_window_native native = {0};
+
+    tb_window_native_of(NULL, &native);
+}
+
+TB_TEST(platform_default, tb_window_backend_name)
+{
+    (void)tb_window_backend_name(TB_WINDOW_BACKEND_AUTOMATIC);
+}
+
+TB_TEST(platform_default, tb_key_name)
+{
+    (void)tb_key_name(TB_KEY_ESCAPE);
 }

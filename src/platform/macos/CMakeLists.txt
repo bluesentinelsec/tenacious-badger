@@ -41,3 +41,14 @@ set(TB_PLATFORM_SOURCES
     CACHE INTERNAL "Selected platform adapter sources")
 target_sources(badger PRIVATE ${TB_PLATFORM_SOURCES})
 target_sources(badger_static PRIVATE ${TB_PLATFORM_SOURCES})
+
+# Windows and displays: the shared front, then Cocoa behind it, reached
+# through the Objective-C runtime and AppKit loaded at run time. Windowing is
+# built on the foundation modules, which the adapter beneath them is not, so
+# it is not part of the adapter's own sources and tests.
+set(TB_WINDOW_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/../shared/window.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/window.c"
+    CACHE INTERNAL "Selected windowing sources")
+target_sources(badger PRIVATE ${TB_WINDOW_SOURCES})
+target_sources(badger_static PRIVATE ${TB_WINDOW_SOURCES})
