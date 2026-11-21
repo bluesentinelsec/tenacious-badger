@@ -335,6 +335,7 @@ replaces:
 | `Sleep`, `nanosleep`, `clock_nanosleep`, `usleep`, waitable timers | `tb_platform_sleep`, `tb_platform_wait_until` | [`platform.h`](platforms.md#sleeping-and-pacing) |
 | `GetSystemInfo`, `GetLogicalProcessorInformationEx`, `sched_getaffinity`, `get_nprocs`, `_SC_NPROCESSORS_ONLN`, and other native counts of processors | `tb_system_get_processors` | [`system.h`](platforms.md#processors) |
 | `BCryptGenRandom`, `RtlGenRandom`, `rand_s`, `getrandom`, `getentropy`, `arc4random` and its relatives, `SecRandomCopyBytes` | `tb_random_bytes` | [`random.h`](platforms.md#random-bytes) |
+| `qsort`, `qsort_s`, `qsort_r`, `bsearch`, `bsearch_s` | `tb_sort`, `tb_sort_stable`, `tb_sort_lower_bound` | [`sort.h`](collections.md#sorting) |
 | `<search.h>` | `tb_table`, `tb_set`, `tb_list` | [`table.h`](collections.md) |
 
 `python tools/check_foundation.py --list` prints every name. The check reads
