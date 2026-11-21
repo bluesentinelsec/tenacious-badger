@@ -82,5 +82,9 @@ jobs:
         run: cmake -S . -B build/sanitizer -DCMAKE_BUILD_TYPE=Debug -D${{ matrix.option }}=ON
       - name: Build
         run: cmake --build build/sanitizer --config Debug --parallel
+      # Under a sanitizer, and above all under ThreadSanitizer on macOS, every
+      # test process is slow to start, so the tests run side by side on every
+      # core of the runner. A test that outlives the limit fails by name, rather
+      # than the job running out of time with no test to blame.
       - name: Test
-        run: ctest --test-dir build/sanitizer -C Debug --output-on-failure --no-tests=error
+        run: ctest --test-dir build/sanitizer -C Debug --output-on-failure --no-tests=error --parallel --timeout 300
