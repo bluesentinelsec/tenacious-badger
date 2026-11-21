@@ -38,6 +38,7 @@ static const tb_bench_module tb_bench_modules[] = {
     {"atomic", tb_bench_atomic},
     {"bit", tb_bench_bit},
     {"fmt", tb_bench_fmt},
+    {"frame_memory", tb_bench_frame_memory},
     {"fs", tb_bench_fs},
     {"hash", tb_bench_hash},
     {"jobs", tb_bench_jobs},

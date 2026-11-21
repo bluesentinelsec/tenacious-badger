@@ -318,6 +318,55 @@ calls. Builds with assertions detect two threads using one pool at once.
 
 `tb_bench pool` measures a pool beside `tb_malloc` and `malloc`.
 
+## Frame memory
+
+`include/badger/frame_memory.h` serves what a frame makes and then forgets:
+render requests, culling results, draw lists, temporary strings. Each thread
+allocates from an arena of its own, with no lock and no atomic operation, and
+everything is released at once when the frame's memory comes round again.
+
+```c
+tb_frame_memory *const frame_memory = tb_frame_memory_create(NULL);
+
+for (;;)
+{
+    tb_frame_memory_begin(frame_memory);
+    /* On any thread, during the frame: */
+    draw *const draws = TB_ARENA_NEW_ARRAY(tb_frame_memory_arena(frame_memory), draw, count);
+    ...
+}
+```
+
+| Need | Use |
+| --- | --- |
+| Create, destroy | `tb_frame_memory_create(&options)` or `(NULL)`, `tb_frame_memory_destroy` |
+| Start the next frame | `tb_frame_memory_begin`, on the thread that runs the frame loop |
+| Memory for this frame, on this thread | `tb_frame_memory_arena`, then any arena function; or `tb_frame_memory_alloc(memory, size, alignment)` |
+| Which frame it is | `tb_frame_memory_frame`: 0 at creation, one more for each begin |
+
+**Frames in flight.** A pipelined frame reads the previous frame's data while
+it builds its own, so frame memory keeps a set of arenas for each frame in
+flight (`frames_in_flight`, two by default, up to four) and uses them in turn.
+Memory allocated during frame N is valid until frame N + `frames_in_flight`
+begins: with two, the render work of frame N can read what the game work of
+frame N made while frame N + 1 is being simulated.
+
+**Each thread's arena.** The first time a thread asks during a frame's turn
+it gets an arena of its own, and it keeps it until the frame memory is
+destroyed, so once every thread has grown its arenas to their working size,
+frames allocate nothing from the heap. A thread allocates only from its own
+arena, and only during the frame; pointers into it may go to any thread. A
+thread that ends leaves its arenas behind until the frame memory is
+destroyed, which suits the engine's fixed set of worker threads.
+
+**Threading.** `tb_frame_memory_arena` and `tb_frame_memory_alloc` are
+thread-safe. `tb_frame_memory_begin` is stage-owned: the owner of the frame
+loop calls it between frames, after every thread that used the frame memory
+has finished in a way that synchronizes with the owner, as waiting for its
+jobs does.
+
+`tb_bench frame_memory` measures frame memory beside `tb_malloc` and `tb_free`.
+
 ## Replacing the allocator
 
 An application can supply the four functions every allocation goes through,
@@ -537,8 +586,7 @@ writes without the checker.
 
 ## Not here yet
 
-- A scratch arena for each thread. A variable for each thread is available
-  ([platforms.md](platforms.md#threads-mutexes-and-condition-variables)); the
-  arena itself is not written.
+- A scratch arena for each thread that lives beyond frames. Within a frame,
+  [frame memory](#frame-memory) gives each thread an arena of its own.
 - Arenas that reserve address space and commit it as they grow, which need the
   platform memory interface (#38).

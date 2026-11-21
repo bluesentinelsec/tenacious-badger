@@ -20,6 +20,7 @@ add_executable(tb_bench
     core/decimal_bench.c
     core/diagnostics_bench.c
     core/fmt_bench.c
+    core/frame_memory_bench.c
     core/fs_bench.c
     core/hash_bench.c
     core/memory_bench.c
