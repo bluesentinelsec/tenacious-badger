@@ -51,12 +51,15 @@ The foundation layer so far, one public header per module under
 | `vfs.h` | [The virtual file system](vfs.md): directories, archive files, and archives in memory, mounted into one namespace |
 | `json.h` | [JSON](serialization.md): a reader of events, documents in arenas, and a writer |
 | `stream.h` | [Streams](streams.md): one interface for reading and writing bytes, over memory, files, and ranges of other streams |
+| `settings.h`, `engine_settings.h` | [Settings](settings.md): the options players and developers choose, in layers from defaults to run time, and the engine's catalog of them |
 
 What these headers do the same way, such as how a function reports failure,
 is in [the conventions of the public API](conventions.md).
 
-`burrow` calls the shared library and prints `2 + 3 = 5`; `burrow --help` and
-`burrow --version` answer as a command-line program does. Rendering, windowing,
+`burrow` calls the shared library, loads its [settings](settings.md#burrow),
+and prints `2 + 3 = 5`; `burrow settings` lists every setting, and
+`burrow --help` and `burrow --version` answer as a command-line program does.
+Rendering, windowing,
 gameplay, vendor integrations, and the other planned modules remain future work.
 
 The [release and distribution requirements](../AGENTS.md#releases-and-distribution)
@@ -274,7 +277,10 @@ publishes verified native exports after all tagged-build checks pass.
 - `src/platform/{win32,linux,macos}/`: CMake-selected native implementations.
 - `src/platform/default/`: the adapter for [any other platform](platforms.md#unsupported-platforms),
   whose every function reports "not implemented".
-- `src/main.c`: thin `burrow` entrypoint.
+- `src/settings/`: [settings](settings.md) and the engine's catalog of them.
+- `src/main.c`, `src/burrow_settings.c`: the `burrow` entrypoint and its
+  settings; `src/burrow_defaults.cfg` is Burrow's default settings file, which
+  the build embeds in the executable.
 - `tests/`: unit tests and platform integration checks.
 - `benchmarks/`: `tb_bench`, which times the operations of the foundation
   modules. [Benchmarks](benchmarks.md) explains how to run it and how to read it.

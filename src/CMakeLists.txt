@@ -22,6 +22,7 @@ add_subdirectory(jobs)
 add_subdirectory(codec)
 add_subdirectory(serialize)
 add_subdirectory(vfs)
+add_subdirectory(settings)
 tb_strip_release(badger)
 
 # The engine's modules call one another across source files, and a compiler
@@ -41,8 +42,23 @@ else()
 endif()
 
 if(TB_BUILD_BURROW)
-    add_executable(burrow main.c)
+    # Burrow's default settings travel in the executable; the file is edited
+    # as text, and the build turns it into a C source.
+    set(burrow_defaults_source "${CMAKE_CURRENT_BINARY_DIR}/burrow_defaults.c")
+    add_custom_command(OUTPUT "${burrow_defaults_source}"
+        COMMAND "${CMAKE_COMMAND}" "-DINPUT=${CMAKE_CURRENT_SOURCE_DIR}/burrow_defaults.cfg"
+            "-DOUTPUT=${burrow_defaults_source}" -DNAME=burrow_defaults
+            -P "${PROJECT_SOURCE_DIR}/cmake/EmbedText.cmake"
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/burrow_defaults.cfg"
+            "${PROJECT_SOURCE_DIR}/cmake/EmbedText.cmake"
+        COMMENT "Embedding Burrow's default settings"
+        VERBATIM)
+    add_executable(burrow main.c burrow_settings.c "${burrow_defaults_source}")
     target_link_libraries(burrow PRIVATE TenaciousBadger::badger)
+    # A developer build starts in a window and quits on Escape; Release and
+    # MinSizeRel are release builds.
+    target_compile_definitions(burrow PRIVATE
+        "BURROW_DEVELOPER=$<IF:$<CONFIG:Release,MinSizeRel>,0,1>")
     tb_configure_target(burrow)
     tb_analyze_target(burrow)
     tb_strip_release(burrow)

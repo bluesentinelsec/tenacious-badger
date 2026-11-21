@@ -1,0 +1,445 @@
+/* The engine's catalog of settings. Families and settings are added in the
+ * order an options menu shows them; the descriptions are what its help and a
+ * console say about each. */
+#include "badger/engine_settings.h"
+
+#include "badger/assert.h"
+
+#include <stddef.h>
+
+#define TB_COUNT_OF(array) (sizeof(array) / sizeof((array)[0]))
+
+/* The longest language tag accepted: BCP 47 allows 35 characters in
+ * practice. */
+#define TB_ENGINE_LANGUAGE_TAG_LIMIT ((size_t)35)
+
+/* The highest resolution and refresh rate a setting accepts: well beyond any
+ * display, low enough that no arithmetic on them overflows. */
+#define TB_ENGINE_MOST_PIXELS ((int64_t)16384)
+#define TB_ENGINE_MOST_HERTZ ((int64_t)1000)
+
+static const tb_settings_family tb_engine_families[] = {
+    {.name = "gameplay",
+     .title = "Gameplay",
+     .description = "How the game behaves around play.",
+     .for_players = true},
+    {.name = "display",
+     .title = "Display",
+     .description = "The window, the monitor, and how frames reach the screen.",
+     .for_players = true},
+    {.name = "graphics",
+     .title = "Graphics",
+     .description = "How the game renders: resolution, lighting, and quality.",
+     .for_players = true},
+    {.name = "audio",
+     .title = "Audio",
+     .description = "Volumes, and where the sound goes.",
+     .for_players = true},
+    {.name = "controls",
+     .title = "Controls",
+     .description = "The mouse, gamepads, and touch screens.",
+     .for_players = true},
+    {.name = "interface",
+     .title = "Interface",
+     .description = "The size of the interface, its font, and the HUD.",
+     .for_players = true},
+    {.name = "accessibility",
+     .title = "Accessibility",
+     .description = "Subtitles, readability, color, and motion.",
+     .for_players = true},
+    {.name = "language",
+     .title = "Language",
+     .description = "The language of text and speech.",
+     .for_players = true},
+    {.name = "engine",
+     .title = "Engine",
+     .description = "Tuning that a game ships with.",
+     .for_players = false},
+    {.name = "developer",
+     .title = "Developer",
+     .description = "Switches for developing the game.",
+     .for_players = false},
+};
+
+static const char *const tb_engine_window_modes[] = {"windowed", "borderless", "fullscreen"};
+static const char *const tb_engine_vsync_modes[] = {"off", "on", "adaptive"};
+static const char *const tb_engine_upscalers[] = {"native", "dlss", "fsr", "xess", "metalfx"};
+static const char *const tb_engine_low_latency[] = {"off", "on", "boost"};
+static const char *const tb_engine_lighting[] = {"raster", "hybrid", "path_tracing"};
+static const char *const tb_engine_anti_aliasing[] = {"off", "fxaa", "taa"};
+static const char *const tb_engine_quality[] = {"low", "medium", "high", "ultra"};
+static const char *const tb_engine_anisotropy[] = {"off", "2x", "4x", "8x", "16x"};
+static const char *const tb_engine_speaker_modes[] = {"automatic", "stereo", "headphones",
+                                                      "surround_5_1", "surround_7_1"};
+static const char *const tb_engine_dynamic_ranges[] = {"wide", "standard", "night"};
+static const char *const tb_engine_overlays[] = {"off", "frame_rate", "detailed"};
+static const char *const tb_engine_subtitles[] = {"off", "dialogue", "captions"};
+static const char *const tb_engine_subtitle_sizes[] = {"small", "medium", "large", "largest"};
+static const char *const tb_engine_text_sizes[] = {"standard", "large", "largest"};
+static const char *const tb_engine_color_blind_modes[] = {"off", "protanopia", "deuteranopia",
+                                                          "tritanopia"};
+
+/* The indices of the defaults that are not the first choice. */
+enum
+{
+    TB_ENGINE_UPSCALER_NATIVE = 0,
+    TB_ENGINE_LOW_LATENCY_OFF = 0,
+    TB_ENGINE_LIGHTING_RASTER = 0,
+    TB_ENGINE_ANTI_ALIASING_TAA = 2,
+    TB_ENGINE_QUALITY_HIGH = 2,
+    TB_ENGINE_ANISOTROPY_8X = 3,
+    TB_ENGINE_SPEAKERS_AUTOMATIC = 0,
+    TB_ENGINE_DYNAMIC_RANGE_STANDARD = 1,
+    TB_ENGINE_OVERLAY_OFF = 0,
+    TB_ENGINE_SUBTITLES_DIALOGUE = 1,
+    TB_ENGINE_SUBTITLE_SIZE_MEDIUM = 1,
+    TB_ENGINE_TEXT_SIZE_STANDARD = 0,
+    TB_ENGINE_COLOR_BLIND_OFF = 0
+};
+
+static tb_setting *tb_engine_boolean(tb_settings *settings, const char *name,
+                                     const char *description, bool value)
+{
+    return tb_settings_add(settings, &(tb_setting_definition){.name = name,
+                                                              .description = description,
+                                                              .type = TB_SETTING_BOOLEAN,
+                                                              .boolean = {.default_value = value}});
+}
+
+static tb_setting *tb_engine_integer(tb_settings *settings, const char *name,
+                                     const char *description, int64_t value, int64_t minimum,
+                                     int64_t maximum)
+{
+    return tb_settings_add(
+        settings, &(tb_setting_definition){
+                      .name = name,
+                      .description = description,
+                      .type = TB_SETTING_INTEGER,
+                      .integer = {.default_value = value, .minimum = minimum, .maximum = maximum}});
+}
+
+static tb_setting *tb_engine_number(tb_settings *settings, const char *name,
+                                    const char *description, double value, double minimum,
+                                    double maximum)
+{
+    return tb_settings_add(
+        settings, &(tb_setting_definition){
+                      .name = name,
+                      .description = description,
+                      .type = TB_SETTING_NUMBER,
+                      .number = {.default_value = value, .minimum = minimum, .maximum = maximum}});
+}
+
+static tb_setting *tb_engine_choice(tb_settings *settings, const char *name,
+                                    const char *description, const char *const *choices,
+                                    size_t count, size_t value)
+{
+    return tb_settings_add(
+        settings, &(tb_setting_definition){
+                      .name = name,
+                      .description = description,
+                      .type = TB_SETTING_CHOICE,
+                      .choice = {.names = choices, .count = count, .default_value = value}});
+}
+
+static tb_setting *tb_engine_text(tb_settings *settings, const char *name, const char *description,
+                                  size_t limit)
+{
+    return tb_settings_add(settings,
+                           &(tb_setting_definition){.name = name,
+                                                    .description = description,
+                                                    .type = TB_SETTING_TEXT,
+                                                    .text = {.default_value = "", .limit = limit}});
+}
+
+#define TB_ENGINE_CHOICE(settings, name, description, choices, value)                              \
+    tb_engine_choice((settings), (name), (description), (choices), TB_COUNT_OF(choices), (value))
+
+static void tb_engine_add_gameplay(tb_settings *settings, tb_engine_settings *engine)
+{
+    engine->gameplay.pause_when_unfocused =
+        tb_engine_boolean(settings, "gameplay.pause_when_unfocused",
+                          "Pause the game while its window does not have the focus.", true);
+}
+
+static void tb_engine_add_display(tb_settings *settings, const tb_engine_settings_options *options,
+                                  tb_engine_settings *engine)
+{
+    engine->display.window_mode = TB_ENGINE_CHOICE(
+        settings, "display.window_mode",
+        "Windowed: a window with a frame. Borderless: a window without a frame that fills the "
+        "display. Fullscreen: the display in the game's own resolution, where the system has it.",
+        tb_engine_window_modes,
+        options->developer ? (size_t)TB_WINDOW_MODE_WINDOWED : (size_t)TB_WINDOW_MODE_BORDERLESS);
+    engine->display.monitor =
+        tb_engine_integer(settings, "display.monitor",
+                          "The display the game uses: 0 for the primary display, then the "
+                          "others in the order the system lists them.",
+                          0, 0, 63);
+    engine->display.window_width = tb_engine_integer(
+        settings, "display.window_width",
+        "The width of the window in windowed mode, before the display's scaling; 0 to fit the "
+        "display.",
+        0, 0, TB_ENGINE_MOST_PIXELS);
+    engine->display.window_height = tb_engine_integer(
+        settings, "display.window_height",
+        "The height of the window in windowed mode, before the display's scaling; 0 to fit the "
+        "display.",
+        0, 0, TB_ENGINE_MOST_PIXELS);
+    engine->display.fullscreen_width =
+        tb_engine_integer(settings, "display.fullscreen_width",
+                          "The width of the fullscreen resolution in pixels; 0 for the display's "
+                          "own.",
+                          0, 0, TB_ENGINE_MOST_PIXELS);
+    engine->display.fullscreen_height =
+        tb_engine_integer(settings, "display.fullscreen_height",
+                          "The height of the fullscreen resolution in pixels; 0 for the "
+                          "display's own.",
+                          0, 0, TB_ENGINE_MOST_PIXELS);
+    engine->display.refresh_rate =
+        tb_engine_integer(settings, "display.refresh_rate",
+                          "The fullscreen refresh rate in hertz; 0 for the display's own.", 0, 0,
+                          TB_ENGINE_MOST_HERTZ);
+    engine->display.vsync = TB_ENGINE_CHOICE(
+        settings, "display.vsync",
+        "Wait for the display between frames, which stops tearing. Adaptive waits unless a frame "
+        "is late.",
+        tb_engine_vsync_modes, (size_t)TB_VSYNC_ON);
+    engine->display.frame_limit = tb_engine_integer(
+        settings, "display.frame_limit",
+        "The most frames a second the game renders; 0 for no limit.", 0, 0, TB_ENGINE_MOST_HERTZ);
+    engine->display.background_frame_limit = tb_engine_integer(
+        settings, "display.background_frame_limit",
+        "The most frames a second while the window does not have the focus; 0 for no limit.", 30, 0,
+        TB_ENGINE_MOST_HERTZ);
+    engine->display.brightness =
+        tb_engine_number(settings, "display.brightness",
+                         "How bright the picture is; 1 is as the game was made.", 1.0, 0.5, 2.0);
+    engine->display.hdr = tb_engine_boolean(
+        settings, "display.hdr", "Output high dynamic range, where the display has it.", false);
+}
+
+static void tb_engine_add_graphics(tb_settings *settings, tb_engine_settings *engine)
+{
+    engine->graphics.render_scale = tb_engine_number(
+        settings, "graphics.render_scale",
+        "The resolution the game renders at, as a fraction of the output's; the upscaler makes "
+        "up the rest.",
+        1.0, 0.25, 2.0);
+    engine->graphics.upscaler = TB_ENGINE_CHOICE(
+        settings, "graphics.upscaler",
+        "What upscales and anti-aliases the rendered picture: the engine's own, or a vendor's "
+        "where the hardware has it.",
+        tb_engine_upscalers, TB_ENGINE_UPSCALER_NATIVE);
+    engine->graphics.frame_generation =
+        tb_engine_boolean(settings, "graphics.frame_generation",
+                          "Generate frames between rendered ones, where the hardware can.", false);
+    engine->graphics.low_latency = TB_ENGINE_CHOICE(
+        settings, "graphics.low_latency",
+        "Shorten the time from input to the screen, with the GPU vendor's low-latency mode.",
+        tb_engine_low_latency, TB_ENGINE_LOW_LATENCY_OFF);
+    engine->graphics.lighting =
+        TB_ENGINE_CHOICE(settings, "graphics.lighting",
+                         "Raster, hybrid ray tracing, or path tracing, as the hardware allows.",
+                         tb_engine_lighting, TB_ENGINE_LIGHTING_RASTER);
+    engine->graphics.anti_aliasing = TB_ENGINE_CHOICE(
+        settings, "graphics.anti_aliasing", "How edges are smoothed when nothing upscales.",
+        tb_engine_anti_aliasing, TB_ENGINE_ANTI_ALIASING_TAA);
+    engine->graphics.texture_quality =
+        TB_ENGINE_CHOICE(settings, "graphics.texture_quality", "The detail of textures.",
+                         tb_engine_quality, TB_ENGINE_QUALITY_HIGH);
+    engine->graphics.shadow_quality =
+        TB_ENGINE_CHOICE(settings, "graphics.shadow_quality", "The detail of shadows.",
+                         tb_engine_quality, TB_ENGINE_QUALITY_HIGH);
+    engine->graphics.effects_quality = TB_ENGINE_CHOICE(
+        settings, "graphics.effects_quality", "The detail of particles and other effects.",
+        tb_engine_quality, TB_ENGINE_QUALITY_HIGH);
+    engine->graphics.anisotropic_filtering = TB_ENGINE_CHOICE(
+        settings, "graphics.anisotropic_filtering", "The sharpness of textures seen at an angle.",
+        tb_engine_anisotropy, TB_ENGINE_ANISOTROPY_8X);
+    engine->graphics.field_of_view = tb_engine_number(
+        settings, "graphics.field_of_view",
+        "How wide the view is: horizontal degrees on a 16:9 display.", 90.0, 60.0, 120.0);
+    engine->graphics.motion_blur =
+        tb_engine_boolean(settings, "graphics.motion_blur", "Blur what moves quickly.", false);
+}
+
+static void tb_engine_add_audio(tb_settings *settings, tb_engine_settings *engine)
+{
+    engine->audio.master_volume =
+        tb_engine_number(settings, "audio.master_volume",
+                         "How loud everything is, from silent to full.", 1.0, 0.0, 1.0);
+    engine->audio.music_volume =
+        tb_engine_number(settings, "audio.music_volume", "How loud the music is.", 1.0, 0.0, 1.0);
+    engine->audio.effects_volume = tb_engine_number(settings, "audio.effects_volume",
+                                                    "How loud sound effects are.", 1.0, 0.0, 1.0);
+    engine->audio.ambient_volume =
+        tb_engine_number(settings, "audio.ambient_volume", "How loud ambience is.", 1.0, 0.0, 1.0);
+    engine->audio.voice_volume =
+        tb_engine_number(settings, "audio.voice_volume", "How loud speech is.", 1.0, 0.0, 1.0);
+    engine->audio.interface_volume = tb_engine_number(
+        settings, "audio.interface_volume", "How loud the interface's sounds are.", 1.0, 0.0, 1.0);
+    engine->audio.mute_when_unfocused =
+        tb_engine_boolean(settings, "audio.mute_when_unfocused",
+                          "Silence the game while its window does not have the focus.", false);
+    engine->audio.output_device =
+        tb_engine_text(settings, "audio.output_device",
+                       "The audio device to play through; empty for the system's default.", 0);
+    engine->audio.speaker_mode =
+        TB_ENGINE_CHOICE(settings, "audio.speaker_mode",
+                         "The speakers the sound is mixed for; automatic asks the system.",
+                         tb_engine_speaker_modes, TB_ENGINE_SPEAKERS_AUTOMATIC);
+    engine->audio.dynamic_range = TB_ENGINE_CHOICE(
+        settings, "audio.dynamic_range",
+        "The difference between quiet and loud: wide for a home theater, night to keep it "
+        "small.",
+        tb_engine_dynamic_ranges, TB_ENGINE_DYNAMIC_RANGE_STANDARD);
+}
+
+static void tb_engine_add_controls(tb_settings *settings, tb_engine_settings *engine)
+{
+    engine->controls.mouse_sensitivity =
+        tb_engine_number(settings, "controls.mouse.sensitivity",
+                         "How far the view turns as the mouse moves.", 1.0, 0.01, 10.0);
+    engine->controls.mouse_invert_y = tb_engine_boolean(
+        settings, "controls.mouse.invert_y", "Look down when the mouse moves forward.", false);
+    engine->controls.mouse_raw_input =
+        tb_engine_boolean(settings, "controls.mouse.raw_input",
+                          "Read the mouse without the system's acceleration.", true);
+    engine->controls.mouse_smoothing = tb_engine_boolean(
+        settings, "controls.mouse.smoothing", "Smooth the mouse's movement over frames.", false);
+    engine->controls.gamepad_horizontal_sensitivity =
+        tb_engine_number(settings, "controls.gamepad.horizontal_sensitivity",
+                         "How fast the view turns left and right with the stick.", 1.0, 0.1, 10.0);
+    engine->controls.gamepad_vertical_sensitivity =
+        tb_engine_number(settings, "controls.gamepad.vertical_sensitivity",
+                         "How fast the view turns up and down with the stick.", 1.0, 0.1, 10.0);
+    engine->controls.gamepad_invert_y = tb_engine_boolean(
+        settings, "controls.gamepad.invert_y", "Look down when the stick is pushed up.", false);
+    engine->controls.gamepad_vibration =
+        tb_engine_number(settings, "controls.gamepad.vibration",
+                         "How strongly the gamepad vibrates; 0 for not at all.", 1.0, 0.0, 1.0);
+    engine->controls.gamepad_left_dead_zone =
+        tb_engine_number(settings, "controls.gamepad.left_dead_zone",
+                         "How far the left stick moves before it counts.", 0.1, 0.0, 0.9);
+    engine->controls.gamepad_right_dead_zone =
+        tb_engine_number(settings, "controls.gamepad.right_dead_zone",
+                         "How far the right stick moves before it counts.", 0.1, 0.0, 0.9);
+    engine->controls.touch_sensitivity =
+        tb_engine_number(settings, "controls.touch.sensitivity",
+                         "How far the view turns as a finger moves.", 1.0, 0.1, 10.0);
+}
+
+static void tb_engine_add_interface(tb_settings *settings, tb_engine_settings *engine)
+{
+    engine->user_interface.scale = tb_engine_number(
+        settings, "interface.scale",
+        "The size of the interface, as a factor on the size the game picks for the display.", 1.0,
+        0.5, 2.0);
+    engine->user_interface.font = tb_engine_text(
+        settings, "interface.font", "The interface's font; empty for the game's own.", 0);
+    engine->user_interface.hud_opacity = tb_engine_number(
+        settings, "interface.hud_opacity", "How opaque the HUD is; 0 hides it.", 1.0, 0.0, 1.0);
+    engine->user_interface.crosshair =
+        tb_engine_boolean(settings, "interface.crosshair", "Show a crosshair.", true);
+    engine->user_interface.performance_overlay =
+        TB_ENGINE_CHOICE(settings, "interface.performance_overlay",
+                         "Show the frame rate, or the frame rate and frame times.",
+                         tb_engine_overlays, TB_ENGINE_OVERLAY_OFF);
+}
+
+static void tb_engine_add_accessibility(tb_settings *settings, tb_engine_settings *engine)
+{
+    engine->accessibility.subtitles =
+        TB_ENGINE_CHOICE(settings, "accessibility.subtitles",
+                         "Subtitles for speech, or captions for speech and sounds.",
+                         tb_engine_subtitles, TB_ENGINE_SUBTITLES_DIALOGUE);
+    engine->accessibility.subtitle_size =
+        TB_ENGINE_CHOICE(settings, "accessibility.subtitle_size", "The size of subtitles.",
+                         tb_engine_subtitle_sizes, TB_ENGINE_SUBTITLE_SIZE_MEDIUM);
+    engine->accessibility.subtitle_background =
+        tb_engine_number(settings, "accessibility.subtitle_background",
+                         "How opaque the background behind subtitles is.", 0.5, 0.0, 1.0);
+    engine->accessibility.text_size =
+        TB_ENGINE_CHOICE(settings, "accessibility.text_size", "The size of the interface's text.",
+                         tb_engine_text_sizes, TB_ENGINE_TEXT_SIZE_STANDARD);
+    engine->accessibility.color_blind_mode = TB_ENGINE_CHOICE(
+        settings, "accessibility.color_blind_mode", "Adjust colors for a kind of color blindness.",
+        tb_engine_color_blind_modes, TB_ENGINE_COLOR_BLIND_OFF);
+    engine->accessibility.color_blind_strength =
+        tb_engine_number(settings, "accessibility.color_blind_strength",
+                         "How strongly colors are adjusted for color blindness.", 1.0, 0.0, 1.0);
+    engine->accessibility.camera_shake =
+        tb_engine_number(settings, "accessibility.camera_shake",
+                         "How much the camera shakes; 0 for not at all.", 1.0, 0.0, 1.0);
+    engine->accessibility.reduce_flashing = tb_engine_boolean(
+        settings, "accessibility.reduce_flashing", "Soften flashes and strobing lights.", false);
+}
+
+static void tb_engine_add_language(tb_settings *settings, tb_engine_settings *engine)
+{
+    engine->language.text = tb_engine_text(
+        settings, "language.text",
+        "The language of text, as a tag such as \"fr-FR\"; empty for the system's language.",
+        TB_ENGINE_LANGUAGE_TAG_LIMIT);
+    engine->language.voice =
+        tb_engine_text(settings, "language.voice",
+                       "The language of speech, as a tag; empty for the language of text.",
+                       TB_ENGINE_LANGUAGE_TAG_LIMIT);
+}
+
+static void tb_engine_add_engine(tb_settings *settings, tb_engine_settings *engine)
+{
+    engine->engine.tick_rate =
+        tb_engine_integer(settings, "engine.tick_rate",
+                          "Simulation ticks a second; rendering interpolates between them.", 60, 1,
+                          TB_ENGINE_MOST_HERTZ);
+    engine->engine.max_frame_time = tb_engine_number(
+        settings, "engine.max_frame_time",
+        "The longest time, in seconds, that one frame counts for: after a longer stall the game "
+        "carries on rather than racing to catch up.",
+        0.25, 0.01, 1.0);
+}
+
+static void tb_engine_add_developer(tb_settings *settings,
+                                    const tb_engine_settings_options *options,
+                                    tb_engine_settings *engine)
+{
+    engine->developer.quit_on_escape = tb_engine_boolean(
+        settings, "developer.quit_on_escape",
+        "Escape quits at once, without asking. On in developer builds.", options->developer);
+    engine->developer.frame_count = tb_engine_integer(
+        settings, "developer.frame_count",
+        "Frames to run before quitting; 0 to run until asked to quit.", 0, 0, INT64_MAX);
+    engine->developer.time_scale =
+        tb_engine_number(settings, "developer.time_scale",
+                         "How fast simulated time passes; 1 for real time.", 1.0, 0.0, 16.0);
+}
+
+void tb_engine_settings_add(tb_settings *settings, const tb_engine_settings_options *options,
+                            tb_engine_settings *engine)
+{
+    static const tb_engine_settings_options release = {.developer = false};
+
+    TB_ASSERT(settings != NULL);
+    TB_ASSERT(engine != NULL);
+    if (options == NULL)
+    {
+        options = &release;
+    }
+    *engine = (tb_engine_settings){0};
+    for (size_t index = 0; index < TB_COUNT_OF(tb_engine_families); index++)
+    {
+        tb_settings_add_family(settings, &tb_engine_families[index]);
+    }
+    tb_engine_add_gameplay(settings, engine);
+    tb_engine_add_display(settings, options, engine);
+    tb_engine_add_graphics(settings, engine);
+    tb_engine_add_audio(settings, engine);
+    tb_engine_add_controls(settings, engine);
+    tb_engine_add_interface(settings, engine);
+    tb_engine_add_accessibility(settings, engine);
+    tb_engine_add_language(settings, engine);
+    tb_engine_add_engine(settings, engine);
+    tb_engine_add_developer(settings, options, engine);
+}
