@@ -3,6 +3,7 @@
  * no two results of a module share one, and a value that is no result is
  * named as such and not as its neighbour. */
 #include "badger/base64.h"
+#include "badger/cli.h"
 #include "badger/deflate.h"
 #include "badger/fs.h"
 #include "badger/json.h"
@@ -25,6 +26,11 @@ typedef const char *name_function(int result);
 static const char *name_of_base64(int result)
 {
     return tb_base64_result_name((tb_base64_result)result);
+}
+
+static const char *name_of_cli(int result)
+{
+    return tb_cli_result_name((tb_cli_result)result);
 }
 
 static const char *name_of_deflate(int result)
@@ -96,6 +102,7 @@ TB_TEST(core_result, every_result_has_a_name_of_its_own)
         int last; /* The last result of the enumeration. */
     } rows[] = {
         {"base64", name_of_base64, TB_BASE64_BUFFER_TOO_SMALL},
+        {"cli", name_of_cli, TB_CLI_ERROR},
         {"deflate", name_of_deflate, TB_DEFLATE_UNSUPPORTED},
         {"fs", name_of_fs, TB_FS_END},
         {"json", name_of_json, TB_JSON_OUTPUT_FAILED},
