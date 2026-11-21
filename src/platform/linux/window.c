@@ -155,8 +155,11 @@ void tb_linux_waker_wake(tb_linux_waker *waker)
 {
     const char byte = 1;
 
-    /* A full pipe already holds a wake. */
-    (void)write(waker->write_end, &byte, 1);
+    /* A write refused because the pipe is full is a wake already pending. */
+    if (write(waker->write_end, &byte, 1) < 0)
+    {
+        return;
+    }
 }
 
 bool tb_linux_waker_drain(tb_linux_waker *waker)
