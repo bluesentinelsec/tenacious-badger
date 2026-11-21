@@ -110,7 +110,7 @@ def metadata_check(folder, metadata, system):
     environment = os.environ.copy()
     for key in ['LD_LIBRARY_PATH', 'DYLD_LIBRARY_PATH', 'DYLD_FALLBACK_LIBRARY_PATH']:
         environment.pop(key, None)
-    output = run([executable], cwd=folder, env=environment)
+    output = run([executable, 'check'], cwd=folder, env=environment)
     require(output.strip() == f'Tenacious Badger {version}: 2 + 3 = 5', 'Export smoke test failed')
 
 
@@ -170,7 +170,7 @@ def main():
             launch = 'Run ./burrow from a terminal. Desktop metadata is in share/ for optional desktop integration.'
         for document in ['LICENSE', 'NOTICE']:
             shutil.copy2(ROOT / document, folder / document)
-        (folder / 'README.txt').write_text(f"Tenacious Badger — under construction\n\n{launch}\n\nThis bootstrap prints 2 + 3 = 5 and exits. No game or renderer is implemented yet.\nPublisher: {metadata['publisher']}\nLicense: Apache-2.0\n", encoding='utf-8')
+        (folder / 'README.txt').write_text(f"Tenacious Badger — under construction\n\n{launch}\n\nBurrow opens its window and runs its game loop; nothing is rendered yet. Escape quits. Run it with check to print a line that proves it starts, and with --help for its options.\nPublisher: {metadata['publisher']}\nLicense: Apache-2.0\n", encoding='utf-8')
         (folder / 'BUILD-INFO.json').write_text(json.dumps(metadata, indent=2) + '\n')
         metadata_check(folder, metadata, system)
         if system == 'Linux':

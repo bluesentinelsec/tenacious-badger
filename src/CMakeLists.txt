@@ -23,6 +23,7 @@ add_subdirectory(codec)
 add_subdirectory(serialize)
 add_subdirectory(vfs)
 add_subdirectory(settings)
+add_subdirectory(game)
 tb_strip_release(badger)
 
 # The engine's modules call one another across source files, and a compiler
@@ -53,7 +54,7 @@ if(TB_BUILD_BURROW)
             "${PROJECT_SOURCE_DIR}/cmake/EmbedText.cmake"
         COMMENT "Embedding Burrow's default settings"
         VERBATIM)
-    add_executable(burrow main.c burrow_settings.c "${burrow_defaults_source}")
+    add_executable(burrow main.c burrow_game.c burrow_settings.c "${burrow_defaults_source}")
     target_link_libraries(burrow PRIVATE TenaciousBadger::badger)
     # A developer build starts in a window and quits on Escape; Release and
     # MinSizeRel are release builds.

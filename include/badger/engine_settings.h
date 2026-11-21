@@ -168,9 +168,9 @@ typedef struct tb_engine_settings
     /** Family `developer`. */
     struct
     {
-        tb_setting *quit_on_escape; /**< Escape quits at once, without asking. */
-        tb_setting *frame_count;    /**< Frames to run, then quit; 0 to run until asked. */
-        tb_setting *time_scale;     /**< How fast simulated time passes, 1 for real time. */
+        tb_setting *quit_without_asking; /**< Escape and closing quit at once. */
+        tb_setting *frame_count;         /**< Frames to run, then quit; 0 to run until asked. */
+        tb_setting *time_scale;          /**< How fast simulated time passes, 1 for real time. */
     } developer;
 } tb_engine_settings;
 
@@ -184,5 +184,20 @@ typedef struct tb_engine_settings
  */
 TB_API void tb_engine_settings_add(tb_settings *settings, const tb_engine_settings_options *options,
                                    tb_engine_settings *engine);
+
+/**
+ * @brief The window that the `display` settings describe: its mode, display,
+ * windowed size, and fullscreen resolution and refresh rate.
+ *
+ * What a game creates its window with, and what the game loop configures it
+ * with whenever those settings change.
+ *
+ * @param engine The engine's settings; required.
+ * @param title The window's title, which the settings do not hold; NULL for
+ * none, or, configuring a window, for the title it has.
+ * @param[out] options Receives the options; required.
+ */
+TB_API void tb_engine_settings_window_options(const tb_engine_settings *engine, const char *title,
+                                              tb_window_options *options);
 
 #endif

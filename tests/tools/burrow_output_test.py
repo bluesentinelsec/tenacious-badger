@@ -14,9 +14,10 @@ with tempfile.TemporaryDirectory(prefix='tb-burrow-output-') as temporary:
     destination = Path(temporary) / 'read-only.txt'
     destination.write_bytes(b'unchanged')
     with destination.open('rb') as refused:
-        result = subprocess.run([sys.argv[1]], stdout=refused, stderr=subprocess.PIPE, timeout=30)
+        result = subprocess.run([sys.argv[1], 'check'], stdout=refused, stderr=subprocess.PIPE,
+                                timeout=30)
     assert result.returncode != 0, 'burrow reported success though it could print nothing'
     assert destination.read_bytes() == b'unchanged'
-    accepted = subprocess.run([sys.argv[1]], capture_output=True, timeout=30)
+    accepted = subprocess.run([sys.argv[1], 'check'], capture_output=True, timeout=30)
     assert accepted.returncode == 0, accepted.stderr
     assert b'2 + 3 = 5' in accepted.stdout, accepted.stdout

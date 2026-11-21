@@ -34,7 +34,7 @@ with tempfile.TemporaryDirectory(prefix='tb-burrow-settings-') as temporary:
                            'settings')
     expect(status == 0, f'status {status}', err)
     expect('display.window_mode = windowed  # built-in' in out, 'developer window mode', out)
-    expect('developer.quit_on_escape = true  # built-in' in out, 'developer escape', out)
+    expect('developer.quit_without_asking = true  # built-in' in out, 'developer escape', out)
     expect('engine.tick_rate = 60  # default file' in out, "Burrow's defaults", out)
     expect('display.frame_limit = 144  # command line' in out, '--set', out)
     expect(str(player) in out, "the player's file is named", out)
@@ -43,7 +43,7 @@ with tempfile.TemporaryDirectory(prefix='tb-burrow-settings-') as temporary:
     status, out, err = run(*common, '--mode', 'release', 'settings')
     expect(status == 0, f'status {status}', err)
     expect('display.window_mode = borderless  # built-in' in out, 'release window mode', out)
-    expect('developer.quit_on_escape = false  # built-in' in out, 'release escape', out)
+    expect('developer.quit_without_asking = false  # built-in' in out, 'release escape', out)
 
     # The player's file loads, and its problems are reported, not fatal.
     player.write_text('audio.master_volume = 0.5\nnot a setting line\n', encoding='utf-8')
@@ -73,7 +73,14 @@ with tempfile.TemporaryDirectory(prefix='tb-burrow-settings-') as temporary:
     expect(backup.read_text(encoding='utf-8').startswith('audio.master_volume'), 'the backup',
            err)
 
-    # Running the game loads the same settings.
-    status, out, err = run(*common, '--set', 'display.vsync=off')
+    # Checking that the game starts loads the same settings.
+    status, out, err = run(*common, '--set', 'display.vsync=off', 'check')
     expect(status == 0, f'status {status}', err)
-    expect('2 + 3 = 5' in out, 'the game runs', out)
+    expect('2 + 3 = 5' in out, 'the game starts', out)
+
+    # The game runs without a window for as many frames as asked, and saves
+    # nothing, since nothing changed while it ran.
+    status, out, err = run(*common, '--headless', '--set', 'developer.frame_count=30',
+                           '--set', 'display.frame_limit=0')
+    expect(status == 0, f'headless: status {status}', err)
+    expect(not player.exists(), 'nothing is saved', err)

@@ -52,16 +52,19 @@ The foundation layer so far, one public header per module under
 | `json.h` | [JSON](serialization.md): a reader of events, documents in arenas, and a writer |
 | `stream.h` | [Streams](streams.md): one interface for reading and writing bytes, over memory, files, and ranges of other streams |
 | `window.h` | [Windows and displays](windows.md): windowed, borderless and fullscreen windows, displays and their scale, and window events |
+| `game_loop.h` | [The game loop](game-loop.md): fixed ticks, frames between them, frame pacing, pausing, settings applied as they change, and quitting |
 | `settings.h`, `engine_settings.h` | [Settings](settings.md): the options players and developers choose, in layers from defaults to run time, and the engine's catalog of them |
 
 What these headers do the same way, such as how a function reports failure,
 is in [the conventions of the public API](conventions.md).
 
-`burrow` calls the shared library, loads its [settings](settings.md#burrow),
-and prints `2 + 3 = 5`; `burrow settings` lists every setting, and
-`burrow --help` and `burrow --version` answer as a command-line program does.
-Rendering, windowing,
-gameplay, vendor integrations, and the other planned modules remain future work.
+`burrow` loads its [settings](settings.md#burrow), opens its
+[window](windows.md), and runs [the game loop](game-loop.md#burrow), with
+nothing rendered yet; `burrow --headless` runs without a window, `burrow check`
+prints `2 + 3 = 5` to show it starts against the engine, `burrow settings`
+lists every setting, and `burrow --help` and `burrow --version` answer as a
+command-line program does. Rendering, input, gameplay, vendor integrations, and
+the other planned modules remain future work.
 
 The [release and distribution requirements](../AGENTS.md#releases-and-distribution)
 define desktop exports and the later browser and mobile targets. See
@@ -279,8 +282,9 @@ publishes verified native exports after all tagged-build checks pass.
 - `src/platform/default/`: the adapter for [any other platform](platforms.md#unsupported-platforms),
   whose every function reports "not implemented".
 - `src/settings/`: [settings](settings.md) and the engine's catalog of them.
-- `src/main.c`, `src/burrow_settings.c`: the `burrow` entrypoint and its
-  settings; `src/burrow_defaults.cfg` is Burrow's default settings file, which
+- `src/game/`: [the game loop](game-loop.md).
+- `src/main.c`, `src/burrow_game.c`, `src/burrow_settings.c`: the `burrow`
+  entrypoint, its game, and its settings; `src/burrow_defaults.cfg` is Burrow's default settings file, which
   the build embeds in the executable.
 - `tests/`: unit tests and platform integration checks.
 - `benchmarks/`: `tb_bench`, which times the operations of the foundation

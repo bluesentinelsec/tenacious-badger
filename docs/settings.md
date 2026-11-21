@@ -159,7 +159,7 @@ settings. The **Honored by** column says which subsystem applies each one.
 
 | Setting | Type | Default | Honored by |
 | --- | --- | --- | --- |
-| `gameplay.pause_when_unfocused` | boolean | `true` | the game loop, to come |
+| `gameplay.pause_when_unfocused` | boolean | `true` | [the game loop](game-loop.md) |
 
 Games add their own, such as difficulty.
 
@@ -167,16 +167,16 @@ Games add their own, such as difficulty.
 
 | Setting | Type | Default | Honored by |
 | --- | --- | --- | --- |
-| `display.window_mode` | `windowed`, `borderless`, `fullscreen` | developer `windowed`, release `borderless` | the window, to come |
-| `display.monitor` | integer, 0 to 63 | `0`, the primary display | the window, to come |
-| `display.window_width` | integer, 0 to 16384 | `0`, to fit the display | the window, to come |
-| `display.window_height` | integer, 0 to 16384 | `0`, to fit the display | the window, to come |
-| `display.fullscreen_width` | integer, 0 to 16384 | `0`, the display's own | the window, to come |
-| `display.fullscreen_height` | integer, 0 to 16384 | `0`, the display's own | the window, to come |
-| `display.refresh_rate` | integer, 0 to 1000 | `0`, the display's own | the window, to come |
+| `display.window_mode` | `windowed`, `borderless`, `fullscreen` | developer `windowed`, release `borderless` | [the window](windows.md) |
+| `display.monitor` | integer, 0 to 63 | `0`, the primary display | [the window](windows.md) |
+| `display.window_width` | integer, 0 to 16384 | `0`, to fit the display | [the window](windows.md) |
+| `display.window_height` | integer, 0 to 16384 | `0`, to fit the display | [the window](windows.md) |
+| `display.fullscreen_width` | integer, 0 to 16384 | `0`, the display's own | [the window](windows.md) |
+| `display.fullscreen_height` | integer, 0 to 16384 | `0`, the display's own | [the window](windows.md) |
+| `display.refresh_rate` | integer, 0 to 1000 | `0`, the display's own | [the window](windows.md) |
 | `display.vsync` | `off`, `on`, `adaptive` | `on` | the renderer, to come |
-| `display.frame_limit` | integer, 0 to 1000 | `0`, no limit | the game loop, to come |
-| `display.background_frame_limit` | integer, 0 to 1000 | `30` | the game loop, to come |
+| `display.frame_limit` | integer, 0 to 1000 | `0`, no limit | [the game loop](game-loop.md) |
+| `display.background_frame_limit` | integer, 0 to 1000 | `30` | [the game loop](game-loop.md) |
 | `display.brightness` | number, 0.5 to 2 | `1.0` | the renderer, to come |
 | `display.hdr` | boolean | `false` | the renderer, to come |
 
@@ -275,8 +275,8 @@ its default file.
 
 | Setting | Type | Default | Honored by |
 | --- | --- | --- | --- |
-| `engine.tick_rate` | integer, 1 to 1000 | `60` | the game loop, to come |
-| `engine.max_frame_time` | number, 0.01 to 1 seconds | `0.25` | the game loop, to come |
+| `engine.tick_rate` | integer, 1 to 1000 | `60` | [the game loop](game-loop.md) |
+| `engine.max_frame_time` | number, 0.01 to 1 seconds | `0.25` | [the game loop](game-loop.md) |
 
 ### Developer
 
@@ -284,9 +284,9 @@ Not shown to players, and not saved in their file.
 
 | Setting | Type | Default | Honored by |
 | --- | --- | --- | --- |
-| `developer.quit_on_escape` | boolean | developer `true`, release `false` | the game loop, to come |
-| `developer.frame_count` | integer, 0 and up | `0`, run until asked to quit | the game loop, to come |
-| `developer.time_scale` | number, 0 to 16 | `1.0` | the game loop, to come |
+| `developer.quit_without_asking` | boolean | developer `true`, release `false` | [the game loop](game-loop.md) |
+| `developer.frame_count` | integer, 0 and up | `0`, run until asked to quit | [the game loop](game-loop.md) |
+| `developer.time_scale` | number, 0 to 16 | `1.0` | [the game loop](game-loop.md) |
 
 ## Burrow
 
@@ -297,6 +297,7 @@ the executable, then the player's file, then the command line.
 | Command line | Does |
 | --- | --- |
 | `burrow settings` | Lists every setting, its value, and the layer it comes from |
+| `burrow` | Plays, and saves the settings changed while it ran when it quits |
 | `--set NAME=VALUE` | Gives a setting a value for this session; may be repeated |
 | `--reset-settings` | Sets the player's file aside and starts from the defaults |
 | `--settings-file FILE` | Uses another settings file in place of the player's |
