@@ -44,6 +44,7 @@ static const tb_bench_module tb_bench_modules[] = {
     {"jobs", tb_bench_jobs},
     {"json", tb_bench_json},
     {"log", tb_bench_log},
+    {"math", tb_bench_math},
     {"memory", tb_bench_memory},
     {"memory_debug", tb_bench_memory_debug},
     {"path", tb_bench_path},

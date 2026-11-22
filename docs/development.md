@@ -27,6 +27,7 @@ The foundation layer so far, one public header per module under
 | `thread.h` | [Threads, mutexes, condition variables, semaphores, and thread-local values](platforms.md#threads-mutexes-and-condition-variables) |
 | `system.h` | [The processors the process may run on](platforms.md#processors): how many, and which |
 | `random.h` | [Random bytes from the operating system](platforms.md#random-bytes), for keys and nonces |
+| `math.h`, `geometry.h` | [Math](math.md): vectors, quaternions and matrices with SIMD, and planes, boxes, spheres, rays and frustums |
 | `rng.h` | [Random numbers that repeat from a seed](random.md), the same on every platform |
 | `library.h` | [Shared libraries loaded at run time](platforms.md#shared-libraries), and the functions and data they export |
 | `stack.h` | [The call stack of a thread](platforms.md#call-stacks), and what an address is part of |
@@ -352,6 +353,7 @@ replaces:
 | `rand`, `srand`, `rand_r`, `random`, `srandom`, and the `drand48` family | `tb_rng` and its functions | [`rng.h`](random.md) |
 | `qsort`, `qsort_s`, `qsort_r`, `bsearch`, `bsearch_s` | `tb_sort`, `tb_sort_stable`, `tb_sort_lower_bound` | [`sort.h`](collections.md#sorting) |
 | `<search.h>` | `tb_table`, `tb_set`, `tb_list` | [`table.h`](collections.md) |
+| `<xmmintrin.h>`, `<immintrin.h>`, `<intrin.h>`, `<arm_neon.h>`, and the other intrinsics headers | `math.h`, or a kernel the build chooses by processor | [`math.h`](math.md#simd) |
 
 `python tools/check_foundation.py --list` prints every name. The check reads
 every C source and header that clang-format maintains, in the directories that

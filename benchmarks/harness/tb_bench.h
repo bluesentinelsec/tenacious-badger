@@ -173,6 +173,8 @@ void tb_bench_memory(tb_bench *bench);
 void tb_bench_pool(tb_bench *bench);
 /** @brief Benchmarks of badger/ring.h. */
 void tb_bench_ring(tb_bench *bench);
+/** @brief Benchmarks of badger/math.h and badger/geometry.h. */
+void tb_bench_math(tb_bench *bench);
 /** @brief Benchmarks of badger/rng.h. */
 void tb_bench_rng(tb_bench *bench);
 /** @brief Benchmarks of badger/sort.h, beside the C library's qsort. */

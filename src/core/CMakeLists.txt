@@ -1,3 +1,23 @@
+# The SIMD kernels of badger/math.h are chosen by the processor the build
+# targets: SSE2 on x64, NEON on 64-bit ARM, and portable C on anything else,
+# including a macOS build for more than one architecture at once.
+if(CMAKE_C_COMPILER_ARCHITECTURE_ID)
+    set(tb_math_processor "${CMAKE_C_COMPILER_ARCHITECTURE_ID}")
+elseif(CMAKE_OSX_ARCHITECTURES)
+    set(tb_math_processor "${CMAKE_OSX_ARCHITECTURES}")
+else()
+    set(tb_math_processor "${CMAKE_SYSTEM_PROCESSOR}")
+endif()
+string(TOLOWER "${tb_math_processor}" tb_math_processor)
+if(tb_math_processor MATCHES "^(x86_64|amd64|x64)$")
+    set(tb_math_kernels math_sse2.c)
+elseif(tb_math_processor MATCHES "^(arm64|aarch64)$")
+    set(tb_math_kernels math_neon.c)
+else()
+    set(tb_math_kernels math_kernel_portable.c)
+endif()
+message(STATUS "badger: math kernels for '${tb_math_processor}': ${tb_math_kernels}")
+
 set(TB_CORE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/allocator.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/ap.c"
@@ -15,10 +35,14 @@ set(TB_CORE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/fmt_float.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/frame_memory.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/fs.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/geometry.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/hash.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/library.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/list.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/log.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/math.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/math_portable.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/${tb_math_kernels}"
     "${CMAKE_CURRENT_SOURCE_DIR}/memory.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/memory_debug.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/path.c"

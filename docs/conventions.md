@@ -75,6 +75,10 @@ is `NULL`, and need no enumeration: `tb_utf8_validate`, `tb_atom_find`.
   operating system implements: file and directory handles, and the operations
   on names. Both use the `tb_fs_` prefix for what is about the file system as
   a whole, and code that includes `fs.h` has all of it.
+- **Small math is inline.** `badger/math.h` defines its vector, quaternion
+  and scalar operations as `static inline` functions, because a call into
+  the shared library for each addition would cost more than the addition.
+  Every other function of every module is exported from the library.
 - **A function that needs nothing from the platform is not part of an
   adapter**, even when a platform interface's header declares it:
   `tb_vm_result_name` is implemented once, by the engine.
