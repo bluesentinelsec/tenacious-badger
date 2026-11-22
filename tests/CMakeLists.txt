@@ -93,6 +93,7 @@ set(TB_TEST_CASE_SOURCES
     platform/window_test.c
     settings/engine_settings_test.c
     settings/settings_test.c
+    shader/shader_preprocess_test.c
     vfs/vfs_test.c
     framework/selftest/checks_test.c
     framework/selftest/options_test.c
@@ -149,7 +150,7 @@ set(TB_INTERNAL_TEST_CASE_SOURCES
     jobs/deque_test.c)
 set(TB_ENGINE_SOURCES ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES} ${TB_JOBS_SOURCES}
     ${TB_CODEC_SOURCES} ${TB_SERIALIZE_SOURCES} ${TB_VFS_SOURCES} ${TB_SETTINGS_SOURCES}
-    ${TB_WINDOW_SOURCES} ${TB_GAME_SOURCES})
+    ${TB_WINDOW_SOURCES} ${TB_GAME_SOURCES} ${TB_SHADER_SOURCES})
 
 # The arguments go to tb_add_tests.
 function(tb_add_internal_tests target)
