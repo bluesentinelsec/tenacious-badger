@@ -54,7 +54,7 @@ Running the Windows D3D12 build under Proton on the Steam Deck and the Linux lap
 | Situation | Behavior |
 | --- | --- |
 | **Implemented**: the platform or backend supports the operation | It works. |
-| **Not implemented**: a backend that is not written yet, or a platform we do not support | It logs the interface, function and platform, explains the next step ("Vulkan backend not implemented; run with `-rhi=d3d12`"), then terminates. |
+| **Not implemented**: a backend that is not written yet, or a platform we do not support | It logs the interface, function and platform, explains the next step ("Vulkan backend not implemented; run with `--renderer=d3d12`"), then terminates. |
 | **Unavailable capability**: an optional feature is missing (no DXR, no `nvngx_dlss.dll`, an unsupported GPU) | A capability query reports it, the engine falls back, and the console and UI say why. This is never fatal. |
 
 "Not implemented" marks missing *work*. Capability queries describe missing *hardware or redistributables*.
@@ -95,7 +95,7 @@ Rendering backends and vendor plugins are not platform interfaces, and arrive on
 
 | Backend or plugin | Windows | Linux and Steam Deck | macOS |
 | --- | --- | --- | --- |
-| RHI backends | D3D12 (first); D3D11, OpenGL, software (later) | Vulkan, OpenGL, software (later) | Metal, software (later) |
+| RHI backends | D3D12 (first); D3D11, Vulkan, OpenGL, software (later) | Vulkan, OpenGL, software (later) | Metal, OpenGL, software (later) |
 | Upscaler and latency plugins | DLSS, FSR, XeSS, Reflex, Anti-Lag 2 | Vendor plugins that support Vulkan on Linux | MetalFX |
 
 A missing vendor plugin on a platform where it will never exist (DLSS on macOS, for example) is an *unavailable capability*, not missing work.
@@ -132,8 +132,10 @@ RHI interface     — devices, queues, command lists, resources, pipelines, bind
 backends          — d3d12 (implemented) | d3d11 | opengl | vulkan | metal | software (not implemented)
 ```
 
-- **RHI.** The RHI is a function table chosen at startup (`-rhi=d3d12`). It is shaped after explicit APIs (D3D12, Vulkan, Metal) so modern backends map onto it cleanly. Older backends (D3D11, OpenGL) and the software renderer emulate what they lack, or report the capability as unavailable.
+- **RHI.** The RHI is a function table for each backend. It is shaped after explicit APIs (D3D12, Vulkan, Metal) so modern backends map onto it cleanly. Older backends (D3D11, OpenGL) and the software renderer emulate what they lack, or report the capability as unavailable.
 - **D3D12 from C.** We use the COM C bindings (`COBJMACROS`/`lpVtbl`) directly, with no C++ shims. A few D3D12 methods that return structs have a different ABI in C; we isolate these in the backend and test them.
+- **Choosing a backend.** Each platform builds only the backends that run on it (D3D12 and D3D11 on Windows, Metal on macOS; Vulkan, OpenGL and software wherever they run). The `graphics.renderer` setting picks one, or `auto`, which tries each in a platform's order of preference and falls back past any that is unavailable, saying why. Players choose from the backends their platform builds, from the options menu or the command line (`--renderer=vulkan`).
+- **Switching at any time.** Players switch to any available backend mid-game, without restarting. The renderer keeps a backend-independent description of every GPU resource, pipeline and shader, and the CPU data to fill it, so switching, or recovering a lost device, rebuilds the backend's objects from those descriptions. Handles the game holds stay valid across a switch.
 - **Render graph.** Each frame declares its passes, their resources and their read/write access. The graph orders work, inserts barriers, aliases transient memory and records command lists in parallel.
 
 ### Lighting modes
@@ -146,13 +148,20 @@ The renderer offers three modes that share one scene representation:
 
 ### Shaders
 
-Each backend has its own hand-written shaders, embedded in the executable as C headers so no shader files ship with the game.
+Shaders are written once, in the engine's shading language (a subset of HLSL, the language Unreal and Unity write shaders in), so every shader runs on every backend and switching backends never strands one. The engine carries its own shader compiler, and compiles at run time into what each backend takes:
 
-- **D3D12:** HLSL, compiled at build time by the Windows SDK's `dxc` to DXIL. The compiler writes byte-array headers (`-Fh`).
-- **OpenGL:** GLSL source strings, compiled by the driver at startup.
-- **Metal and Vulkan:** decided when those backends start. The options are MSL source or build-time metallib bytes, and SPIR-V bytes.
+| Backend | What the engine produces | What turns it into GPU code |
+| --- | --- | --- |
+| D3D12 | HLSL | DXC (`dxcompiler.dll`, `dxil.dll`), loaded at run time; shaders the game ships are also precompiled to DXIL at build time |
+| D3D11 | HLSL | `D3DCompiler_47.dll`, part of Windows |
+| Vulkan | SPIR-V, written by our compiler | the driver |
+| OpenGL | GLSL | the driver |
+| Metal | Metal Shading Language | the OS |
+| Software | the compiler's own form | the software renderer, on the CPU |
 
-Generated headers come from the build, never from hand edits. A shared header of constant-buffer layouts keeps the C and shader views in sync.
+DXC is not part of Windows, and the engine does not ship it. It loads DXC from the game's directory, then from the Windows SDK's redistributable directory, so development builds hot-reload shaders on D3D12. The Windows SDK's `dxc` precompiles the game's own shaders at build time, so D3D12 needs no DXC on players' machines. A shader made at run time where DXC is missing is unavailable on D3D12, and the engine falls back to another backend.
+
+A shader may also be written in one backend's own language. It then runs only on that backend, and a game that uses one can switch only to the backends it supports. A shared header of constant-buffer layouts keeps the C and shader views in sync.
 
 ### Vendor features
 
@@ -461,7 +470,6 @@ Raise the following open questions when they can no longer be deferred:
 
 - **Vendor SDKs.** Which headers and redistributable DLLs we adopt for DLSS (NGX or Streamline), FSR (FidelityFX API), XeSS, Reflex (NVAPI) and Anti-Lag 2. We could hand-declare minimal entry points where the license allows, or vendor the official headers. Each needs explicit approval.
 - **D3D12 Agility SDK.** Do we ship Microsoft's redistributable `D3D12Core.dll` to get newer shader models and features (work graphs, SM 6.8+), or stay on the OS runtime?
-- **Shader iteration.** Should development builds hot-reload shaders by loading DXC at runtime through the library interface? Do we need a newer DXC than the Windows SDK ships?
 - **Physics scope.** Collision queries only, or a full rigid-body solver?
 - **Gameplay code iteration.** Do we hot-reload game code as a runtime-loaded DLL, or is there a scripting layer?
 - **Fibers.** Are task-system fibers worth adopting after we profile the first scheduler?
