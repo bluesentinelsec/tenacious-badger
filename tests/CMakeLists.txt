@@ -155,6 +155,7 @@ set(TB_ENGINE_SOURCES ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES} ${TB_JOBS_SOURCE
 function(tb_add_internal_tests target)
     tb_add_tests(${target} SOURCES ${TB_INTERNAL_TEST_CASE_SOURCES} ${ARGN})
     target_sources(${target} PRIVATE ${TB_ENGINE_SOURCES})
+    target_link_libraries(${target} PRIVATE ${TB_MATH_LIBRARIES})
     target_include_directories(${target} PRIVATE "${PROJECT_SOURCE_DIR}/src")
 endfunction()
 
@@ -371,9 +372,11 @@ if(TB_SANITIZER)
     # shared library and burrow never acquire sanitizer dependencies. The
     # build has one kind of sanitizer, address or thread (cmake/Sanitizers.cmake),
     # and the same executables are built for either.
+    # Each of these is built from the engine's sources.
     function(tb_make_standalone_sanitized target)
         tb_make_standalone(${target})
         tb_enable_sanitizers(${target})
+        target_link_libraries(${target} PRIVATE ${TB_MATH_LIBRARIES})
     endfunction()
 
     tb_add_tests(tb_tests_sanitized

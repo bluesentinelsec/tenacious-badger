@@ -13,11 +13,16 @@ endforeach()
 # The C library's math functions are in a library of their own on Linux, and
 # badger/math.h calls them from its inline functions, so its users link it too.
 include(CheckLibraryExists)
+# Programs built from the engine's sources, in place of linking a library,
+# link TB_MATH_LIBRARIES themselves.
 check_library_exists(m sqrtf "" TB_HAVE_LIBM)
 if(TB_HAVE_LIBM)
-    target_link_libraries(badger PUBLIC m)
-    target_link_libraries(badger_static PUBLIC m)
+    set(TB_MATH_LIBRARIES m CACHE INTERNAL "The C library's math functions, where separate")
+else()
+    set(TB_MATH_LIBRARIES "" CACHE INTERNAL "The C library's math functions, where separate")
 endif()
+target_link_libraries(badger PUBLIC ${TB_MATH_LIBRARIES})
+target_link_libraries(badger_static PUBLIC ${TB_MATH_LIBRARIES})
 target_compile_definitions(badger PRIVATE TB_BUILDING_BADGER)
 target_compile_definitions(badger_static PUBLIC TB_STATIC)
 set_target_properties(badger PROPERTIES
