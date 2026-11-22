@@ -405,15 +405,39 @@ static void tb_engine_add_developer(tb_settings *settings,
                                     const tb_engine_settings_options *options,
                                     tb_engine_settings *engine)
 {
-    engine->developer.quit_on_escape = tb_engine_boolean(
-        settings, "developer.quit_on_escape",
-        "Escape quits at once, without asking. On in developer builds.", options->developer);
+    engine->developer.quit_without_asking = tb_engine_boolean(
+        settings, "developer.quit_without_asking",
+        "Escape and the window's close button quit at once, without asking whether to. On in "
+        "developer builds.",
+        options->developer);
     engine->developer.frame_count = tb_engine_integer(
         settings, "developer.frame_count",
         "Frames to run before quitting; 0 to run until asked to quit.", 0, 0, INT64_MAX);
     engine->developer.time_scale =
         tb_engine_number(settings, "developer.time_scale",
                          "How fast simulated time passes; 1 for real time.", 1.0, 0.0, 16.0);
+}
+
+/* An integer setting as a window option; every display setting's range fits. */
+static uint32_t tb_engine_unsigned(const tb_setting *setting)
+{
+    return (uint32_t)tb_setting_integer(setting);
+}
+
+void tb_engine_settings_window_options(const tb_engine_settings *engine, const char *title,
+                                       tb_window_options *options)
+{
+    TB_ASSERT(engine != NULL);
+    TB_ASSERT(options != NULL);
+    *options = (tb_window_options){
+        .title = title,
+        .mode = (tb_window_mode)tb_setting_choice(engine->display.window_mode),
+        .display = (size_t)tb_setting_integer(engine->display.monitor),
+        .width = tb_engine_unsigned(engine->display.window_width),
+        .height = tb_engine_unsigned(engine->display.window_height),
+        .fullscreen_width = tb_engine_unsigned(engine->display.fullscreen_width),
+        .fullscreen_height = tb_engine_unsigned(engine->display.fullscreen_height),
+        .refresh_rate = tb_engine_unsigned(engine->display.refresh_rate)};
 }
 
 void tb_engine_settings_add(tb_settings *settings, const tb_engine_settings_options *options,

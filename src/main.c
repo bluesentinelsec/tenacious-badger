@@ -5,6 +5,7 @@
 #include "badger/process.h"
 #include "badger/version.h"
 
+#include "burrow_game.h"
 #include "burrow_settings.h"
 
 #include <inttypes.h>
@@ -24,6 +25,7 @@
 static const char *const burrow_modes[] = {"developer", "release"};
 static size_t burrow_mode = BURROW_DEVELOPER ? 0u : 1u;
 static bool burrow_reset = false;
+static bool burrow_headless = false;
 static const char *burrow_settings_file = NULL;
 static const char *burrow_values[BURROW_MOST_VALUES] = {0};
 static size_t burrow_value_count = 0;
@@ -49,9 +51,27 @@ static int burrow_finish(void)
     return EXIT_SUCCESS;
 }
 
-/* What burrow does without a command: the bootstrap's check that it runs
- * against the engine, with its settings loaded. */
+/* What burrow does without a command: play. */
 static int burrow_run(const tb_cli_outcome *outcome, void *context)
+{
+    burrow_settings loaded = {0};
+    int status = EXIT_SUCCESS;
+
+    (void)outcome;
+    (void)context;
+    status = burrow_load(&loaded);
+    if (status != EXIT_SUCCESS)
+    {
+        return status;
+    }
+    status = burrow_play(&loaded, burrow_headless);
+    burrow_settings_release(&loaded);
+    return status;
+}
+
+/* `burrow check`: the bootstrap's check that it runs against the engine, with
+ * its settings loaded, which a packaged export runs to prove it starts. */
+static int burrow_run_check(const tb_cli_outcome *outcome, void *context)
 {
     burrow_settings loaded = {0};
     int32_t sum = {0};
@@ -111,6 +131,10 @@ static const tb_cli_option burrow_options[] = {
      .name = "FILE",
      .text = &burrow_settings_file,
      .help = "Use this settings file in place of the player's usual one."},
+    {.long_name = "headless",
+     .flag = &burrow_headless,
+     .help = "Play without a window, as a server or a test does; --set "
+             "developer.frame_count=N stops it after N frames."},
     {.long_name = "mode",
      .choice = &burrow_mode,
      .choices = burrow_modes,
@@ -120,6 +144,9 @@ static const tb_cli_option burrow_options[] = {
 };
 
 static const tb_cli_command burrow_commands[] = {
+    {.name = "check",
+     .summary = "Check that Burrow starts against its engine, and say so.",
+     .run = burrow_run_check},
     {.name = "settings",
      .summary = "List every setting, its value, and where the value comes from.",
      .run = burrow_run_settings},

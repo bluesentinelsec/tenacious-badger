@@ -59,7 +59,7 @@ TB_TEST(settings_engine, every_setting_is_described_and_in_the_structure)
     tb_settings_destroy(settings);
 }
 
-TB_TEST(settings_engine, developer_builds_start_in_a_window_and_quit_on_escape)
+TB_TEST(settings_engine, developer_builds_start_in_a_window_and_quit_without_asking)
 {
     tb_settings *const developer = tb_settings_create();
     tb_settings *const release = tb_settings_create();
@@ -71,10 +71,10 @@ TB_TEST(settings_engine, developer_builds_start_in_a_window_and_quit_on_escape)
     tb_engine_settings_add(release, &(tb_engine_settings_options){.developer = false}, &in_release);
     TB_TEST_EXPECT_UINT(tb_setting_choice(in_developer.display.window_mode), ==,
                         TB_WINDOW_MODE_WINDOWED);
-    TB_TEST_EXPECT(tb_setting_boolean(in_developer.developer.quit_on_escape));
+    TB_TEST_EXPECT(tb_setting_boolean(in_developer.developer.quit_without_asking));
     TB_TEST_EXPECT_UINT(tb_setting_choice(in_release.display.window_mode), ==,
                         TB_WINDOW_MODE_BORDERLESS);
-    TB_TEST_EXPECT(!tb_setting_boolean(in_release.developer.quit_on_escape));
+    TB_TEST_EXPECT(!tb_setting_boolean(in_release.developer.quit_without_asking));
     /* The choices' names follow the enumerations. */
     TB_TEST_EXPECT_STRING(
         tb_setting_choice_name(in_release.display.window_mode, TB_WINDOW_MODE_FULLSCREEN), ==,

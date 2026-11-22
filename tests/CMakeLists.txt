@@ -86,6 +86,7 @@ set(TB_TEST_CASE_SOURCES
     serialize/json_suite_test.c
     ${TB_JSON_SUITE_SOURCE}
     serialize/json_writer_test.c
+    game/game_loop_test.c
     jobs/loop_test.c
     platform/window_test.c
     settings/engine_settings_test.c
@@ -145,7 +146,7 @@ set(TB_INTERNAL_TEST_CASE_SOURCES
     jobs/deque_test.c)
 set(TB_ENGINE_SOURCES ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES} ${TB_JOBS_SOURCES}
     ${TB_CODEC_SOURCES} ${TB_SERIALIZE_SOURCES} ${TB_VFS_SOURCES} ${TB_SETTINGS_SOURCES}
-    ${TB_WINDOW_SOURCES})
+    ${TB_WINDOW_SOURCES} ${TB_GAME_SOURCES})
 
 # The arguments go to tb_add_tests.
 function(tb_add_internal_tests target)
@@ -212,7 +213,7 @@ add_test(NAME source_checks.text_self_test
     COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tools/check_text.py" --self-test)
 
 if(TARGET burrow)
-    add_test(NAME burrow.smoke COMMAND burrow)
+    add_test(NAME burrow.smoke COMMAND burrow check)
     add_test(NAME burrow.fails_when_its_output_cannot_be_written
         COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tools/burrow_output_test.py"
             "$<TARGET_FILE:burrow>")
