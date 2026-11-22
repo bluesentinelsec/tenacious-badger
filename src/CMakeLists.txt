@@ -10,6 +10,14 @@ foreach(target badger badger_static)
     tb_configure_target(${target})
     tb_analyze_target(${target})
 endforeach()
+# The C library's math functions are in a library of their own on Linux, and
+# badger/math.h calls them from its inline functions, so its users link it too.
+include(CheckLibraryExists)
+check_library_exists(m sqrtf "" TB_HAVE_LIBM)
+if(TB_HAVE_LIBM)
+    target_link_libraries(badger PUBLIC m)
+    target_link_libraries(badger_static PUBLIC m)
+endif()
 target_compile_definitions(badger PRIVATE TB_BUILDING_BADGER)
 target_compile_definitions(badger_static PUBLIC TB_STATIC)
 set_target_properties(badger PROPERTIES

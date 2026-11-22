@@ -6,6 +6,10 @@ function(tb_configure_target target)
     if(MSVC)
         target_compile_options(${target} PRIVATE
             "$<$<COMPILE_LANGUAGE:C>:/W4;/WX;/sdl;/utf-8>"
+            # Floats are rounded as written; /fp:precise fuses no multiply-add
+            # unless /fp:contract asks, so the same build gives the same
+            # results (docs/math.md).
+            "$<$<COMPILE_LANGUAGE:C>:/fp:precise>"
             "$<$<AND:$<COMPILE_LANGUAGE:C>,$<CONFIG:Debug>>:/Od;/Zi>")
     elseif(CMAKE_C_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$")
         target_compile_options(${target} PRIVATE
@@ -13,6 +17,9 @@ function(tb_configure_target target)
             -Wshadow -Wstrict-prototypes -Wmissing-prototypes -Wformat=2
             -Wundef -Wcast-qual -Wwrite-strings -Wswitch-enum
             -Wdouble-promotion -Wvla
+            # Floats are rounded as written, with no multiply-add fused:
+            # the same build gives the same results (docs/math.md).
+            -ffp-contract=off
             "$<$<CONFIG:Debug>:-O0>" "$<$<CONFIG:Debug>:-g>"
             "$<$<CONFIG:Release>:-O3>")
     else()

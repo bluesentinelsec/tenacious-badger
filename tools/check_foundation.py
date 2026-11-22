@@ -196,8 +196,14 @@ FILES = rule('badger/file.h', 'docs/files.md', {
         'opendir readdir closedir FindFirstFileW FindNextFileW FindClose',
 })
 
+SIMD = rule('badger/math.h', 'docs/math.md', {
+    'badger/math.h, or a kernel in src/core/math_kernels.h for the build to choose by processor':
+        '<xmmintrin.h> <emmintrin.h> <pmmintrin.h> <tmmintrin.h> <smmintrin.h> <nmmintrin.h> '
+        '<immintrin.h> <intrin.h> <arm_neon.h>',
+})
+
 RULES = [ALLOCATION, FORMATTING, STRINGS, FAILURES, TIMING, ATOMICS, THREADS, PROCESSORS,
-         RANDOMNESS, GENERATORS, LIBRARIES, SORTING, COLLECTIONS, FILES]
+         RANDOMNESS, GENERATORS, LIBRARIES, SORTING, COLLECTIONS, FILES, SIMD]
 FORBIDDEN = {name: entry for group in RULES for name, entry in group.items()}
 PREFIXES = sorted((name[:-1] for name in FORBIDDEN if name.endswith('*')), key=len, reverse=True)
 
@@ -251,6 +257,10 @@ AUTHORIZED = {
     'src/core/str.c': (
         {'strlen', 'strcmp', 'strncmp'},
         'implements badger/str.h on top of the C library'),
+    'src/core/math_sse2.c': (
+        {'<xmmintrin.h>'}, 'implements the kernels of badger/math.h for x64'),
+    'src/core/math_neon.c': (
+        {'<arm_neon.h>'}, 'implements the kernels of badger/math.h for 64-bit ARM'),
     'include/badger/assert.h': (
         {'_Static_assert'},
         'defines TB_STATIC_ASSERT'),

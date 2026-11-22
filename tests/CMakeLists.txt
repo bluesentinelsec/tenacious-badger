@@ -60,9 +60,11 @@ set(TB_TEST_CASE_SOURCES
     core/fmt_test.c
     core/frame_memory_test.c
     core/fs_test.c
+    core/geometry_test.c
     core/hash_test.c
     core/list_test.c
     core/log_test.c
+    core/math_test.c
     core/memory_test.c
     core/memory_debug_test.c
     core/path_test.c
@@ -141,6 +143,7 @@ set(TB_INTERNAL_TEST_CASE_SOURCES
     core/decimal_rounding_test.c
     core/exclusive_list_test.c
     core/fs_transaction_test.c
+    core/math_kernels_test.c
     core/reserved_arena_failure_test.c
     codec/crc32_table_test.c
     jobs/deque_test.c)
