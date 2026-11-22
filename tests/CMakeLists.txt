@@ -87,6 +87,8 @@ set(TB_TEST_CASE_SOURCES
     ${TB_JSON_SUITE_SOURCE}
     serialize/json_writer_test.c
     jobs/loop_test.c
+    settings/engine_settings_test.c
+    settings/settings_test.c
     vfs/vfs_test.c
     framework/selftest/checks_test.c
     framework/selftest/options_test.c
@@ -135,7 +137,7 @@ set(TB_INTERNAL_TEST_CASE_SOURCES
     codec/crc32_table_test.c
     jobs/deque_test.c)
 set(TB_ENGINE_SOURCES ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES} ${TB_JOBS_SOURCES}
-    ${TB_CODEC_SOURCES} ${TB_SERIALIZE_SOURCES} ${TB_VFS_SOURCES})
+    ${TB_CODEC_SOURCES} ${TB_SERIALIZE_SOURCES} ${TB_VFS_SOURCES} ${TB_SETTINGS_SOURCES})
 
 # The arguments go to tb_add_tests.
 function(tb_add_internal_tests target)
@@ -207,6 +209,9 @@ if(TARGET burrow)
         COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tools/burrow_output_test.py"
             "$<TARGET_FILE:burrow>")
     set_tests_properties(burrow.smoke PROPERTIES PASS_REGULAR_EXPRESSION "2 \\+ 3 = 5")
+    add_test(NAME burrow.settings_load_in_layers_from_the_command_line
+        COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tools/burrow_settings_test.py"
+            "$<TARGET_FILE:burrow>")
     # Its command line: help, the version, and a wrong option, each with the
     # status it must exit with, which a pass expression would not check.
     function(tb_add_burrow_test name argument status expected)
