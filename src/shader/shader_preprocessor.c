@@ -630,6 +630,8 @@ static pp_token *substitute(preprocessor *state, const macro *definition, argume
     out.location = invocation->token.location;
     const tb_shader_token *const body = definition->body;
     const size_t count = definition->body_count;
+    /* Only a function-like macro has arguments; an object-like one is given none. */
+    const bool has_arguments = definition->kind == MACRO_FUNCTION && arguments != NULL;
     /* Whether the last operand gave no tokens, which `##` then pastes nothing onto. */
     bool last_empty = false;
     size_t index = 0;
@@ -638,7 +640,7 @@ static pp_token *substitute(preprocessor *state, const macro *definition, argume
         const tb_shader_token *const current = &body[index];
         const bool followed_by_paste =
             index + 1 < count && tb_shader_token_is(&body[index + 1], "##");
-        if (definition->kind == MACRO_FUNCTION && tb_shader_token_is(current, "#"))
+        if (has_arguments && tb_shader_token_is(current, "#"))
         {
             const long parameter = find_parameter(definition, &body[index + 1]);
             append_string(state, &out, current, arguments[parameter].raw);
@@ -646,7 +648,7 @@ static pp_token *substitute(preprocessor *state, const macro *definition, argume
             index += 2;
             continue;
         }
-        if (is_comma_paste(definition, index))
+        if (has_arguments && is_comma_paste(definition, index))
         {
             const pp_token *const rest = arguments[definition->parameter_count - 1].raw;
             if (!is_end(rest))
@@ -661,7 +663,7 @@ static pp_token *substitute(preprocessor *state, const macro *definition, argume
         if (tb_shader_token_is(current, "##"))
         {
             const tb_shader_token *const right = &body[index + 1];
-            const long parameter = find_parameter(definition, right);
+            const long parameter = has_arguments ? find_parameter(definition, right) : -1;
             if (parameter >= 0)
             {
                 const pp_token *const raw = arguments[parameter].raw;
@@ -680,7 +682,7 @@ static pp_token *substitute(preprocessor *state, const macro *definition, argume
             index += 2;
             continue;
         }
-        const long parameter = find_parameter(definition, current);
+        const long parameter = has_arguments ? find_parameter(definition, current) : -1;
         if (parameter >= 0)
         {
             /* An operand of `##` is substituted as written, any other expanded. */
@@ -1784,16 +1786,18 @@ static void report_unterminated(preprocessor *state, const tb_shader_token *toke
     }
 }
 
+/* Read tokens up to the END token that ends the stream. */
 static void run(preprocessor *state, pp_token *token)
 {
-    while (token != NULL && !state->stopped)
+    while (!state->stopped)
     {
+        if (is_end(token) && (token->pp_flags & PP_FILE_END) == 0)
+        {
+            return;
+        }
         if (is_end(token))
         {
-            if ((token->pp_flags & PP_FILE_END) != 0)
-            {
-                end_file(state);
-            }
+            end_file(state);
             token = token->next;
             continue;
         }
@@ -1949,7 +1953,11 @@ static tb_shader_result preprocess(preprocessor *state)
     const tb_shader_location nowhere = {0, 0, 0};
     (void)push_frame(state, main_file, nowhere);
     (void)push_frame(state, defines_file, nowhere);
-    pp_token *const main_tokens = file_tokens(state, main_file, NULL);
+    /* The stream ends with an END token of its own, so every token read has one after it. */
+    token_list end = {0};
+    list_init(&end);
+    pp_token *const stream_end = list_finish(state, &end, nowhere);
+    pp_token *const main_tokens = file_tokens(state, main_file, stream_end);
     run(state, file_tokens(state, defines_file, main_tokens));
     return state->error_count > 0 ? TB_SHADER_FAILED : TB_SHADER_OK;
 }
