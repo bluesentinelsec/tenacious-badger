@@ -39,16 +39,9 @@
 
 #include "badger/api.h"
 #include "badger/settings.h"
+#include "badger/window.h"
 
 #include <stdbool.h>
-
-/** @brief The choices of `display.window_mode`. */
-typedef enum tb_window_mode
-{
-    TB_WINDOW_MODE_WINDOWED,   /**< A window with a frame, that the player moves and sizes. */
-    TB_WINDOW_MODE_BORDERLESS, /**< A window without a frame that fills its display. */
-    TB_WINDOW_MODE_FULLSCREEN  /**< The display in a mode of the game's own, the game's alone. */
-} tb_window_mode;
 
 /** @brief The choices of `display.vsync`. */
 typedef enum tb_vsync

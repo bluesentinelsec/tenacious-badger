@@ -16,6 +16,7 @@ set(TB_PLATFORM_DEFAULT_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/system.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/thread.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/time.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/window.c"
     CACHE INTERNAL "Default platform adapter sources")
 
 # The report names the system the build was for, which standard C cannot ask.

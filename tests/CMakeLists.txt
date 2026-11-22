@@ -87,6 +87,7 @@ set(TB_TEST_CASE_SOURCES
     ${TB_JSON_SUITE_SOURCE}
     serialize/json_writer_test.c
     jobs/loop_test.c
+    platform/window_test.c
     settings/engine_settings_test.c
     settings/settings_test.c
     vfs/vfs_test.c
@@ -116,6 +117,12 @@ function(tb_add_tests target)
     endif()
 endfunction()
 
+# Windowing is above the platform adapters, so its cases of one platform
+# are cases of the engine's tests.
+if(WIN32)
+    list(APPEND TB_TEST_CASE_SOURCES platform/win32/window_messages_test.c)
+endif()
+
 tb_add_tests(tb_tests SOURCES ${TB_TEST_CASE_SOURCES} LIBRARIES TenaciousBadger::badger)
 
 # Repeat the allocation contracts with the checking functions installed.
@@ -137,7 +144,8 @@ set(TB_INTERNAL_TEST_CASE_SOURCES
     codec/crc32_table_test.c
     jobs/deque_test.c)
 set(TB_ENGINE_SOURCES ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES} ${TB_JOBS_SOURCES}
-    ${TB_CODEC_SOURCES} ${TB_SERIALIZE_SOURCES} ${TB_VFS_SOURCES} ${TB_SETTINGS_SOURCES})
+    ${TB_CODEC_SOURCES} ${TB_SERIALIZE_SOURCES} ${TB_VFS_SOURCES} ${TB_SETTINGS_SOURCES}
+    ${TB_WINDOW_SOURCES})
 
 # The arguments go to tb_add_tests.
 function(tb_add_internal_tests target)
@@ -323,7 +331,8 @@ set(TB_PLATFORM_INTERFACE_HEADERS
     "${PROJECT_SOURCE_DIR}/include/badger/random.h"
     "${PROJECT_SOURCE_DIR}/include/badger/stack.h"
     "${PROJECT_SOURCE_DIR}/include/badger/system.h"
-    "${PROJECT_SOURCE_DIR}/include/badger/thread.h")
+    "${PROJECT_SOURCE_DIR}/include/badger/thread.h"
+    "${PROJECT_SOURCE_DIR}/include/badger/window.h")
 list(JOIN TB_PLATFORM_INTERFACE_HEADERS "," tb_platform_interface_headers)
 add_test(NAME platform_default.every_function_reports_not_implemented
     COMMAND "${CMAKE_COMMAND}" "-DTB_PROBE=$<TARGET_FILE:tb_platform_default_probe>"
