@@ -631,11 +631,11 @@ static uint32_t lower_place(tb_shader_lowerer *lowerer, tb_shader_node *node)
         const uint32_t index = tb_shader_lower_binding_index(binding);
         switch (tb_shader_lower_binding_kind(binding))
         {
-        case TB_SHADER_BINDING_LOCAL:
+        case TB_SHADER_VARIABLE_LOCAL:
             return tb_shader_lower_local(lowerer, index);
-        case TB_SHADER_BINDING_GLOBAL:
+        case TB_SHADER_VARIABLE_GLOBAL:
             return global(lowerer, index);
-        case TB_SHADER_BINDING_ARGUMENT:
+        case TB_SHADER_VARIABLE_ARGUMENT:
             return tb_shader_lower_argument(lowerer, index);
         }
         return TB_SHADER_FORM_NONE;

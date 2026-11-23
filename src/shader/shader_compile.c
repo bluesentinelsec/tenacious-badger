@@ -1,0 +1,276 @@
+/* Compiling: a source read, parsed, checked and lowered, then the part of
+ * its form one entry point runs, and what that entry point takes, gives and
+ * binds. Every step works in an arena of its own; the output is copied into
+ * the caller's arena at the end, so only that copy can run out of room. */
+#include "shader_check.h"
+#include "shader_form.h"
+#include "shader_internal.h"
+#include "shader_lower.h"
+#include "shader_reflect.h"
+#include "shader_syntax.h"
+
+#include "badger/arena.h"
+#include "badger/array.h"
+#include "badger/assert.h"
+#include "badger/fmt.h"
+#include "badger/shader.h"
+#include "badger/str.h"
+
+#include <string.h>
+
+#define STAGE_COUNT ((size_t)TB_SHADER_STAGE_CALLABLE + 1)
+
+/* The public stages are the form's, in its order. */
+TB_STATIC_ASSERT(STAGE_COUNT == (size_t)TB_SHADER_FORM_STAGE_COUNT, "the stages differ");
+
+typedef struct compile
+{
+    tb_arena *scratch;
+    tb_allocator allocator;
+    tb_array *diagnostics; /* tb_shader_diagnostic */
+    size_t error_count;
+    bool is_invalid; /* The request, not the source, is wrong. */
+} compile;
+
+static void add_diagnostics(compile *state, const tb_shader_diagnostic *diagnostics, size_t count)
+{
+    tb_array_append(state->diagnostics, diagnostics, count);
+    for (size_t index = 0; index < count; index++)
+    {
+        state->error_count += diagnostics[index].severity == TB_SHADER_ERROR ? 1u : 0u;
+    }
+}
+
+/* An error that belongs to no place in a file. */
+static void add_error(compile *state, const char *message)
+{
+    const tb_shader_diagnostic diagnostic = {TB_SHADER_ERROR, "", 0, 0, message};
+    add_diagnostics(state, &diagnostic, 1);
+}
+
+/* -------------------------------------------------------------------------
+ * The output, in the caller's arena.
+ * ------------------------------------------------------------------------- */
+
+static const char *copy_string(tb_arena *arena, const char *string)
+{
+    const size_t length = tb_str_length(string);
+    char *const copy = tb_arena_try_alloc(arena, length + 1, 1);
+    if (copy != NULL)
+    {
+        memcpy(copy, string, length + 1);
+    }
+    return copy;
+}
+
+static void *copy_items(tb_arena *arena, const void *items, size_t count, size_t size,
+                        size_t alignment)
+{
+    void *const copy = tb_arena_try_calloc(arena, count == 0 ? 1 : count, size, alignment);
+    if (copy != NULL && count > 0)
+    {
+        memcpy(copy, items, count * size);
+    }
+    return copy;
+}
+
+static bool copy_signature(tb_arena *arena, const tb_shader_signature_element *elements,
+                           size_t count, const tb_shader_signature_element **out)
+{
+    tb_shader_signature_element *const copy = copy_items(arena, elements, count, sizeof(*elements),
+                                                         _Alignof(tb_shader_signature_element));
+    if (copy == NULL)
+    {
+        return false;
+    }
+    for (size_t index = 0; index < count; index++)
+    {
+        copy[index].semantic = copy_string(arena, elements[index].semantic);
+        if (copy[index].semantic == NULL)
+        {
+            return false;
+        }
+    }
+    *out = copy;
+    return true;
+}
+
+static bool copy_reflection(tb_arena *arena, const tb_shader_reflection *reflection,
+                            tb_shader_reflection *out)
+{
+    *out = *reflection;
+    if (!copy_signature(arena, reflection->inputs, reflection->input_count, &out->inputs) ||
+        !copy_signature(arena, reflection->outputs, reflection->output_count, &out->outputs))
+    {
+        return false;
+    }
+    tb_shader_binding *const bindings =
+        copy_items(arena, reflection->bindings, reflection->binding_count,
+                   sizeof(tb_shader_binding), _Alignof(tb_shader_binding));
+    if (bindings == NULL)
+    {
+        return false;
+    }
+    for (size_t index = 0; index < reflection->binding_count; index++)
+    {
+        bindings[index].name = copy_string(arena, reflection->bindings[index].name);
+        if (bindings[index].name == NULL)
+        {
+            return false;
+        }
+    }
+    out->bindings = bindings;
+    return true;
+}
+
+static bool copy_output(const compile *state, const tb_shader_reflection *reflection,
+                        tb_arena *arena, tb_shader_compiled *output)
+{
+    const size_t count = tb_array_length(state->diagnostics);
+    const tb_shader_diagnostic *const source = tb_array_data(state->diagnostics);
+    tb_shader_diagnostic *const diagnostics = copy_items(
+        arena, source, count, sizeof(tb_shader_diagnostic), _Alignof(tb_shader_diagnostic));
+    if (diagnostics == NULL)
+    {
+        return false;
+    }
+    for (size_t index = 0; index < count; index++)
+    {
+        diagnostics[index].path = copy_string(arena, source[index].path);
+        diagnostics[index].message = copy_string(arena, source[index].message);
+        if (diagnostics[index].path == NULL || diagnostics[index].message == NULL)
+        {
+            return false;
+        }
+    }
+    output->diagnostics = diagnostics;
+    output->diagnostic_count = count;
+    return reflection == NULL || copy_reflection(arena, reflection, &output->reflection);
+}
+
+/* -------------------------------------------------------------------------
+ * The steps.
+ * ------------------------------------------------------------------------- */
+
+/* The form's function an entry point names: the first of that name that is
+ * not a method; NONE when there is none. */
+static uint32_t find_entry_function(const tb_shader_form *form, const char *name)
+{
+    const size_t count = tb_shader_form_function_count(form);
+    for (size_t index = 0; index < count; index++)
+    {
+        if (tb_str_equal(tb_shader_form_function_at(form, (uint32_t)index)->name, name))
+        {
+            return (uint32_t)index;
+        }
+    }
+    return TB_SHADER_FORM_NONE;
+}
+
+static uint32_t entry_point_index(const tb_shader_form *form, uint32_t function,
+                                  tb_shader_form_stage stage)
+{
+    const size_t count = tb_array_length(form->entry_points);
+    for (size_t index = 0; index < count; index++)
+    {
+        const tb_shader_form_entry_point *const entry =
+            TB_ARRAY_AT(form->entry_points, tb_shader_form_entry_point, index);
+        if (entry->function == function && entry->stage == stage)
+        {
+            return (uint32_t)index;
+        }
+    }
+    return TB_SHADER_FORM_NONE;
+}
+
+/* Lower the source, then reflect the entry point; false after an error. */
+static bool reflect_entry(compile *state, const tb_shader_compile_request *request,
+                          tb_shader_reflection *reflection)
+{
+    tb_shader_unit unit = {0};
+    const tb_shader_result preprocessed =
+        tb_shader_preprocess_unit(&request->source, state->scratch, &unit);
+    if (preprocessed != TB_SHADER_OK)
+    {
+        add_diagnostics(state, unit.diagnostics, unit.diagnostic_count);
+        state->is_invalid = preprocessed == TB_SHADER_INVALID;
+        return false;
+    }
+    tb_shader_syntax syntax = {0};
+    (void)tb_shader_parse(&unit, state->scratch, &syntax);
+    tb_shader_checked checked = {0};
+    const tb_shader_result result = tb_shader_check(&syntax, state->scratch, &checked);
+    add_diagnostics(state, checked.diagnostics, checked.diagnostic_count);
+    if (result != TB_SHADER_OK)
+    {
+        return false;
+    }
+    tb_shader_form form = {0};
+    tb_shader_lowered lowered = {0};
+    const tb_shader_result lowering =
+        tb_shader_lower(&syntax, &checked, state->scratch, &form, &lowered);
+    add_diagnostics(state, lowered.diagnostics, lowered.diagnostic_count);
+    if (lowering != TB_SHADER_OK)
+    {
+        return false;
+    }
+    const uint32_t function = find_entry_function(&form, request->entry_point);
+    if (function == TB_SHADER_FORM_NONE)
+    {
+        add_error(state, tb_fmt_string(&state->allocator, "there is no function '%s' to run",
+                                       request->entry_point));
+        return false;
+    }
+    const tb_shader_form_stage stage = (tb_shader_form_stage)request->stage;
+    (void)tb_shader_form_add_entry_point(&form, function, stage);
+    tb_shader_form entry = {0};
+    const bool extracted = tb_shader_form_extract(&form, entry_point_index(&form, function, stage),
+                                                  state->scratch, &entry);
+    TB_ASSERT(extracted);
+    const char *const why = tb_shader_reflect(&entry, state->scratch, reflection);
+    if (why != NULL)
+    {
+        add_error(state, tb_fmt_string(&state->allocator, "entry point '%s': %s",
+                                       request->entry_point, why));
+        return false;
+    }
+    return extracted;
+}
+
+tb_shader_result tb_shader_compile(const tb_shader_compile_request *request, tb_arena *arena,
+                                   tb_shader_compiled *output)
+{
+    const tb_shader_compiled empty = {0};
+    *output = empty;
+    compile state = {0};
+    state.scratch = tb_arena_create(0);
+    state.allocator = tb_arena_allocator(state.scratch);
+    state.diagnostics = TB_ARRAY_CREATE(&state.allocator, tb_shader_diagnostic);
+    tb_shader_result result = TB_SHADER_OK;
+    tb_shader_reflection reflection = {0};
+    if (request->entry_point == NULL || request->entry_point[0] == '\0' ||
+        (size_t)request->stage >= STAGE_COUNT)
+    {
+        add_error(&state, "a compile names an entry point and a stage");
+        result = TB_SHADER_INVALID;
+    }
+    else if (!reflect_entry(&state, request, &reflection))
+    {
+        result = state.is_invalid ? TB_SHADER_INVALID : TB_SHADER_FAILED;
+    }
+    const tb_arena_mark mark = tb_arena_get_mark(arena);
+    if (!copy_output(&state, result == TB_SHADER_OK ? &reflection : NULL, arena, output))
+    {
+        tb_arena_rewind(arena, mark);
+        *output = empty;
+        result = TB_SHADER_NO_MEMORY;
+    }
+    tb_arena_destroy(state.scratch);
+    return result;
+}
+
+const char *tb_shader_stage_name(tb_shader_stage stage)
+{
+    return (size_t)stage < STAGE_COUNT ? tb_shader_form_stage_name((tb_shader_form_stage)stage)
+                                       : "unknown stage";
+}

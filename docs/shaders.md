@@ -391,8 +391,50 @@ recursion.
 
 **Not yet.** Arrays of constant buffers, and a base struct's method called on
 a derived struct, are not lowered yet. An attribute's argument must be a
-literal or a name, not an expression such as `4 * 2`. Reflection comes next. Then each entry point takes only what it reaches, which
-reflection describes.
+literal or a name, not an expression such as `4 * 2`.
+
+## Reflection
+
+`tb_shader_compile()` compiles one entry point of a source for a stage, as
+`dxc -E main -T ps_6_6` does, and describes what the stage takes, gives and
+binds, which the RHI builds a pipeline from:
+
+```c
+tb_shader_compile_request request = {0};
+request.source.path = "/Engine/Private/DeferredLighting.hlsl";
+request.source.loader = &loader;
+request.entry_point = "MainPS";
+request.stage = TB_SHADER_STAGE_PIXEL;
+tb_shader_compiled compiled = {0};
+if (tb_shader_compile(&request, arena, &compiled) == TB_SHADER_OK)
+{
+    const tb_shader_reflection *reflection = &compiled.reflection;
+    /* reflection->inputs, ->outputs, ->bindings, ->thread_group */
+}
+```
+
+- **Signatures.** Each value the stage takes or gives, by its semantic's name
+  and index, its component and components. A struct passes one element for
+  each member, and an array or a matrix one for each element or row, the
+  index counting up. A pixel shader's inputs say how they are interpolated:
+  as their modifiers say, or a float linearly, `SV_Position` without
+  perspective, and an integer or a bool not at all, as DXC does. A compute
+  or ray-tracing shader has none; a geometry shader takes its primitive's
+  vertex once, and gives its stream's.
+- **Bindings.** Each constant buffer, texture, buffer and sampler the entry
+  point uses, and only those: its kind (which decides its register class),
+  its shape, the element it holds, its register, space and count. One the
+  source gives no register takes the lowest registers of its class free in
+  space 0, in the order of the source, `$Globals` first, as DXC assigns them;
+  an array of no size must be given one.
+- **The thread group** of `[numthreads]`.
+
+The tests compare all of this with what DXC reports for the same shaders.
+
+**Not yet.** Constant buffers' layouts, with HLSL's packing rules, come next,
+then the features each shader needs. How DXC packs a signature's elements
+into registers, a hull shader's patch constants, and a mesh shader's
+primitives are not described yet.
 
 ## Diagnostics
 

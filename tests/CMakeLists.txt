@@ -93,6 +93,7 @@ set(TB_TEST_CASE_SOURCES
     platform/window_test.c
     settings/engine_settings_test.c
     settings/settings_test.c
+    shader/shader_compile_test.c
     shader/shader_preprocess_test.c
     vfs/vfs_test.c
     framework/selftest/checks_test.c
