@@ -9,6 +9,9 @@
 #include "badger/assert.h"
 #include "badger/fmt.h"
 
+#include "badger/decimal.h"
+#include "badger/str.h"
+
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
@@ -116,6 +119,20 @@ static const char *name_text(tb_shader_lowerer *lowerer, tb_shader_name name)
     return tb_fmt_string(&lowerer->allocator, "%.*s", (int)name.length, name.text);
 }
 
+/* `: SV_Position`: the annotation of a declaration that is a semantic, the
+ * one written without arguments; NULL when it has none. */
+static const char *semantic_of(tb_shader_lowerer *lowerer, const tb_shader_annotation *annotation)
+{
+    for (; annotation != NULL; annotation = annotation->next)
+    {
+        if (!annotation->has_arguments)
+        {
+            return name_text(lowerer, annotation->name);
+        }
+    }
+    return NULL;
+}
+
 static uint32_t struct_type(tb_shader_lowerer *lowerer, const tb_shader_type *type,
                             tb_shader_location location)
 {
@@ -127,6 +144,12 @@ static uint32_t struct_type(tb_shader_lowerer *lowerer, const tb_shader_type *ty
         const tb_shader_symbol *const field = structure->fields[index];
         members[index].name = name_text(lowerer, field->name);
         members[index].type = tb_shader_lower_type(lowerer, field->type, location);
+        if (field->declaration != NULL)
+        {
+            members[index].semantic = semantic_of(lowerer, field->declaration->annotations);
+            members[index].modifiers =
+                field->declaration->modifiers & TB_SHADER_FORM_INTERFACE_MODIFIERS;
+        }
         if (members[index].type == TB_SHADER_FORM_NONE)
         {
             return TB_SHADER_FORM_NONE;
@@ -146,16 +169,11 @@ static uint32_t object_type(tb_shader_lowerer *lowerer, const tb_shader_type *ty
     {
         return tb_shader_lower_type(lowerer, type->element, location);
     }
-    if (object == TB_SHADER_OBJECT_INPUT_PATCH || object == TB_SHADER_OBJECT_OUTPUT_PATCH ||
-        object == TB_SHADER_OBJECT_POINT_STREAM || object == TB_SHADER_OBJECT_LINE_STREAM ||
-        object == TB_SHADER_OBJECT_TRIANGLE_STREAM)
-    {
-        tb_shader_lower_unsupported(lowerer, location, "a patch or a geometry shader's stream");
-        return TB_SHADER_FORM_NONE;
-    }
+
     /* What a shader holds as a handle: a resource, a sampler, an
-     * acceleration structure, a RayQuery. The rest are written in no
-     * variable a shader runs with. */
+     * acceleration structure, a RayQuery, a geometry shader's stream, a
+     * tessellation shader's patch. The rest are written in no variable a
+     * shader runs with. */
     const bool is_handle = tb_shader_object_info_of(object) != NULL &&
                            object != TB_SHADER_OBJECT_HIT_OBJECT &&
                            (object < TB_SHADER_OBJECT_STATE_OBJECT_CONFIG ||
@@ -723,6 +741,88 @@ static const char *function_name(tb_shader_lowerer *lowerer, const tb_shader_sym
                          name.text);
 }
 
+/* An argument of an attribute, which must be a literal or a name. */
+static bool attribute_argument(tb_shader_lowerer *lowerer, const tb_shader_node *node,
+                               tb_shader_form_argument *out)
+{
+    if (node->kind == TB_SHADER_NODE_INTEGER)
+    {
+        out->kind = TB_SHADER_FORM_ARGUMENT_INTEGER;
+        out->integer = node->integer;
+        return true;
+    }
+    if (node->kind == TB_SHADER_NODE_FLOAT)
+    {
+        out->kind = TB_SHADER_FORM_ARGUMENT_FLOAT;
+        const size_t length = node->name.length - node->suffix.length;
+        return tb_decimal_parse(node->name.text, length, &out->value) == TB_DECIMAL_OK;
+    }
+    if (node->kind == TB_SHADER_NODE_STRING)
+    {
+        out->kind = TB_SHADER_FORM_ARGUMENT_STRING;
+        out->text = tb_fmt_string(&lowerer->allocator, "%.*s",
+                                  (int)(node->name.length >= 2 ? node->name.length - 2 : 0),
+                                  node->name.text + 1);
+        return true;
+    }
+    if (node->kind == TB_SHADER_NODE_NAME)
+    {
+        out->kind = TB_SHADER_FORM_ARGUMENT_NAME;
+        out->text = name_text(lowerer, node->name);
+        return true;
+    }
+    return false;
+}
+
+/* `[shader("pixel")]`: the stage a function is an entry point of. */
+static void declare_entry_point(tb_shader_lowerer *lowerer, uint32_t function,
+                                const tb_shader_form_attribute *attribute,
+                                tb_shader_location location)
+{
+    tb_shader_form_stage stage = TB_SHADER_FORM_STAGE_VERTEX;
+    const bool named = attribute->argument_count == 1 &&
+                       attribute->arguments[0].kind == TB_SHADER_FORM_ARGUMENT_STRING &&
+                       tb_shader_form_stage_named(attribute->arguments[0].text, &stage);
+    if (!named)
+    {
+        tb_shader_lower_unsupported(lowerer, location, "a shader attribute that names no stage");
+        return;
+    }
+    (void)tb_shader_form_add_entry_point(lowerer->form, function, stage);
+}
+
+/* A function's attributes, as written; a `shader` attribute makes it an
+ * entry point. */
+static void read_attributes(tb_shader_lowerer *lowerer, uint32_t index, const tb_shader_node *node)
+{
+    tb_shader_form_function *const function = tb_shader_form_function_at(lowerer->form, index);
+    for (const tb_shader_attribute *source = node->attributes; source != NULL;
+         source = source->next)
+    {
+        tb_shader_form_attribute attribute = {0};
+        attribute.name = name_text(lowerer, source->name);
+        attribute.arguments =
+            TB_ARENA_NEW_ARRAY(lowerer->arena, tb_shader_form_argument, source->argument_count + 1);
+        for (const tb_shader_node *argument = source->arguments; argument != NULL;
+             argument = argument->next)
+        {
+            if (!attribute_argument(lowerer, argument,
+                                    &attribute.arguments[attribute.argument_count]))
+            {
+                tb_shader_lower_unsupported(lowerer, argument->location,
+                                            "an attribute's argument that is not a literal");
+                return;
+            }
+            attribute.argument_count++;
+        }
+        (void)tb_array_push(function->attributes, &attribute);
+        if (tb_str_equal(attribute.name, "shader"))
+        {
+            declare_entry_point(lowerer, index, &attribute, source->location);
+        }
+    }
+}
+
 /* A function of the form for a function with a body, its parameters typed;
  * a method's first is `this`, a pointer to its object. */
 static void declare_function(tb_shader_lowerer *lowerer, tb_shader_node *node)
@@ -754,13 +854,17 @@ static void declare_function(tb_shader_lowerer *lowerer, tb_shader_node *node)
         entry.name = name_text(lowerer, parameter->name);
         entry.type = tb_shader_lower_type(lowerer, parameter->checked, parameter->location);
         entry.direction = direction_of(parameter);
+        entry.semantic = semantic_of(lowerer, parameter->annotations);
+        entry.modifiers = parameter->modifiers & TB_SHADER_FORM_INTERFACE_MODIFIERS;
         if (entry.type == TB_SHADER_FORM_NONE)
         {
             return;
         }
         (void)tb_shader_form_add_parameter(function, &entry);
     }
+    function->result_semantic = semantic_of(lowerer, node->annotations);
     tb_shader_lower_bind(lowerer, lowerer->functions, node->symbol, index);
+    read_attributes(lowerer, index, node);
 }
 
 /* A parameter passed by value becomes a local holding it, which the body

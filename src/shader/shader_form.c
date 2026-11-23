@@ -3,6 +3,7 @@
 
 #include "badger/assert.h"
 #include "badger/fmt.h"
+#include "badger/str.h"
 
 static const char *scalar_name(tb_shader_scalar scalar)
 {
@@ -41,6 +42,48 @@ void tb_shader_form_init(tb_shader_form *form, tb_arena *arena)
     form->functions = TB_ARRAY_CREATE(&form->allocator, tb_shader_form_function);
     form->strings = TB_ARRAY_CREATE(&form->allocator, const char *);
     form->initializer = TB_SHADER_FORM_NONE;
+    form->entry_points = TB_ARRAY_CREATE(&form->allocator, tb_shader_form_entry_point);
+}
+
+static const char *const stage_names[TB_SHADER_FORM_STAGE_COUNT] = {
+    "vertex", "pixel",         "geometry",     "hull",   "domain",     "compute", "amplification",
+    "mesh",   "raygeneration", "intersection", "anyhit", "closesthit", "miss",    "callable",
+};
+
+const char *tb_shader_form_stage_name(tb_shader_form_stage stage)
+{
+    return (size_t)stage < TB_SHADER_FORM_STAGE_COUNT ? stage_names[stage] : "?";
+}
+
+bool tb_shader_form_stage_named(const char *name, tb_shader_form_stage *stage)
+{
+    for (size_t index = 0; index < TB_SHADER_FORM_STAGE_COUNT; index++)
+    {
+        if (tb_str_equal(name, stage_names[index]))
+        {
+            *stage = (tb_shader_form_stage)index;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool tb_shader_form_add_entry_point(tb_shader_form *form, uint32_t function,
+                                    tb_shader_form_stage stage)
+{
+    const size_t count = tb_array_length(form->entry_points);
+    for (size_t index = 0; index < count; index++)
+    {
+        const tb_shader_form_entry_point *const entry =
+            TB_ARRAY_AT(form->entry_points, tb_shader_form_entry_point, index);
+        if (entry->function == function && entry->stage == stage)
+        {
+            return false;
+        }
+    }
+    const tb_shader_form_entry_point entry = {function, stage};
+    (void)tb_array_push(form->entry_points, &entry);
+    return true;
 }
 
 /* -------------------------------------------------------------------------
@@ -295,6 +338,7 @@ uint32_t tb_shader_form_add_function(tb_shader_form *form, const char *name, uin
     function.expressions = TB_ARRAY_CREATE(&form->allocator, tb_shader_form_expression);
     function.operands = TB_ARRAY_CREATE(&form->allocator, uint32_t);
     function.statements = TB_ARRAY_CREATE(&form->allocator, tb_shader_form_statement);
+    function.attributes = TB_ARRAY_CREATE(&form->allocator, tb_shader_form_attribute);
     tb_shader_form_statement body = {0};
     body.kind = TB_SHADER_FORM_BLOCK;
     body.next = TB_SHADER_FORM_NONE;

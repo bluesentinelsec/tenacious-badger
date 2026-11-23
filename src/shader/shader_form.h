@@ -74,10 +74,22 @@ typedef struct tb_shader_form_type
     const char *name;        /* As HLSL writes it: `float3x4`, `Light`, `float[4]`. */
 } tb_shader_form_type;
 
+/* The modifiers that say how a value passes between stages: interpolation
+ * (`nointerpolation`, `centroid`, ...), a geometry shader's primitive
+ * (`triangle`, ...), and a mesh shader's outputs (`vertices`, ...). */
+#define TB_SHADER_FORM_INTERFACE_MODIFIERS                                                         \
+    (TB_SHADER_MODIFIER_NOINTERPOLATION | TB_SHADER_MODIFIER_LINEAR |                              \
+     TB_SHADER_MODIFIER_CENTROID | TB_SHADER_MODIFIER_NOPERSPECTIVE | TB_SHADER_MODIFIER_SAMPLE |  \
+     TB_SHADER_MODIFIER_POINT | TB_SHADER_MODIFIER_LINE | TB_SHADER_MODIFIER_TRIANGLE |            \
+     TB_SHADER_MODIFIER_LINEADJ | TB_SHADER_MODIFIER_TRIANGLEADJ | TB_SHADER_MODIFIER_INDICES |    \
+     TB_SHADER_MODIFIER_VERTICES | TB_SHADER_MODIFIER_PRIMITIVES | TB_SHADER_MODIFIER_PAYLOAD)
+
 typedef struct tb_shader_form_member
 {
     const char *name;
     uint32_t type;
+    const char *semantic; /* `SV_Position`, `TEXCOORD0`; NULL for none. */
+    uint64_t modifiers;   /* Of TB_SHADER_FORM_INTERFACE_MODIFIERS. */
 } tb_shader_form_member;
 
 /* -------------------------------------------------------------------------
@@ -137,7 +149,68 @@ typedef struct tb_shader_form_parameter
     const char *name;
     uint32_t type;
     tb_shader_form_direction direction;
+    const char *semantic; /* NULL for none. */
+    uint64_t modifiers;   /* Of TB_SHADER_FORM_INTERFACE_MODIFIERS. */
 } tb_shader_form_parameter;
+
+/* An argument of an attribute: `8` of `[numthreads(8, 8, 1)]`, `"tri"` of
+ * `[domain("tri")]`, `ccw` of `[outputtopology(ccw)]`. */
+typedef enum tb_shader_form_argument_kind
+{
+    TB_SHADER_FORM_ARGUMENT_INTEGER,
+    TB_SHADER_FORM_ARGUMENT_FLOAT,
+    TB_SHADER_FORM_ARGUMENT_STRING, /* Its text between the quotes. */
+    TB_SHADER_FORM_ARGUMENT_NAME
+} tb_shader_form_argument_kind;
+
+typedef struct tb_shader_form_argument
+{
+    tb_shader_form_argument_kind kind;
+    uint64_t integer;
+    double value;
+    const char *text; /* STRING, NAME */
+} tb_shader_form_argument;
+
+/* An attribute of a function, as the source writes it. */
+typedef struct tb_shader_form_attribute
+{
+    const char *name;
+    tb_shader_form_argument *arguments;
+    uint32_t argument_count;
+} tb_shader_form_attribute;
+
+/* The stages a function can be an entry point of. */
+typedef enum tb_shader_form_stage
+{
+    TB_SHADER_FORM_STAGE_VERTEX,
+    TB_SHADER_FORM_STAGE_PIXEL,
+    TB_SHADER_FORM_STAGE_GEOMETRY,
+    TB_SHADER_FORM_STAGE_HULL,
+    TB_SHADER_FORM_STAGE_DOMAIN,
+    TB_SHADER_FORM_STAGE_COMPUTE,
+    TB_SHADER_FORM_STAGE_AMPLIFICATION,
+    TB_SHADER_FORM_STAGE_MESH,
+    TB_SHADER_FORM_STAGE_RAY_GENERATION,
+    TB_SHADER_FORM_STAGE_INTERSECTION,
+    TB_SHADER_FORM_STAGE_ANY_HIT,
+    TB_SHADER_FORM_STAGE_CLOSEST_HIT,
+    TB_SHADER_FORM_STAGE_MISS,
+    TB_SHADER_FORM_STAGE_CALLABLE,
+    TB_SHADER_FORM_STAGE_COUNT
+} tb_shader_form_stage;
+
+/* A stage's name as `[shader("...")]` writes it, and the stage of a name;
+ * false when the name names none. */
+const char *tb_shader_form_stage_name(tb_shader_form_stage stage);
+bool tb_shader_form_stage_named(const char *name, tb_shader_form_stage *stage);
+
+/* A function a stage runs: its parameters and result are what the stage
+ * passes in and out, by their semantics. */
+typedef struct tb_shader_form_entry_point
+{
+    uint32_t function;
+    tb_shader_form_stage stage;
+} tb_shader_form_entry_point;
 
 /* -------------------------------------------------------------------------
  * Expressions.
@@ -269,13 +342,15 @@ typedef struct tb_shader_form_statement
 typedef struct tb_shader_form_function
 {
     const char *name;
-    uint32_t result;       /* A type; VOID for none. */
-    tb_array *parameters;  /* tb_shader_form_parameter */
-    tb_array *locals;      /* tb_shader_form_local */
-    tb_array *expressions; /* tb_shader_form_expression */
-    tb_array *operands;    /* uint32_t: the operand lists of expressions and calls. */
-    tb_array *statements;  /* tb_shader_form_statement */
-    uint32_t body;         /* A BLOCK. */
+    uint32_t result;             /* A type; VOID for none. */
+    tb_array *parameters;        /* tb_shader_form_parameter */
+    tb_array *locals;            /* tb_shader_form_local */
+    tb_array *expressions;       /* tb_shader_form_expression */
+    tb_array *operands;          /* uint32_t: the operand lists of expressions and calls. */
+    tb_array *statements;        /* tb_shader_form_statement */
+    uint32_t body;               /* A BLOCK. */
+    const char *result_semantic; /* `SV_Target`; NULL for none. */
+    tb_array *attributes;        /* tb_shader_form_attribute, in the order of the source. */
 } tb_shader_form_function;
 
 typedef struct tb_shader_form
@@ -287,10 +362,11 @@ typedef struct tb_shader_form
     tb_array *globals;   /* tb_shader_form_global */
     tb_array *functions; /* tb_shader_form_function */
     tb_array *strings;   /* const char *: each string literal's text, as written between quotes. */
-    /* A function of no parameters that stores the first value of each
-     * static variable that has one, in the order of the source; NONE when
-     * there is none. Each entry point calls it before anything else. */
+                         /* A function of no parameters that stores the first value of each
+                          * static variable that has one, in the order of the source; NONE when
+                          * there is none. Each entry point calls it before anything else. */
     uint32_t initializer;
+    tb_array *entry_points; /* tb_shader_form_entry_point */
 } tb_shader_form;
 
 /* An empty form in `arena`, which must outlive it. */
@@ -335,6 +411,11 @@ const char *tb_shader_form_string_at(const tb_shader_form *form, uint32_t string
 uint32_t tb_shader_form_add_function(tb_shader_form *form, const char *name, uint32_t result);
 tb_shader_form_function *tb_shader_form_function_at(const tb_shader_form *form, uint32_t function);
 size_t tb_shader_form_function_count(const tb_shader_form *form);
+
+/* Make a function an entry point of a stage; returns false when it is one
+ * already, of that stage. */
+bool tb_shader_form_add_entry_point(tb_shader_form *form, uint32_t function,
+                                    tb_shader_form_stage stage);
 
 uint32_t tb_shader_form_add_parameter(tb_shader_form_function *function,
                                       const tb_shader_form_parameter *parameter);
