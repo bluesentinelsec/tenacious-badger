@@ -1,9 +1,11 @@
-/* Checking calls: of the shader's functions and methods, and of HLSL's
- * intrinsic functions, whose signatures are templates the arguments decide
- * (shader_intrinsics.h). Of the overloads a call could mean, it takes the
- * one no worse for any argument and better for one, as DXC does. */
+/* Checking calls: of the shader's functions and methods, of HLSL's
+ * intrinsic functions, and of the methods of its built-in objects, whose
+ * signatures are templates the arguments decide (shader_intrinsics.h,
+ * shader_methods.h). Of the overloads a call could mean, it takes the one no
+ * worse for any argument and better for one, as DXC does. */
 #include "shader_check_internal.h"
 #include "shader_intrinsics.h"
+#include "shader_methods.h"
 
 #include "badger/arena.h"
 #include "badger/assert.h"
@@ -61,7 +63,10 @@ typedef enum component_kind
     COMPONENT_SCALAR,          /* `float` */
     COMPONENT_TEMPLATE,        /* `numeric#1`, `#1` */
     COMPONENT_STRUCT_TEMPLATE, /* `udt#1` */
-    COMPONENT_TYPE             /* `RayDesc`: a whole type */
+    COMPONENT_TYPE,            /* `RayDesc`: a whole type */
+    COMPONENT_ELEMENT,         /* `T`: the object's element */
+    COMPONENT_ELEMENT_SCALAR,  /* `t`: the component of the object's element */
+    COMPONENT_CALL_TEMPLATE    /* `U`: the type the call names, or its argument's */
 } component_kind;
 
 typedef enum component_class
@@ -76,6 +81,8 @@ typedef enum component_class
     CLASS_ATOMIC,
     CLASS_B32,
     CLASS_B16,
+    CLASS_I32,
+    CLASS_I64,
     CLASS_ANY
 } component_class;
 
@@ -115,6 +122,7 @@ typedef struct parsed_signature
     term parameters[MAX_INTRINSIC_PARAMETERS];
     size_t count;
     bool is_variadic;
+    bool uses_call_template; /* Mentions `U`, so the call may name its type. */
 } parsed_signature;
 
 typedef struct reader
@@ -189,7 +197,7 @@ static component_class class_named(tb_shader_name word)
         {"numeric", CLASS_NUMERIC}, {"float", CLASS_FLOAT}, {"fdouble", CLASS_FDOUBLE},
         {"double", CLASS_DOUBLE},   {"int", CLASS_INT},     {"uint", CLASS_UINT},
         {"atomic", CLASS_ATOMIC},   {"b32", CLASS_B32},     {"b16", CLASS_B16},
-        {"any", CLASS_ANY},
+        {"i32", CLASS_I32},         {"i64", CLASS_I64},     {"any", CLASS_ANY},
     };
     for (size_t index = 0; index < sizeof(classes) / sizeof(classes[0]); index++)
     {
@@ -201,8 +209,8 @@ static component_class class_named(tb_shader_name word)
     return CLASS_NONE;
 }
 
-/* A type named by a word: `void`, `string`, `RayDesc`, or an object without
- * template arguments. */
+/* A type named by a word: `void`, `string`, `RayDesc`, or an object as it is
+ * without template arguments: `SamplerState`, `Texture2D` of `float4`. */
 static const tb_shader_type *type_named(tb_shader_types *types, tb_shader_name word)
 {
     if (word_is(word, "void"))
@@ -218,7 +226,16 @@ static const tb_shader_type *type_named(tb_shader_types *types, tb_shader_name w
         return tb_shader_ray_desc_type(types);
     }
     const tb_shader_object_info *const info = tb_shader_find_object(word);
-    if (info == NULL || info->template_kind != TB_SHADER_TEMPLATE_NONE)
+    if (info == NULL)
+    {
+        return NULL;
+    }
+    if (info->template_kind == TB_SHADER_TEMPLATE_ELEMENT)
+    {
+        const tb_shader_type *const texel = tb_shader_vector_type(types, TB_SHADER_SCALAR_FLOAT, 4);
+        return tb_shader_object_type(types, info->object, texel, 0, 0);
+    }
+    if (info->template_kind != TB_SHADER_TEMPLATE_NONE)
     {
         return NULL;
     }
@@ -289,7 +306,29 @@ static bool read_direction(reader *in, term *out)
     return false;
 }
 
-/* The component of a term: `$1`, `#1`, `class#1`, `udt#1`, a scalar or a type. */
+/* The components a method's signature names by a letter of their own. */
+static bool read_object_component(tb_shader_name word, term *out)
+{
+    if (word_is(word, "T"))
+    {
+        out->component = COMPONENT_ELEMENT;
+        return true;
+    }
+    if (word_is(word, "t"))
+    {
+        out->component = COMPONENT_ELEMENT_SCALAR;
+        return true;
+    }
+    if (word_is(word, "U"))
+    {
+        out->component = COMPONENT_CALL_TEMPLATE;
+        return true;
+    }
+    return false;
+}
+
+/* The component of a term: `$1`, `#1`, `class#1`, `udt#1`, `T`, `t`, `U`, a
+ * scalar or a type. */
 static bool read_component(reader *in, term *out)
 {
     if (accept(in, '$'))
@@ -325,6 +364,10 @@ static bool read_component(reader *in, term *out)
         out->class_of = class_named(word);
         return out->class_of != CLASS_NONE && read_template_index(in, &out->template_index);
     }
+    if (read_object_component(word, out))
+    {
+        return true;
+    }
     const tb_shader_type *const numeric = tb_shader_numeric_type(in->types, word);
     if (numeric != NULL && numeric->type_class == TB_SHADER_CLASS_SCALAR)
     {
@@ -354,6 +397,7 @@ static bool read_term(reader *in, term *out, bool is_parameter)
         return true;
     }
     const bool takes_shape = out->component == COMPONENT_SCALAR ||
+                             out->component == COMPONENT_ELEMENT_SCALAR ||
                              (out->component == COMPONENT_TEMPLATE && out->shape == SHAPE_SCALAR);
     return takes_shape && read_shape(in, out) && accept(in, '>');
 }
@@ -367,6 +411,7 @@ static bool read_signature(reader *in, parsed_signature *out)
     {
         return false;
     }
+    out->uses_call_template = out->result.component == COMPONENT_CALL_TEMPLATE;
     if (accept(in, ')'))
     {
         return true;
@@ -385,6 +430,8 @@ static bool read_signature(reader *in, parsed_signature *out)
         {
             return false;
         }
+        out->uses_call_template = out->uses_call_template ||
+                                  out->parameters[out->count].component == COMPONENT_CALL_TEMPLATE;
         out->count++;
     } while (accept(in, ','));
     if (!accept(in, ')'))
@@ -395,14 +442,9 @@ static bool read_signature(reader *in, parsed_signature *out)
     return in->text[in->at] == '\0' || accept(in, ';');
 }
 
-bool tb_shader_check_intrinsic_is_valid(tb_shader_types *types, tb_shader_intrinsic intrinsic)
+static bool signatures_read(tb_shader_types *types, const char *signatures)
 {
-    const tb_shader_intrinsic_info *const info = tb_shader_intrinsic_info_of(intrinsic);
-    if (info == NULL)
-    {
-        return false;
-    }
-    reader in = {types, info->signatures, 0};
+    reader in = {types, signatures, 0};
     parsed_signature parsed = {0};
     do
     {
@@ -412,6 +454,18 @@ bool tb_shader_check_intrinsic_is_valid(tb_shader_types *types, tb_shader_intrin
         }
     } while (in.text[in.at] != '\0');
     return true;
+}
+
+bool tb_shader_check_intrinsic_is_valid(tb_shader_types *types, tb_shader_intrinsic intrinsic)
+{
+    const tb_shader_intrinsic_info *const info = tb_shader_intrinsic_info_of(intrinsic);
+    return info != NULL && signatures_read(types, info->signatures);
+}
+
+bool tb_shader_check_method_is_valid(tb_shader_types *types, tb_shader_method method)
+{
+    const tb_shader_method_info *const info = tb_shader_method_info_of(method);
+    return info != NULL && signatures_read(types, info->signatures);
 }
 
 /* -------------------------------------------------------------------------
@@ -434,8 +488,19 @@ typedef struct bindings
     const tb_shader_type *structs[MAX_TEMPLATES];
     char layouts[MAX_TEMPLATES];
     shape_value shapes[MAX_TEMPLATES];
-    uint32_t sizes[SIZE_LETTERS]; /* 0 until an argument gives one. */
+    uint32_t sizes[SIZE_LETTERS];        /* 0 until an argument gives one. */
+    bool is_fixed[SIZE_LETTERS];         /* A size the object decides, which no argument changes. */
+    const tb_shader_type *element;       /* T */
+    const tb_shader_type *call_template; /* U, once the call or an argument gives it. */
 } bindings;
+
+/* What a method's object decides of its signatures, and what the call names. */
+typedef struct call_context
+{
+    const tb_shader_type *element;       /* T; NULL outside a method. */
+    uint32_t sizes[SIZE_LETTERS];        /* Sizes the object decides; 0 for the others. */
+    const tb_shader_type *call_template; /* The type of `Load<float2>`, or NULL. */
+} call_context;
 
 static bool is_in_class(component_class class_of, tb_shader_scalar scalar)
 {
@@ -467,6 +532,10 @@ static bool is_in_class(component_class class_of, tb_shader_scalar scalar)
     case CLASS_B16:
         return scalar == TB_SHADER_SCALAR_HALF || scalar == TB_SHADER_SCALAR_INT16 ||
                scalar == TB_SHADER_SCALAR_UINT16;
+    case CLASS_I32:
+        return scalar == TB_SHADER_SCALAR_INT || scalar == TB_SHADER_SCALAR_UINT;
+    case CLASS_I64:
+        return scalar == TB_SHADER_SCALAR_INT64 || scalar == TB_SHADER_SCALAR_UINT64;
     }
     return false;
 }
@@ -487,7 +556,11 @@ static bool class_fallback(component_class class_of, tb_shader_scalar *scalar)
         return true;
     case CLASS_INT:
     case CLASS_UINT:
+    case CLASS_I32:
         *scalar = TB_SHADER_SCALAR_UINT;
+        return true;
+    case CLASS_I64:
+        *scalar = TB_SHADER_SCALAR_UINT64;
         return true;
     case CLASS_NONE:
     case CLASS_ANY:
@@ -555,7 +628,7 @@ static bool bind_shape(shape_value *shape, const tb_shader_type *type)
 
 static void bind_size(bindings *out, size_term size, uint32_t value)
 {
-    if (size.letter < 0)
+    if (size.letter < 0 || out->is_fixed[size.letter])
     {
         return;
     }
@@ -585,9 +658,41 @@ static bool bind_sizes(bindings *out, const term *parameter, const tb_shader_typ
     return true;
 }
 
+/* The type an argument gives `U`: its own, with a literal as DXC takes it. */
+static const tb_shader_type *call_template_of(tb_shader_checker *checker,
+                                              const tb_shader_type *argument)
+{
+    if (argument->type_class != TB_SHADER_CLASS_SCALAR)
+    {
+        return argument;
+    }
+    if (argument->scalar == TB_SHADER_SCALAR_LITERAL_INT)
+    {
+        return tb_shader_scalar_type(checker->types, TB_SHADER_SCALAR_UINT);
+    }
+    if (argument->scalar == TB_SHADER_SCALAR_LITERAL_FLOAT)
+    {
+        return tb_shader_scalar_type(checker->types, TB_SHADER_SCALAR_FLOAT);
+    }
+    return argument;
+}
+
 static bool bind_argument(tb_shader_checker *checker, bindings *out, const term *parameter,
                           const tb_shader_type *argument)
 {
+    if (parameter->component == COMPONENT_CALL_TEMPLATE)
+    {
+        if (out->call_template == NULL)
+        {
+            out->call_template = call_template_of(checker, argument);
+        }
+        return true;
+    }
+    if (parameter->component == COMPONENT_ELEMENT ||
+        parameter->component == COMPONENT_ELEMENT_SCALAR)
+    {
+        return true;
+    }
     if (parameter->component == COMPONENT_STRUCT_TEMPLATE)
     {
         const tb_shader_type **const bound = &out->structs[parameter->template_index];
@@ -601,9 +706,16 @@ static bool bind_argument(tb_shader_checker *checker, bindings *out, const term 
     }
     const bool is_generic =
         parameter->component == COMPONENT_TEMPLATE || parameter->shape != SHAPE_SCALAR;
-    if (parameter->component == COMPONENT_TYPE || !is_generic)
+    if (parameter->component == COMPONENT_TYPE)
     {
         return true;
+    }
+    if (!is_generic)
+    {
+        /* A parameter written as a scalar takes only a scalar, as DXC's do:
+         * not a vector truncated to one, not even a `float1`. */
+        return tb_shader_check_arithmetic_view(checker, argument)->type_class ==
+               TB_SHADER_CLASS_SCALAR;
     }
     const tb_shader_type *const view = tb_shader_check_arithmetic_view(checker, argument);
     if (!tb_shader_type_is_numeric(view))
@@ -675,6 +787,18 @@ static const tb_shader_type *instantiate(tb_shader_checker *checker, const bindi
     {
     case COMPONENT_TYPE:
         return written->type;
+    case COMPONENT_ELEMENT:
+        return in->element;
+    case COMPONENT_CALL_TEMPLATE:
+        return in->call_template != NULL ? in->call_template
+                                         : tb_shader_scalar_type(types, TB_SHADER_SCALAR_UINT);
+    case COMPONENT_ELEMENT_SCALAR:
+        if (in->element == NULL || !tb_shader_type_is_numeric(in->element))
+        {
+            return NULL;
+        }
+        scalar = in->element->scalar;
+        break;
     case COMPONENT_STRUCT_TEMPLATE:
         return in->structs[written->template_index];
     case COMPONENT_TEMPLATE:
@@ -721,16 +845,32 @@ static const tb_shader_type *instantiate(tb_shader_checker *checker, const bindi
     return NULL;
 }
 
-/* The signature one of an intrinsic's overloads has for these arguments, or
- * false when they cannot decide its templates. */
-static bool intrinsic_signature(tb_shader_checker *checker, const parsed_signature *parsed,
-                                tb_shader_node *const *arguments, size_t count, signature *out)
+/* Bindings that begin with what the context decides. */
+static bindings bindings_of(const call_context *context)
 {
-    if (count < parsed->count || (count > parsed->count && !parsed->is_variadic))
+    bindings bound = {0};
+    bound.element = context->element;
+    bound.call_template = context->call_template;
+    for (size_t letter = 0; letter < SIZE_LETTERS; letter++)
+    {
+        bound.sizes[letter] = context->sizes[letter];
+        bound.is_fixed[letter] = context->sizes[letter] != 0;
+    }
+    return bound;
+}
+
+/* The signature one written overload has for these arguments, or false when
+ * they cannot decide its templates. */
+static bool written_signature(tb_shader_checker *checker, const parsed_signature *parsed,
+                              const call_context *context, tb_shader_node *const *arguments,
+                              size_t count, signature *out)
+{
+    const bool names_wrongly = context->call_template != NULL && !parsed->uses_call_template;
+    if (names_wrongly || count < parsed->count || (count > parsed->count && !parsed->is_variadic))
     {
         return false;
     }
-    bindings bound = {0};
+    bindings bound = bindings_of(context);
     declare_templates(&bound, &parsed->result);
     for (size_t index = 0; index < parsed->count; index++)
     {
@@ -772,19 +912,34 @@ static bool intrinsic_signature(tb_shader_checker *checker, const parsed_signatu
  * Choosing an overload.
  * ------------------------------------------------------------------------- */
 
-/* What a call names: a function of the shader's, or an intrinsic. */
+/* Overloads written in the signature language: an intrinsic's, or a row of
+ * an object's methods. */
+typedef struct written_row
+{
+    const char *signatures;
+    tb_shader_intrinsic intrinsic;
+    tb_shader_method method;
+} written_row;
+
+/* The rows of one method an object can have: one, one with offsets, one of a cube's. */
+#define MAX_ROWS 8
+
+/* What a call names: functions of the shader's, an intrinsic, or a method of an object. */
 typedef struct callee
 {
     tb_shader_symbol *function; /* The first of its overloads. */
-    const tb_shader_intrinsic_info *intrinsic;
+    written_row rows[MAX_ROWS];
+    size_t row_count;
+    call_context context;
     tb_shader_name name;
 } callee;
 
 /* One overload a call could mean. */
 typedef struct candidate
 {
-    tb_shader_symbol *function; /* NULL for an intrinsic's. */
-    size_t overload;            /* An intrinsic's: which of its signatures. */
+    tb_shader_symbol *function; /* NULL for a written one. */
+    size_t row;                 /* A written one's: its row, */
+    size_t overload;            /* and which of its signatures. */
     int costs[MAX_ARGUMENTS];
 } candidate;
 
@@ -875,12 +1030,12 @@ static const char *argument_list(tb_shader_checker *checker, tb_shader_node *con
     return tb_array_data(text);
 }
 
-/* The signature of an intrinsic's overload for these arguments. */
-static bool overload_signature(tb_shader_checker *checker, const tb_shader_intrinsic_info *info,
+/* The signature of a written overload for these arguments. */
+static bool overload_signature(tb_shader_checker *checker, const callee *called, size_t row,
                                size_t overload, tb_shader_node *const *arguments, size_t count,
                                signature *out)
 {
-    reader in = {checker->types, info->signatures, 0};
+    reader in = {checker->types, called->rows[row].signatures, 0};
     parsed_signature parsed = {0};
     for (size_t index = 0; index <= overload; index++)
     {
@@ -891,7 +1046,17 @@ static bool overload_signature(tb_shader_checker *checker, const tb_shader_intri
             return false;
         }
     }
-    return intrinsic_signature(checker, &parsed, arguments, count, out);
+    return written_signature(checker, &parsed, &called->context, arguments, count, out);
+}
+
+static size_t overload_count(const char *signatures)
+{
+    size_t overloads = 1;
+    for (size_t at = 0; signatures[at] != '\0'; at++)
+    {
+        overloads += signatures[at] == ';' ? 1U : 0U;
+    }
+    return overloads;
 }
 
 /* Every overload the arguments can be passed to. */
@@ -910,24 +1075,19 @@ static void gather_candidates(tb_shader_checker *checker, const callee *called,
             (void)tb_array_push(candidates, &option);
         }
     }
-    if (called->intrinsic == NULL)
-    {
-        return;
-    }
     option.function = NULL;
-    const char *const signatures = called->intrinsic->signatures;
-    size_t overloads = 1;
-    for (size_t at = 0; signatures[at] != '\0'; at++)
+    for (size_t row = 0; row < called->row_count; row++)
     {
-        overloads += signatures[at] == ';' ? 1U : 0U;
-    }
-    for (size_t overload = 0; overload < overloads; overload++)
-    {
-        option.overload = overload;
-        if (overload_signature(checker, called->intrinsic, overload, arguments, count, &taken) &&
-            signature_costs(checker, &taken, arguments, count, &option))
+        option.row = row;
+        const size_t overloads = overload_count(called->rows[row].signatures);
+        for (size_t overload = 0; overload < overloads; overload++)
         {
-            (void)tb_array_push(candidates, &option);
+            option.overload = overload;
+            if (overload_signature(checker, called, row, overload, arguments, count, &taken) &&
+                signature_costs(checker, &taken, arguments, count, &option))
+            {
+                (void)tb_array_push(candidates, &option);
+            }
         }
     }
 }
@@ -1027,11 +1187,12 @@ static void resolve_call(tb_shader_checker *checker, tb_shader_node *call, const
         found = function_signature(checker, chosen->function, &taken);
         call->symbol = chosen->function;
     }
-    else if (called->intrinsic != NULL)
+    else if (chosen->row < called->row_count)
     {
-        found = overload_signature(checker, called->intrinsic, chosen->overload, arguments, count,
+        found = overload_signature(checker, called, chosen->row, chosen->overload, arguments, count,
                                    &taken);
-        call->intrinsic = (uint32_t)called->intrinsic->intrinsic;
+        call->intrinsic = (uint32_t)called->rows[chosen->row].intrinsic;
+        call->method = (uint32_t)called->rows[chosen->row].method;
     }
     TB_ASSERT(found);
     if (!found)
@@ -1075,13 +1236,18 @@ static bool named_callee(tb_shader_checker *checker, tb_shader_node *name, calle
     tb_shader_symbol *const symbol = tb_shader_check_lookup(checker, name->name);
     if (symbol == NULL)
     {
-        out->intrinsic = find_intrinsic(checker, name->name);
-        if (out->intrinsic == NULL)
+        const tb_shader_intrinsic_info *const intrinsic = find_intrinsic(checker, name->name);
+        if (intrinsic == NULL)
         {
             tb_shader_check_error(checker, name->location, "'%.*s' is not declared",
                                   name_length(name->name), name->name.text);
+            return false;
         }
-        return out->intrinsic != NULL;
+        const written_row row = {intrinsic->signatures, intrinsic->intrinsic,
+                                 TB_SHADER_METHOD_NONE};
+        out->rows[0] = row;
+        out->row_count = 1;
+        return true;
     }
     if (symbol->kind != TB_SHADER_SYMBOL_FUNCTION)
     {
@@ -1094,7 +1260,116 @@ static bool named_callee(tb_shader_checker *checker, tb_shader_node *name, calle
     return true;
 }
 
-/* What a callee calls: a function, an intrinsic, or a method of a struct. */
+/* The rows of an object's methods of a name, and what the object decides of them. */
+static bool object_callee(tb_shader_checker *checker, tb_shader_node *member,
+                          const tb_shader_type *object, callee *out)
+{
+    const tb_shader_object_methods methods = tb_shader_object_methods_of(object->object);
+    for (size_t index = 1; index < (size_t)TB_SHADER_METHOD_COUNT; index++)
+    {
+        const tb_shader_method_info *const info = tb_shader_method_info_of((tb_shader_method)index);
+        const bool has_row =
+            (methods.traits & info->traits) == info->traits && word_is(member->name, info->name);
+        if (!has_row)
+        {
+            continue;
+        }
+        TB_ASSERT(out->row_count < MAX_ROWS);
+        if (out->row_count < MAX_ROWS)
+        {
+            const written_row row = {info->signatures, TB_SHADER_INTRINSIC_NONE, info->method};
+            out->rows[out->row_count++] = row;
+        }
+    }
+    if (out->row_count == 0)
+    {
+        tb_shader_check_error(checker, member->location, "'%s' has no method '%.*s'", object->name,
+                              name_length(member->name), member->name.text);
+        return false;
+    }
+    out->context.element = object->element;
+    out->context.sizes['P' - 'A'] = methods.location;
+    out->context.sizes['O' - 'A'] = methods.offset;
+    out->context.sizes['L' - 'A'] = methods.load;
+    return true;
+}
+
+/* Whether any of a callee's written overloads takes the type a call names. */
+static bool takes_call_template(tb_shader_checker *checker, const callee *called)
+{
+    for (size_t row = 0; row < called->row_count; row++)
+    {
+        reader in = {checker->types, called->rows[row].signatures, 0};
+        parsed_signature parsed = {0};
+        while (read_signature(&in, &parsed))
+        {
+            if (parsed.uses_call_template)
+            {
+                return true;
+            }
+            if (in.text[in.at] == '\0')
+            {
+                break;
+            }
+        }
+    }
+    return false;
+}
+
+/* The type a call names, as `Load<float2>` names it, when its method takes one. */
+static bool find_call_template(tb_shader_checker *checker, const tb_shader_node *member,
+                               callee *out)
+{
+    const tb_shader_template_argument *const argument = member->template_arguments;
+    const int length = name_length(member->name);
+    if (!takes_call_template(checker, out))
+    {
+        tb_shader_check_error(checker, member->location, "'%.*s' takes no template arguments",
+                              length, member->name.text);
+        return false;
+    }
+    if (argument->next != NULL || argument->type == NULL)
+    {
+        tb_shader_check_error(checker, member->location, "'%.*s' takes one type to name", length,
+                              member->name.text);
+        return false;
+    }
+    out->context.call_template = tb_shader_check_type(checker, argument->type);
+    return !is_error(out->context.call_template);
+}
+
+/* What a method's callee calls: a method of a struct, or of a built-in object. */
+static bool member_callee(tb_shader_checker *checker, tb_shader_node *node, callee *out)
+{
+    node->left = tb_shader_check_expression(checker, node->left);
+    const tb_shader_type *const object = type_of(checker, node->left);
+    if (is_error(object))
+    {
+        return false;
+    }
+    if (object->type_class == TB_SHADER_CLASS_OBJECT)
+    {
+        if (!object_callee(checker, node, object, out))
+        {
+            return false;
+        }
+        return node->template_arguments == NULL || find_call_template(checker, node, out);
+    }
+    tb_shader_symbol *const method = object->type_class == TB_SHADER_CLASS_STRUCT
+                                         ? tb_shader_find_member(object, node->name)
+                                         : NULL;
+    if (method == NULL || method->kind != TB_SHADER_SYMBOL_FUNCTION)
+    {
+        tb_shader_check_error(checker, node->location, "'%s' has no method '%.*s'", object->name,
+                              name_length(node->name), node->name.text);
+        return false;
+    }
+    node->symbol = method;
+    out->function = method;
+    return true;
+}
+
+/* What a callee calls: a function, an intrinsic, or a method. */
 static bool find_callee(tb_shader_checker *checker, tb_shader_node *node, callee *out)
 {
     if (node == NULL)
@@ -1111,24 +1386,14 @@ static bool find_callee(tb_shader_checker *checker, tb_shader_node *node, callee
         tb_shader_check_error(checker, node->location, "this expression cannot be called");
         return false;
     }
-    node->left = tb_shader_check_expression(checker, node->left);
-    const tb_shader_type *const object = type_of(checker, node->left);
-    if (is_error(object))
-    {
-        return false;
-    }
-    tb_shader_symbol *const method = object->type_class == TB_SHADER_CLASS_STRUCT
-                                         ? tb_shader_find_member(object, node->name)
-                                         : NULL;
-    if (method == NULL || method->kind != TB_SHADER_SYMBOL_FUNCTION)
-    {
-        tb_shader_check_error(checker, node->location, "'%s' has no method '%.*s'", object->name,
-                              name_length(node->name), node->name.text);
-        return false;
-    }
-    node->symbol = method;
-    out->function = method;
-    return true;
+    return member_callee(checker, node, out);
+}
+
+/* Whether a call names template arguments that only templates, still to come, could take. */
+static bool names_unsupported_templates(const tb_shader_node *call, const callee *called)
+{
+    const bool names_templates = call->left != NULL && call->left->template_arguments != NULL;
+    return names_templates && called->context.call_template == NULL;
 }
 
 void tb_shader_check_call(tb_shader_checker *checker, tb_shader_node *node)
@@ -1137,13 +1402,14 @@ void tb_shader_check_call(tb_shader_checker *checker, tb_shader_node *node)
     callee called = {0};
     const bool found = find_callee(checker, node->left, &called);
     tb_shader_check_list(checker, &node->children);
-    if (node->left != NULL && node->left->template_arguments != NULL)
+    if (!found)
+    {
+        return;
+    }
+    if (names_unsupported_templates(node, &called))
     {
         tb_shader_check_error(checker, node->location, "templates are not supported yet");
         return;
     }
-    if (found)
-    {
-        resolve_call(checker, node, &called);
-    }
+    resolve_call(checker, node, &called);
 }

@@ -250,7 +250,8 @@ decides it:
 - Shapes combine to the smallest vector or matrix among the arguments, and a
   scalar takes any shape: `lerp(float3, float3, float)` is a `float3`, and
   `max(float3, float4)` a `float3`, with a warning. A vector does not combine
-  with a matrix. A template written as a scalar takes only a scalar.
+  with a matrix. A parameter written as a scalar takes only a scalar, not
+  even a `float1`: `WaveReadLaneAt(f, uint2(0, 0))` is an error.
 - A literal stays literal where the class takes one: `max(1, 2)` is a
   literal int.
 
@@ -262,10 +263,32 @@ derivatives and pixel-shader attributes, barriers and atomics, wave and quad
 operations, ray tracing, mesh shaders, `NonUniformResourceIndex` and
 `printf`. A function of the shader's hides an intrinsic of its name.
 
-**Not yet.** The methods of resources (`Sample`, `Load`, `GetDimensions`, ...)
-come next. Templates come later, and so do these intrinsics: the
-tessellation factor functions, the packed 8-bit types and their `pack_` and
-`unpack_` functions, and the legacy `tex2D` family.
+**Methods of objects.** The methods of textures, buffers, streams and ray
+queries are a second table (`src/shader/shader_methods.h`) in the same
+language, following DXC's. A row names a method, the traits an object needs
+to have it, and its overloads; an object has every row whose traits it has.
+`Texture2D` and `TextureCube` share the rows of a sampled texture, `Texture2D`
+adds those with offsets, and `TextureCube` those that take a clamp or a status
+in an offset's place. Three things in a method's signatures come from its
+object:
+
+- `T` is the object's element, so `Texture2D<float>.Sample` returns a `float`
+  and `StructuredBuffer<S>.Load` an `S`; `t` is the element's component, so
+  `Texture2D<uint2>.Gather` returns a `uint4`.
+- `P`, `O` and `L` are the sizes of a location to sample, of an offset or a
+  gradient, and of a location to load: `Texture2DArray.Sample` takes a
+  `float3` and an `int2`, and its `Load` an `int4`. An argument does not
+  change them; a larger one is truncated, with a warning.
+- `U` is the type a call names, `ByteAddressBuffer.Load<float4>(0)`, or else
+  the type of `Store`'s value, a literal as a `uint` or a `float`, or else
+  `uint`. Only `Load` and `Store` of a byte-address buffer name a type.
+
+**Not yet.** A texture's `mips` and `sample` members (`t.mips[2][p]`) come
+next, then the shader's own form. Templates come later, and so do these
+intrinsics: the tessellation factor functions, the packed 8-bit types and
+their `pack_` and `unpack_` functions, and the legacy `tex2D` family. The
+methods of work-graph nodes and `HitObject` come with the shader models that
+bring them.
 
 ## Diagnostics
 
