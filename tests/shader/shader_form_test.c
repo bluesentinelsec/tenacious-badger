@@ -1614,7 +1614,7 @@ TB_TEST(shader_form, the_verifier_checks_the_module)
     expect_broken(&b, "global 0: a global is private, groupshared, uniform or a handle");
 
     start(&b, false);
-    const tb_shader_form_member later = {"a", 99, NULL, 0};
+    const tb_shader_form_member later = {"a", 99, NULL, 0, TB_SHADER_FORM_NONE};
     (void)tb_shader_form_struct(&b.form, "S", &later, 1);
     expect_broken(&b, "a member of a type made after it");
 

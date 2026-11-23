@@ -84,12 +84,20 @@ typedef struct tb_shader_form_type
      TB_SHADER_MODIFIER_LINEADJ | TB_SHADER_MODIFIER_TRIANGLEADJ | TB_SHADER_MODIFIER_INDICES |    \
      TB_SHADER_MODIFIER_VERTICES | TB_SHADER_MODIFIER_PRIMITIVES | TB_SHADER_MODIFIER_PAYLOAD)
 
+/* The modifiers that say how a matrix is laid out in memory. */
+#define TB_SHADER_FORM_LAYOUT_MODIFIERS                                                            \
+    (TB_SHADER_MODIFIER_ROW_MAJOR | TB_SHADER_MODIFIER_COLUMN_MAJOR)
+
 typedef struct tb_shader_form_member
 {
     const char *name;
     uint32_t type;
     const char *semantic; /* `SV_Position`, `TEXCOORD0`; NULL for none. */
-    uint64_t modifiers;   /* Of TB_SHADER_FORM_INTERFACE_MODIFIERS. */
+    /* Of TB_SHADER_FORM_INTERFACE_MODIFIERS and TB_SHADER_FORM_LAYOUT_MODIFIERS. */
+    uint64_t modifiers;
+    /* A constant buffer's variable: the bytes from its start `packoffset(c1.y)`
+     * gives it, 20; NONE without one. */
+    uint32_t packoffset;
 } tb_shader_form_member;
 
 /* -------------------------------------------------------------------------

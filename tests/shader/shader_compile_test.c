@@ -215,6 +215,138 @@ TB_TEST(shader_compile, vertex_and_geometry_signatures)
     tb_arena_destroy(out.arena);
 }
 
+/* A variable named `name` among a buffer's variables. */
+static const tb_shader_variable *find_variable(const tb_shader_constant_buffer *buffer,
+                                               const char *name)
+{
+    for (size_t index = 0; index < buffer->variable_count; index++)
+    {
+        if (tb_str_equal(buffer->variables[index].name, name))
+        {
+            return &buffer->variables[index];
+        }
+    }
+    return NULL;
+}
+
+static void expect_at(const tb_shader_constant_buffer *buffer, const char *name, unsigned offset,
+                      unsigned size)
+{
+    TB_TEST_CONTEXT("variable %s", name);
+    const tb_shader_variable *const variable = find_variable(buffer, name);
+    TB_TEST_REQUIRE_POINTER(variable, !=, NULL);
+    TB_TEST_EXPECT_UINT(variable->offset, ==, offset);
+    TB_TEST_EXPECT_UINT(variable->size, ==, size);
+}
+
+TB_TEST(shader_compile, constant_buffers_are_packed_as_dxc_packs_them)
+{
+    compiled out = {0};
+    compile_text(&out,
+                 "struct Inner { float a; float2 b; };\n"
+                 "struct Light { float3 color; float range; Inner inner; float tail; };\n"
+                 "cbuffer Layout { float x; float3 v3; float2 v2; float2 w2; float s1; "
+                 "float3 after_s1; float arr[3]; float tail1; Light light; float tail2; "
+                 "float4x3 m43; row_major float4x3 rm43; float2x2 m22; float tail3; double d; "
+                 "float tail4; min16float mf; bool flag; half h; Light lights[2]; "
+                 "float3x2 m32arr[2]; float tail5; };\n"
+                 "cbuffer Packed { float p0 : packoffset(c1.y); float4 p1 : packoffset(c0); "
+                 "float p2 : packoffset(c2); };\n"
+                 "float4 main() : SV_Target { return x + v3.x + v2.x + w2.x + s1 + after_s1.x + "
+                 "arr[2] + tail1 + light.inner.b.y + tail2 + m43[0][0] + rm43[0][0] + m22[0][0] + "
+                 "tail3 + (float)d + tail4 + mf + flag + h + lights[1].tail + m32arr[1][0][0] + "
+                 "tail5 + p0 + p1.x + p2; }",
+                 "main", TB_SHADER_STAGE_PIXEL);
+    TB_TEST_REQUIRE_UINT(out.result, ==, TB_SHADER_OK);
+    const tb_shader_reflection *const reflection = &out.output.reflection;
+    TB_TEST_REQUIRE_UINT(reflection->buffer_count, ==, 2);
+    const tb_shader_constant_buffer *const layout = &reflection->buffers[0];
+    TB_TEST_EXPECT_STRING(layout->name, ==, "Layout");
+    TB_TEST_EXPECT_UINT(layout->size, ==, 464);
+    TB_TEST_EXPECT_UINT(layout->top_count, ==, 22);
+    /* No vector crosses a register; an array's elements each start one. */
+    expect_at(layout, "x", 0, 4);
+    expect_at(layout, "v3", 4, 12);
+    expect_at(layout, "v2", 16, 8);
+    expect_at(layout, "w2", 24, 8);
+    expect_at(layout, "s1", 32, 4);
+    expect_at(layout, "after_s1", 36, 12);
+    expect_at(layout, "arr", 48, 36);
+    expect_at(layout, "tail1", 84, 4);
+    /* A struct starts a register, and what follows packs into its last. */
+    expect_at(layout, "light", 96, 32);
+    expect_at(layout, "inner", 112, 12);
+    expect_at(layout, "b", 116, 8);
+    expect_at(layout, "tail2", 128, 4);
+    /* A column-major matrix has a register for each column, a row-major one
+     * for each row; the last is not padded. */
+    expect_at(layout, "m43", 144, 48);
+    expect_at(layout, "rm43", 192, 60);
+    expect_at(layout, "m22", 256, 24);
+    expect_at(layout, "tail3", 280, 4);
+    expect_at(layout, "d", 288, 8);
+    expect_at(layout, "tail4", 296, 4);
+    /* A minimum-precision value takes a register of its own. */
+    expect_at(layout, "mf", 304, 4);
+    expect_at(layout, "flag", 320, 4);
+    expect_at(layout, "h", 324, 4);
+    expect_at(layout, "lights", 336, 64);
+    expect_at(layout, "m32arr", 400, 60);
+    expect_at(layout, "tail5", 460, 4);
+    const tb_shader_variable *const lights = find_variable(layout, "lights");
+    TB_TEST_REQUIRE_POINTER(lights, !=, NULL);
+    TB_TEST_EXPECT_UINT(lights->variable_class, ==, TB_SHADER_VARIABLE_STRUCT);
+    TB_TEST_EXPECT_UINT(lights->elements, ==, 2);
+    TB_TEST_EXPECT_UINT(lights->stride, ==, 32);
+    TB_TEST_EXPECT_UINT(lights->member_count, ==, 4);
+    TB_TEST_EXPECT_UINT(layout->variables[lights->first_member].offset, ==, 336);
+    const tb_shader_variable *const rm43 = find_variable(layout, "rm43");
+    TB_TEST_REQUIRE_POINTER(rm43, !=, NULL);
+    TB_TEST_EXPECT_UINT(rm43->variable_class, ==, TB_SHADER_VARIABLE_MATRIX_ROWS);
+    TB_TEST_EXPECT_UINT(rm43->rows, ==, 4);
+    TB_TEST_EXPECT_UINT(rm43->columns, ==, 3);
+    TB_TEST_EXPECT_UINT(find_variable(layout, "m43")->variable_class, ==,
+                        TB_SHADER_VARIABLE_MATRIX_COLUMNS);
+    TB_TEST_EXPECT_UINT(find_variable(layout, "d")->component, ==, TB_SHADER_COMPONENT_FLOAT64);
+    /* packoffset places a variable where it says. */
+    const tb_shader_constant_buffer *const packed = &reflection->buffers[1];
+    TB_TEST_EXPECT_STRING(packed->name, ==, "Packed");
+    TB_TEST_EXPECT_UINT(packed->size, ==, 36);
+    expect_at(packed, "p0", 20, 4);
+    expect_at(packed, "p1", 0, 16);
+    expect_at(packed, "p2", 32, 4);
+    tb_arena_destroy(out.arena);
+}
+
+TB_TEST(shader_compile, arrays_and_minimum_precision_are_packed_as_dxc_packs_them)
+{
+    compiled out = {0};
+    compile_text(&out,
+                 "struct S3 { float3 v; };\n"
+                 "cbuffer M { float a; min16float b; float c; min16float2 d; float e; min16int f; "
+                 "float g; S3 arr[2]; float h; float2 i[2]; float j; };\n"
+                 "float4 main() : SV_Target { return a + b + c + d.x + e + f + g + arr[1].v.x + h "
+                 "+ i[1].x + j; }",
+                 "main", TB_SHADER_STAGE_PIXEL);
+    TB_TEST_REQUIRE_UINT(out.result, ==, TB_SHADER_OK);
+    TB_TEST_REQUIRE_UINT(out.output.reflection.buffer_count, ==, 1);
+    const tb_shader_constant_buffer *const buffer = &out.output.reflection.buffers[0];
+    TB_TEST_EXPECT_UINT(buffer->size, ==, 172);
+    expect_at(buffer, "a", 0, 4);
+    expect_at(buffer, "b", 16, 4);
+    expect_at(buffer, "c", 32, 4);
+    expect_at(buffer, "d", 48, 8);
+    expect_at(buffer, "e", 64, 4);
+    expect_at(buffer, "f", 80, 4);
+    expect_at(buffer, "g", 96, 4);
+    expect_at(buffer, "arr", 112, 28);
+    expect_at(buffer, "h", 140, 4);
+    expect_at(buffer, "i", 144, 24);
+    expect_at(buffer, "j", 168, 4);
+    TB_TEST_EXPECT_UINT(find_variable(buffer, "i")->stride, ==, 16);
+    tb_arena_destroy(out.arena);
+}
+
 TB_TEST(shader_compile, what_cannot_be_compiled_says_why)
 {
     compiled out = {0};
