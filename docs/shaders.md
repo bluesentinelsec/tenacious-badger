@@ -143,6 +143,46 @@ that names the file and line.
 first, each once, in the order it was first read: what the shader cache keys
 on, and what hot reload watches.
 
+## The parser
+
+The parser reads the preprocessed tokens into a syntax tree, which type
+checking (#229) reads next. The tree records what the source says, not yet
+what it means. The parser reads HLSL 2021:
+
+- **Declarations:** structs and classes, with methods, bases and bit fields;
+  interfaces; enums and `enum class`; functions, with their parameters,
+  default values and semantics; variables; `cbuffer` and `tbuffer`;
+  `ConstantBuffer<T>` and every resource type; `typedef`; namespaces; and
+  templates of structs and functions.
+- **What follows a `:`:** semantics, `register(t0, space1)`,
+  `packoffset(c1.y)`, and a ray payload's `read(...)` and `write(...)`.
+- **Attributes** before declarations and statements, as `[numthreads(8, 8, 1)]`,
+  `[shader("closesthit")]` and `[unroll(4)]`, and as `[[vk::binding(0)]]`.
+- **Modifiers**, such as `static`, `groupshared`, `row_major`, `nointerpolation`
+  and `inout`. Some words are modifiers only before a declaration's type:
+  geometry shaders' `triangle`, mesh shaders' `indices`, `vertices`,
+  `primitives` and `payload`, and interpolation's `linear`, `centroid`,
+  `noperspective` and `sample`. Elsewhere they are ordinary names, so
+  `float sample = 1;` is a variable.
+- **Every statement and expression**, with C's precedence; casts,
+  constructors such as `float4(v, 1)`, swizzles, initializer lists, and
+  template arguments on calls, as in `buffer.Load<float4>(offset)`.
+- **Pragmas** the preprocessor passes on, where they are, in order.
+
+**Types and values.** As in C, the parser tells a type from a value by what
+each name was declared as, scope by scope: `(T)x` is a cast when `T` is a
+type, and `T(x)` builds a `T`; when `T` is a variable, `(T)` is a value and
+`T(x)` a call. A local name hides a type of the same name.
+
+**Errors** name the file, line and column of the token at fault:
+`expected ';', found 'float'`. After one, the parser skips to the end of the
+statement or declaration, and reads on, so one compile reports what it can.
+
+**Numbers.** Integers are decimal, `0x` hexadecimal, `0b` binary or `0`
+octal, with a suffix of at most one `u` and two `l`s; one that does not fit
+in 64 bits is an error. Floating-point numbers take a suffix of `f`, `h` or
+`l`. A character constant is an error, because HLSL has none.
+
 ## Diagnostics
 
 Each error and warning has a virtual path, a line and a column, counted from
@@ -177,7 +217,9 @@ Every way a source could make the compiler do unbounded work is bounded:
 | Bytes of one file | `TB_SHADER_MAX_FILE_SIZE`, 16 MiB |
 | Tokens the preprocessor makes, from files and macros alike | `TB_SHADER_MAX_TOKENS`, about a million, or the request's `max_tokens` |
 | Macro invocations nested in one another's arguments, and parentheses in `#if` | 256 |
-| Errors before a compile stops | `TB_SHADER_MAX_ERRORS`, 64 |
+| Statements, expressions and types nested in one another | 256 |
+| The height of an expression's tree, operators chained without parentheses included | 1024 |
+| Errors before a compile stops, the preprocessor's and the parser's together | `TB_SHADER_MAX_ERRORS`, 64 |
 
 A file that holds a NUL byte is refused.
 
