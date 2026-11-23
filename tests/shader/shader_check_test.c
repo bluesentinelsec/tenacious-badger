@@ -647,9 +647,9 @@ static void expect_call_type(const char *declarations, const char *call, const c
 }
 
 #define VALUES                                                                                     \
-    "static int i; static uint u; static half h; static float f; static bool b; "                 \
-    "static double d; static float3 f3; static float4 f4; static int3 i3; static bool3 b3; "      \
-    "static float2x2 m2; static float3x3 m3; static float3x4 m34; static float4x2 m42; "          \
+    "static int i; static uint u; static half h; static float f; static bool b; "                  \
+    "static double d; static float3 f3; static float4 f4; static int3 i3; static bool3 b3; "       \
+    "static float2x2 m2; static float3x3 m3; static float3x4 m34; static float4x2 m42; "           \
     "static uint64_t u64; static min16float mf;"
 
 TB_TEST(shader_check, every_intrinsic_signature_reads)

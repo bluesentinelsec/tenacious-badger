@@ -691,8 +691,7 @@ static const tb_shader_type *instantiate(tb_shader_checker *checker, const bindi
     {
     case SHAPE_SCALAR:
         return tb_shader_scalar_type(types, scalar);
-    case SHAPE_TEMPLATE:
-    {
+    case SHAPE_TEMPLATE: {
         const shape_value *const shape = &in->shapes[written->shape_index];
         if (!shape->is_set)
         {
@@ -708,13 +707,11 @@ static const tb_shader_type *instantiate(tb_shader_checker *checker, const bindi
         }
         return tb_shader_scalar_type(types, scalar);
     }
-    case SHAPE_VECTOR:
-    {
+    case SHAPE_VECTOR: {
         const uint32_t columns = size_of(in, written->columns);
         return columns == 0 ? NULL : tb_shader_vector_type(types, scalar, columns);
     }
-    case SHAPE_MATRIX:
-    {
+    case SHAPE_MATRIX: {
         const uint32_t rows = size_of(in, written->rows);
         const uint32_t columns = size_of(in, written->columns);
         return rows == 0 || columns == 0 ? NULL
@@ -899,8 +896,7 @@ static bool overload_signature(tb_shader_checker *checker, const tb_shader_intri
 
 /* Every overload the arguments can be passed to. */
 static void gather_candidates(tb_shader_checker *checker, const callee *called,
-                              tb_shader_node *const *arguments, size_t count,
-                              tb_array *candidates)
+                              tb_shader_node *const *arguments, size_t count, tb_array *candidates)
 {
     candidate option = {0};
     signature taken = {0};
@@ -972,8 +968,8 @@ static const candidate *choose_overload(tb_shader_checker *checker, tb_shader_no
 
 /* Convert each argument to its parameter's type; an output must be a place
  * the parameter's value can be written back to. */
-static void bind_arguments(tb_shader_checker *checker, tb_shader_node *call,
-                           const signature *taken, tb_shader_name name)
+static void bind_arguments(tb_shader_checker *checker, tb_shader_node *call, const signature *taken,
+                           tb_shader_name name)
 {
     size_t index = 0;
     for (tb_shader_node **link = &call->children; *link != NULL && index < taken->count;
@@ -1056,8 +1052,8 @@ static const tb_shader_intrinsic_info *find_intrinsic(tb_shader_checker *checker
     if (checker->intrinsics == NULL)
     {
         const size_t count = (size_t)TB_SHADER_INTRINSIC_COUNT;
-        checker->intrinsics = tb_table_create(&checker->allocator, count * 2,
-                                              tb_shader_name_hash, tb_shader_name_equal);
+        checker->intrinsics = tb_table_create(&checker->allocator, count * 2, tb_shader_name_hash,
+                                              tb_shader_name_equal);
         tb_shader_name *const names = TB_ARENA_NEW_ARRAY(checker->arena, tb_shader_name, count);
         tb_shader_intrinsic *const values =
             TB_ARENA_NEW_ARRAY(checker->arena, tb_shader_intrinsic, count);

@@ -257,7 +257,7 @@ typedef enum tb_shader_intrinsic
     TB_SHADER_INTRINSIC_##identifier,
     TB_SHADER_INTRINSIC_LIST(TB_SHADER_INTRINSIC_ENUMERATOR)
 #undef TB_SHADER_INTRINSIC_ENUMERATOR
-        TB_SHADER_INTRINSIC_COUNT
+    TB_SHADER_INTRINSIC_COUNT
 } tb_shader_intrinsic;
 
 typedef struct tb_shader_intrinsic_info

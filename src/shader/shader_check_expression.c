@@ -37,7 +37,7 @@ static const tb_shader_type *type_of(tb_shader_checker *checker, const tb_shader
 
 /* An unscoped enum takes part in arithmetic as its integer. */
 const tb_shader_type *tb_shader_check_arithmetic_view(tb_shader_checker *checker,
-                                                       const tb_shader_type *type)
+                                                      const tb_shader_type *type)
 {
     if (type->type_class == TB_SHADER_CLASS_ENUM && !type->enumeration->is_scoped)
     {
@@ -436,7 +436,8 @@ static bool is_logical(tb_shader_operator op)
 /* `&&` and `||` take scalars in HLSL 2021; vectors use and() and or(). */
 static tb_shader_node *logical_operand(tb_shader_checker *checker, tb_shader_node *operand)
 {
-    const tb_shader_type *const type = tb_shader_check_arithmetic_view(checker, type_of(checker, operand));
+    const tb_shader_type *const type =
+        tb_shader_check_arithmetic_view(checker, type_of(checker, operand));
     if (is_error(type))
     {
         return operand;
@@ -501,7 +502,8 @@ static void check_binary(tb_shader_checker *checker, tb_shader_node *node)
 static void check_unary(tb_shader_checker *checker, tb_shader_node *node)
 {
     node->left = tb_shader_check_expression(checker, node->left);
-    const tb_shader_type *type = tb_shader_check_arithmetic_view(checker, type_of(checker, node->left));
+    const tb_shader_type *type =
+        tb_shader_check_arithmetic_view(checker, type_of(checker, node->left));
     node->checked = error_type(checker);
     if (is_error(type))
     {
@@ -829,7 +831,8 @@ static void check_construct(tb_shader_checker *checker, tb_shader_node *node)
     uint32_t total = 0;
     for (tb_shader_node **link = &node->children; *link != NULL; link = &(*link)->next)
     {
-        const tb_shader_type *const argument = tb_shader_check_arithmetic_view(checker, type_of(checker, *link));
+        const tb_shader_type *const argument =
+            tb_shader_check_arithmetic_view(checker, type_of(checker, *link));
         if (is_error(argument))
         {
             return;
@@ -996,7 +999,8 @@ static void check_index(tb_shader_checker *checker, tb_shader_node *node)
     node->left = tb_shader_check_expression(checker, node->left);
     node->right = tb_shader_check_expression(checker, node->right);
     const tb_shader_type *const base = type_of(checker, node->left);
-    const tb_shader_type *const index = tb_shader_check_arithmetic_view(checker, type_of(checker, node->right));
+    const tb_shader_type *const index =
+        tb_shader_check_arithmetic_view(checker, type_of(checker, node->right));
     node->checked = error_type(checker);
     if (is_error(base) || is_error(index))
     {
@@ -1216,7 +1220,8 @@ static void check_field_access(tb_shader_checker *checker, tb_shader_node *node,
 static void check_member(tb_shader_checker *checker, tb_shader_node *node)
 {
     node->left = tb_shader_check_expression(checker, node->left);
-    const tb_shader_type *const base = tb_shader_check_arithmetic_view(checker, type_of(checker, node->left));
+    const tb_shader_type *const base =
+        tb_shader_check_arithmetic_view(checker, type_of(checker, node->left));
     node->checked = error_type(checker);
     if (is_error(base))
     {
@@ -1445,7 +1450,8 @@ tb_shader_node *tb_shader_check_condition(tb_shader_checker *checker, tb_shader_
                                           const char *what)
 {
     tb_shader_node *const checked = tb_shader_check_expression(checker, node);
-    const tb_shader_type *const type = tb_shader_check_arithmetic_view(checker, type_of(checker, checked));
+    const tb_shader_type *const type =
+        tb_shader_check_arithmetic_view(checker, type_of(checker, checked));
     if (checked == NULL || is_error(type))
     {
         return checked;
@@ -1467,7 +1473,8 @@ bool tb_shader_check_constant_integer(tb_shader_checker *checker, tb_shader_node
     {
         return false;
     }
-    const tb_shader_type *const type = tb_shader_check_arithmetic_view(checker, type_of(checker, checked));
+    const tb_shader_type *const type =
+        tb_shader_check_arithmetic_view(checker, type_of(checker, checked));
     if (is_error(type))
     {
         return false;

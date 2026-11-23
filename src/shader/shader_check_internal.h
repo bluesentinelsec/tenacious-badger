@@ -101,7 +101,7 @@ bool tb_shader_check_constant_integer(tb_shader_checker *checker, tb_shader_node
 void tb_shader_check_list(tb_shader_checker *checker, tb_shader_node **first);
 /* An unscoped enum as the integer it takes part in arithmetic as; any other type as it is. */
 const tb_shader_type *tb_shader_check_arithmetic_view(tb_shader_checker *checker,
-                                                       const tb_shader_type *type);
+                                                      const tb_shader_type *type);
 /* Whether a `from` converts to a `to` implicitly. */
 bool tb_shader_check_converts(tb_shader_checker *checker, const tb_shader_type *from,
                               const tb_shader_type *to);
