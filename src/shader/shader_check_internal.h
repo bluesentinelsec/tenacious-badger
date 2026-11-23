@@ -121,8 +121,5 @@ bool tb_shader_check_method_is_valid(tb_shader_types *types, tb_shader_method me
 /* Constants (shader_check_constant.c). */
 /* Fold a checked expression whose operands are folded, when it is constant. */
 void tb_shader_fold(tb_shader_checker *checker, tb_shader_node *node);
-/* A constant converted to a scalar type. */
-tb_shader_constant tb_shader_constant_convert(tb_shader_constant constant, tb_shader_scalar from,
-                                              tb_shader_scalar to);
 
 #endif

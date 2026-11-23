@@ -601,6 +601,9 @@ TB_TEST(shader_check, jumps_and_labels_are_where_they_belong)
         AT(1, 47) "error: duplicate case value 1");
     expect_diagnostic("void f(int x) { switch (x) { default: break; default: break; } }",
                       AT(1, 46) "error: a switch has one 'default'");
+    /* A default after cases, and a case after a default, are no duplicates. */
+    expect_clean("int f(int x) { switch (x) { case 1: x = 2; default: x = 3; case 4: break; } "
+                 "return x; }");
     expect_diagnostic("void f(float x) { switch (x) { default: break; } }",
                       AT(1, 27) "error: a switch needs an integer, not 'float'");
     expect_clean("void f(int x) { for (int i = 0; i < x; i++) { if (i == 2) continue; if (i == 3) "
