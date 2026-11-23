@@ -3,9 +3,11 @@
  * and the errors DXC reports for what HLSL does not allow. Trees are
  * compared as tb_shader_syntax_print_typed() writes them. */
 #include "badger/arena.h"
+#include "badger/fmt.h"
 #include "badger/shader.h"
 #include "badger/str.h"
 #include "shader/shader_check.h"
+#include "shader/shader_check_internal.h"
 #include "tb_test.h"
 
 #define MAIN_PATH "/Engine/Private/Main.hlsl"
@@ -615,6 +617,179 @@ TB_TEST(shader_check, functions_return_what_they_declare)
     expect_clean("float f(int a) { while (true) { if (a) return 1; } }");
     expect_clean("float f(int a) { for (;;) { return 1; } }");
     expect_clean("float f(int a) { if (a) { return 1; } discard; }");
+}
+
+/* -------------------------------------------------------------------------
+ * Intrinsic functions.
+ * ------------------------------------------------------------------------- */
+
+/* The type of `call`, made in a function after `declarations`, which may
+ * earn warnings but no error. */
+static void expect_call_type(const char *declarations, const char *call, const char *expected)
+{
+    char source[1024] = {0};
+    (void)tb_fmt_buffer(source, sizeof(source), "%s\nvoid g() { %s; }", declarations, call);
+    checked_source out = {0};
+    check_source(&out, source);
+    TB_TEST_CONTEXT("source: %s", source);
+    if (out.checked.error_count > 0)
+    {
+        char message[256] = {0};
+        diagnostic_text(&out, 0, message, sizeof(message));
+        TB_TEST_CONTEXT("first diagnostic: %s", message);
+    }
+    TB_TEST_EXPECT_UINT(out.checked.error_count, ==, 0);
+    char ending[128] = {0};
+    (void)tb_fmt_buffer(ending, sizeof(ending), "):%s)))\n", expected);
+    TB_TEST_CONTEXT("tree: %s", out.tree);
+    TB_TEST_EXPECT_UINT(tb_str_ends_with(out.tree, ending), ==, true);
+    finish(&out);
+}
+
+#define VALUES                                                                                     \
+    "static int i; static uint u; static half h; static float f; static bool b; "                 \
+    "static double d; static float3 f3; static float4 f4; static int3 i3; static bool3 b3; "      \
+    "static float2x2 m2; static float3x3 m3; static float3x4 m34; static float4x2 m42; "          \
+    "static uint64_t u64; static min16float mf;"
+
+TB_TEST(shader_check, every_intrinsic_signature_reads)
+{
+    tb_arena *const arena = tb_arena_create(0);
+    tb_shader_types *const types = tb_shader_types_create(arena);
+    for (size_t index = 1; index < (size_t)TB_SHADER_INTRINSIC_COUNT; index++)
+    {
+        const tb_shader_intrinsic_info *const info =
+            tb_shader_intrinsic_info_of((tb_shader_intrinsic)index);
+        TB_TEST_REQUIRE_POINTER(info, !=, NULL);
+        TB_TEST_CONTEXT("intrinsic: %s: %s", info->name, info->signatures);
+        TB_TEST_EXPECT_UINT(tb_shader_check_intrinsic_is_valid(types, info->intrinsic), ==, true);
+        /* One entry for each name, so an entry holds all its overloads. */
+        for (size_t other = 1; other < index; other++)
+        {
+            const char *const name = tb_shader_intrinsic_info_of((tb_shader_intrinsic)other)->name;
+            TB_TEST_EXPECT_UINT(tb_str_equal(name, info->name), ==, false);
+        }
+    }
+    TB_TEST_EXPECT_POINTER(tb_shader_intrinsic_info_of(TB_SHADER_INTRINSIC_NONE), ==, NULL);
+    TB_TEST_EXPECT_POINTER(tb_shader_intrinsic_info_of(TB_SHADER_INTRINSIC_COUNT), ==, NULL);
+    tb_arena_destroy(arena);
+}
+
+TB_TEST(shader_check, intrinsic_calls_are_typed_and_converted)
+{
+    /* The argument is converted to the type the template takes. */
+    expect_typed("float f(int i) { return sin(i); }",
+                 "(function float f ((parameter int i)) (block (return (call sin (convert "
+                 "i:int):float):float)))\n");
+    expect_typed("int f(int i) { return abs(i); }",
+                 "(function int f ((parameter int i)) (block (return (call abs i:int):int)))\n");
+}
+
+TB_TEST(shader_check, intrinsic_templates_are_decided_as_dxc_decides_them)
+{
+    /* Components combine as an operator's operands do. */
+    expect_call_type(VALUES, "max(i, u)", "uint");
+    expect_call_type(VALUES, "min(h, f)", "float");
+    expect_call_type(VALUES, "clamp(i, u, f)", "float");
+    expect_call_type(VALUES, "max(i3, f)", "float3");
+    expect_call_type(VALUES, "dot(i3, f3)", "float");
+    /* A literal keeps its literal type where the class takes it. */
+    expect_call_type(VALUES, "max(1, 2)", "literal int");
+    expect_call_type(VALUES, "max(1, 2.0)", "literal float");
+    expect_call_type(VALUES, "sin(1.5)", "literal float");
+    /* What is not in a class becomes its fallback. */
+    expect_call_type(VALUES, "sin(i)", "float");
+    expect_call_type(VALUES, "sin(1)", "float");
+    expect_call_type(VALUES, "sqrt(d)", "float");
+    expect_call_type(VALUES, "rcp(d)", "double");
+    expect_call_type(VALUES, "abs(b)", "float");
+    expect_call_type(VALUES, "countbits(f)", "uint");
+    expect_call_type(VALUES, "sqrt(mf)", "min16float");
+    /* Shapes: a scalar takes any shape, and a larger one is truncated. */
+    expect_call_type(VALUES, "lerp(f3, f3, f)", "float3");
+    expect_call_type(VALUES, "max(f3, f4)", "float3");
+    expect_call_type(VALUES, "max(m3, m2)", "float2x2");
+    expect_call_type(VALUES, "sign(f3)", "int3");
+    expect_call_type(VALUES, "isnan(f4)", "bool4");
+    expect_call_type(VALUES, "select(b3, f3, f)", "float3");
+    expect_call_type(VALUES, "dot(f, f)", "float");
+    expect_call_type(VALUES, "dot(f3, f)", "float");
+    expect_call_type(VALUES, "cross(f3, f4)", "float3");
+    expect_call_type(VALUES, "transpose(m34)", "float4x3");
+    expect_call_type(VALUES, "determinant(m3)", "float");
+    expect_call_type(VALUES, "asuint(f3)", "uint3");
+    expect_diagnostic(VALUES "\nfloat3 g() { return max(f3, f4); }",
+                      AT(2, 29) "warning: 'float4' is truncated to 'float3'");
+}
+
+TB_TEST(shader_check, mul_takes_each_of_its_forms)
+{
+    expect_call_type(VALUES, "mul(f, f)", "float");
+    expect_call_type(VALUES, "mul(f, f3)", "float3");
+    expect_call_type(VALUES, "mul(m3, f)", "float3x3");
+    expect_call_type(VALUES, "mul(f3, f3)", "float");
+    expect_call_type(VALUES, "mul(f3, m34)", "float4");
+    expect_call_type(VALUES, "mul(m34, f4)", "float3");
+    expect_call_type(VALUES, "mul(m34, m42)", "float3x2");
+    /* An inner size that differs takes the smaller, as DXC does. */
+    expect_call_type(VALUES, "mul(m2, f4)", "float2");
+}
+
+TB_TEST(shader_check, intrinsics_refuse_what_dxc_refuses)
+{
+    expect_diagnostic(VALUES "\nvoid g() { max(m2, f4); }",
+                      AT(2, 12) "error: no 'max' takes (float2x2, float4)");
+    expect_diagnostic(VALUES "\nvoid g() { dot(m2, m2); }",
+                      AT(2, 12) "error: no 'dot' takes (float2x2, float2x2)");
+    expect_diagnostic(VALUES "\nvoid g() { asfloat(u64); }",
+                      AT(2, 12) "error: no 'asfloat' takes (uint64_t)");
+    expect_diagnostic(VALUES "\nvoid g() { sin(); }", AT(2, 12) "error: no 'sin' takes ()");
+    /* A template written as a scalar takes only a scalar. */
+    expect_diagnostic(VALUES "\nvoid g() { refract(f3, f3, f3); }",
+                      AT(2, 12) "error: no 'refract' takes (float3, float3, float3)");
+    expect_diagnostic(VALUES "\nvoid g() { InterlockedAdd(f, 1); }",
+                      AT(2, 12) "error: no 'InterlockedAdd' takes (float, literal int)");
+    expect_diagnostic("float f(float x) { sincos(x, 1, 2); return x; }",
+                      AT(1, 30) "error: argument 2 of 'sincos' is an output, so it must be "
+                                "assignable");
+    expect_diagnostic("void f() { frobnicate(1); }",
+                      AT(1, 12) "error: 'frobnicate' is not declared");
+}
+
+TB_TEST(shader_check, intrinsics_with_outputs_and_atomics)
+{
+    expect_clean("float f(float3 x) { float3 s, c; sincos(x, s, c); float3 w; return modf(x, "
+                 "w).x + s.y + c.z; }");
+    expect_clean("void f(double d) { uint low, high; asuint(d, low, high); }");
+    expect_clean("groupshared uint counter; RWBuffer<uint> totals;\n"
+                 "void f() { uint before; InterlockedAdd(counter, 1, before); "
+                 "InterlockedMax(totals[0], before); GroupMemoryBarrierWithGroupSync(); }");
+}
+
+TB_TEST(shader_check, intrinsics_of_waves_ray_tracing_and_debugging)
+{
+    expect_clean("float f(float3 v) { if (WaveIsFirstLane()) { return WaveActiveSum(v).x; } "
+                 "return WaveReadLaneAt(v, 0).y + QuadReadAcrossX(v.z); }");
+    expect_clean("struct Payload { float4 color; };\n"
+                 "RaytracingAccelerationStructure scene;\n"
+                 "void f() { RayDesc ray; ray.Origin = WorldRayOrigin(); ray.Direction = "
+                 "float3(0, 0, 1); ray.TMin = 0; ray.TMax = 1000; Payload p; "
+                 "TraceRay(scene, 0, 0xff, 0, 1, 0, ray, p); }");
+    expect_clean("struct Hit { float2 barycentrics; };\n"
+                 "void f() { Hit h; h.barycentrics = 0; ReportHit(RayTCurrent(), 0, h); }");
+    expect_clean("void f(int x) { printf(\"x is %d\", x); }");
+    expect_diagnostic("void f() { float3 v = 1; TraceRay(v); }",
+                      AT(1, 26) "error: no 'TraceRay' takes (float3)");
+}
+
+TB_TEST(shader_check, functions_of_the_shader_hide_intrinsics)
+{
+    expect_diagnostic("struct S { float a; };\n"
+                      "float length(S s) { return s.a; }\n"
+                      "float f() { return length(float3(1, 2, 3)); }",
+                      AT(3, 20) "error: no 'length' takes (float3)");
+    expect_diagnostic("float f() { float sin = 1; return sin(sin); }",
+                      AT(1, 35) "error: 'sin' is not a function");
 }
 
 TB_TEST(shader_check, templates_are_not_supported_yet)

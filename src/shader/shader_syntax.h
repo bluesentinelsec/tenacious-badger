@@ -291,6 +291,7 @@ struct tb_shader_node
     /* NAME: what it names. MEMBER: the field or method. CALL: the function
      * called. Declarations: the symbol declared. */
     struct tb_shader_symbol *symbol;
+    uint32_t intrinsic; /* CALL of an intrinsic: its tb_shader_intrinsic; 0 otherwise. */
     bool is_lvalue;     /* Expressions: names a place, which may still be const. */
     bool is_assignable; /* Expressions: a place that may be written. */
     bool is_constant;   /* Expressions: its value is known: `constant`. */
