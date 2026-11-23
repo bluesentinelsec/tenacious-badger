@@ -104,8 +104,11 @@ static const tb_shader_node *earlier_case(const tb_shader_node *block, const tb_
     for (const tb_shader_node *other = block->children; other != NULL && other != label;
          other = other->next)
     {
-        if (other->kind == TB_SHADER_NODE_CASE && other->value != NULL &&
-            other->value->is_constant && other->value->constant.bits == label->value->constant.bits)
+        const bool both_cases = other->kind == TB_SHADER_NODE_CASE &&
+                                label->kind == TB_SHADER_NODE_CASE && other->value != NULL &&
+                                label->value != NULL;
+        if (both_cases && other->value->is_constant &&
+            other->value->constant.bits == label->value->constant.bits)
         {
             return other;
         }

@@ -1131,11 +1131,19 @@ static const candidate *choose_overload(tb_shader_checker *checker, tb_shader_no
 static void bind_arguments(tb_shader_checker *checker, tb_shader_node *call, const signature *taken,
                            tb_shader_name name)
 {
+    const tb_shader_type **const parameter_types =
+        TB_ARENA_NEW_ARRAY(checker->arena, const tb_shader_type *, taken->count + 1);
+    call->parameter_types = parameter_types;
     size_t index = 0;
     for (tb_shader_node **link = &call->children; *link != NULL && index < taken->count;
          link = &(*link)->next, index++)
     {
         const tb_shader_type *const type = taken->parameters[index];
+        parameter_types[index] = type;
+        if (taken->is_output[index] && index < 64)
+        {
+            call->outputs |= UINT64_C(1) << index;
+        }
         if (!taken->is_output[index])
         {
             *link = tb_shader_check_convert(checker, *link, type);

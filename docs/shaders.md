@@ -292,11 +292,65 @@ or a `uint`. Each step has a type of its own, named as DXC names it:
 `Texture2D<float>::mips_type`, then `Texture2D<float>::mips_slice_type`. A
 texel read so is read-only, except a writable texture's sample.
 
-**Not yet.** The shader's own form comes next. Templates come later, and so do these
-intrinsics: the tessellation factor functions, the packed 8-bit types and
-their `pack_` and `unpack_` functions, and the legacy `tex2D` family. The
-methods of work-graph nodes and `HitObject` come with the shader models that
-bring them.
+**Not yet.** Templates come later, and so do these intrinsics: the
+tessellation factor functions, the packed 8-bit types and their `pack_` and
+`unpack_` functions, and the legacy `tex2D` family. The methods of
+work-graph nodes and `HitObject` come with the shader models that bring them.
+
+## The compiler's own form
+
+A checked shader is lowered into the compiler's own form
+(`src/shader/shader_form.h`), from which every backend's output is written:
+HLSL for D3D12 and D3D11, SPIR-V, GLSL and Metal, and what the CPU runs for
+the software renderer. The form follows Naga's and Tint's, which serve the
+same backends:
+
+- **Structured statements.** A function's body is a tree of blocks, `if`,
+  `loop` and `switch`, never arbitrary jumps. HLSL, GLSL and Metal are written
+  from it almost line for line, SPIR-V's structured control flow maps onto
+  it, and it tells the CPU where lanes that diverged meet again. A `loop` has
+  a continuing block, where `continue` goes and where a `do` loop tests its
+  condition (`break if`); a `for` loop tests its condition at the top of its
+  body. A `switch`'s cases each say whether they fall through.
+- **Typed expressions, each computed once.** A function's expressions are an
+  array; each has a type, and is a value or a pointer to a place (a local, a
+  global, an argument passed `out`, or an element or member of one). An EMIT
+  statement says where each is evaluated, and it may be used only after,
+  inside the block that evaluated it.
+- **Indices, not pointers.** Types, variables, functions, expressions and
+  statements refer to each other by 32-bit indices, so a form is cheap to
+  copy, to serialize for the shader cache, and to compare in tests.
+- **HLSL's matrices.** A `float3x4` has 3 rows of 4 columns, and indexing it
+  gives a row. Each backend converts to its own convention, so the HLSL that
+  DXC compiles needs none.
+
+Lowering writes out what HLSL does implicitly, so no backend handles it:
+
+- every conversion, literals folded to their new type; a conversion that
+  changes a shape (`(float2x2)v`, `S s = {1, 2, 3}`, `(S)0`) takes the value
+  apart into its scalars, in HLSL's order, and builds the new one;
+- `a += b`, `++` and `--` load, operate and store;
+- a store through a swizzle (`v.xz = w`, `m._m01_m10 = w`) stores each
+  component;
+- `&&`, `||` and `?:` evaluate their second operand only when it decides,
+  as HLSL 2021 does: as an operator or a select when it has no effect, by a
+  branch when it calls something;
+- an argument passed `out` or `inout` goes through a local, copied back after
+  the call, and a default argument is passed where one was left out;
+- a parameter passed by value becomes a local the function may change.
+
+`tb_shader_form_verify()` checks every rule of the form: indices in range,
+operand types that agree, expressions evaluated before they are used,
+`break` and `continue` where they belong. Every form lowering makes in the
+tests is verified, and so will be every pass's output in debug builds.
+`tb_shader_form_print()` writes a form as text, one statement to a line,
+which the tests compare against.
+
+**Not yet.** Constant buffers, resources and their methods, entry points
+and their semantics, the methods of structs, static variables with an
+initializer, and strings (`printf`) are lowered next; until then, lowering
+reports each as not supported yet. Then each entry point takes only what it
+reaches, which reflection describes.
 
 ## Diagnostics
 

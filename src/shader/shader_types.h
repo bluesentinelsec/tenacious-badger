@@ -277,6 +277,10 @@ uint32_t tb_shader_component_count(const tb_shader_type *type);
 uint32_t tb_shader_flat_count(const tb_shader_type *type);
 /* The scalar a literal takes when nothing else decides: int, or float. */
 tb_shader_scalar tb_shader_concrete_scalar(tb_shader_scalar scalar);
+/* A constant converted from one scalar type to another, as HLSL converts
+ * (shader_check_constant.c). */
+tb_shader_constant tb_shader_constant_convert(tb_shader_constant constant, tb_shader_scalar from,
+                                              tb_shader_scalar to);
 /* The scalar two operands of an arithmetic operator are converted to. */
 tb_shader_scalar tb_shader_common_scalar(tb_shader_scalar left, tb_shader_scalar right);
 

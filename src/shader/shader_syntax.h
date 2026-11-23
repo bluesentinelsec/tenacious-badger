@@ -293,7 +293,12 @@ struct tb_shader_node
     struct tb_shader_symbol *symbol;
     uint32_t intrinsic; /* CALL of an intrinsic: its tb_shader_intrinsic; 0 otherwise. */
     uint32_t method; /* CALL of a method of a built-in object: its tb_shader_method; 0 otherwise. */
-    bool is_lvalue;  /* Expressions: names a place, which may still be const. */
+    /* CALL: the type of each parameter the arguments were passed to, one for
+     * each argument but a variadic one's, and which arguments are outputs
+     * (`out` or `inout`), bit i for argument i. */
+    const struct tb_shader_type *const *parameter_types;
+    uint64_t outputs;
+    bool is_lvalue;     /* Expressions: names a place, which may still be const. */
     bool is_assignable; /* Expressions: a place that may be written. */
     bool is_constant;   /* Expressions: its value is known: `constant`. */
     tb_shader_constant constant;
