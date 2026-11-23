@@ -148,20 +148,29 @@ The renderer offers three modes that share one scene representation:
 
 ### Shaders
 
-Shaders are written once, in the engine's shading language (a subset of HLSL, the language Unreal and Unity write shaders in), so every shader runs on every backend and switching backends never strands one. The engine carries its own shader compiler, and compiles at run time into what each backend takes:
+Shaders are written once, in HLSL (the language Unreal and Unity write shaders in), so every shader runs on every backend and switching backends never strands one. Where a shader convention is open, we follow Unreal's. See `docs/shaders.md`.
 
-| Backend | What the engine produces | What turns it into GPU code |
+- **Files.** `.hlsl` for a shader with entry points, `.hlsli` for a file it includes (Unreal's `.usf` and `.ush`). Every file is named by a virtual path (`/Engine/Public/...`, `/Engine/Private/...`, `/Engine/Generated/...`, `/Game/...`, `/Plugin/<name>/...`) resolved through the VFS, so a mod overrides shaders as it overrides any other file.
+- **One compiler, ahead of time and at run time.** The engine's `shader` module is the compiler. `badger-shaderc`, our counterpart of Unreal's ShaderCompileWorker, drives it ahead of time, from CMake and when cooking. The engine calls it at run time for hot reload in development, for shaders a game makes while it runs, and for whatever a game's shader libraries lack, where the game allows it. Both produce the same bytes and share one cache.
+- **Shipping.** A packaged game carries a shader library for every backend its platform builds, as Unreal's packaged games do, so switching backends loads shaders instead of compiling them. A pipeline cache builds a game's pipelines during loading screens.
+- **Global and material shaders.** Global shaders are the engine's own passes, registered from C. Material shaders combine a material with a vertex factory (static mesh, skinned, instanced, sprite) in a template. Shaders declare permutations, pruned by a filter and turned into defines, as Unreal's are. A parameter layout is written once, in a `.hlsli` that compiles as both C and HLSL, and is checked against the shader's reflection when it loads.
+- **Default shaders.** The engine ships a body of them: the basics (blits, mipmaps, clears), 2D and UI, debug drawing, the raster lighting mode, post-processing, screen-space effects, compute (skinning, particles, culling), ray tracing, and the default materials, including a world-grid graybox material.
+- **Feature levels.** Each shader records what it needs: the portable core (raster, compute, wave operations, bindless), inline ray queries, ray-tracing pipelines, mesh shaders, or features only D3D12 has. A backend that lacks one reports the shader unavailable, and the renderer falls back to a mode it can run.
+
+The compiler reads HLSL into a form of its own and writes what each backend takes:
+
+| Backend | What the compiler writes | What turns it into GPU code |
 | --- | --- | --- |
-| D3D12 | HLSL | DXC (`dxcompiler.dll`, `dxil.dll`), loaded at run time; shaders the game ships are also precompiled to DXIL at build time |
-| D3D11 | HLSL | `D3DCompiler_47.dll`, part of Windows |
-| Vulkan | SPIR-V, written by our compiler | the driver |
+| D3D12 | HLSL | DXC to DXIL: the Windows SDK's `dxc` when building, `dxcompiler.dll` and `dxil.dll` at run time |
+| D3D11 | HLSL, Shader Model 5 | `D3DCompiler_47.dll`, part of Windows |
+| Vulkan | SPIR-V | the driver |
 | OpenGL | GLSL | the driver |
 | Metal | Metal Shading Language | the OS |
 | Software | the compiler's own form | the software renderer, on the CPU |
 
-DXC is not part of Windows, and the engine does not ship it. It loads DXC from the game's directory, then from the Windows SDK's redistributable directory, so development builds hot-reload shaders on D3D12. The Windows SDK's `dxc` precompiles the game's own shaders at build time, so D3D12 needs no DXC on players' machines. A shader made at run time where DXC is missing is unavailable on D3D12, and the engine falls back to another backend.
+DXC is the only compiler that writes DXIL, so D3D12 goes through it and gets each new shader model as Microsoft ships it. DXC is not part of Windows, and the engine does not ship it. It loads DXC from the game's directory, then from the Windows SDK's redistributable directory, so development builds hot-reload shaders on D3D12; shipped shaders are compiled at build time, so D3D12 needs no DXC on players' machines. A shader made at run time where DXC is missing is unavailable on D3D12, and the engine falls back to another backend. SPIR-V, GLSL and Metal are written by our compiler, so compiling at run time needs no SDK on Linux, the Steam Deck or macOS.
 
-A shader may also be written in one backend's own language. It then runs only on that backend, and a game that uses one can switch only to the backends it supports. A shared header of constant-buffer layouts keeps the C and shader views in sync.
+A shader may also be written in one backend's own language. It then runs only on that backend, and a game that uses one can switch only to the backends it supports.
 
 ### Vendor features
 
@@ -184,6 +193,7 @@ The engine is a set of focused modules with explicit startup and shutdown order 
 | `jobs` | Task scheduler and worker threads |
 | `ecs` | Entities, components, archetypes, queries and the system scheduler |
 | `rhi`, `render` | GPU abstraction and the renderer |
+| `shader` | The shader compiler: HLSL written once and compiled for every backend, ahead of time and at run time |
 | `audio` | Mixer, voices, 3D spatialization, streaming |
 | `input` | Device abstraction and action/axis mapping, with rebinding |
 | `vfs` | Virtual file system that mounts directories and package files |
