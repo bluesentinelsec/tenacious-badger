@@ -150,11 +150,13 @@ static uint32_t struct_type(tb_shader_lowerer *lowerer, const tb_shader_type *ty
         const tb_shader_symbol *const field = structure->fields[index];
         members[index].name = name_text(lowerer, field->name);
         members[index].type = tb_shader_lower_type(lowerer, field->type, location);
+        members[index].packoffset = TB_SHADER_FORM_NONE;
         if (field->declaration != NULL)
         {
             members[index].semantic = semantic_of(lowerer, field->declaration->annotations);
             members[index].modifiers =
-                field->declaration->modifiers & TB_SHADER_FORM_INTERFACE_MODIFIERS;
+                field->declaration->modifiers &
+                (TB_SHADER_FORM_INTERFACE_MODIFIERS | TB_SHADER_FORM_LAYOUT_MODIFIERS);
         }
         if (members[index].type == TB_SHADER_FORM_NONE)
         {
@@ -1054,6 +1056,39 @@ static void declare_input(tb_shader_lowerer *lowerer, tb_shader_node *node)
                          tb_shader_lower_binding(TB_SHADER_VARIABLE_GLOBAL, index));
 }
 
+/* `packoffset(c1.y)`: the bytes from a constant buffer's start it places a
+ * variable at, 20; NONE without one. */
+static uint32_t packoffset_of(const tb_shader_annotation *annotation)
+{
+    for (; annotation != NULL; annotation = annotation->next)
+    {
+        const bool is_packoffset =
+            annotation->name.length == 10 && memcmp(annotation->name.text, "packoffset", 10) == 0;
+        const tb_shader_node *slot = annotation->arguments;
+        if (!is_packoffset || slot == NULL)
+        {
+            continue;
+        }
+        uint32_t component = 0;
+        if (slot->kind == TB_SHADER_NODE_MEMBER && slot->name.length == 1)
+        {
+            const char *const letters = "xyzw";
+            for (uint32_t at = 0; at < 4; at++)
+            {
+                component = letters[at] == slot->name.text[0] ? at : component;
+            }
+            slot = slot->left;
+        }
+        if (slot->kind != TB_SHADER_NODE_NAME || slot->name.length < 2 || slot->name.text[0] != 'c')
+        {
+            continue;
+        }
+        const uint32_t row = (uint32_t)strtoul(slot->name.text + 1, NULL, 10);
+        return row * 16 + component * 4;
+    }
+    return TB_SHADER_FORM_NONE;
+}
+
 /* A constant buffer of variables: a uniform global whose type is the
  * struct of its variables, each bound to its member. */
 static void declare_buffer(tb_shader_lowerer *lowerer, const char *name,
@@ -1065,6 +1100,8 @@ static void declare_buffer(tb_shader_lowerer *lowerer, const char *name,
     for (size_t index = 0; index < count; index++)
     {
         members[index].name = name_text(lowerer, variables[index]->name);
+        members[index].modifiers = variables[index]->modifiers & TB_SHADER_FORM_LAYOUT_MODIFIERS;
+        members[index].packoffset = packoffset_of(variables[index]->annotations);
         members[index].type = tb_shader_lower_type(lowerer, variables[index]->symbol->type,
                                                    variables[index]->location);
         if (members[index].type == TB_SHADER_FORM_NONE)

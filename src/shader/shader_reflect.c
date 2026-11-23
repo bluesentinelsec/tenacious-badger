@@ -447,6 +447,203 @@ static void reflect_bindings(reflector *state)
 }
 
 /* -------------------------------------------------------------------------
+ * Constant buffers' layouts, as HLSL packs them.
+ * ------------------------------------------------------------------------- */
+
+#define REGISTER_BYTES 16u
+
+static unsigned round_up(unsigned value, unsigned multiple)
+{
+    return (value + multiple - 1) / multiple * multiple;
+}
+
+static unsigned scalar_bytes(tb_shader_scalar scalar)
+{
+    return scalar == TB_SHADER_SCALAR_DOUBLE || scalar == TB_SHADER_SCALAR_INT64 ||
+                   scalar == TB_SHADER_SCALAR_UINT64
+               ? 8u
+               : 4u;
+}
+
+static bool is_min_precision(tb_shader_scalar scalar)
+{
+    return scalar == TB_SHADER_SCALAR_MIN16FLOAT || scalar == TB_SHADER_SCALAR_MIN16INT ||
+           scalar == TB_SHADER_SCALAR_MIN16UINT;
+}
+
+static tb_shader_variable *variable_at(tb_array *variables, size_t index)
+{
+    return TB_ARRAY_AT(variables, tb_shader_variable, index);
+}
+
+static void place(reflector *state, tb_array *variables, size_t slot, uint32_t type,
+                  uint64_t modifiers, unsigned *cursor);
+
+/* A struct's members, each after the one before, from a register's start. */
+static void place_struct(reflector *state, tb_array *variables, size_t slot,
+                         const tb_shader_form_type *structure, unsigned *cursor)
+{
+    const size_t first = tb_array_length(variables);
+    for (uint32_t at = 0; at < structure->member_count; at++)
+    {
+        const tb_shader_variable empty = {0};
+        (void)tb_array_push(variables, &empty);
+    }
+    variable_at(variables, slot)->first_member = (unsigned)first;
+    variable_at(variables, slot)->member_count = structure->member_count;
+    for (uint32_t at = 0; at < structure->member_count; at++)
+    {
+        const tb_shader_form_member *const member =
+            tb_shader_form_member_at(state->form, structure->first_member + at);
+        variable_at(variables, first + at)->name = member->name;
+        place(state, variables, first + at, member->type, member->modifiers, cursor);
+    }
+}
+
+/* Lay a value of `type` out at the first offset at or after `*cursor` its
+ * rules allow, into the variable at `slot`, and move the cursor past it:
+ * a scalar or a vector where it does not cross a register, a minimum
+ * precision one in a register of its own; a matrix, a struct and each
+ * element of an array at a register's start, the last element unpadded. */
+static void place(reflector *state, tb_array *variables, size_t slot, uint32_t type,
+                  uint64_t modifiers, unsigned *cursor)
+{
+    const tb_shader_form_type *const found = type_at(state, type);
+    if (found->kind == TB_SHADER_FORM_ARRAY)
+    {
+        const unsigned start = round_up(*cursor, REGISTER_BYTES);
+        unsigned end = start;
+        place(state, variables, slot, found->element, modifiers, &end);
+        const unsigned element = end - start;
+        const unsigned stride = round_up(element, REGISTER_BYTES);
+        tb_shader_variable *const variable = variable_at(variables, slot);
+        variable->elements = found->length;
+        variable->stride = stride;
+        variable->size = found->length == 0 ? element : stride * (found->length - 1) + element;
+        *cursor = start + variable->size;
+        return;
+    }
+    if (found->kind == TB_SHADER_FORM_STRUCT)
+    {
+        const unsigned start = round_up(*cursor, REGISTER_BYTES);
+        tb_shader_variable *const variable = variable_at(variables, slot);
+        variable->variable_class = TB_SHADER_VARIABLE_STRUCT;
+        variable->offset = start;
+        variable->rows = 1;
+        unsigned end = start;
+        place_struct(state, variables, slot, found, &end);
+        variable_at(variables, slot)->size = end - start;
+        *cursor = end;
+        return;
+    }
+    tb_shader_variable *const variable = variable_at(variables, slot);
+    variable->component = component_of(found->scalar);
+    variable->rows = found->kind == TB_SHADER_FORM_MATRIX ? found->rows : 1u;
+    variable->columns = found->kind == TB_SHADER_FORM_SCALAR ? 1u : found->columns;
+    const unsigned bytes = scalar_bytes(found->scalar);
+    if (found->kind == TB_SHADER_FORM_MATRIX)
+    {
+        const bool by_rows = (modifiers & TB_SHADER_MODIFIER_ROW_MAJOR) != 0;
+        const unsigned registers = by_rows ? found->rows : found->columns;
+        const unsigned per_register = by_rows ? found->columns : found->rows;
+        variable->variable_class =
+            by_rows ? TB_SHADER_VARIABLE_MATRIX_ROWS : TB_SHADER_VARIABLE_MATRIX_COLUMNS;
+        variable->offset = round_up(*cursor, REGISTER_BYTES);
+        variable->size = REGISTER_BYTES * (registers - 1) + per_register * bytes;
+        *cursor = variable->offset + variable->size;
+        return;
+    }
+    variable->variable_class = found->kind == TB_SHADER_FORM_SCALAR ? TB_SHADER_VARIABLE_SCALAR
+                                                                    : TB_SHADER_VARIABLE_VECTOR;
+    variable->size = variable->columns * bytes;
+    if (is_min_precision(found->scalar))
+    {
+        variable->offset = round_up(*cursor, REGISTER_BYTES);
+        *cursor = variable->offset + REGISTER_BYTES;
+        return;
+    }
+    unsigned offset = round_up(*cursor, bytes);
+    if (offset % REGISTER_BYTES + variable->size > REGISTER_BYTES)
+    {
+        offset = round_up(offset, REGISTER_BYTES);
+    }
+    variable->offset = offset;
+    *cursor = offset + variable->size;
+}
+
+/* A buffer's layout: its variables in order, each after the one before, or
+ * where `packoffset` puts it. */
+static void lay_out_buffer(reflector *state, const tb_shader_form_global *global,
+                           tb_shader_constant_buffer *buffer)
+{
+    tb_array *const variables = TB_ARRAY_CREATE(&state->allocator, tb_shader_variable);
+    buffer->name = global->name;
+    const tb_shader_form_type *const structure = type_at(state, global->type);
+    if (structure->kind != TB_SHADER_FORM_STRUCT)
+    {
+        return;
+    }
+    for (uint32_t at = 0; at < structure->member_count; at++)
+    {
+        const tb_shader_variable empty = {0};
+        (void)tb_array_push(variables, &empty);
+    }
+    unsigned cursor = 0;
+    unsigned size = 0;
+    for (uint32_t at = 0; at < structure->member_count; at++)
+    {
+        const tb_shader_form_member *const member =
+            tb_shader_form_member_at(state->form, structure->first_member + at);
+        variable_at(variables, at)->name = member->name;
+        unsigned position = member->packoffset != TB_SHADER_FORM_NONE ? member->packoffset : cursor;
+        place(state, variables, at, member->type, member->modifiers, &position);
+        if (member->packoffset != TB_SHADER_FORM_NONE)
+        {
+            variable_at(variables, at)->offset = member->packoffset;
+        }
+        cursor = position > cursor ? position : cursor;
+        size = position > size ? position : size;
+    }
+    buffer->size = size;
+    buffer->variables = tb_array_data(variables);
+    buffer->variable_count = tb_array_length(variables);
+    buffer->top_count = structure->member_count;
+}
+
+/* The layout of each constant and texture buffer bound, in their bindings' order. */
+static void reflect_buffers(reflector *state, tb_shader_reflection *reflection)
+{
+    tb_array *const buffers = TB_ARRAY_CREATE(&state->allocator, tb_shader_constant_buffer);
+    const size_t binding_count = tb_array_length(state->bindings);
+    const size_t global_count = tb_array_length(state->form->globals);
+    for (size_t index = 0; index < binding_count; index++)
+    {
+        const tb_shader_binding *const binding =
+            TB_ARRAY_AT(state->bindings, tb_shader_binding, index);
+        if (binding->kind != TB_SHADER_BINDING_CONSTANT_BUFFER &&
+            binding->kind != TB_SHADER_BINDING_TEXTURE_BUFFER)
+        {
+            continue;
+        }
+        for (size_t at = 0; at < global_count; at++)
+        {
+            const tb_shader_form_global *const global =
+                TB_ARRAY_AT(state->form->globals, tb_shader_form_global, at);
+            if (global->space == TB_SHADER_FORM_UNIFORM &&
+                tb_str_equal(global->name, binding->name))
+            {
+                tb_shader_constant_buffer buffer = {0};
+                lay_out_buffer(state, global, &buffer);
+                (void)tb_array_push(buffers, &buffer);
+                break;
+            }
+        }
+    }
+    reflection->buffers = tb_array_data(buffers);
+    reflection->buffer_count = tb_array_length(buffers);
+}
+
+/* -------------------------------------------------------------------------
  * The entry point.
  * ------------------------------------------------------------------------- */
 
@@ -494,6 +691,7 @@ const char *tb_shader_reflect(const tb_shader_form *form, tb_arena *arena,
     reflect_thread_group(function, reflection);
     reflect_signatures(&state, function);
     reflect_bindings(&state);
+    reflect_buffers(&state, reflection);
     reflection->inputs = tb_array_data(state.inputs);
     reflection->input_count = tb_array_length(state.inputs);
     reflection->outputs = tb_array_data(state.outputs);

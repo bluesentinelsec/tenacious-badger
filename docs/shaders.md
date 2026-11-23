@@ -428,11 +428,22 @@ if (tb_shader_compile(&request, arena, &compiled) == TB_SHADER_OK)
   space 0, in the order of the source, `$Globals` first, as DXC assigns them;
   an array of no size must be given one.
 - **The thread group** of `[numthreads]`.
+- **Constant buffers' layouts,** for each constant and texture buffer bound:
+  its size, and each variable's offset, size, shape, and an array's elements
+  and stride, a struct's members described for its first element. They are
+  packed as HLSL packs a constant buffer: in registers of 16 bytes that no
+  vector crosses; each array element, matrix and struct starting a register,
+  the last element of an array unpadded and what follows a struct packed into
+  its last register; a matrix a register for each column, or each row when
+  `row_major`; a double aligned to 8; a minimum-precision value in a register
+  of its own; and `packoffset(c1.y)` where it says. A parameter layout
+  written in C is checked against these.
 
 The tests compare all of this with what DXC reports for the same shaders.
 
-**Not yet.** Constant buffers' layouts, with HLSL's packing rules, come next,
-then the features each shader needs. How DXC packs a signature's elements
+**Not yet.** The features each shader needs come next. `#pragma
+pack_matrix(row_major)` is not followed yet: a matrix is `row_major` only
+when its declaration says so. How DXC packs a signature's elements
 into registers, a hull shader's patch constants, and a mesh shader's
 primitives are not described yet.
 

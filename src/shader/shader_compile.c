@@ -95,6 +95,41 @@ static bool copy_signature(tb_arena *arena, const tb_shader_signature_element *e
     return true;
 }
 
+static bool copy_buffers(tb_arena *arena, const tb_shader_reflection *reflection,
+                         tb_shader_reflection *out)
+{
+    tb_shader_constant_buffer *const buffers =
+        copy_items(arena, reflection->buffers, reflection->buffer_count,
+                   sizeof(tb_shader_constant_buffer), _Alignof(tb_shader_constant_buffer));
+    if (buffers == NULL)
+    {
+        return false;
+    }
+    for (size_t index = 0; index < reflection->buffer_count; index++)
+    {
+        const tb_shader_constant_buffer *const source = &reflection->buffers[index];
+        tb_shader_variable *const variables =
+            copy_items(arena, source->variables, source->variable_count, sizeof(tb_shader_variable),
+                       _Alignof(tb_shader_variable));
+        buffers[index].name = copy_string(arena, source->name);
+        if (variables == NULL || buffers[index].name == NULL)
+        {
+            return false;
+        }
+        for (size_t at = 0; at < source->variable_count; at++)
+        {
+            variables[at].name = copy_string(arena, source->variables[at].name);
+            if (variables[at].name == NULL)
+            {
+                return false;
+            }
+        }
+        buffers[index].variables = variables;
+    }
+    out->buffers = buffers;
+    return true;
+}
+
 static bool copy_reflection(tb_arena *arena, const tb_shader_reflection *reflection,
                             tb_shader_reflection *out)
 {
@@ -120,7 +155,7 @@ static bool copy_reflection(tb_arena *arena, const tb_shader_reflection *reflect
         }
     }
     out->bindings = bindings;
-    return true;
+    return copy_buffers(arena, reflection, out);
 }
 
 static bool copy_output(const compile *state, const tb_shader_reflection *reflection,

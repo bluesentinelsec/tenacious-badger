@@ -334,6 +334,53 @@ typedef struct tb_shader_binding
     unsigned element_columns;
 } tb_shader_binding;
 
+/** @brief What a constant buffer's variable is. */
+typedef enum tb_shader_variable_class
+{
+    TB_SHADER_VARIABLE_SCALAR,
+    TB_SHADER_VARIABLE_VECTOR,
+    TB_SHADER_VARIABLE_MATRIX_ROWS,    /**< A `row_major` matrix: a register for each row. */
+    TB_SHADER_VARIABLE_MATRIX_COLUMNS, /**< A `column_major` matrix, as HLSL's are by default. */
+    TB_SHADER_VARIABLE_STRUCT
+} tb_shader_variable_class;
+
+/**
+ * @brief A variable of a constant buffer, or a member of one of its structs:
+ * where it is, and what it is.
+ *
+ * Offsets are bytes from the buffer's start, laid out as HLSL lays out a
+ * constant buffer: in registers of 16 bytes that no vector crosses; each
+ * array element, matrix and struct starting a register. An array's or a
+ * struct's members are described for its first element.
+ */
+typedef struct tb_shader_variable
+{
+    const char *name;
+    unsigned offset; /**< From the buffer's start. */
+    unsigned size;   /**< Bytes from its start to its last value's end. */
+    tb_shader_variable_class variable_class;
+    tb_shader_component component; /**< Not a struct's. */
+    unsigned rows;                 /**< 1 but for a matrix. */
+    unsigned columns;              /**< A vector's or a matrix's components in a row. */
+    unsigned elements;             /**< An array's; 0 when it is none. */
+    unsigned stride;               /**< An array's: bytes from one element to the next. */
+    /** A struct's members: these entries of its buffer's `variables`. */
+    unsigned first_member;
+    unsigned member_count;
+} tb_shader_variable;
+
+/** @brief A constant buffer's layout. */
+typedef struct tb_shader_constant_buffer
+{
+    const char *name; /**< As its binding's. */
+    unsigned size;    /**< Bytes from its start to its last variable's end. */
+    /** Its variables, then the members of its structs: the first `top_count`
+     * are its own, in order; a struct's are where `first_member` says. */
+    const tb_shader_variable *variables;
+    size_t variable_count;
+    size_t top_count;
+} tb_shader_constant_buffer;
+
 /** @brief What a stage takes, gives and binds: what a pipeline is built from. */
 typedef struct tb_shader_reflection
 {
@@ -346,6 +393,9 @@ typedef struct tb_shader_reflection
     size_t output_count;
     const tb_shader_binding *bindings; /**< By kind (`b`, `s`, `t`, `u`), then as assigned. */
     size_t binding_count;
+    /** The layout of each constant and texture buffer bound, in the order of `bindings`. */
+    const tb_shader_constant_buffer *buffers;
+    size_t buffer_count;
 } tb_shader_reflection;
 
 /** @brief What to compile: a source, and the function a stage runs from it. */
