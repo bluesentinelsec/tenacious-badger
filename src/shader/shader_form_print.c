@@ -4,6 +4,7 @@
  * written where it is used: `1.5:float`, `arg0`, `local2`, `global0`. */
 #include "shader_form.h"
 #include "shader_intrinsics.h"
+#include "shader_methods.h"
 
 #include "badger/arena.h"
 #include "badger/decimal.h"
@@ -74,6 +75,12 @@ static const char *space_name(tb_shader_form_space space)
         return "private";
     case TB_SHADER_FORM_GROUPSHARED:
         return "groupshared";
+    case TB_SHADER_FORM_UNIFORM:
+        return "uniform";
+    case TB_SHADER_FORM_HANDLE:
+        return "handle";
+    case TB_SHADER_FORM_ELEMENT:
+        return "element";
     }
     return "?";
 }
@@ -143,6 +150,7 @@ static void put_operand(printer *out, uint32_t index)
     case TB_SHADER_FORM_CONVERT:
     case TB_SHADER_FORM_INTRINSIC:
     case TB_SHADER_FORM_CALL_RESULT:
+    case TB_SHADER_FORM_TEXEL:
         putf(out, "%%%u", (unsigned)index);
         return;
     }
@@ -164,6 +172,12 @@ static void put_value_type(printer *out, const tb_shader_form_expression *expres
     {
         putf(out, "* %s", space_name(expression->space));
     }
+}
+
+static const char *method_name(uint32_t method)
+{
+    const tb_shader_method_info *const info = tb_shader_method_info_of((tb_shader_method)method);
+    return info == NULL ? "?" : info->name;
 }
 
 static const char *intrinsic_name(uint32_t intrinsic)
@@ -234,8 +248,26 @@ static void put_computation(printer *out, const tb_shader_form_expression *expre
         put_operand(out, expression->operands[0]);
         return;
     case TB_SHADER_FORM_INTRINSIC:
-        put(out, intrinsic_name(expression->intrinsic));
+        if (expression->method != 0)
+        {
+            putf(out, "method %s", method_name(expression->method));
+        }
+        else
+        {
+            put(out, intrinsic_name(expression->intrinsic));
+        }
         put_operand_list(out, expression->first_operand, expression->operand_count);
+        return;
+    case TB_SHADER_FORM_TEXEL:
+        put(out, "texel ");
+        put_operand(out, expression->operands[0]);
+        put(out, " ");
+        put_operand(out, expression->operands[1]);
+        if (expression->index != 0)
+        {
+            put(out, expression->index == 1 ? " mip " : " sample ");
+            put_operand(out, expression->operands[2]);
+        }
         return;
     case TB_SHADER_FORM_LITERAL:
     case TB_SHADER_FORM_ARGUMENT:
@@ -282,6 +314,10 @@ static void print_call(printer *out, const tb_shader_form_statement *call)
     if (call->function != TB_SHADER_FORM_NONE)
     {
         putf(out, "call %s", tb_shader_form_function_at(out->form, call->function)->name);
+    }
+    else if (call->method != 0)
+    {
+        putf(out, "call method %s", method_name(call->method));
     }
     else
     {
@@ -486,8 +522,19 @@ const char *tb_shader_form_print(const tb_shader_form *form, tb_arena *arena)
     {
         const tb_shader_form_global *const global =
             TB_ARRAY_AT(form->globals, tb_shader_form_global, index);
-        putf(&out, "global%u %s %s %s\n", (unsigned)index, space_name(global->space),
+        putf(&out, "global%u %s %s %s", (unsigned)index, space_name(global->space),
              type_name(&out, global->type), global->name);
+        const tb_shader_form_binding *const binding = &global->binding;
+        if (binding->register_class != '\0' && binding->is_explicit)
+        {
+            putf(&out, " register(%c%u, space%u)", binding->register_class,
+                 (unsigned)binding->index, (unsigned)binding->space);
+        }
+        else if (binding->register_class != '\0')
+        {
+            putf(&out, " register(%c)", binding->register_class);
+        }
+        put(&out, "\n");
     }
     if (form->initializer != TB_SHADER_FORM_NONE)
     {

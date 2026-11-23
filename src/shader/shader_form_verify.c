@@ -2,6 +2,7 @@
  * later pass are checked against these in tests, so a backend can rely on
  * them without checking again. */
 #include "shader_form.h"
+#include "shader_methods.h"
 
 #include "badger/allocator.h"
 #include "badger/arena.h"
@@ -91,6 +92,11 @@ static bool verify_types(verifier *check)
         {
             return fail(check, "type %zu: an array of a type made after it", index);
         }
+        if (type->kind == TB_SHADER_FORM_RESOURCE && type->element != TB_SHADER_FORM_NONE &&
+            type->element >= index)
+        {
+            return fail(check, "type %zu: a resource of a type made after it", index);
+        }
         if (type->kind != TB_SHADER_FORM_STRUCT)
         {
             continue;
@@ -118,9 +124,14 @@ static bool verify_types(verifier *check)
         {
             return fail(check, "global %zu: no such type", index);
         }
-        if (global->space != TB_SHADER_FORM_PRIVATE && global->space != TB_SHADER_FORM_GROUPSHARED)
+        const bool is_global_space = global->space == TB_SHADER_FORM_PRIVATE ||
+                                     global->space == TB_SHADER_FORM_GROUPSHARED ||
+                                     global->space == TB_SHADER_FORM_UNIFORM ||
+                                     global->space == TB_SHADER_FORM_HANDLE;
+        if (!is_global_space)
         {
-            return fail(check, "global %zu: a global is private or groupshared", index);
+            return fail(check, "global %zu: a global is private, groupshared, uniform or a handle",
+                        index);
         }
     }
     return true;
@@ -161,6 +172,7 @@ static uint32_t element_type(const verifier *check, uint32_t base, uint32_t *len
     case TB_SHADER_FORM_SCALAR:
     case TB_SHADER_FORM_STRUCT:
     case TB_SHADER_FORM_STRING:
+    case TB_SHADER_FORM_RESOURCE:
         break;
     }
     *length = 0;
@@ -253,6 +265,7 @@ static bool verify_compose(verifier *check, uint32_t index,
         case TB_SHADER_FORM_VOID:
         case TB_SHADER_FORM_SCALAR:
         case TB_SHADER_FORM_STRING:
+        case TB_SHADER_FORM_RESOURCE:
             return fail(check, "%%%u: '%s' cannot be composed", index, type->name);
         }
         if (part != wanted)
@@ -278,6 +291,7 @@ static bool verify_compose(verifier *check, uint32_t index,
     case TB_SHADER_FORM_VOID:
     case TB_SHADER_FORM_SCALAR:
     case TB_SHADER_FORM_STRING:
+    case TB_SHADER_FORM_RESOURCE:
         break;
     }
     return compose->operand_count == expected || fail(check, "%%%u: %u parts make a '%s'", index,
@@ -390,9 +404,44 @@ static bool verify_shapes(verifier *check, uint32_t index,
     case TB_SHADER_FORM_INTRINSIC:
     case TB_SHADER_FORM_CALL_RESULT:
     case TB_SHADER_FORM_STRING_LITERAL:
+    case TB_SHADER_FORM_TEXEL:
         break;
     }
     return true;
+}
+
+/* `t[p]`, `t.mips[m][p]`: a resource's handle, an integer location, and a
+ * level or a sample, give a pointer to what the resource holds there. */
+static bool verify_texel(verifier *check, uint32_t index, const tb_shader_form_expression *texel)
+{
+    const tb_shader_form_type *const resource =
+        type_at(check, expression_at(check, texel->operands[0])->type);
+    if (resource->kind != TB_SHADER_FORM_RESOURCE)
+    {
+        return fail(check, "%%%u: a texel is of a resource", index);
+    }
+    const tb_shader_form_type *const location =
+        type_at(check, expression_at(check, texel->operands[1])->type);
+    const bool integer_location =
+        (location->kind == TB_SHADER_FORM_SCALAR || location->kind == TB_SHADER_FORM_VECTOR) &&
+        tb_shader_scalar_is_integer(location->scalar);
+    if (!integer_location)
+    {
+        return fail(check, "%%%u: a texel's location is of integers", index);
+    }
+    if (texel->index > 2 ||
+        (texel->index != 0 &&
+         (texel->operands[2] >= index || !is_value(check, texel->operands[2]) ||
+          !is_scalar_of(check, expression_at(check, texel->operands[2])->type, is_integer))))
+    {
+        return fail(check, "%%%u: a texel's level or sample is an earlier integer", index);
+    }
+    if (texel->space != TB_SHADER_FORM_ELEMENT)
+    {
+        return fail(check, "%%%u: a texel points into a resource", index);
+    }
+    return resource->element == TB_SHADER_FORM_NONE || texel->type == resource->element ||
+           fail(check, "%%%u: not the type the resource holds", index);
 }
 
 static uint32_t fixed_operand_count(tb_shader_form_expression_kind kind)
@@ -408,6 +457,7 @@ static uint32_t fixed_operand_count(tb_shader_form_expression_kind kind)
         return 1;
     case TB_SHADER_FORM_ACCESS:
     case TB_SHADER_FORM_BINARY:
+    case TB_SHADER_FORM_TEXEL:
         return 2;
     case TB_SHADER_FORM_SELECT:
         return 3;
@@ -490,8 +540,9 @@ static bool verify_expression(verifier *check, uint32_t index)
         }
     }
     const bool is_pointer_kind =
-        expression->kind == TB_SHADER_FORM_ARGUMENT || expression->kind == TB_SHADER_FORM_LOCAL ||
-        expression->kind == TB_SHADER_FORM_GLOBAL || expression->kind == TB_SHADER_FORM_ACCESS ||
+        expression->kind == TB_SHADER_FORM_TEXEL || expression->kind == TB_SHADER_FORM_ARGUMENT ||
+        expression->kind == TB_SHADER_FORM_LOCAL || expression->kind == TB_SHADER_FORM_GLOBAL ||
+        expression->kind == TB_SHADER_FORM_ACCESS ||
         expression->kind == TB_SHADER_FORM_ACCESS_INDEX;
     if (!is_pointer_kind && expression->space != TB_SHADER_FORM_VALUE)
     {
@@ -515,9 +566,15 @@ static bool verify_expression(verifier *check, uint32_t index)
     case TB_SHADER_FORM_BINARY:
         return verify_operator(check, index, expression);
     case TB_SHADER_FORM_INTRINSIC:
+        if (expression->method != 0 && expression->operand_count == 0)
+        {
+            return fail(check, "%%%u: a method takes its object first", index);
+        }
         return ((size_t)expression->first_operand + expression->operand_count <=
                 tb_array_length(check->function->operands)) ||
                fail(check, "%%%u: operands past the end", index);
+    case TB_SHADER_FORM_TEXEL:
+        return verify_texel(check, index, expression);
     case TB_SHADER_FORM_LOAD:
     case TB_SHADER_FORM_SWIZZLE:
     case TB_SHADER_FORM_SPLAT:
@@ -574,6 +631,11 @@ static bool operands_visible(verifier *check, uint32_t index)
         {
             return false;
         }
+    }
+    if (expression->kind == TB_SHADER_FORM_TEXEL && expression->index != 0 &&
+        !visible(check, expression->operands[2]))
+    {
+        return false;
     }
     const bool has_list =
         expression->kind == TB_SHADER_FORM_COMPOSE || expression->kind == TB_SHADER_FORM_INTRINSIC;
@@ -699,9 +761,13 @@ static bool verify_call(verifier *check, const tb_shader_form_statement *call)
         }
         result_type = callee->result;
     }
-    else if (call->intrinsic == 0)
+    else if (call->intrinsic == 0 && call->method == 0)
     {
         return fail(check, "a call of nothing");
+    }
+    else if (call->method != 0 && call->operand_count == 0)
+    {
+        return fail(check, "a method takes its object first");
     }
     if (call->result == TB_SHADER_FORM_NONE)
     {
@@ -796,6 +862,38 @@ static bool verify_loop(verifier *check, const tb_shader_form_statement *loop)
     return true;
 }
 
+/* Whether a pointer's place may be written: not a constant buffer's or a
+ * handle, and an element only of a resource that is writable. */
+static bool is_writable(verifier *check, uint32_t pointer)
+{
+    const tb_shader_form_expression *at = expression_at(check, pointer);
+    switch (at->space)
+    {
+    case TB_SHADER_FORM_FUNCTION:
+    case TB_SHADER_FORM_PRIVATE:
+    case TB_SHADER_FORM_GROUPSHARED:
+        return true;
+    case TB_SHADER_FORM_VALUE:
+    case TB_SHADER_FORM_UNIFORM:
+    case TB_SHADER_FORM_HANDLE:
+        return false;
+    case TB_SHADER_FORM_ELEMENT:
+        break;
+    }
+    while (at->kind == TB_SHADER_FORM_ACCESS || at->kind == TB_SHADER_FORM_ACCESS_INDEX)
+    {
+        at = expression_at(check, at->operands[0]);
+    }
+    if (at->kind != TB_SHADER_FORM_TEXEL)
+    {
+        return false;
+    }
+    const tb_shader_form_type *const resource =
+        type_at(check, expression_at(check, at->operands[0])->type);
+    const tb_shader_object_info *const info = tb_shader_object_info_of(resource->object);
+    return info != NULL && info->is_writable;
+}
+
 static bool verify_statement(verifier *check, uint32_t index)
 {
     const tb_shader_form_statement *const statement =
@@ -848,6 +946,10 @@ static bool verify_statement(verifier *check, uint32_t index)
         if (!visible(check, pointer) || !visible(check, value))
         {
             return false;
+        }
+        if (!is_value(check, pointer) && !is_writable(check, pointer))
+        {
+            return fail(check, "a store into what cannot be written");
         }
         return (!is_value(check, pointer) && is_value(check, value) &&
                 expression_at(check, pointer)->type == expression_at(check, value)->type) ||
