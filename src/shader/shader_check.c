@@ -190,6 +190,30 @@ static tb_shader_name outer_prefix(tb_shader_name prefix)
     return outer;
 }
 
+/* `Counter::Twice`: a static method, named by its struct's name; NULL when
+ * the name names no such method. */
+static tb_shader_symbol *static_method(tb_shader_checker *checker, tb_shader_name name)
+{
+    const tb_shader_name owner_name = outer_prefix(name);
+    if (owner_name.length == 0)
+    {
+        return NULL;
+    }
+    const tb_shader_name method = {name.text + owner_name.length + 2,
+                                   name.length - owner_name.length - 2};
+    const tb_shader_symbol *const owner = tb_shader_check_lookup(checker, owner_name);
+    if (owner == NULL || owner->kind != TB_SHADER_SYMBOL_TYPE ||
+        owner->type->type_class != TB_SHADER_CLASS_STRUCT)
+    {
+        return NULL;
+    }
+    tb_shader_symbol *const member = tb_shader_find_member(owner->type, method);
+    const bool is_static = member != NULL && member->kind == TB_SHADER_SYMBOL_FUNCTION &&
+                           member->declaration != NULL &&
+                           (member->declaration->modifiers & TB_SHADER_MODIFIER_STATIC) != 0;
+    return is_static ? member : NULL;
+}
+
 tb_shader_symbol *tb_shader_check_lookup(tb_shader_checker *checker, tb_shader_name name)
 {
     if (name.length > 2 && name.text[0] == ':' && name.text[1] == ':')
@@ -220,7 +244,7 @@ tb_shader_symbol *tb_shader_check_lookup(tb_shader_checker *checker, tb_shader_n
         }
         if (prefix.length == 0)
         {
-            return NULL;
+            return static_method(checker, name);
         }
         prefix = outer_prefix(prefix);
     }

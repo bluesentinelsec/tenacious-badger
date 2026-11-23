@@ -39,6 +39,8 @@ void tb_shader_form_init(tb_shader_form *form, tb_arena *arena)
     form->members = TB_ARRAY_CREATE(&form->allocator, tb_shader_form_member);
     form->globals = TB_ARRAY_CREATE(&form->allocator, tb_shader_form_global);
     form->functions = TB_ARRAY_CREATE(&form->allocator, tb_shader_form_function);
+    form->strings = TB_ARRAY_CREATE(&form->allocator, const char *);
+    form->initializer = TB_SHADER_FORM_NONE;
 }
 
 /* -------------------------------------------------------------------------
@@ -73,6 +75,14 @@ uint32_t tb_shader_form_void(tb_shader_form *form)
     tb_shader_form_type probe = {0};
     probe.kind = TB_SHADER_FORM_VOID;
     probe.name = "void";
+    return intern(form, &probe);
+}
+
+uint32_t tb_shader_form_string(tb_shader_form *form)
+{
+    tb_shader_form_type probe = {0};
+    probe.kind = TB_SHADER_FORM_STRING;
+    probe.name = "string";
     return intern(form, &probe);
 }
 
@@ -222,6 +232,7 @@ uint32_t tb_shader_form_component_count(const tb_shader_form *form, uint32_t typ
     case TB_SHADER_FORM_VOID:
     case TB_SHADER_FORM_ARRAY:
     case TB_SHADER_FORM_STRUCT:
+    case TB_SHADER_FORM_STRING:
         return 0;
     }
     return 0;
@@ -241,6 +252,20 @@ uint32_t tb_shader_form_add_global(tb_shader_form *form, const tb_shader_form_gl
     const uint32_t index = (uint32_t)tb_array_length(form->globals);
     (void)tb_array_push(form->globals, global);
     return index;
+}
+
+uint32_t tb_shader_form_add_string(tb_shader_form *form, const char *text, size_t length)
+{
+    const char *const copy = tb_fmt_string(&form->allocator, "%.*s", (int)length, text);
+    const uint32_t index = (uint32_t)tb_array_length(form->strings);
+    (void)tb_array_push(form->strings, &copy);
+    return index;
+}
+
+const char *tb_shader_form_string_at(const tb_shader_form *form, uint32_t string)
+{
+    TB_ASSERT(string < tb_array_length(form->strings));
+    return *TB_ARRAY_AT(form->strings, const char *, string);
 }
 
 uint32_t tb_shader_form_add_function(tb_shader_form *form, const char *name, uint32_t result)
@@ -354,6 +379,7 @@ bool tb_shader_form_is_emitted(tb_shader_form_expression_kind kind)
     case TB_SHADER_FORM_LOCAL:
     case TB_SHADER_FORM_GLOBAL:
     case TB_SHADER_FORM_CALL_RESULT:
+    case TB_SHADER_FORM_STRING_LITERAL:
         return false;
     case TB_SHADER_FORM_LOAD:
     case TB_SHADER_FORM_ACCESS:

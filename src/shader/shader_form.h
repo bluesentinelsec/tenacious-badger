@@ -51,7 +51,8 @@ typedef enum tb_shader_form_type_kind
     TB_SHADER_FORM_VECTOR,
     TB_SHADER_FORM_MATRIX,
     TB_SHADER_FORM_ARRAY,
-    TB_SHADER_FORM_STRUCT
+    TB_SHADER_FORM_STRUCT,
+    TB_SHADER_FORM_STRING /* Only a literal's, which only printf takes. */
 } tb_shader_form_type_kind;
 
 /* A type. Types are interned, so two are the same when their indices are;
@@ -123,24 +124,25 @@ typedef struct tb_shader_form_parameter
 
 typedef enum tb_shader_form_expression_kind
 {
-    TB_SHADER_FORM_LITERAL,      /* type, value: a scalar. */
-    TB_SHADER_FORM_ARGUMENT,     /* index: the parameter; a pointer when it is OUT or INOUT. */
-    TB_SHADER_FORM_LOCAL,        /* index: a pointer to the local. */
-    TB_SHADER_FORM_GLOBAL,       /* index: a pointer to the global. */
-    TB_SHADER_FORM_LOAD,         /* operands[0]: a pointer; the value it points to. */
-    TB_SHADER_FORM_ACCESS,       /* operands[0]: an array, vector or matrix, or a pointer to
-                                    one; operands[1]: an integer index. A pointer gives a pointer. */
-    TB_SHADER_FORM_ACCESS_INDEX, /* operands[0] as ACCESS; index: a constant, or a member. */
-    TB_SHADER_FORM_SWIZZLE,      /* operands[0]: a vector value; swizzle: the components. */
-    TB_SHADER_FORM_COMPOSE,      /* operand list: a vector's scalars and vectors, a matrix's
-                                    rows, an array's elements, a struct's members. */
-    TB_SHADER_FORM_SPLAT,        /* operands[0]: a scalar, made a vector or matrix. */
-    TB_SHADER_FORM_UNARY,        /* op, operands[0] */
-    TB_SHADER_FORM_BINARY,       /* op, operands[0], operands[1]: of one type. */
-    TB_SHADER_FORM_SELECT,       /* operands: a bool scalar, the value if true, if false. */
-    TB_SHADER_FORM_CONVERT,      /* operands[0]: the same shape, another component. */
-    TB_SHADER_FORM_INTRINSIC,    /* intrinsic, operand list: a pure intrinsic's value. */
-    TB_SHADER_FORM_CALL_RESULT   /* What the CALL statement that gives it returned. */
+    TB_SHADER_FORM_LITERAL,       /* type, value: a scalar. */
+    TB_SHADER_FORM_ARGUMENT,      /* index: the parameter; a pointer when it is OUT or INOUT. */
+    TB_SHADER_FORM_LOCAL,         /* index: a pointer to the local. */
+    TB_SHADER_FORM_GLOBAL,        /* index: a pointer to the global. */
+    TB_SHADER_FORM_LOAD,          /* operands[0]: a pointer; the value it points to. */
+    TB_SHADER_FORM_ACCESS,        /* operands[0]: an array, vector or matrix, or a pointer to
+                                     one; operands[1]: an integer index. A pointer gives a pointer. */
+    TB_SHADER_FORM_ACCESS_INDEX,  /* operands[0] as ACCESS; index: a constant, or a member. */
+    TB_SHADER_FORM_SWIZZLE,       /* operands[0]: a vector value; swizzle: the components. */
+    TB_SHADER_FORM_COMPOSE,       /* operand list: a vector's scalars and vectors, a matrix's
+                                     rows, an array's elements, a struct's members. */
+    TB_SHADER_FORM_SPLAT,         /* operands[0]: a scalar, made a vector or matrix. */
+    TB_SHADER_FORM_UNARY,         /* op, operands[0] */
+    TB_SHADER_FORM_BINARY,        /* op, operands[0], operands[1]: of one type. */
+    TB_SHADER_FORM_SELECT,        /* operands: a bool scalar, the value if true, if false. */
+    TB_SHADER_FORM_CONVERT,       /* operands[0]: the same shape, another component. */
+    TB_SHADER_FORM_INTRINSIC,     /* intrinsic, operand list: a pure intrinsic's value. */
+    TB_SHADER_FORM_CALL_RESULT,   /* What the CALL statement that gives it returned. */
+    TB_SHADER_FORM_STRING_LITERAL /* index: into the form's strings. */
 } tb_shader_form_expression_kind;
 
 typedef enum tb_shader_form_op
@@ -257,6 +259,11 @@ typedef struct tb_shader_form
     tb_array *members;   /* tb_shader_form_member */
     tb_array *globals;   /* tb_shader_form_global */
     tb_array *functions; /* tb_shader_form_function */
+    tb_array *strings;   /* const char *: each string literal's text, as written between quotes. */
+    /* A function of no parameters that stores the first value of each
+     * static variable that has one, in the order of the source; NONE when
+     * there is none. Each entry point calls it before anything else. */
+    uint32_t initializer;
 } tb_shader_form;
 
 /* An empty form in `arena`, which must outlive it. */
@@ -271,6 +278,7 @@ uint32_t tb_shader_form_matrix(tb_shader_form *form, tb_shader_scalar scalar, ui
 /* A scalar, a vector or a matrix of `scalar`, shaped as `shape` is. */
 uint32_t tb_shader_form_shaped(tb_shader_form *form, tb_shader_scalar scalar, uint32_t shape);
 uint32_t tb_shader_form_array(tb_shader_form *form, uint32_t element, uint32_t length);
+uint32_t tb_shader_form_string(tb_shader_form *form);
 /* A new struct of `count` members, copied. */
 uint32_t tb_shader_form_struct(tb_shader_form *form, const char *name,
                                const tb_shader_form_member *members, uint32_t count);
@@ -290,6 +298,9 @@ uint32_t tb_shader_form_component_count(const tb_shader_form *form, uint32_t typ
 bool tb_shader_form_is_numeric(const tb_shader_form *form, uint32_t type);
 
 uint32_t tb_shader_form_add_global(tb_shader_form *form, const tb_shader_form_global *global);
+/* A string literal's text, copied; returns its index. */
+uint32_t tb_shader_form_add_string(tb_shader_form *form, const char *text, size_t length);
+const char *tb_shader_form_string_at(const tb_shader_form *form, uint32_t string);
 /* A new function with no parameters and an empty body. */
 uint32_t tb_shader_form_add_function(tb_shader_form *form, const char *name, uint32_t result);
 tb_shader_form_function *tb_shader_form_function_at(const tb_shader_form *form, uint32_t function);

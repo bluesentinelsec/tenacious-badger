@@ -337,7 +337,13 @@ Lowering writes out what HLSL does implicitly, so no backend handles it:
   branch when it calls something;
 - an argument passed `out` or `inout` goes through a local, copied back after
   the call, and a default argument is passed where one was left out;
-- a parameter passed by value becomes a local the function may change.
+- a parameter passed by value becomes a local the function may change;
+- a method becomes a function whose first parameter, `this`, points to its
+  object, which it may change; a static method has none;
+- a static variable, a function's included, becomes a global, and the form's
+  initializer, a function each entry point calls first, stores the first
+  value of each that has one, in the order of the source;
+- a string literal, which only `printf` takes, is kept as written.
 
 `tb_shader_form_verify()` checks every rule of the form: indices in range,
 operand types that agree, expressions evaluated before they are used,
@@ -346,11 +352,11 @@ tests is verified, and so will be every pass's output in debug builds.
 `tb_shader_form_print()` writes a form as text, one statement to a line,
 which the tests compare against.
 
-**Not yet.** Constant buffers, resources and their methods, entry points
-and their semantics, the methods of structs, static variables with an
-initializer, and strings (`printf`) are lowered next; until then, lowering
-reports each as not supported yet. Then each entry point takes only what it
-reaches, which reflection describes.
+**Not yet.** Constant buffers, resources and their methods, and entry points
+and their semantics are lowered next; until then, lowering reports each as
+not supported yet. A base struct's method called on a derived struct is not
+lowered yet either. Then each entry point takes only what it reaches, which
+reflection describes.
 
 ## Diagnostics
 

@@ -16,6 +16,14 @@ typedef enum tb_shader_binding_kind
     TB_SHADER_BINDING_ARGUMENT /* An `out` or `inout` parameter: a pointer. */
 } tb_shader_binding_kind;
 
+/* A static variable and the first value its initializer stores. */
+typedef struct tb_shader_static_value
+{
+    uint32_t global;
+    tb_shader_node *value;
+    const tb_shader_type *type;
+} tb_shader_static_value;
+
 typedef struct tb_shader_lowerer
 {
     tb_arena *arena;
@@ -30,8 +38,13 @@ typedef struct tb_shader_lowerer
     tb_table *functions;
     tb_table *bindings;
 
+    /* Static variables with a first value, for the form's initializer:
+     * tb_shader_static_value, in the order of the source. */
+    tb_array *statics;
+
     /* The function being lowered. */
     tb_shader_form_function *function;
+    bool has_this;       /* A method: argument 0 points to its object. */
     uint32_t emit_start; /* The first expression no EMIT has evaluated yet. */
     uint32_t block;      /* The block statements are added to. */
     uint32_t last;       /* Its last statement, or NONE. */
@@ -74,6 +87,9 @@ typedef struct tb_shader_block_mark
 } tb_shader_block_mark;
 uint32_t tb_shader_lower_open_block(tb_shader_lowerer *lowerer, tb_shader_block_mark *mark);
 void tb_shader_lower_close_block(tb_shader_lowerer *lowerer, const tb_shader_block_mark *mark);
+
+/* Whether a function is a method of a struct that has an object: not static. */
+bool tb_shader_lower_takes_this(const tb_shader_symbol *function);
 
 /* Expressions (shader_lower_expression.c). */
 uint32_t tb_shader_lower_add(tb_shader_lowerer *lowerer,

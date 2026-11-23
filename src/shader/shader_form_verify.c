@@ -160,6 +160,7 @@ static uint32_t element_type(const verifier *check, uint32_t base, uint32_t *len
     case TB_SHADER_FORM_VOID:
     case TB_SHADER_FORM_SCALAR:
     case TB_SHADER_FORM_STRUCT:
+    case TB_SHADER_FORM_STRING:
         break;
     }
     *length = 0;
@@ -251,6 +252,7 @@ static bool verify_compose(verifier *check, uint32_t index,
             break;
         case TB_SHADER_FORM_VOID:
         case TB_SHADER_FORM_SCALAR:
+        case TB_SHADER_FORM_STRING:
             return fail(check, "%%%u: '%s' cannot be composed", index, type->name);
         }
         if (part != wanted)
@@ -275,6 +277,7 @@ static bool verify_compose(verifier *check, uint32_t index,
         break;
     case TB_SHADER_FORM_VOID:
     case TB_SHADER_FORM_SCALAR:
+    case TB_SHADER_FORM_STRING:
         break;
     }
     return compose->operand_count == expected || fail(check, "%%%u: %u parts make a '%s'", index,
@@ -386,6 +389,7 @@ static bool verify_shapes(verifier *check, uint32_t index,
     case TB_SHADER_FORM_BINARY:
     case TB_SHADER_FORM_INTRINSIC:
     case TB_SHADER_FORM_CALL_RESULT:
+    case TB_SHADER_FORM_STRING_LITERAL:
         break;
     }
     return true;
@@ -414,6 +418,7 @@ static uint32_t fixed_operand_count(tb_shader_form_expression_kind kind)
     case TB_SHADER_FORM_COMPOSE:
     case TB_SHADER_FORM_INTRINSIC:
     case TB_SHADER_FORM_CALL_RESULT:
+    case TB_SHADER_FORM_STRING_LITERAL:
         break;
     }
     return 0;
@@ -521,6 +526,10 @@ static bool verify_expression(verifier *check, uint32_t index)
         return verify_shapes(check, index, expression);
     case TB_SHADER_FORM_CALL_RESULT:
         return true;
+    case TB_SHADER_FORM_STRING_LITERAL:
+        return (expression->index < tb_array_length(check->form->strings) &&
+                type_at(check, expression->type)->kind == TB_SHADER_FORM_STRING) ||
+               fail(check, "%%%u: no string %u", index, (unsigned)expression->index);
     }
     return true;
 }
@@ -949,6 +958,17 @@ bool tb_shader_form_verify(const tb_shader_form *form, char *why, size_t size)
     if (!verify_types(&check))
     {
         return false;
+    }
+    const uint32_t initializer = form->initializer;
+    if (initializer != TB_SHADER_FORM_NONE)
+    {
+        const bool valid =
+            initializer < tb_shader_form_function_count(form) &&
+            tb_array_length(tb_shader_form_function_at(form, initializer)->parameters) == 0;
+        if (!valid)
+        {
+            return fail(&check, "the initializer is a function of no parameters");
+        }
     }
     tb_arena *const scratch = tb_arena_create(0);
     const size_t count = tb_shader_form_function_count(form);
