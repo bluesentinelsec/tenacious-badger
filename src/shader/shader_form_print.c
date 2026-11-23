@@ -463,19 +463,81 @@ static const char *direction_name(tb_shader_form_direction direction)
     return "?";
 }
 
+/* `nointerpolation `, `triangle `: the modifiers a value passes between stages with. */
+static void put_modifiers(printer *out, uint64_t modifiers)
+{
+    for (unsigned bit = 0; bit < 64; bit++)
+    {
+        const uint64_t modifier = UINT64_C(1) << bit;
+        if ((modifiers & modifier) != 0)
+        {
+            putf(out, "%s ", tb_shader_modifier_name(modifier));
+        }
+    }
+}
+
+static void put_semantic(printer *out, const char *semantic)
+{
+    if (semantic != NULL)
+    {
+        putf(out, " : %s", semantic);
+    }
+}
+
+static void print_attributes(printer *out, const tb_shader_form_function *function)
+{
+    const size_t count = tb_array_length(function->attributes);
+    for (size_t index = 0; index < count; index++)
+    {
+        const tb_shader_form_attribute *const attribute =
+            TB_ARRAY_AT(function->attributes, tb_shader_form_attribute, index);
+        putf(out, "[%s", attribute->name);
+        for (uint32_t at = 0; at < attribute->argument_count; at++)
+        {
+            const tb_shader_form_argument *const argument = &attribute->arguments[at];
+            put(out, at == 0 ? "(" : ", ");
+            switch (argument->kind)
+            {
+            case TB_SHADER_FORM_ARGUMENT_INTEGER:
+                putf(out, "%" PRIu64, argument->integer);
+                break;
+            case TB_SHADER_FORM_ARGUMENT_FLOAT: {
+                char digits[TB_DECIMAL_SHORTEST_SIZE] = {0};
+                size_t required = 0;
+                (void)tb_decimal_shortest(argument->value, digits, sizeof(digits), &required);
+                put(out, digits);
+                break;
+            }
+            case TB_SHADER_FORM_ARGUMENT_STRING:
+                putf(out, "\"%s\"", argument->text);
+                break;
+            case TB_SHADER_FORM_ARGUMENT_NAME:
+                put(out, argument->text);
+                break;
+            }
+        }
+        put(out, attribute->argument_count > 0 ? ")]\n" : "]\n");
+    }
+}
+
 static void print_function(printer *out, const tb_shader_form_function *function)
 {
     out->function = function;
+    print_attributes(out, function);
     putf(out, "function %s %s(", type_name(out, function->result), function->name);
     const size_t parameter_count = tb_array_length(function->parameters);
     for (size_t index = 0; index < parameter_count; index++)
     {
         const tb_shader_form_parameter *const parameter =
             TB_ARRAY_AT(function->parameters, tb_shader_form_parameter, index);
-        putf(out, "%s%s %s %s", index > 0 ? ", " : "", direction_name(parameter->direction),
-             type_name(out, parameter->type), parameter->name);
+        putf(out, "%s%s ", index > 0 ? ", " : "", direction_name(parameter->direction));
+        put_modifiers(out, parameter->modifiers);
+        putf(out, "%s %s", type_name(out, parameter->type), parameter->name);
+        put_semantic(out, parameter->semantic);
     }
-    put(out, ")\n");
+    put(out, ")");
+    put_semantic(out, function->result_semantic);
+    put(out, "\n");
     const size_t local_count = tb_array_length(function->locals);
     for (size_t index = 0; index < local_count; index++)
     {
@@ -503,7 +565,10 @@ static void print_structs(printer *out)
         {
             const tb_shader_form_member *const member =
                 tb_shader_form_member_at(out->form, type->first_member + at);
-            putf(out, "%s %s %s", at > 0 ? "," : "", type_name(out, member->type), member->name);
+            put(out, at > 0 ? ", " : " ");
+            put_modifiers(out, member->modifiers);
+            putf(out, "%s %s", type_name(out, member->type), member->name);
+            put_semantic(out, member->semantic);
         }
         put(out, " }\n");
     }
@@ -535,6 +600,14 @@ const char *tb_shader_form_print(const tb_shader_form *form, tb_arena *arena)
             putf(&out, " register(%c)", binding->register_class);
         }
         put(&out, "\n");
+    }
+    const size_t entry_count = tb_array_length(form->entry_points);
+    for (size_t index = 0; index < entry_count; index++)
+    {
+        const tb_shader_form_entry_point *const entry =
+            TB_ARRAY_AT(form->entry_points, tb_shader_form_entry_point, index);
+        putf(&out, "entry %s %s\n", tb_shader_form_stage_name(entry->stage),
+             tb_shader_form_function_at(form, entry->function)->name);
     }
     if (form->initializer != TB_SHADER_FORM_NONE)
     {

@@ -1072,6 +1072,17 @@ bool tb_shader_form_verify(const tb_shader_form *form, char *why, size_t size)
             return fail(&check, "the initializer is a function of no parameters");
         }
     }
+    const size_t entry_count = tb_array_length(form->entry_points);
+    for (size_t index = 0; index < entry_count; index++)
+    {
+        const tb_shader_form_entry_point *const entry =
+            TB_ARRAY_AT(form->entry_points, tb_shader_form_entry_point, index);
+        if (entry->function >= tb_shader_form_function_count(form) ||
+            (size_t)entry->stage >= TB_SHADER_FORM_STAGE_COUNT)
+        {
+            return fail(&check, "entry point %zu: no such function or stage", index);
+        }
+    }
     tb_arena *const scratch = tb_arena_create(0);
     const size_t count = tb_shader_form_function_count(form);
     bool ok = true;

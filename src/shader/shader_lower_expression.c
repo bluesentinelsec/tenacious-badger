@@ -1444,18 +1444,29 @@ static bool method_has_effect(const tb_shader_node *node)
            method == TB_SHADER_METHOD_DECREMENT_COUNTER || method == TB_SHADER_METHOD_CONSUME;
 }
 
-/* The object a method is called on: a pointer to a RayQuery, which its
- * methods change, or a resource's handle. */
+/* Whether an object's methods change it: a RayQuery, and a geometry
+ * shader's stream. */
+static bool is_changed_by_methods(const tb_shader_type *type)
+{
+    return is_object(type, TB_SHADER_OBJECT_RAY_QUERY) ||
+           is_object(type, TB_SHADER_OBJECT_POINT_STREAM) ||
+           is_object(type, TB_SHADER_OBJECT_LINE_STREAM) ||
+           is_object(type, TB_SHADER_OBJECT_TRIANGLE_STREAM);
+}
+
+/* The object a method is called on: a pointer to an object its methods
+ * change, or a resource's handle. */
 static uint32_t method_object(tb_shader_lowerer *lowerer, tb_shader_node *node)
 {
     tb_shader_node *const object = node->left->left;
-    if (!is_object(object->checked, TB_SHADER_OBJECT_RAY_QUERY))
+    if (!is_changed_by_methods(object->checked))
     {
         return tb_shader_lower_value(lowerer, object);
     }
     if (!is_place(lowerer, object))
     {
-        tb_shader_lower_unsupported(lowerer, node->location, "a RayQuery that is not a variable");
+        tb_shader_lower_unsupported(lowerer, node->location,
+                                    "a RayQuery or a stream that is not a variable");
         return TB_SHADER_FORM_NONE;
     }
     return lower_place(lowerer, object);

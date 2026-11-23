@@ -754,13 +754,173 @@ TB_TEST(shader_form, a_ray_query_is_changed_through_a_pointer)
                 "  }\n");
 }
 
+TB_TEST(shader_form, entry_points_pass_values_by_their_semantics)
+{
+    expect_form(
+        "struct VSOut { float4 position : SV_Position; nointerpolation float3 color : COLOR0; "
+        "};\n"
+        "[shader(\"vertex\")] VSOut vs(float3 p : POSITION, uint id : SV_VertexID) { "
+        "VSOut o; o.position = float4(p, 1); o.color = id; return o; }\n"
+        "[shader(\"pixel\")] float4 ps(VSOut i) : SV_Target { return float4(i.color, 1); }",
+        "struct VSOut { float4 position : SV_Position, nointerpolation float3 color : COLOR0 }\n"
+        "entry vertex vs\n"
+        "entry pixel ps\n"
+        "[shader(\"vertex\")]\n"
+        "function VSOut vs(in float3 p : POSITION, in uint id : SV_VertexID)\n"
+        "  local0 float3 p\n"
+        "  local1 uint id\n"
+        "  local2 VSOut o\n"
+        "  {\n"
+        "    store local0 arg0\n"
+        "    store local1 arg1\n"
+        "    %5:float3 = load local0\n"
+        "    %7:float4 = compose %5 1.0:float\n"
+        "    %9:float4* function = access_index local2 0\n"
+        "    store %9 %7\n"
+        "    %11:uint = load local1\n"
+        "    %12:float = convert %11\n"
+        "    %13:float3 = splat %12\n"
+        "    %15:float3* function = access_index local2 1\n"
+        "    store %15 %13\n"
+        "    %17:VSOut = load local2\n"
+        "    return %17\n"
+        "  }\n"
+        "[shader(\"pixel\")]\n"
+        "function float4 ps(in VSOut i) : SV_Target\n"
+        "  local0 VSOut i\n"
+        "  {\n"
+        "    store local0 arg0\n"
+        "    %3:float3* function = access_index local0 1\n"
+        "    %4:float3 = load %3\n"
+        "    %6:float4 = compose %4 1.0:float\n"
+        "    return %6\n"
+        "  }\n");
+    expect_form(
+        "RWBuffer<uint> outputs;\n"
+        "[shader(\"compute\")] [numthreads(8, 4, 1)] void cs(uint3 id : SV_DispatchThreadID) "
+        "{ outputs[id.x] = id.y; }",
+        "global0 handle RWBuffer<uint> outputs register(u)\n"
+        "entry compute cs\n"
+        "[shader(\"compute\")]\n"
+        "[numthreads(8, 4, 1)]\n"
+        "function void cs(in uint3 id : SV_DispatchThreadID)\n"
+        "  local0 uint3 id\n"
+        "  {\n"
+        "    store local0 arg0\n"
+        "    %3:uint3 = load local0\n"
+        "    %4:uint = swizzle %3 y\n"
+        "    %6:RWBuffer<uint> = load global0\n"
+        "    %8:uint3 = load local0\n"
+        "    %9:uint = swizzle %8 x\n"
+        "    %10:uint* element = texel %6 %9\n"
+        "    store %10 %4\n"
+        "  }\n");
+}
+
+TB_TEST(shader_form, geometry_streams_and_tessellation_patches)
+{
+    expect_form(
+        "struct V { float4 p : SV_Position; };\n"
+        "[shader(\"geometry\")] [maxvertexcount(3)] void gs(triangle V input[3], inout "
+        "TriangleStream<V> stream) { for (uint i = 0; i < 3; i++) { stream.Append(input[i]); "
+        "} stream.RestartStrip(); }",
+        "struct V { float4 p : SV_Position }\n"
+        "entry geometry gs\n"
+        "[shader(\"geometry\")]\n"
+        "[maxvertexcount(3)]\n"
+        "function void gs(in triangle V[3] input, inout TriangleStream<V> stream)\n"
+        "  local0 V[3] input\n"
+        "  local1 uint i\n"
+        "  {\n"
+        "    store local0 arg0\n"
+        "    store local1 0:uint\n"
+        "    loop\n"
+        "    {\n"
+        "      %5:uint = load local1\n"
+        "      %7:bool = less %5 3:uint\n"
+        "      %8:bool = not %7\n"
+        "      if %8\n"
+        "      {\n"
+        "        break\n"
+        "      }\n"
+        "      %12:uint = load local1\n"
+        "      %13:V* function = access local0 %12\n"
+        "      %14:V = load %13\n"
+        "      call method Append arg1 %14\n"
+        "    }\n"
+        "    continuing\n"
+        "    {\n"
+        "      %16:uint = load local1\n"
+        "      %18:uint = add %16 1:uint\n"
+        "      store local1 %18\n"
+        "    }\n"
+        "    call method RestartStrip arg1\n"
+        "  }\n");
+    expect_form(
+        "struct CP { float3 p : POSITION; };\n"
+        "struct PC { float edges[3] : SV_TessFactor; float inside : SV_InsideTessFactor; };\n"
+        "PC constants(InputPatch<CP, 3> patch) { PC c; c.edges[0] = patch[0].p.x; "
+        "c.edges[1] = 1; c.edges[2] = 1; c.inside = 1; return c; }\n"
+        "[shader(\"hull\")] [domain(\"tri\")] [partitioning(\"fractional_odd\")] "
+        "[outputtopology(\"triangle_cw\")] [outputcontrolpoints(3)] "
+        "[patchconstantfunc(\"constants\")] [maxtessfactor(15.5)]\n"
+        "CP hs(InputPatch<CP, 3> patch, uint i : SV_OutputControlPointID) { return patch[i]; }",
+        "struct PC { float[3] edges : SV_TessFactor, float inside : SV_InsideTessFactor }\n"
+        "struct CP { float3 p : POSITION }\n"
+        "entry hull hs\n"
+        "function PC constants(in InputPatch<CP, 3> patch)\n"
+        "  local0 InputPatch<CP, 3> patch\n"
+        "  local1 PC c\n"
+        "  {\n"
+        "    store local0 arg0\n"
+        "    %3:InputPatch<CP, 3> = load local0\n"
+        "    %5:CP* element = texel %3 0:uint\n"
+        "    %6:float3* element = access_index %5 0\n"
+        "    %7:float3 = load %6\n"
+        "    %8:float = swizzle %7 x\n"
+        "    %10:float[3]* function = access_index local1 0\n"
+        "    %11:float* function = access_index %10 0\n"
+        "    store %11 %8\n"
+        "    %14:float[3]* function = access_index local1 0\n"
+        "    %15:float* function = access_index %14 1\n"
+        "    store %15 1.0:float\n"
+        "    %18:float[3]* function = access_index local1 0\n"
+        "    %19:float* function = access_index %18 2\n"
+        "    store %19 1.0:float\n"
+        "    %22:float* function = access_index local1 1\n"
+        "    store %22 1.0:float\n"
+        "    %24:PC = load local1\n"
+        "    return %24\n"
+        "  }\n"
+        "[shader(\"hull\")]\n"
+        "[domain(\"tri\")]\n"
+        "[partitioning(\"fractional_odd\")]\n"
+        "[outputtopology(\"triangle_cw\")]\n"
+        "[outputcontrolpoints(3)]\n"
+        "[patchconstantfunc(\"constants\")]\n"
+        "[maxtessfactor(15.5)]\n"
+        "function CP hs(in InputPatch<CP, 3> patch, in uint i : SV_OutputControlPointID)\n"
+        "  local0 InputPatch<CP, 3> patch\n"
+        "  local1 uint i\n"
+        "  {\n"
+        "    store local0 arg0\n"
+        "    store local1 arg1\n"
+        "    %5:InputPatch<CP, 3> = load local0\n"
+        "    %7:uint = load local1\n"
+        "    %8:CP* element = texel %5 %7\n"
+        "    %9:CP = load %8\n"
+        "    return %9\n"
+        "  }\n");
+}
+
 TB_TEST(shader_form, what_the_form_does_not_hold_yet_is_reported)
 {
-    expect_unsupported(
-        "struct V { float4 p : SV_Position; };\n"
-        "[maxvertexcount(3)] void gs(triangle V input[3], inout TriangleStream<V> "
-        "stream) { stream.Append(input[0]); }",
-        "a patch or a geometry shader's stream is not supported by the compiler yet");
+    expect_unsupported("[shader(\"teapot\")] void f() {}",
+                       "a shader attribute that names no stage is not supported by the compiler "
+                       "yet");
+    expect_unsupported("[numthreads(4 * 2, 1, 1)] void f() {}",
+                       "an attribute's argument that is not a literal is not supported by the "
+                       "compiler yet");
     expect_unsupported(
         "struct S { float a; }; ConstantBuffer<S> c[2]; float f() { return c[1].a; }",
         "an array of constant buffers is not supported by the compiler yet");
@@ -1316,7 +1476,7 @@ TB_TEST(shader_form, the_verifier_checks_calls)
     expect_broken(&b, "a call's operands are past the end");
 
     start(&b, false);
-    tb_shader_form_parameter parameter = {"r", b.f32, TB_SHADER_FORM_OUT};
+    tb_shader_form_parameter parameter = {"r", b.f32, TB_SHADER_FORM_OUT, NULL, 0};
     (void)tb_shader_form_add_parameter(function_of(&b), &parameter);
     tb_shader_form_statement by_value = statement_of(TB_SHADER_FORM_CALL);
     by_value.function = b.function;
@@ -1336,13 +1496,27 @@ TB_TEST(shader_form, the_verifier_checks_the_module)
     expect_broken(&b, "global 0: a global is private, groupshared, uniform or a handle");
 
     start(&b, false);
-    const tb_shader_form_member later = {"a", 99};
+    const tb_shader_form_member later = {"a", 99, NULL, 0};
     (void)tb_shader_form_struct(&b.form, "S", &later, 1);
     expect_broken(&b, "a member of a type made after it");
 
     start(&b, false);
     (void)tb_shader_form_add_local(function_of(&b), "x", 77);
     expect_broken(&b, "local 0: no such type");
+
+    /* A function is an entry point of a stage once. */
+    start(&b, false);
+    TB_TEST_EXPECT_UINT(
+        tb_shader_form_add_entry_point(&b.form, b.function, TB_SHADER_FORM_STAGE_COMPUTE), ==,
+        true);
+    TB_TEST_EXPECT_UINT(
+        tb_shader_form_add_entry_point(&b.form, b.function, TB_SHADER_FORM_STAGE_COMPUTE), ==,
+        false);
+    TB_TEST_EXPECT_STRING(tb_shader_form_stage_name(TB_SHADER_FORM_STAGE_CLOSEST_HIT), ==,
+                          "closesthit");
+    TB_TEST_EXPECT_STRING(tb_shader_form_stage_name(TB_SHADER_FORM_STAGE_COUNT), ==, "?");
+    (void)tb_shader_form_add_entry_point(&b.form, 99, TB_SHADER_FORM_STAGE_PIXEL);
+    expect_broken(&b, "entry point 1: no such function or stage");
 }
 
 TB_TEST(shader_form, types_are_interned_and_named_as_hlsl_names_them)

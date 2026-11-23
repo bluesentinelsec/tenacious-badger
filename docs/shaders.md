@@ -370,10 +370,21 @@ tests is verified, and so will be every pass's output in debug builds.
 `tb_shader_form_print()` writes a form as text, one statement to a line,
 which the tests compare against.
 
-**Not yet.** Entry points and their semantics, with a geometry shader's
-streams and a tessellation shader's patches, are lowered next; until then,
-lowering reports them as not supported yet. Arrays of constant buffers, and a
-base struct's method called on a derived struct, are not lowered yet either. Then each entry point takes only what it reaches, which
+Entry points are functions the form lists with their stage: each function
+with `[shader("pixel")]`, and, later, the one a compile names. A function
+keeps its attributes as the source writes them (`[numthreads(8, 8, 1)]`,
+`[domain("tri")]`, `[patchconstantfunc("constants")]`), each argument a
+literal or a name. Its parameters, its result and the members of structs keep
+their semantics (`: SV_Position`, `: TEXCOORD0`) and the modifiers that say
+how a value passes between stages (`nointerpolation`, `centroid`, a geometry
+shader's `triangle`, a mesh shader's `vertices`). A geometry shader's stream
+is a handle its methods change, given as a pointer; a tessellation shader's
+patch is a handle indexed as a buffer is.
+
+**Not yet.** Arrays of constant buffers, and a base struct's method called on
+a derived struct, are not lowered yet. An attribute's argument must be a
+literal or a name, not an expression such as `4 * 2`. Next, each entry point
+takes only what it reaches, which reflection describes. Then each entry point takes only what it reaches, which
 reflection describes.
 
 ## Diagnostics
