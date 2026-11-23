@@ -30,6 +30,9 @@ tb_embed_test_data(TB_TAR_DATA_SOURCE tb_tar_files tar "*.tar*")
 # Archives that Python, bsdtar, and .NET wrote (tools/make_zip_test_data.py).
 tb_embed_test_data(TB_ZIP_DATA_SOURCE tb_zip_files zip "*.zip")
 
+# Shaders, and what DXC reports for them (tools/shader_reflection_goldens.py).
+tb_embed_test_data(TB_SHADER_REFLECTION_SOURCE tb_shader_reflection_files shader_reflection "*")
+
 # Every test case of the project, in one executable: tb_tests. Add the source
 # of a new test here. Suites are named <module>_<feature>, so one pattern
 # selects a module (tb_tests "core_*") or a feature (tb_tests "core_sum.*").
@@ -94,6 +97,7 @@ set(TB_TEST_CASE_SOURCES
     settings/engine_settings_test.c
     settings/settings_test.c
     shader/shader_compile_test.c
+    ${TB_SHADER_REFLECTION_SOURCE}
     shader/shader_preprocess_test.c
     vfs/vfs_test.c
     framework/selftest/checks_test.c

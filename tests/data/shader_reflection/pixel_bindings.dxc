@@ -1,0 +1,24 @@
+binding $Globals cbuffer cb0 1
+binding Frame cbuffer cb1 1
+binding albedo texture t1 1
+binding arr texture t4 4
+binding data texture t2,space1 1
+binding depth texture t3 1
+binding extra texture t2 1
+binding normals texture t0 1
+binding output UAV u0 1
+binding s sampler s0 1
+binding shadow sampler s1 1
+buffer $Globals 16
+buffer Frame 20
+input ID 0 uint 1 nointerpolation
+input NORMAL 0 float 3 linear
+input NORMAL 1 float 3 linear
+input SV_IsFrontFace 0 uint 1 nointerpolation
+input SV_Position 0 float 4 noperspective
+input TEXCOORD 0 float 2 linear
+output SV_Target 0 float 4
+output SV_Target 2 float 4
+variable $Globals.loose 0
+variable Frame.time 16
+variable Frame.tint 0

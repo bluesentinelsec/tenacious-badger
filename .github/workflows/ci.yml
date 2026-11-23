@@ -226,6 +226,17 @@ jobs:
       - name: Check with the runner's preinstalled clang-format 22
         run: cmake -DTB_FORMAT_MODE=check -DTB_CLANG_FORMAT=clang-format-22 -P cmake/Format.cmake
 
+  shader-reflection:
+    name: Shader reflection against DXC
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check that the checked-in goldens are what the Windows SDK's DXC reports
+        run: python tools/shader_reflection_goldens.py --check --require-dxc
+
   foundation:
     name: Foundation layer use
     runs-on: ubuntu-26.04
