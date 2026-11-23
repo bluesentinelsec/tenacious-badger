@@ -9,6 +9,10 @@
 #include "badger/assert.h"
 #include "badger/fmt.h"
 
+#include <ctype.h>
+#include <stdlib.h>
+#include <string.h>
+
 /* -------------------------------------------------------------------------
  * Diagnostics.
  * ------------------------------------------------------------------------- */
@@ -84,6 +88,25 @@ uint32_t tb_shader_lower_binding_index(uint32_t binding)
     return binding & BINDING_INDEX_MASK;
 }
 
+#define MEMBER_SHIFT 16
+#define MEMBER_MASK ((UINT32_C(1) << MEMBER_SHIFT) - 1)
+
+uint32_t tb_shader_lower_member_binding(uint32_t global, uint32_t member)
+{
+    TB_ASSERT(global <= MEMBER_MASK && member <= MEMBER_MASK);
+    return (global << MEMBER_SHIFT) | member;
+}
+
+uint32_t tb_shader_lower_member_global(uint32_t binding)
+{
+    return binding >> MEMBER_SHIFT;
+}
+
+uint32_t tb_shader_lower_member_index(uint32_t binding)
+{
+    return binding & MEMBER_MASK;
+}
+
 /* -------------------------------------------------------------------------
  * Types.
  * ------------------------------------------------------------------------- */
@@ -113,6 +136,48 @@ static uint32_t struct_type(tb_shader_lowerer *lowerer, const tb_shader_type *ty
                                  (uint32_t)structure->field_count);
 }
 
+/* What an object is in the form: a constant buffer is the struct it holds,
+ * and a resource a handle of what it holds. */
+static uint32_t object_type(tb_shader_lowerer *lowerer, const tb_shader_type *type,
+                            tb_shader_location location)
+{
+    const tb_shader_object object = type->object;
+    if (object == TB_SHADER_OBJECT_CONSTANT_BUFFER || object == TB_SHADER_OBJECT_TEXTURE_BUFFER)
+    {
+        return tb_shader_lower_type(lowerer, type->element, location);
+    }
+    if (object == TB_SHADER_OBJECT_INPUT_PATCH || object == TB_SHADER_OBJECT_OUTPUT_PATCH ||
+        object == TB_SHADER_OBJECT_POINT_STREAM || object == TB_SHADER_OBJECT_LINE_STREAM ||
+        object == TB_SHADER_OBJECT_TRIANGLE_STREAM)
+    {
+        tb_shader_lower_unsupported(lowerer, location, "a patch or a geometry shader's stream");
+        return TB_SHADER_FORM_NONE;
+    }
+    /* What a shader holds as a handle: a resource, a sampler, an
+     * acceleration structure, a RayQuery. The rest are written in no
+     * variable a shader runs with. */
+    const bool is_handle = tb_shader_object_info_of(object) != NULL &&
+                           object != TB_SHADER_OBJECT_HIT_OBJECT &&
+                           (object < TB_SHADER_OBJECT_STATE_OBJECT_CONFIG ||
+                            object > TB_SHADER_OBJECT_PROCEDURAL_PRIMITIVE_HIT_GROUP);
+    if (!is_handle)
+    {
+        tb_shader_lower_unsupported(lowerer, location, "this object");
+        return TB_SHADER_FORM_NONE;
+    }
+    uint32_t element = TB_SHADER_FORM_NONE;
+    if (type->element != NULL)
+    {
+        element = tb_shader_lower_type(lowerer, type->element, location);
+        if (element == TB_SHADER_FORM_NONE)
+        {
+            return TB_SHADER_FORM_NONE;
+        }
+    }
+    return tb_shader_form_resource(lowerer->form, type->object, element, type->length,
+                                   type->second_length, type->name);
+}
+
 static uint32_t new_type(tb_shader_lowerer *lowerer, const tb_shader_type *type,
                          tb_shader_location location)
 {
@@ -130,7 +195,8 @@ static uint32_t new_type(tb_shader_lowerer *lowerer, const tb_shader_type *type,
     case TB_SHADER_CLASS_MATRIX:
         return tb_shader_form_matrix(form, scalar, type->rows, type->columns);
     case TB_SHADER_CLASS_ARRAY: {
-        if (type->length == 0)
+        const bool of_resources = type->element->type_class == TB_SHADER_CLASS_OBJECT;
+        if (type->length == 0 && !of_resources)
         {
             tb_shader_lower_unsupported(lowerer, location, "an array without a size");
             return TB_SHADER_FORM_NONE;
@@ -142,8 +208,7 @@ static uint32_t new_type(tb_shader_lowerer *lowerer, const tb_shader_type *type,
     case TB_SHADER_CLASS_STRUCT:
         return struct_type(lowerer, type, location);
     case TB_SHADER_CLASS_OBJECT:
-        tb_shader_lower_unsupported(lowerer, location, "a resource or another object");
-        return TB_SHADER_FORM_NONE;
+        return object_type(lowerer, type, location);
     case TB_SHADER_CLASS_STRING:
         return tb_shader_form_string(form);
     case TB_SHADER_CLASS_ERROR:
@@ -787,11 +852,175 @@ static void lower_initializer_function(tb_shader_lowerer *lowerer)
     lowerer->function = NULL;
 }
 
+/* `register(t3, space1)`: where the source binds a buffer or a resource. */
+static void read_register(const tb_shader_annotation *annotation, tb_shader_form_binding *binding)
+{
+    for (; annotation != NULL; annotation = annotation->next)
+    {
+        const bool is_register =
+            annotation->name.length == 8 && memcmp(annotation->name.text, "register", 8) == 0;
+        const tb_shader_node *const slot = annotation->arguments;
+        if (!is_register || slot == NULL || slot->kind != TB_SHADER_NODE_NAME ||
+            slot->name.length < 2)
+        {
+            continue;
+        }
+        binding->is_explicit = true;
+        binding->register_class = (char)tolower((unsigned char)slot->name.text[0]);
+        binding->index = (uint32_t)strtoul(slot->name.text + 1, NULL, 10);
+        const tb_shader_node *const space = slot->next;
+        const bool has_space = space != NULL && space->kind == TB_SHADER_NODE_NAME &&
+                               space->name.length > 5 && memcmp(space->name.text, "space", 5) == 0;
+        binding->space = has_space ? (uint32_t)strtoul(space->name.text + 5, NULL, 10) : 0;
+        return;
+    }
+}
+
+/* The register class of a resource: 's' for a sampler, 'u' for one that is
+ * written, 't' for any other. */
+static char register_class_of(const tb_shader_type *type)
+{
+    while (type->type_class == TB_SHADER_CLASS_ARRAY)
+    {
+        type = type->element;
+    }
+    if (type->object == TB_SHADER_OBJECT_SAMPLER ||
+        type->object == TB_SHADER_OBJECT_SAMPLER_COMPARISON)
+    {
+        return 's';
+    }
+    if (type->object == TB_SHADER_OBJECT_CONSTANT_BUFFER)
+    {
+        return 'b';
+    }
+    const tb_shader_object_info *const info = tb_shader_object_info_of(type->object);
+    return info != NULL && info->is_writable ? 'u' : 't';
+}
+
+static bool is_object_global(const tb_shader_type *type)
+{
+    while (type->type_class == TB_SHADER_CLASS_ARRAY)
+    {
+        type = type->element;
+    }
+    return type->type_class == TB_SHADER_CLASS_OBJECT;
+}
+
+/* A shader input declared alone: a resource, a ConstantBuffer<S>, or a loose
+ * uniform, which joins `$Globals`. */
+static void declare_input(tb_shader_lowerer *lowerer, tb_shader_node *node)
+{
+    const tb_shader_symbol *const symbol = node->symbol;
+    if (symbol->buffer != NULL)
+    {
+        return;
+    }
+    if (!is_object_global(symbol->type))
+    {
+        (void)tb_array_push(lowerer->loose, &node);
+        return;
+    }
+    const bool is_buffer = symbol->type->type_class == TB_SHADER_CLASS_OBJECT &&
+                           (symbol->type->object == TB_SHADER_OBJECT_CONSTANT_BUFFER ||
+                            symbol->type->object == TB_SHADER_OBJECT_TEXTURE_BUFFER);
+    if (symbol->type->type_class == TB_SHADER_CLASS_ARRAY && register_class_of(symbol->type) == 'b')
+    {
+        tb_shader_lower_unsupported(lowerer, node->location, "an array of constant buffers");
+        return;
+    }
+    tb_shader_form_global global = {0};
+    global.name = name_text(lowerer, symbol->name);
+    global.type = tb_shader_lower_type(lowerer, symbol->type, node->location);
+    global.space = is_buffer ? TB_SHADER_FORM_UNIFORM : TB_SHADER_FORM_HANDLE;
+    global.binding.register_class = register_class_of(symbol->type);
+    read_register(node->annotations, &global.binding);
+    if (global.type == TB_SHADER_FORM_NONE)
+    {
+        return;
+    }
+    const uint32_t index = tb_shader_form_add_global(lowerer->form, &global);
+    tb_shader_lower_bind(lowerer, lowerer->bindings, symbol,
+                         tb_shader_lower_binding(TB_SHADER_BINDING_GLOBAL, index));
+}
+
+/* A constant buffer of variables: a uniform global whose type is the
+ * struct of its variables, each bound to its member. */
+static void declare_buffer(tb_shader_lowerer *lowerer, const char *name,
+                           tb_shader_node *const *variables, size_t count, char register_class,
+                           const tb_shader_annotation *annotations, tb_shader_location location)
+{
+    tb_shader_form_member *const members =
+        TB_ARENA_NEW_ARRAY(lowerer->arena, tb_shader_form_member, count + 1);
+    for (size_t index = 0; index < count; index++)
+    {
+        members[index].name = name_text(lowerer, variables[index]->name);
+        members[index].type = tb_shader_lower_type(lowerer, variables[index]->symbol->type,
+                                                   variables[index]->location);
+        if (members[index].type == TB_SHADER_FORM_NONE)
+        {
+            return;
+        }
+    }
+    tb_shader_form_global global = {0};
+    global.name = name;
+    global.type = tb_shader_form_struct(lowerer->form, name, members, (uint32_t)count);
+    global.space = TB_SHADER_FORM_UNIFORM;
+    global.binding.register_class = register_class;
+    read_register(annotations, &global.binding);
+    const uint32_t index = tb_shader_form_add_global(lowerer->form, &global);
+    for (size_t member = 0; member < count; member++)
+    {
+        tb_shader_lower_bind(lowerer, lowerer->members, variables[member]->symbol,
+                             tb_shader_lower_member_binding(index, (uint32_t)member));
+    }
+    (void)location;
+}
+
+static void declare_cbuffer(tb_shader_lowerer *lowerer, tb_shader_node *node)
+{
+    size_t count = 0;
+    for (tb_shader_node *child = node->children; child != NULL; child = child->next)
+    {
+        count += child->kind == TB_SHADER_NODE_VARIABLE && child->symbol != NULL ? 1u : 0u;
+    }
+    tb_shader_node **const variables =
+        TB_ARENA_NEW_ARRAY(lowerer->arena, tb_shader_node *, count + 1);
+    size_t at = 0;
+    for (tb_shader_node *child = node->children; child != NULL; child = child->next)
+    {
+        if (child->kind == TB_SHADER_NODE_VARIABLE && child->symbol != NULL)
+        {
+            variables[at++] = child;
+        }
+    }
+    const char register_class = node->kind == TB_SHADER_NODE_TBUFFER ? 't' : 'b';
+    declare_buffer(lowerer, name_text(lowerer, node->name), variables, count, register_class,
+                   node->annotations, node->location);
+}
+
+/* Loose uniforms, declared alone at namespace scope, are the members of a
+ * constant buffer of their own, as DXC's `$Globals` is. */
+static void declare_loose_uniforms(tb_shader_lowerer *lowerer)
+{
+    const size_t count = tb_array_length(lowerer->loose);
+    if (count > 0)
+    {
+        tb_shader_location nowhere = {0};
+        declare_buffer(lowerer, "$Globals", TB_ARRAY_DATA(lowerer->loose, tb_shader_node *), count,
+                       'b', NULL, nowhere);
+    }
+}
+
 static void declare_global(tb_shader_lowerer *lowerer, tb_shader_node *node)
 {
     const tb_shader_symbol *const symbol = node->symbol;
     if (symbol == NULL || symbol->has_value)
     {
+        return;
+    }
+    if (symbol->storage == TB_SHADER_STORAGE_UNIFORM)
+    {
+        declare_input(lowerer, node);
         return;
     }
     const bool is_static = symbol->storage == TB_SHADER_STORAGE_STATIC;
@@ -842,6 +1071,11 @@ static void lower_declarations(tb_shader_lowerer *lowerer, tb_shader_node *first
         {
             declare_global(lowerer, node);
         }
+        else if ((node->kind == TB_SHADER_NODE_CBUFFER || node->kind == TB_SHADER_NODE_TBUFFER) &&
+                 !bodies)
+        {
+            declare_cbuffer(lowerer, node);
+        }
     }
 }
 
@@ -865,7 +1099,10 @@ tb_shader_result tb_shader_lower(const tb_shader_syntax *syntax, const tb_shader
     lowerer.functions = new_map(&lowerer);
     lowerer.bindings = new_map(&lowerer);
     lowerer.statics = TB_ARRAY_CREATE(&lowerer.allocator, tb_shader_static_value);
+    lowerer.members = new_map(&lowerer);
+    lowerer.loose = TB_ARRAY_CREATE(&lowerer.allocator, tb_shader_node *);
     lower_declarations(&lowerer, syntax->declarations, false);
+    declare_loose_uniforms(&lowerer);
     lower_declarations(&lowerer, syntax->declarations, true);
     lower_initializer_function(&lowerer);
     lowered->diagnostics = tb_array_data(lowerer.diagnostics);

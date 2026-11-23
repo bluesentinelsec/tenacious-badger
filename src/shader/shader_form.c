@@ -51,7 +51,8 @@ static bool same_type(const tb_shader_form_type *left, const tb_shader_form_type
 {
     return left->kind == right->kind && left->scalar == right->scalar &&
            left->rows == right->rows && left->columns == right->columns &&
-           left->element == right->element && left->length == right->length;
+           left->element == right->element && left->length == right->length &&
+           left->second_length == right->second_length && left->object == right->object;
 }
 
 /* The index of a type like `probe`, added when there is none; never a struct. */
@@ -83,6 +84,19 @@ uint32_t tb_shader_form_string(tb_shader_form *form)
     tb_shader_form_type probe = {0};
     probe.kind = TB_SHADER_FORM_STRING;
     probe.name = "string";
+    return intern(form, &probe);
+}
+
+uint32_t tb_shader_form_resource(tb_shader_form *form, tb_shader_object object, uint32_t element,
+                                 uint32_t length, uint32_t second_length, const char *name)
+{
+    tb_shader_form_type probe = {0};
+    probe.kind = TB_SHADER_FORM_RESOURCE;
+    probe.object = object;
+    probe.element = element;
+    probe.length = length;
+    probe.second_length = second_length;
+    probe.name = name;
     return intern(form, &probe);
 }
 
@@ -159,8 +173,10 @@ uint32_t tb_shader_form_array(tb_shader_form *form, uint32_t element, uint32_t l
     tb_shader_form_type *const type = TB_ARRAY_AT(form->types, tb_shader_form_type, found);
     if (type->name == NULL)
     {
-        type->name = tb_fmt_string(&form->allocator, "%s[%u]",
-                                   tb_shader_form_type_at(form, element)->name, (unsigned)length);
+        const char *const element_name = tb_shader_form_type_at(form, element)->name;
+        type->name =
+            length == 0 ? tb_fmt_string(&form->allocator, "%s[]", element_name)
+                        : tb_fmt_string(&form->allocator, "%s[%u]", element_name, (unsigned)length);
     }
     return found;
 }
@@ -233,6 +249,7 @@ uint32_t tb_shader_form_component_count(const tb_shader_form *form, uint32_t typ
     case TB_SHADER_FORM_ARRAY:
     case TB_SHADER_FORM_STRUCT:
     case TB_SHADER_FORM_STRING:
+    case TB_SHADER_FORM_RESOURCE:
         return 0;
     }
     return 0;
@@ -392,6 +409,7 @@ bool tb_shader_form_is_emitted(tb_shader_form_expression_kind kind)
     case TB_SHADER_FORM_SELECT:
     case TB_SHADER_FORM_CONVERT:
     case TB_SHADER_FORM_INTRINSIC:
+    case TB_SHADER_FORM_TEXEL:
         return true;
     }
     return true;

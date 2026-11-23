@@ -14,6 +14,7 @@
  *   call, as HLSL passes them. */
 #include "shader_intrinsics.h"
 #include "shader_lower_internal.h"
+#include "shader_methods.h"
 
 #include "badger/arena.h"
 #include "badger/assert.h"
@@ -144,6 +145,7 @@ static uint32_t element_of(tb_shader_lowerer *lowerer, uint32_t base_type, uint3
     case TB_SHADER_FORM_VOID:
     case TB_SHADER_FORM_SCALAR:
     case TB_SHADER_FORM_STRING:
+    case TB_SHADER_FORM_RESOURCE:
         break;
     }
     return TB_SHADER_FORM_NONE;
@@ -321,6 +323,7 @@ static bool flatten(tb_shader_lowerer *lowerer, uint32_t value, tb_array *out)
         break;
     case TB_SHADER_FORM_VOID:
     case TB_SHADER_FORM_STRING:
+    case TB_SHADER_FORM_RESOURCE:
         return false;
     }
     for (uint32_t index = 0; index < parts; index++)
@@ -367,6 +370,7 @@ static uint32_t rebuild(tb_shader_lowerer *lowerer, uint32_t type, const tb_arra
     case TB_SHADER_FORM_SCALAR:
     case TB_SHADER_FORM_VOID:
     case TB_SHADER_FORM_STRING:
+    case TB_SHADER_FORM_RESOURCE:
         return TB_SHADER_FORM_NONE;
     }
     uint32_t *const built = TB_ARENA_NEW_ARRAY(lowerer->arena, uint32_t, parts + 1);
@@ -514,11 +518,50 @@ static bool is_own_field(const tb_shader_lowerer *lowerer, const tb_shader_node 
            node->symbol->kind == TB_SHADER_SYMBOL_FIELD;
 }
 
-static bool is_place(const tb_shader_lowerer *lowerer, const tb_shader_node *node)
+static bool is_buffer_member(const tb_shader_lowerer *lowerer, const tb_shader_node *node)
 {
-    if ((lowerer->has_this && is_this(node)) || is_own_field(lowerer, node))
+    return node->kind == TB_SHADER_NODE_NAME && node->symbol != NULL &&
+           tb_shader_lower_bound(lowerer, lowerer->members, node->symbol) != TB_SHADER_FORM_NONE;
+}
+
+static bool is_object(const tb_shader_type *type, tb_shader_object object)
+{
+    return type != NULL && type->type_class == TB_SHADER_CLASS_OBJECT && type->object == object;
+}
+
+/* `t[p]`, `b[i]`, `t.mips[m][p]`: an element of a resource. */
+static bool is_resource_element(const tb_shader_node *node)
+{
+    if (node->kind != TB_SHADER_NODE_INDEX || node->left->checked == NULL ||
+        node->left->checked->type_class != TB_SHADER_CLASS_OBJECT)
+    {
+        return false;
+    }
+    const tb_shader_type *const base = node->left->checked;
+    if (is_object(base, TB_SHADER_OBJECT_MIPS_SLICE) ||
+        is_object(base, TB_SHADER_OBJECT_SAMPLES_SLICE))
     {
         return true;
+    }
+    const tb_shader_object_info *const info = tb_shader_object_info_of(base->object);
+    return info != NULL && info->index_dimensions > 0;
+}
+
+static bool is_place(const tb_shader_lowerer *lowerer, const tb_shader_node *node)
+{
+    if ((lowerer->has_this && is_this(node)) || is_own_field(lowerer, node) ||
+        is_buffer_member(lowerer, node) || is_resource_element(node))
+    {
+        return true;
+    }
+    const bool is_buffer_field =
+        node->kind == TB_SHADER_NODE_MEMBER && node->swizzle_count == 0 && node->symbol != NULL &&
+        node->symbol->kind == TB_SHADER_SYMBOL_FIELD &&
+        (is_object(node->left->checked, TB_SHADER_OBJECT_CONSTANT_BUFFER) ||
+         is_object(node->left->checked, TB_SHADER_OBJECT_TEXTURE_BUFFER));
+    if (is_buffer_field)
+    {
+        return is_place(lowerer, node->left);
     }
     if (node->kind == TB_SHADER_NODE_NAME)
     {
@@ -559,11 +602,23 @@ static uint32_t index_into(tb_shader_lowerer *lowerer, uint32_t base, tb_shader_
 }
 
 /* A pointer to a place `is_place` accepts. */
+static uint32_t texel(tb_shader_lowerer *lowerer, tb_shader_node *node);
+
 static uint32_t lower_place(tb_shader_lowerer *lowerer, tb_shader_node *node)
 {
     if (is_this(node))
     {
         return tb_shader_lower_argument(lowerer, 0);
+    }
+    if (is_buffer_member(lowerer, node))
+    {
+        const uint32_t member = tb_shader_lower_bound(lowerer, lowerer->members, node->symbol);
+        return access_index(lowerer, global(lowerer, tb_shader_lower_member_global(member)),
+                            tb_shader_lower_member_index(member));
+    }
+    if (is_resource_element(node))
+    {
+        return texel(lowerer, node);
     }
     if (is_own_field(lowerer, node))
     {
@@ -721,8 +776,52 @@ static uint32_t lower_member(tb_shader_lowerer *lowerer, tb_shader_node *node)
                : access_index(lowerer, base, (uint32_t)node->symbol->field_index);
 }
 
+/* A pointer to what a resource holds at a location, and at a level or a
+ * sample for `t.mips[m][p]` and `t.sample[s][p]`. */
+static uint32_t texel(tb_shader_lowerer *lowerer, tb_shader_node *node)
+{
+    const tb_shader_type *const base = node->left->checked;
+    tb_shader_node *resource = node->left;
+    uint32_t level = TB_SHADER_FORM_NONE;
+    uint32_t which = 0;
+    if (is_object(base, TB_SHADER_OBJECT_MIPS_SLICE) ||
+        is_object(base, TB_SHADER_OBJECT_SAMPLES_SLICE))
+    {
+        which = is_object(base, TB_SHADER_OBJECT_MIPS_SLICE) ? 1u : 2u;
+        resource = node->left->left->left;
+        level = tb_shader_lower_value(lowerer, node->left->right);
+        if (level == TB_SHADER_FORM_NONE)
+        {
+            return TB_SHADER_FORM_NONE;
+        }
+    }
+    const uint32_t handle = tb_shader_lower_value(lowerer, resource);
+    const uint32_t location = tb_shader_lower_value(lowerer, node->right);
+    if (handle == TB_SHADER_FORM_NONE || location == TB_SHADER_FORM_NONE)
+    {
+        return TB_SHADER_FORM_NONE;
+    }
+    const uint32_t element = form_type(lowerer, tb_shader_lower_type_of(lowerer, handle))->element;
+    if (element == TB_SHADER_FORM_NONE)
+    {
+        tb_shader_lower_unsupported(lowerer, node->location, "indexing this resource");
+        return TB_SHADER_FORM_NONE;
+    }
+    tb_shader_form_expression expression = new_expression(TB_SHADER_FORM_TEXEL, element);
+    expression.space = TB_SHADER_FORM_ELEMENT;
+    expression.operands[0] = handle;
+    expression.operands[1] = location;
+    expression.operands[2] = level;
+    expression.index = which;
+    return tb_shader_lower_add(lowerer, &expression);
+}
+
 static uint32_t lower_index(tb_shader_lowerer *lowerer, tb_shader_node *node)
 {
+    if (is_place(lowerer, node))
+    {
+        return tb_shader_lower_load(lowerer, lower_place(lowerer, node));
+    }
     if (!is_aggregate(node->left->checked) ||
         node->left->checked->type_class == TB_SHADER_CLASS_STRUCT)
     {
@@ -1203,7 +1302,8 @@ static void copy_back(tb_shader_lowerer *lowerer, const output *outputs, size_t 
 }
 
 static uint32_t add_call(tb_shader_lowerer *lowerer, uint32_t function, uint32_t intrinsic,
-                         const uint32_t *arguments, uint32_t count, uint32_t result_type)
+                         uint32_t method, const uint32_t *arguments, uint32_t count,
+                         uint32_t result_type)
 {
     tb_shader_form_statement call = {0};
     call.kind = TB_SHADER_FORM_CALL;
@@ -1217,6 +1317,7 @@ static uint32_t add_call(tb_shader_lowerer *lowerer, uint32_t function, uint32_t
     call.continuing = TB_SHADER_FORM_NONE;
     call.function = function;
     call.intrinsic = intrinsic;
+    call.method = method;
     call.first_operand = tb_shader_form_add_operands(lowerer->function, arguments, count);
     call.operand_count = count;
     call.result = TB_SHADER_FORM_NONE;
@@ -1327,13 +1428,42 @@ static uint32_t lower_function_call(tb_shader_lowerer *lowerer, tb_shader_node *
             return TB_SHADER_FORM_NONE;
         }
     }
-    const uint32_t result = add_call(lowerer, index, 0, arguments, at, callee->result);
+    const uint32_t result = add_call(lowerer, index, 0, 0, arguments, at, callee->result);
     copy_back(lowerer, outputs, output_count);
     return result;
 }
 
-/* An intrinsic with no output and no effect is an expression; any other is
- * a call, whose outputs point to their places when the types agree. */
+/* Whether a method changes what it is called on, or what it returns
+ * depends on when it is called: every method of a RayQuery, and those that
+ * count or consume. */
+static bool method_has_effect(const tb_shader_node *node)
+{
+    const tb_shader_method method = (tb_shader_method)node->method;
+    return is_object(node->left->left->checked, TB_SHADER_OBJECT_RAY_QUERY) ||
+           method == TB_SHADER_METHOD_INCREMENT_COUNTER ||
+           method == TB_SHADER_METHOD_DECREMENT_COUNTER || method == TB_SHADER_METHOD_CONSUME;
+}
+
+/* The object a method is called on: a pointer to a RayQuery, which its
+ * methods change, or a resource's handle. */
+static uint32_t method_object(tb_shader_lowerer *lowerer, tb_shader_node *node)
+{
+    tb_shader_node *const object = node->left->left;
+    if (!is_object(object->checked, TB_SHADER_OBJECT_RAY_QUERY))
+    {
+        return tb_shader_lower_value(lowerer, object);
+    }
+    if (!is_place(lowerer, object))
+    {
+        tb_shader_lower_unsupported(lowerer, node->location, "a RayQuery that is not a variable");
+        return TB_SHADER_FORM_NONE;
+    }
+    return lower_place(lowerer, object);
+}
+
+/* An intrinsic or a method with no output and no effect is an expression;
+ * any other is a call, whose outputs point to their places when the types
+ * agree. A method's object is its first operand. */
 static uint32_t lower_intrinsic_call(tb_shader_lowerer *lowerer, tb_shader_node *node)
 {
     const uint32_t result_type = type_of_node(lowerer, node);
@@ -1341,18 +1471,29 @@ static uint32_t lower_intrinsic_call(tb_shader_lowerer *lowerer, tb_shader_node 
     {
         return TB_SHADER_FORM_NONE;
     }
-    const uint32_t count = (uint32_t)node->child_count;
+    const bool is_method = node->method != 0;
+    const uint32_t first = is_method ? 1u : 0u;
+    const uint32_t count = (uint32_t)node->child_count + first;
     uint32_t *const arguments = TB_ARENA_NEW_ARRAY(lowerer->arena, uint32_t, count + 1);
     output *const outputs = TB_ARENA_NEW_ARRAY(lowerer->arena, output, count + 1);
     size_t output_count = 0;
+    if (is_method)
+    {
+        arguments[0] = method_object(lowerer, node);
+        if (arguments[0] == TB_SHADER_FORM_NONE)
+        {
+            return TB_SHADER_FORM_NONE;
+        }
+    }
     uint32_t at = 0;
     for (tb_shader_node *argument = node->children; argument != NULL;
          argument = argument->next, at++)
     {
         const bool is_output = at < 64 && (node->outputs & (UINT64_C(1) << at)) != 0;
+        uint32_t *const slot = &arguments[at + first];
         if (!is_output)
         {
-            arguments[at] = tb_shader_lower_value(lowerer, argument);
+            *slot = tb_shader_lower_value(lowerer, argument);
         }
         else
         {
@@ -1364,44 +1505,40 @@ static uint32_t lower_intrinsic_call(tb_shader_lowerer *lowerer, tb_shader_node 
             }
             const bool direct =
                 is_place(lowerer, argument) && type_of_node(lowerer, argument) == parameter;
-            arguments[at] = direct ? lower_place(lowerer, argument)
-                                   : through_local(lowerer, argument, parameter, true,
-                                                   &outputs[output_count++]);
+            *slot = direct ? lower_place(lowerer, argument)
+                           : through_local(lowerer, argument, parameter, true,
+                                           &outputs[output_count++]);
         }
-        if (arguments[at] == TB_SHADER_FORM_NONE)
+        if (*slot == TB_SHADER_FORM_NONE)
         {
             return TB_SHADER_FORM_NONE;
         }
     }
     const bool has_effect = node->outputs != 0 ||
                             form_type(lowerer, result_type)->kind == TB_SHADER_FORM_VOID ||
-                            node->intrinsic == (uint32_t)TB_SHADER_INTRINSIC_REPORT_HIT;
+                            node->intrinsic == (uint32_t)TB_SHADER_INTRINSIC_REPORT_HIT ||
+                            (is_method && method_has_effect(node));
     if (!has_effect)
     {
         tb_shader_form_expression expression =
             new_expression(TB_SHADER_FORM_INTRINSIC, result_type);
         expression.intrinsic = node->intrinsic;
+        expression.method = node->method;
         expression.first_operand = tb_shader_form_add_operands(lowerer->function, arguments, count);
         expression.operand_count = count;
         return tb_shader_lower_add(lowerer, &expression);
     }
-    const uint32_t result =
-        add_call(lowerer, TB_SHADER_FORM_NONE, node->intrinsic, arguments, count, result_type);
+    const uint32_t result = add_call(lowerer, TB_SHADER_FORM_NONE, node->intrinsic, node->method,
+                                     arguments, count, result_type);
     copy_back(lowerer, outputs, output_count);
     return result;
 }
 
 static uint32_t lower_call(tb_shader_lowerer *lowerer, tb_shader_node *node)
 {
-    if (node->intrinsic != 0)
+    if (node->intrinsic != 0 || node->method != 0)
     {
         return lower_intrinsic_call(lowerer, node);
-    }
-    if (node->method != 0)
-    {
-        tb_shader_lower_unsupported(lowerer, node->location,
-                                    "calling a method of a resource or another object");
-        return TB_SHADER_FORM_NONE;
     }
     if (node->symbol == NULL)
     {

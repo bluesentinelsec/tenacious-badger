@@ -345,6 +345,24 @@ Lowering writes out what HLSL does implicitly, so no backend handles it:
   value of each that has one, in the order of the source;
 - a string literal, which only `printf` takes, is kept as written.
 
+A shader's inputs are globals of their own spaces, each with its register
+class, and the register and space `register(t3, space1)` gives it:
+
+- a `cbuffer`, a `tbuffer` and a `ConstantBuffer<S>` are each a global in
+  the uniform space, read-only, whose type is the struct of their members;
+  a uniform declared alone joins `$Globals`, a constant buffer of its own, as
+  in DXC;
+- a texture, a buffer, a sampler or an acceleration structure, or an array of
+  them, sized or not, is a global in the handle space, which a load gives
+  the resource's handle from;
+- `t[p]`, `b[i]` and `t.mips[m][p]` are a texel: a pointer, from a handle and
+  a location (and a level or a sample), to what the resource holds there,
+  which loads, stores and atomics take; a store to a resource that is not
+  written is an error of the form;
+- a method of a resource is an expression of the handle when it has no
+  effect, and a call otherwise; a `RayQuery` is a local its methods change,
+  so each of them is a call given a pointer to it.
+
 `tb_shader_form_verify()` checks every rule of the form: indices in range,
 operand types that agree, expressions evaluated before they are used,
 `break` and `continue` where they belong. Every form lowering makes in the
@@ -352,10 +370,10 @@ tests is verified, and so will be every pass's output in debug builds.
 `tb_shader_form_print()` writes a form as text, one statement to a line,
 which the tests compare against.
 
-**Not yet.** Constant buffers, resources and their methods, and entry points
-and their semantics are lowered next; until then, lowering reports each as
-not supported yet. A base struct's method called on a derived struct is not
-lowered yet either. Then each entry point takes only what it reaches, which
+**Not yet.** Entry points and their semantics, with a geometry shader's
+streams and a tessellation shader's patches, are lowered next; until then,
+lowering reports them as not supported yet. Arrays of constant buffers, and a
+base struct's method called on a derived struct, are not lowered yet either. Then each entry point takes only what it reaches, which
 reflection describes.
 
 ## Diagnostics

@@ -616,14 +616,154 @@ TB_TEST(shader_form, printf_takes_its_format_as_a_string)
                                                              "  }\n");
 }
 
+TB_TEST(shader_form, constant_buffers_are_uniform_structs)
+{
+    /* A cbuffer's variables, a ConstantBuffer<S>'s members, and a loose
+     * uniform, gathered into `$Globals` as DXC gathers them. */
+    expect_form("cbuffer Frame : register(b1) { float time; float3 tint; };\n"
+                "struct Light { float3 color; };\n"
+                "ConstantBuffer<Light> light : register(b2, space1);\n"
+                "float4 ambient;\n"
+                "float3 f() { return tint * time + light.color + ambient.xyz; }",
+                "struct Frame { float time, float3 tint }\n"
+                "struct Light { float3 color }\n"
+                "struct $Globals { float4 ambient }\n"
+                "global0 uniform Frame Frame register(b1, space0)\n"
+                "global1 uniform Light light register(b2, space1)\n"
+                "global2 uniform $Globals $Globals register(b)\n"
+                "function float3 f()\n"
+                "  {\n"
+                "    %1:float3* uniform = access_index global0 1\n"
+                "    %2:float3 = load %1\n"
+                "    %4:float* uniform = access_index global0 0\n"
+                "    %5:float = load %4\n"
+                "    %6:float3 = splat %5\n"
+                "    %7:float3 = multiply %2 %6\n"
+                "    %9:float3* uniform = access_index global1 0\n"
+                "    %10:float3 = load %9\n"
+                "    %11:float3 = add %7 %10\n"
+                "    %13:float4* uniform = access_index global2 0\n"
+                "    %14:float4 = load %13\n"
+                "    %15:float3 = swizzle %14 xyz\n"
+                "    %16:float3 = add %11 %15\n"
+                "    return %16\n"
+                "  }\n");
+}
+
+TB_TEST(shader_form, resources_are_handles_and_their_elements_texels)
+{
+    expect_form(
+        "struct Light { float3 color; };\n"
+        "Texture2D<float4> albedo : register(t0); SamplerState linear_sampler : register(s0);\n"
+        "RWTexture2D<float> output : register(u0); StructuredBuffer<Light> lights;\n"
+        "RWByteAddressBuffer counters; RWTexture2D<uint> hits : register(u1);\n"
+        "float4 f(float2 uv, uint2 p) { output[p] = albedo.Sample(linear_sampler, uv).x; "
+        "uint before; counters.InterlockedAdd(0, 1, before); "
+        "InterlockedMax(hits[p], 2u); "
+        "return albedo.Load(int3(p, 0)) + lights[1].color.x + albedo.mips[1][p]; }",
+        "struct Light { float3 color }\n"
+        "global0 handle Texture2D<float4> albedo register(t0, space0)\n"
+        "global1 handle SamplerState linear_sampler register(s0, space0)\n"
+        "global2 handle RWTexture2D<float> output register(u0, space0)\n"
+        "global3 handle StructuredBuffer<Light> lights register(t)\n"
+        "global4 handle RWByteAddressBuffer counters register(u)\n"
+        "global5 handle RWTexture2D<uint> hits register(u1, space0)\n"
+        "function float4 f(in float2 uv, in uint2 p)\n"
+        "  local0 float2 uv\n"
+        "  local1 uint2 p\n"
+        "  local2 uint before\n"
+        "  {\n"
+        "    store local0 arg0\n"
+        "    store local1 arg1\n"
+        "    %5:Texture2D<float4> = load global0\n"
+        "    %7:SamplerState = load global1\n"
+        "    %9:float2 = load local0\n"
+        "    %10:float4 = method Sample %5 %7 %9\n"
+        "    %11:float = swizzle %10 x\n"
+        "    %13:RWTexture2D<float> = load global2\n"
+        "    %15:uint2 = load local1\n"
+        "    %16:float* element = texel %13 %15\n"
+        "    store %16 %11\n"
+        "    %18:RWByteAddressBuffer = load global4\n"
+        "    call method InterlockedAdd %18 0:uint 1:uint local2\n"
+        "    %23:RWTexture2D<uint> = load global5\n"
+        "    %25:uint2 = load local1\n"
+        "    %26:uint* element = texel %23 %25\n"
+        "    call InterlockedMax %26 2:uint\n"
+        "    %29:Texture2D<float4> = load global0\n"
+        "    %31:uint2 = load local1\n"
+        "    %32:int2 = convert %31\n"
+        "    %34:int3 = compose %32 0:int\n"
+        "    %35:float4 = method Load %29 %34\n"
+        "    %37:StructuredBuffer<Light> = load global3\n"
+        "    %39:Light* element = texel %37 1:uint\n"
+        "    %40:float3* element = access_index %39 0\n"
+        "    %41:float3 = load %40\n"
+        "    %42:float = swizzle %41 x\n"
+        "    %43:float4 = splat %42\n"
+        "    %44:float4 = add %35 %43\n"
+        "    %47:Texture2D<float4> = load global0\n"
+        "    %49:uint2 = load local1\n"
+        "    %50:float4* element = texel %47 %49 mip 1:uint\n"
+        "    %51:float4 = load %50\n"
+        "    %52:float4 = add %44 %51\n"
+        "    return %52\n"
+        "  }\n");
+    /* An array of resources of no size, indexed, and a sampler passed in. */
+    expect_form("Texture2D textures[] : register(t0, space2);\n"
+                "float4 f(uint i, float2 uv, SamplerState s) { "
+                "return textures[NonUniformResourceIndex(i)].Sample(s, uv); }",
+                "global0 handle Texture2D<float4>[] textures register(t0, space2)\n"
+                "function float4 f(in uint i, in float2 uv, in SamplerState s)\n"
+                "  local0 uint i\n"
+                "  local1 float2 uv\n"
+                "  local2 SamplerState s\n"
+                "  {\n"
+                "    store local0 arg0\n"
+                "    store local1 arg1\n"
+                "    store local2 arg2\n"
+                "    %8:uint = load local0\n"
+                "    %9:uint = NonUniformResourceIndex %8\n"
+                "    %10:Texture2D<float4>* handle = access global0 %9\n"
+                "    %11:Texture2D<float4> = load %10\n"
+                "    %13:SamplerState = load local2\n"
+                "    %15:float2 = load local1\n"
+                "    %16:float4 = method Sample %11 %13 %15\n"
+                "    return %16\n"
+                "  }\n");
+}
+
+TB_TEST(shader_form, a_ray_query_is_changed_through_a_pointer)
+{
+    expect_form("RaytracingAccelerationStructure scene;\n"
+                "float f(RayDesc ray) { RayQuery<0> q; q.TraceRayInline(scene, 0, 0xff, ray); "
+                "q.Proceed(); return q.CommittedRayT(); }",
+                "struct RayDesc { float3 Origin, float TMin, float3 Direction, float TMax }\n"
+                "global0 handle RaytracingAccelerationStructure scene register(t)\n"
+                "function float f(in RayDesc ray)\n"
+                "  local0 RayDesc ray\n"
+                "  local1 RayQuery<0> q\n"
+                "  {\n"
+                "    store local0 arg0\n"
+                "    %4:RaytracingAccelerationStructure = load global0\n"
+                "    %8:RayDesc = load local0\n"
+                "    call method TraceRayInline local1 %4 0:uint 255:uint %8\n"
+                "    %10:bool = call method Proceed local1\n"
+                "    %12:float = call method CommittedRayT local1\n"
+                "    return %12\n"
+                "  }\n");
+}
+
 TB_TEST(shader_form, what_the_form_does_not_hold_yet_is_reported)
 {
-    expect_unsupported("cbuffer Frame { float time; }; float f() { return time; }",
-                       "a shader input (a constant, a buffer or a resource) is not supported by "
-                       "the compiler yet");
-    expect_unsupported("Texture2D t; SamplerState s; float4 f(float2 p) { return t.Sample(s, p); }",
-                       "calling a method of a resource or another object is not supported by the "
-                       "compiler yet");
+    expect_unsupported(
+        "struct V { float4 p : SV_Position; };\n"
+        "[maxvertexcount(3)] void gs(triangle V input[3], inout TriangleStream<V> "
+        "stream) { stream.Append(input[0]); }",
+        "a patch or a geometry shader's stream is not supported by the compiler yet");
+    expect_unsupported(
+        "struct S { float a; }; ConstantBuffer<S> c[2]; float f() { return c[1].a; }",
+        "an array of constant buffers is not supported by the compiler yet");
 }
 
 /* -------------------------------------------------------------------------
@@ -1029,10 +1169,111 @@ TB_TEST(shader_form, the_verifier_checks_statements)
     (void)add(&b, &shared);
     expect_broken(&b, "is in two places");
 
+    /* A constant buffer is read, never written. */
+    start(&b, false);
+    tb_shader_form_global input = {"Frame", b.f32, TB_SHADER_FORM_UNIFORM, {'b', false, 0, 0}};
+    (void)tb_shader_form_add_global(&b.form, &input);
+    tb_shader_form_expression pointer = {0};
+    pointer.kind = TB_SHADER_FORM_GLOBAL;
+    pointer.type = b.f32;
+    pointer.space = TB_SHADER_FORM_UNIFORM;
+    tb_shader_form_statement into_input = statement_of(TB_SHADER_FORM_STORE);
+    into_input.operands[0] = tb_shader_form_add_expression(function_of(&b), &pointer);
+    into_input.operands[1] = constant(&b, b.f32, 0);
+    (void)add(&b, &into_input);
+    expect_broken(&b, "a store into what cannot be written");
+
     start(&b, false);
     const tb_shader_form_statement stray = statement_of(TB_SHADER_FORM_CASE);
     (void)add(&b, &stray);
     expect_broken(&b, "a case outside a switch");
+}
+
+/* A texel of a resource's handle `resource`, at `location`. */
+static uint32_t texel_of(built *b, uint32_t resource, uint32_t location, uint32_t type)
+{
+    tb_shader_form_expression made = {0};
+    made.kind = TB_SHADER_FORM_TEXEL;
+    made.type = type;
+    made.space = TB_SHADER_FORM_ELEMENT;
+    made.operands[0] = resource;
+    made.operands[1] = location;
+    made.operands[2] = TB_SHADER_FORM_NONE;
+    return tb_shader_form_add_expression(function_of(b), &made);
+}
+
+static uint32_t handle_of(built *b, tb_shader_object object, bool global_handle)
+{
+    const uint32_t type = tb_shader_form_resource(&b->form, object, b->f32, 0, 0, "resource");
+    tb_shader_form_global global = {"r", type, TB_SHADER_FORM_HANDLE, {'t', false, 0, 0}};
+    const uint32_t index = tb_shader_form_add_global(&b->form, &global);
+    tb_shader_form_expression pointer = {0};
+    pointer.kind = TB_SHADER_FORM_GLOBAL;
+    pointer.type = type;
+    pointer.space = TB_SHADER_FORM_HANDLE;
+    pointer.index = index;
+    const uint32_t at = tb_shader_form_add_expression(function_of(b), &pointer);
+    if (global_handle)
+    {
+        return at;
+    }
+    return expression(b, TB_SHADER_FORM_LOAD, type, at, TB_SHADER_FORM_NONE);
+}
+
+TB_TEST(shader_form, the_verifier_checks_texels)
+{
+    built b = {0};
+    start(&b, false);
+    const uint32_t scalar = constant(&b, b.f32, 0);
+    (void)texel_of(&b, scalar, constant(&b, b.i32, 0), b.f32);
+    expect_broken(&b, "%2: a texel is of a resource");
+
+    start(&b, false);
+    const uint32_t texture = handle_of(&b, TB_SHADER_OBJECT_TEXTURE2D, false);
+    (void)texel_of(&b, texture, constant(&b, b.f32, 0), b.f32);
+    expect_broken(&b, "%3: a texel's location is of integers");
+
+    start(&b, false);
+    const uint32_t other = handle_of(&b, TB_SHADER_OBJECT_TEXTURE2D, false);
+    (void)texel_of(&b, other, constant(&b, b.i32, 0), b.i32);
+    expect_broken(&b, "%3: not the type the resource holds");
+
+    start(&b, false);
+    const uint32_t leveled = handle_of(&b, TB_SHADER_OBJECT_TEXTURE2D, false);
+    const uint32_t at_level = texel_of(&b, leveled, constant(&b, b.i32, 0), b.f32);
+    tb_shader_form_expression_at(function_of(&b), at_level)->index = 1;
+    tb_shader_form_expression_at(function_of(&b), at_level)->operands[2] = constant(&b, b.f32, 0);
+    expect_broken(&b, "%3: a texel's level or sample is an earlier integer");
+
+    /* A texture that is not written cannot be stored to. */
+    start(&b, false);
+    const uint32_t read_only = handle_of(&b, TB_SHADER_OBJECT_TEXTURE2D, false);
+    const uint32_t place = texel_of(&b, read_only, constant(&b, b.i32, 0), b.f32);
+    emit(&b, function_of(&b)->body, 0, place + 1);
+    tb_shader_form_statement store = statement_of(TB_SHADER_FORM_STORE);
+    store.operands[0] = place;
+    store.operands[1] = constant(&b, b.f32, 0);
+    (void)add(&b, &store);
+    expect_broken(&b, "a store into what cannot be written");
+
+    /* One that is written can. */
+    start(&b, false);
+    const uint32_t writable = handle_of(&b, TB_SHADER_OBJECT_RW_TEXTURE2D, false);
+    const uint32_t written = texel_of(&b, writable, constant(&b, b.i32, 0), b.f32);
+    emit(&b, function_of(&b)->body, 0, written + 1);
+    tb_shader_form_statement into = statement_of(TB_SHADER_FORM_STORE);
+    into.operands[0] = written;
+    into.operands[1] = constant(&b, b.f32, 0);
+    (void)add(&b, &into);
+    expect_sound(&b);
+
+    start(&b, false);
+    tb_shader_form_expression method = {0};
+    method.kind = TB_SHADER_FORM_INTRINSIC;
+    method.type = b.f32;
+    method.method = 1;
+    (void)tb_shader_form_add_expression(function_of(&b), &method);
+    expect_broken(&b, "%0: a method takes its object first");
 }
 
 TB_TEST(shader_form, the_verifier_checks_calls)
@@ -1090,9 +1331,9 @@ TB_TEST(shader_form, the_verifier_checks_the_module)
 {
     built b = {0};
     start(&b, false);
-    tb_shader_form_global global = {"g", b.f32, TB_SHADER_FORM_FUNCTION};
+    tb_shader_form_global global = {"g", b.f32, TB_SHADER_FORM_FUNCTION, {0, false, 0, 0}};
     (void)tb_shader_form_add_global(&b.form, &global);
-    expect_broken(&b, "global 0: a global is private or groupshared");
+    expect_broken(&b, "global 0: a global is private, groupshared, uniform or a handle");
 
     start(&b, false);
     const tb_shader_form_member later = {"a", 99};
