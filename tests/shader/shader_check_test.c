@@ -792,6 +792,173 @@ TB_TEST(shader_check, functions_of_the_shader_hide_intrinsics)
                       AT(1, 35) "error: 'sin' is not a function");
 }
 
+/* -------------------------------------------------------------------------
+ * Methods of the built-in objects.
+ * ------------------------------------------------------------------------- */
+
+#define OBJECTS                                                                                    \
+    "Texture1D t1; Texture2D t2; Texture2DArray t2a; Texture3D t3; TextureCube tc; "               \
+    "Texture2DMS<float4> ms; Texture2D<uint2> tu; Texture2D<float> tf; RWTexture2D<float> rw2; "   \
+    "Buffer<float3> buf; RWBuffer<int> rb; StructuredBuffer<float2> sb; "                          \
+    "RWStructuredBuffer<float> rsb; ByteAddressBuffer bab; RWByteAddressBuffer rbab; "             \
+    "AppendStructuredBuffer<float> asb; ConsumeStructuredBuffer<float> csb; SamplerState s; "      \
+    "SamplerComparisonState sc; "
+
+TB_TEST(shader_check, every_method_signature_reads)
+{
+    tb_arena *const arena = tb_arena_create(0);
+    tb_shader_types *const types = tb_shader_types_create(arena);
+    for (size_t index = 1; index < (size_t)TB_SHADER_METHOD_COUNT; index++)
+    {
+        const tb_shader_method_info *const info = tb_shader_method_info_of((tb_shader_method)index);
+        TB_TEST_REQUIRE_POINTER(info, !=, NULL);
+        TB_TEST_CONTEXT("method: %s: %s", info->name, info->signatures);
+        TB_TEST_EXPECT_UINT(tb_shader_check_method_is_valid(types, info->method), ==, true);
+        /* A row without traits would be every object's, a sampler's too. */
+        TB_TEST_EXPECT_UINT(info->traits, !=, 0);
+    }
+    TB_TEST_EXPECT_POINTER(tb_shader_method_info_of(TB_SHADER_METHOD_NONE), ==, NULL);
+    TB_TEST_EXPECT_POINTER(tb_shader_method_info_of(TB_SHADER_METHOD_COUNT), ==, NULL);
+    TB_TEST_EXPECT_UINT(tb_shader_object_methods_of(TB_SHADER_OBJECT_SAMPLER).traits, ==, 0);
+    tb_arena_destroy(arena);
+}
+
+TB_TEST(shader_check, texture_methods_return_what_dxc_returns)
+{
+    /* What a texture holds, or a component of it. */
+    expect_call_type(OBJECTS VALUES, "t1.Sample(s, 0.5)", "float4");
+    expect_call_type(OBJECTS VALUES, "tf.Sample(s, f3.xy)", "float");
+    expect_call_type(OBJECTS VALUES, "t2.SampleCmp(sc, f3.xy, 0.5)", "float");
+    expect_call_type(OBJECTS VALUES, "tu.Gather(s, f3.xy)", "uint4");
+    expect_call_type(OBJECTS VALUES, "tc.GatherCmp(sc, f3, 0.5)", "float4");
+    expect_call_type(OBJECTS VALUES, "t2a.CalculateLevelOfDetailUnclamped(s, f3.xy)", "float");
+    expect_call_type(OBJECTS VALUES, "ms.GetSamplePosition(0)", "float2");
+    /* Offsets, clamps and statuses, each where its texture takes it. */
+    expect_call_type(OBJECTS VALUES, "t2.Sample(s, f3.xy, int2(1, 1), 0.5, u)", "float4");
+    expect_call_type(OBJECTS VALUES, "tc.Sample(s, f3, 1.0, u)", "float4");
+    expect_call_type(OBJECTS VALUES, "tc.SampleGrad(s, f3, f3, f3)", "float4");
+    expect_call_type(OBJECTS VALUES, "t2a.SampleLevel(s, f3, 0, int2(0, 0), u)", "float4");
+    expect_call_type(OBJECTS VALUES, "t2.SampleCmpLevelZero(sc, f3.xy, 0.5, int2(0, 0))", "float");
+    expect_call_type(OBJECTS VALUES, "tu.GatherRed(s, f3.xy, i3.xy, i3.xy, i3.xy, i3.xy)", "uint4");
+    expect_call_type(OBJECTS VALUES, "tc.Gather(s, f3, u)", "float4");
+    /* Loads at a location with a mip level, with a sample, or alone. */
+    expect_call_type(OBJECTS VALUES, "t2.Load(i3, int2(0, 0), u)", "float4");
+    expect_call_type(OBJECTS VALUES, "t3.Load(int4(i3, 0))", "float4");
+    expect_call_type(OBJECTS VALUES, "ms.Load(i3.xy, 1, int2(0, 0), u)", "float4");
+    expect_call_type(OBJECTS VALUES, "rw2.Load(i3.xy, u)", "float");
+}
+
+TB_TEST(shader_check, buffer_methods_return_what_dxc_returns)
+{
+    expect_call_type(OBJECTS VALUES, "buf.Load(1, u)", "float3");
+    expect_call_type(OBJECTS VALUES, "rb.Load(1)", "int");
+    expect_call_type(OBJECTS VALUES, "sb.Load(1, u)", "float2");
+    expect_call_type(OBJECTS VALUES, "rsb.IncrementCounter()", "uint");
+    expect_call_type(OBJECTS VALUES, "csb.Consume()", "float");
+    /* A byte-address buffer loads uints, or the type the call names. */
+    expect_call_type(OBJECTS VALUES, "bab.Load(0, u)", "uint");
+    expect_call_type(OBJECTS VALUES, "bab.Load3(0)", "uint3");
+    expect_call_type(OBJECTS VALUES, "bab.Load<float4>(0)", "float4");
+    expect_call_type("struct S { float a; int b; };\n" OBJECTS, "bab.Load<S>(0)", "S");
+}
+
+TB_TEST(shader_check, object_methods_take_what_dxc_takes)
+{
+    expect_clean(OBJECTS VALUES
+                 "\nvoid g() {\n"
+                 "  t2.GetDimensions(u, u); t2.GetDimensions(0, u, u, u);\n"
+                 "  t2.GetDimensions(0, f, f, f); t2.GetDimensions(i, i);\n"
+                 "  ms.GetDimensions(u, u, u); tc.GetDimensions(0, f, f, f);\n"
+                 "  buf.GetDimensions(u); sb.GetDimensions(u, u); "
+                 "rw2.GetDimensions(u, u);\n"
+                 "  asb.Append(1.0); rbab.Store(0, 1u); rbab.Store2(0, uint2(1, 2));\n"
+                 "  rbab.Store(0, f); rbab.Store<float2>(0, float2(1, 1));\n"
+                 "  rbab.InterlockedAdd(0, 1); rbab.InterlockedAdd(0, 1, u);\n"
+                 "  rbab.InterlockedMin(0, i); rbab.InterlockedMax(0, 1, u);\n"
+                 "  rbab.InterlockedCompareExchange(0, 1, 2, u);\n"
+                 "  rbab.InterlockedCompareStore(0, 1, 2); "
+                 "rbab.InterlockedAdd64(0, 1);\n"
+                 "  rbab.InterlockedMax64(0, u64, u64);\n"
+                 "}");
+}
+
+TB_TEST(shader_check, a_stored_value_takes_its_own_type)
+{
+    /* `Store` stores what it is given, a literal as a uint or a float; an
+     * atomic of int or uint takes a literal as a uint. */
+    expect_typed("RWByteAddressBuffer B;\nvoid f(int i) { B.Store(0, 1); B.Store(4, 2.5); "
+                 "B.InterlockedMin(8, 1); B.InterlockedMin(8, i); }",
+                 "(variable RWByteAddressBuffer B)\n"
+                 "(function void f ((parameter int i)) (block "
+                 "(expr (call (. B:RWByteAddressBuffer Store) (convert 0:literal int):uint "
+                 "(convert 1:literal int):uint):void) "
+                 "(expr (call (. B:RWByteAddressBuffer Store) (convert 4:literal int):uint "
+                 "(convert 2.5:literal float):float):void) "
+                 "(expr (call (. B:RWByteAddressBuffer InterlockedMin) (convert 8:literal "
+                 "int):uint (convert 1:literal int):uint):void) "
+                 "(expr (call (. B:RWByteAddressBuffer InterlockedMin) (convert 8:literal "
+                 "int):uint i:int):void)))\n");
+}
+
+TB_TEST(shader_check, object_methods_refuse_what_dxc_refuses)
+{
+    /* A method's errors are reported where its object is left: at the `.`. */
+    expect_diagnostic(OBJECTS "\nvoid g(float2 p) { t2.Sample(sc, p); }",
+                      AT(2, 22) "error: no 'Sample' takes (SamplerComparisonState, float2)");
+    expect_diagnostic(OBJECTS "\nvoid g() { t2.Sample(s); }",
+                      AT(2, 14) "error: no 'Sample' takes (SamplerState)");
+    /* A cube takes no offset, and a volume no comparison sampler. */
+    expect_diagnostic(OBJECTS "\nvoid g(float3 p) { tc.Sample(s, p, int3(0, 0, 0)); }",
+                      AT(2, 22) "error: no 'Sample' takes (SamplerState, float3, int3)");
+    expect_diagnostic(OBJECTS "\nvoid g(float3 p) { t3.CalculateLevelOfDetail(sc, p); }",
+                      AT(2, 22) "error: no 'CalculateLevelOfDetail' takes "
+                                "(SamplerComparisonState, float3)");
+    expect_diagnostic(OBJECTS "\nvoid g(int4 p) { tc.Load(p); }",
+                      AT(2, 20) "error: 'TextureCube<float4>' has no method 'Load'");
+    expect_diagnostic(OBJECTS "\nvoid g() { rsb.Append(1.0); }",
+                      AT(2, 15) "error: 'RWStructuredBuffer<float>' has no method 'Append'");
+    expect_diagnostic(OBJECTS "\nvoid g() { s.Sample(); }",
+                      AT(2, 13) "error: 'SamplerState' has no method 'Sample'");
+    expect_diagnostic(OBJECTS "\nvoid g() { bab.Load2<float>(0); }",
+                      AT(2, 15) "error: 'Load2' takes no template arguments");
+    expect_diagnostic(OBJECTS "\nvoid g() { bab.Load<float, int>(0); }",
+                      AT(2, 15) "error: 'Load' takes one type to name");
+    /* A location larger than the texture's is truncated, as DXC warns. */
+    expect_diagnostic(OBJECTS "\nfloat4 g(float4 p) { return t2.Sample(s, p); }",
+                      AT(2, 42) "warning: 'float4' is truncated to 'float2'");
+}
+
+TB_TEST(shader_check, scalar_parameters_take_only_scalars)
+{
+    /* DXC passes no vector, not even a `float1`, where an intrinsic or a
+     * method takes a scalar; a vector parameter takes a scalar or a vector,
+     * truncated, but no matrix. */
+    expect_diagnostic(OBJECTS "\nfloat4 g(float2 p) { return t2.SampleLevel(s, p, float2(0, 0)); }",
+                      AT(2, 31) "error: no 'SampleLevel' takes (SamplerState, float2, float2)");
+    expect_diagnostic(OBJECTS "\nfloat4 g(float2 p) { return t2.SampleLevel(s, p, float1(0)); }",
+                      AT(2, 31) "error: no 'SampleLevel' takes (SamplerState, float2, float1)");
+    expect_diagnostic("float g(float f) { return WaveReadLaneAt(f, uint2(0, 0)); }",
+                      AT(1, 27) "error: no 'WaveReadLaneAt' takes (float, uint2)");
+    expect_diagnostic(OBJECTS "\nfloat4 g(float2x2 p) { return t2.Sample(s, p); }",
+                      AT(2, 33) "error: no 'Sample' takes (SamplerState, float2x2)");
+    expect_clean(OBJECTS "\nfloat4 g(float p) { rbab.Store2(0, 1); return t2.Sample(s, p); }");
+}
+
+TB_TEST(shader_check, streams_ray_queries_and_feedback_have_methods)
+{
+    expect_clean("struct V { float4 p : SV_Position; };\n"
+                 "[maxvertexcount(3)] void gs(triangle V input[3], inout TriangleStream<V> "
+                 "stream) { stream.Append(input[0]); stream.RestartStrip(); }");
+    expect_clean("RaytracingAccelerationStructure scene;\n"
+                 "float f(RayDesc ray) { RayQuery<0> q; q.TraceRayInline(scene, 0, 0xff, ray);\n"
+                 "  while (q.Proceed()) { if (q.CandidateType() == 0) { "
+                 "q.CommitNonOpaqueTriangleHit(); } }\n"
+                 "  float3x4 m = q.CommittedObjectToWorld3x4(); "
+                 "return q.CommittedRayT() + m[0][0]; }");
+    expect_clean("FeedbackTexture2D feedback; Texture2D t; SamplerState s;\n"
+                 "void f(float2 p) { feedback.WriteSamplerFeedbackLevel(t, s, p, 0); }");
+}
+
 TB_TEST(shader_check, templates_are_not_supported_yet)
 {
     expect_diagnostic("template<typename T> T Square(T x) { return x * x; }",

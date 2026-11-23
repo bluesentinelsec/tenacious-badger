@@ -4,6 +4,7 @@
 
 #include "shader_check.h"
 #include "shader_intrinsics.h"
+#include "shader_methods.h"
 
 #include "badger/allocator.h"
 #include "badger/array.h"
@@ -114,6 +115,8 @@ int tb_shader_check_argument_cost(tb_shader_checker *checker, const tb_shader_ty
 void tb_shader_check_call(tb_shader_checker *checker, tb_shader_node *node);
 /* Whether every signature of an intrinsic reads, so the table can be tested. */
 bool tb_shader_check_intrinsic_is_valid(tb_shader_types *types, tb_shader_intrinsic intrinsic);
+/* Whether every signature of a row of methods reads. */
+bool tb_shader_check_method_is_valid(tb_shader_types *types, tb_shader_method method);
 
 /* Constants (shader_check_constant.c). */
 /* Fold a checked expression whose operands are folded, when it is constant. */

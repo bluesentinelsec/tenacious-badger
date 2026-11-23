@@ -10,6 +10,7 @@ set(TB_SHADER_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_condition.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_intrinsics.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_lexer.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shader_methods.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_parse.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_parse_declaration.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_parse_expression.c"

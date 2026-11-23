@@ -36,7 +36,8 @@
  * of its arguments combine to the smallest vector or matrix among them, and
  * a scalar takes any shape. A size letter takes the smallest size its
  * arguments give it. Then each argument converts to its parameter, so a
- * larger one is truncated, with a warning. */
+ * larger one is truncated, with a warning; but a parameter written as a
+ * scalar takes only a scalar, and one written as a vector, no matrix. */
 #ifndef TB_SHADER_INTRINSICS_H
 #define TB_SHADER_INTRINSICS_H
 
