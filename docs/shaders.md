@@ -183,6 +183,60 @@ octal, with a suffix of at most one `u` and two `l`s; one that does not fit
 in 64 bits is an error. Floating-point numbers take a suffix of `f`, `h` or
 `l`. A character constant is an error, because HLSL has none.
 
+## Checking
+
+Checking binds every name to what it names, decides the type of every
+expression, and reports what HLSL does not allow, as DXC does. It writes
+every implicit conversion into the tree, so what reads the tree next sees
+each one. Types are named as HLSL writes them: `float4`, `half2x3`,
+`Texture2D<float4>`, `int[3]`.
+
+**Literals.** An integer or floating-point literal without a suffix has a
+literal type, as in DXC, which takes the type its use asks for: in
+`float x = 1;` the 1 is a float, and in `half h = 2 * h0;` the 2 is a half.
+Integer literals have 64 bits. `u` makes a `uint`, `l` an `int64_t`, `ul` a
+`uint64_t`; `f` a `float`, `h` a `half`, `l` a `double`.
+
+**Conversions.** Numbers convert implicitly to one another, bools included.
+A scalar converts to any vector or matrix, filling it. A vector converts to a
+shorter one, and a matrix to a smaller one, with a warning that components
+are dropped; never to a longer one. A vector and a matrix of as many
+components convert to each other. A cast converts more: a struct or an array
+from a scalar or from anything with as many components, component by
+component. Converting a floating-point constant with a fraction to an
+integer is a warning.
+
+**Operators.** Arithmetic converts both operands to their common type:
+floating point over integers, wider over narrower, unsigned over signed of
+the same width. A scalar combines with a vector or a matrix; two vectors of
+different lengths combine as the shorter, with a warning. Bitwise operators
+take integers, and `%` takes floats too. In HLSL 2021, `&&`, `||` and `?:`
+take scalar conditions; vectors use `and()`, `or()` and `select()`.
+Comparisons give bools shaped as their operands.
+
+**Overloads.** A call chooses the function whose parameters its arguments
+convert to most cheaply, argument by argument: the same type, then a wider
+type of the same kind, then a narrower one, then another kind; filling a
+vector costs more than any of those, and dropping components most. A call
+that no function is best for is ambiguous, as `g(1)` is between `g(float)`
+and `g(double)`. An `out` or `inout` argument must be assignable.
+
+**What may be assigned.** A global that is not `static` is one of the
+shader's inputs, as in DXC, and cannot be assigned; nor can a `const`, a
+read-only resource's element, or a swizzle that repeats a component.
+
+**Constants.** Array sizes, case values and template arguments must be
+constant integers. Constant expressions fold as HLSL computes them: integers
+wrap at their width, shift counts are masked to it, and casts truncate
+toward zero.
+
+**Statements.** Conditions are scalars. `break`, `continue`, `case` and
+`default` must be where they belong, and a case value appears once in a
+switch. A function that returns a value must return one on every path.
+
+**Not yet.** HLSL's intrinsic functions and the methods of resources come
+next; templates come later.
+
 ## Diagnostics
 
 Each error and warning has a virtual path, a line and a column, counted from

@@ -89,8 +89,9 @@ void tb_shader_leave(tb_shader_parser *parser);
 /* Nodes and names. */
 tb_shader_node *tb_shader_new_node(tb_shader_parser *parser, tb_shader_node_kind kind,
                                    tb_shader_location location);
-tb_shader_type *tb_shader_new_type(tb_shader_parser *parser, tb_shader_type_kind kind,
-                                   tb_shader_location location);
+tb_shader_type_syntax *tb_shader_new_type_syntax(tb_shader_parser *parser,
+                                                 tb_shader_type_syntax_kind kind,
+                                                 tb_shader_location location);
 tb_shader_name tb_shader_join_names(tb_shader_parser *parser, tb_shader_name left,
                                     const char *separator, tb_shader_name right);
 
@@ -144,7 +145,8 @@ uint64_t tb_shader_modifier_at(tb_shader_parser *parser);
 void tb_shader_parse_declaration(tb_shader_parser *parser, tb_shader_node_list *list,
                                  tb_shader_attribute *attributes);
 tb_shader_attribute *tb_shader_parse_attributes(tb_shader_parser *parser);
-tb_shader_type *tb_shader_parse_type(tb_shader_parser *parser, tb_shader_node_list *definitions);
+tb_shader_type_syntax *tb_shader_parse_type(tb_shader_parser *parser,
+                                            tb_shader_node_list *definitions);
 
 /* Statements (shader_parse_statement.c). */
 tb_shader_node *tb_shader_parse_block(tb_shader_parser *parser);

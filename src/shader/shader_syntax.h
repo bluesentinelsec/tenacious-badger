@@ -22,7 +22,7 @@ typedef struct tb_shader_name
 } tb_shader_name;
 
 typedef struct tb_shader_node tb_shader_node;
-typedef struct tb_shader_type tb_shader_type;
+typedef struct tb_shader_type_syntax tb_shader_type_syntax;
 
 /* Modifiers of a declaration, as a bit set. The contextual ones (`point`,
  * `sample`, `indices`, ...) are modifiers only where one can be: before the
@@ -92,21 +92,21 @@ typedef struct tb_shader_annotation
  * `vector<float, 4>`. Exactly one of the two is set. */
 typedef struct tb_shader_template_argument
 {
-    tb_shader_type *type;
+    tb_shader_type_syntax *type;
     tb_shader_node *value;
     struct tb_shader_template_argument *next;
 } tb_shader_template_argument;
 
-typedef enum tb_shader_type_kind
+typedef enum tb_shader_type_syntax_kind
 {
-    TB_SHADER_TYPE_NAMED, /* A type by its name, with template arguments if it has any. */
-    TB_SHADER_TYPE_ARRAY  /* An array of `element`, of `size` elements or unsized. */
-} tb_shader_type_kind;
+    TB_SHADER_TYPE_SYNTAX_NAMED, /* A type by its name, with template arguments if it has any. */
+    TB_SHADER_TYPE_SYNTAX_ARRAY  /* An array of `element`, of `size` elements or unsized. */
+} tb_shader_type_syntax_kind;
 
 /* A type as the source writes it. */
-struct tb_shader_type
+struct tb_shader_type_syntax
 {
-    tb_shader_type_kind kind;
+    tb_shader_type_syntax_kind kind;
     tb_shader_location location;
     /* NAMED: the name; empty for a struct or enum defined in place without one. */
     tb_shader_name name;
@@ -120,8 +120,8 @@ struct tb_shader_type
     /* NAMED: the struct, interface or enum this type defines in place, which
      * is also a declaration of its own, before the one that names it. */
     tb_shader_node *definition;
-    tb_shader_type *element; /* ARRAY */
-    tb_shader_node *size;    /* ARRAY: the expression, or NULL for `[]`. */
+    tb_shader_type_syntax *element; /* ARRAY */
+    tb_shader_node *size;           /* ARRAY: the expression, or NULL for `[]`. */
 };
 
 typedef enum tb_shader_node_kind
@@ -176,7 +176,9 @@ typedef enum tb_shader_node_kind
     TB_SHADER_NODE_INDEX,       /* left, right */
     TB_SHADER_NODE_MEMBER, /* left, name (a member, a method or a swizzle), template_arguments */
     TB_SHADER_NODE_INITIALIZER_LIST, /* children */
-    TB_SHADER_NODE_SIZEOF            /* type, or left */
+    TB_SHADER_NODE_SIZEOF,           /* type, or left */
+    /* Made by checking, not by the parser: left converted to `checked`. */
+    TB_SHADER_NODE_CONVERT
 } tb_shader_node_kind;
 
 typedef enum tb_shader_operator
@@ -228,6 +230,17 @@ typedef enum tb_shader_operator
 /* Its spelling: "+=", "!", and "++" for both increments. */
 const char *tb_shader_operator_spelling(tb_shader_operator op);
 
+struct tb_shader_type;
+struct tb_shader_symbol;
+
+/* A constant value: of an integer, a bool or a floating-point type. */
+typedef struct tb_shader_constant
+{
+    bool is_float;
+    uint64_t bits; /* Integers and bools, as two's complement in 64 bits. */
+    double value;  /* Floating point, rounded to its type. */
+} tb_shader_constant;
+
 /* One node of the tree. Which fields a kind uses is listed with the kind;
  * the others are zero. */
 struct tb_shader_node
@@ -237,7 +250,7 @@ struct tb_shader_node
     tb_shader_node *next; /* The next node of the list this one is in. */
 
     tb_shader_name name;
-    tb_shader_type *type;
+    tb_shader_type_syntax *type;
     uint64_t modifiers; /* TB_SHADER_MODIFIER_* */
     tb_shader_attribute *attributes;
     tb_shader_annotation *annotations;
@@ -270,6 +283,22 @@ struct tb_shader_node
 
     uint64_t integer;      /* INTEGER, BOOL */
     tb_shader_name suffix; /* INTEGER, FLOAT: `u`, `ul`, `f`, `h`, `l`; may be empty. */
+
+    /* What checking decides (shader_check.h); zero until then. */
+    /* Expressions: the type of the value. Declarations: the type declared,
+     * and a function's: the type it returns. */
+    const struct tb_shader_type *checked;
+    /* NAME: what it names. MEMBER: the field or method. CALL: the function
+     * called. Declarations: the symbol declared. */
+    struct tb_shader_symbol *symbol;
+    bool is_lvalue;     /* Expressions: names a place, which may still be const. */
+    bool is_assignable; /* Expressions: a place that may be written. */
+    bool is_constant;   /* Expressions: its value is known: `constant`. */
+    tb_shader_constant constant;
+    /* MEMBER that is a swizzle: the components it selects; a matrix's as
+     * row * 4 + column. */
+    uint8_t swizzle[4];
+    uint8_t swizzle_count;
 };
 
 /* A parsed shader. */

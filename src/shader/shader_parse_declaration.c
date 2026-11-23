@@ -329,7 +329,8 @@ static tb_shader_node *parse_struct_body(tb_shader_parser *parser, tb_shader_nod
 static tb_shader_node *parse_enum_body(tb_shader_parser *parser, tb_shader_node *node);
 
 /* `struct`, `class`, `interface` or `enum`: a definition, or a reference to one. */
-static tb_shader_type *parse_tagged_type(tb_shader_parser *parser, tb_shader_node_list *definitions)
+static tb_shader_type_syntax *parse_tagged_type(tb_shader_parser *parser,
+                                                tb_shader_node_list *definitions)
 {
     const tb_shader_token *const keyword = tb_shader_peek(parser);
     const bool is_enum = is_word(keyword, "enum");
@@ -341,15 +342,15 @@ static tb_shader_type *parse_tagged_type(tb_shader_parser *parser, tb_shader_nod
         is_scoped = tb_shader_accept(parser, "class") || tb_shader_accept(parser, "struct");
     }
     tb_shader_attribute *const attributes = tb_shader_parse_attributes(parser);
-    tb_shader_type *const type =
-        tb_shader_new_type(parser, TB_SHADER_TYPE_NAMED, keyword->location);
+    tb_shader_type_syntax *const type =
+        tb_shader_new_type_syntax(parser, TB_SHADER_TYPE_SYNTAX_NAMED, keyword->location);
     type->name.text = "";
     if (is_name(tb_shader_peek(parser)))
     {
         type->name = tb_shader_token_name(tb_shader_peek(parser));
         tb_shader_advance(parser);
     }
-    tb_shader_type *base = NULL;
+    tb_shader_type_syntax *base = NULL;
     if (tb_shader_accept(parser, ":"))
     {
         base = tb_shader_parse_type(parser, definitions);
@@ -395,7 +396,8 @@ static tb_shader_type *parse_tagged_type(tb_shader_parser *parser, tb_shader_nod
     return type;
 }
 
-tb_shader_type *tb_shader_parse_type(tb_shader_parser *parser, tb_shader_node_list *definitions)
+tb_shader_type_syntax *tb_shader_parse_type(tb_shader_parser *parser,
+                                            tb_shader_node_list *definitions)
 {
     const tb_shader_token *const token = tb_shader_peek(parser);
     if (is_word(token, "struct") || is_word(token, "class") || is_word(token, "interface") ||
@@ -426,7 +428,8 @@ tb_shader_type *tb_shader_parse_type(tb_shader_parser *parser, tb_shader_node_li
         return NULL;
     }
     skip_to(parser, end);
-    tb_shader_type *const type = tb_shader_new_type(parser, TB_SHADER_TYPE_NAMED, token->location);
+    tb_shader_type_syntax *const type =
+        tb_shader_new_type_syntax(parser, TB_SHADER_TYPE_SYNTAX_NAMED, token->location);
     type->name = name;
     if (kind == TB_SHADER_NAME_TEMPLATE_TYPE && tb_shader_accept(parser, "<"))
     {
@@ -437,16 +440,17 @@ tb_shader_type *tb_shader_parse_type(tb_shader_parser *parser, tb_shader_node_li
 }
 
 /* `[4]`, `[]`, `[2][3]` after a declarator's name, around `element`. */
-static tb_shader_type *parse_array_dimensions(tb_shader_parser *parser, tb_shader_type *element)
+static tb_shader_type_syntax *parse_array_dimensions(tb_shader_parser *parser,
+                                                     tb_shader_type_syntax *element)
 {
-    tb_shader_type *outer = element;
-    tb_shader_type **slot = &outer;
+    tb_shader_type_syntax *outer = element;
+    tb_shader_type_syntax **slot = &outer;
     while (tb_shader_is(parser, "[") && !parser->panic)
     {
         const tb_shader_token *const open = tb_shader_peek(parser);
         tb_shader_advance(parser);
-        tb_shader_type *const array =
-            tb_shader_new_type(parser, TB_SHADER_TYPE_ARRAY, open->location);
+        tb_shader_type_syntax *const array =
+            tb_shader_new_type_syntax(parser, TB_SHADER_TYPE_SYNTAX_ARRAY, open->location);
         if (!tb_shader_is(parser, "]"))
         {
             array->size = tb_shader_parse_conditional(parser);
@@ -599,7 +603,7 @@ static tb_shader_node *parse_parameter(tb_shader_parser *parser)
     node->attributes = tb_shader_parse_attributes(parser);
     node->modifiers = parse_modifiers(parser);
     tb_shader_node_list definitions = {0};
-    tb_shader_type *const type = tb_shader_parse_type(parser, &definitions);
+    tb_shader_type_syntax *const type = tb_shader_parse_type(parser, &definitions);
     if (type == NULL)
     {
         return node;
@@ -790,7 +794,7 @@ static void parse_typedef(tb_shader_parser *parser, tb_shader_node_list *list)
 {
     tb_shader_advance(parser);
     const uint64_t modifiers = parse_modifiers(parser);
-    tb_shader_type *const type = tb_shader_parse_type(parser, list);
+    tb_shader_type_syntax *const type = tb_shader_parse_type(parser, list);
     if (type == NULL)
     {
         return;
