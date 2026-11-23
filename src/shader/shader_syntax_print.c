@@ -1,6 +1,6 @@
 /* A syntax tree as text: one S-expression for each declaration, so tests can
  * state the tree a source makes, and `badger-shaderc` can show it. */
-#include "shader_syntax.h"
+#include "shader_check.h"
 
 #include "badger/arena.h"
 #include "badger/array.h"
@@ -11,10 +11,11 @@
 typedef struct printer
 {
     tb_array *text;
+    bool typed; /* Each expression followed by `:` and its type. */
 } printer;
 
 static void print_node(printer *out, const tb_shader_node *node);
-static void print_type(printer *out, const tb_shader_type *type);
+static void print_type(printer *out, const tb_shader_type_syntax *type);
 
 static void put(printer *out, const char *text)
 {
@@ -113,15 +114,15 @@ static void put_template_arguments(printer *out, const tb_shader_template_argume
     put(out, ">");
 }
 
-static void print_type(printer *out, const tb_shader_type *type)
+static void print_type(printer *out, const tb_shader_type_syntax *type)
 {
     if (type == NULL)
     {
         put(out, "<error>");
         return;
     }
-    const tb_shader_type *base = type;
-    while (base->kind == TB_SHADER_TYPE_ARRAY && base->element != NULL)
+    const tb_shader_type_syntax *base = type;
+    while (base->kind == TB_SHADER_TYPE_SYNTAX_ARRAY && base->element != NULL)
     {
         base = base->element;
     }
@@ -138,7 +139,7 @@ static void print_type(printer *out, const tb_shader_type *type)
     {
         put_template_arguments(out, base->arguments);
     }
-    for (const tb_shader_type *array = type; array != base; array = array->element)
+    for (const tb_shader_type_syntax *array = type; array != base; array = array->element)
     {
         put(out, "[");
         if (array->size != NULL)
@@ -149,8 +150,21 @@ static void print_type(printer *out, const tb_shader_type *type)
     }
 }
 
+/* A declaration's type: as written, or as checked when typed. */
+static void print_declared_type(printer *out, const tb_shader_node *node)
+{
+    if (out->typed && node->checked != NULL)
+    {
+        put_modifiers(out, node->modifiers);
+        put(out, node->checked->name);
+        return;
+    }
+    put_modifiers(out, node->modifiers);
+    print_type(out, node->type);
+}
+
 /* ` type` of a declaration. */
-static void put_type(printer *out, const tb_shader_type *type)
+static void put_type(printer *out, const tb_shader_type_syntax *type)
 {
     put(out, " ");
     print_type(out, type);
@@ -207,8 +221,7 @@ static void print_function(printer *out, const tb_shader_node *node)
     put_template_parameters(out, node);
     put_attributes(out, node->attributes);
     put(out, " ");
-    put_modifiers(out, node->modifiers);
-    print_type(out, node->type);
+    print_declared_type(out, node);
     put(out, " ");
     put_name(out, node->name);
     put(out, " (");
@@ -229,8 +242,7 @@ static void print_variable(printer *out, const tb_shader_node *node, const char 
     put(out, keyword);
     put_attributes(out, node->attributes);
     put(out, " ");
-    put_modifiers(out, node->modifiers);
-    print_type(out, node->type);
+    print_declared_type(out, node);
     if (node->name.length > 0)
     {
         put(out, " ");
@@ -279,8 +291,7 @@ static void print_enum(printer *out, const tb_shader_node *node)
 static void print_typedef(printer *out, const tb_shader_node *node)
 {
     put(out, "(typedef ");
-    put_modifiers(out, node->modifiers);
-    print_type(out, node->type);
+    print_declared_type(out, node);
     put(out, " ");
     put_name(out, node->name);
     put(out, ")");
@@ -613,6 +624,9 @@ static void print_by_kind(printer *out, const tb_shader_node *node)
     case TB_SHADER_NODE_SIZEOF:
         print_sizeof(out, node);
         break;
+    case TB_SHADER_NODE_CONVERT:
+        print_operation(out, "convert", node->left, NULL);
+        break;
     }
 }
 
@@ -624,13 +638,20 @@ static void print_node(printer *out, const tb_shader_node *node)
         return;
     }
     print_by_kind(out, node);
+    const bool is_expression = node->kind >= TB_SHADER_NODE_INTEGER;
+    if (out->typed && is_expression && node->checked != NULL)
+    {
+        put(out, ":");
+        put(out, node->checked->name);
+    }
 }
 
-const char *tb_shader_syntax_print(const tb_shader_syntax *syntax, tb_arena *arena)
+static const char *print_syntax(const tb_shader_syntax *syntax, tb_arena *arena, bool typed)
 {
     tb_allocator allocator = tb_arena_allocator(arena);
     printer out = {0};
     out.text = TB_ARRAY_CREATE(&allocator, char);
+    out.typed = typed;
     for (const tb_shader_node *node = syntax->declarations; node != NULL; node = node->next)
     {
         print_node(&out, node);
@@ -639,4 +660,14 @@ const char *tb_shader_syntax_print(const tb_shader_syntax *syntax, tb_arena *are
     const char nul = '\0';
     (void)tb_array_push(out.text, &nul);
     return tb_array_data(out.text);
+}
+
+const char *tb_shader_syntax_print(const tb_shader_syntax *syntax, tb_arena *arena)
+{
+    return print_syntax(syntax, arena, false);
+}
+
+const char *tb_shader_syntax_print_typed(const tb_shader_syntax *syntax, tb_arena *arena)
+{
+    return print_syntax(syntax, arena, true);
 }
