@@ -115,7 +115,13 @@ typedef enum tb_shader_object
     TB_SHADER_OBJECT_RAYTRACING_PIPELINE_CONFIG,
     TB_SHADER_OBJECT_RAYTRACING_PIPELINE_CONFIG1,
     TB_SHADER_OBJECT_TRIANGLE_HIT_GROUP,
-    TB_SHADER_OBJECT_PROCEDURAL_PRIMITIVE_HIT_GROUP
+    TB_SHADER_OBJECT_PROCEDURAL_PRIMITIVE_HIT_GROUP,
+    /* A texture's `mips` and `sample` members, and a mip level or a sample of
+     * them, which only those members make; their element is the texture. */
+    TB_SHADER_OBJECT_MIPS,
+    TB_SHADER_OBJECT_MIPS_SLICE,
+    TB_SHADER_OBJECT_SAMPLES,
+    TB_SHADER_OBJECT_SAMPLES_SLICE
 } tb_shader_object;
 
 /* What an object's template arguments are. */

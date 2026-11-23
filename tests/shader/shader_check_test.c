@@ -959,6 +959,51 @@ TB_TEST(shader_check, streams_ray_queries_and_feedback_have_methods)
                  "void f(float2 p) { feedback.WriteSamplerFeedbackLevel(t, s, p, 0); }");
 }
 
+#define MEMBERS                                                                                    \
+    "Texture2D<float> tf; Texture1D t1; Texture2DArray t2a; Texture3D t3; "                        \
+    "Texture2DMS<float4> ms; Texture2DMSArray<uint2> msa; static uint m; static uint2 p; "         \
+    "static uint3 q; static int2 ip; static float2 fp; static uint1 p1;"
+
+TB_TEST(shader_check, mips_and_samples_read_texels_as_dxc_reads_them)
+{
+    /* A level or a sample, then the texel at a location. */
+    expect_call_type(MEMBERS, "tf.mips[m][p]", "float");
+    expect_call_type(MEMBERS, "t1.mips[m][p.x]", "float4");
+    expect_call_type(MEMBERS, "t1.mips[m][p1]", "float4");
+    expect_call_type(MEMBERS, "t2a.mips[m][q]", "float4");
+    expect_call_type(MEMBERS, "t3.mips[m][q]", "float4");
+    expect_call_type(MEMBERS, "ms.sample[m][p]", "float4");
+    expect_call_type(MEMBERS, "msa.sample[m][q]", "uint2");
+    /* A location of the right size converts, whatever its component. */
+    expect_call_type(MEMBERS, "tf.mips[m][ip]", "float");
+    expect_call_type(MEMBERS, "tf.mips[m][fp]", "float");
+    /* The members and their slices are types of their own, named as DXC names them. */
+    expect_call_type(MEMBERS, "tf.mips", "Texture2D<float>::mips_type");
+    expect_call_type(MEMBERS, "tf.mips[m]", "Texture2D<float>::mips_slice_type");
+    expect_call_type(MEMBERS, "ms.sample[m]", "Texture2DMS<float4>::sample_slice_type");
+    /* A writable texture's samples are written. */
+    expect_clean("RWTexture2DMS<float4> rw;\nvoid g(uint2 p) { rw.sample[0][p] = 1; }");
+}
+
+TB_TEST(shader_check, mips_and_samples_refuse_what_dxc_refuses)
+{
+    expect_diagnostic("TextureCube tc;\nfloat4 g(uint3 p) { return tc.mips[0][p]; }",
+                      AT(2, 30) "error: 'TextureCube<float4>' has no member 'mips'");
+    expect_diagnostic("Texture2D t;\nfloat4 g(uint2 p) { return t.sample[0][p]; }",
+                      AT(2, 29) "error: 'Texture2D<float4>' has no member 'sample'");
+    /* A location takes exactly the texture's components: none dropped, none spread. */
+    expect_diagnostic("Texture2D<float> t;\nfloat g(uint3 p) { return t.mips[0][p]; }",
+                      AT(2, 37) "error: 'Texture2D<float>::mips_slice_type' takes a 'uint2' "
+                                "location, not 'uint3'");
+    expect_diagnostic("Texture2D<float> t;\nfloat g(uint p) { return t.mips[0][p]; }",
+                      AT(2, 36) "error: 'Texture2D<float>::mips_slice_type' takes a 'uint2' "
+                                "location, not 'uint'");
+    expect_diagnostic("Texture2D<float> t;\nfloat g(uint2 p) { return t.mips[p][p]; }",
+                      AT(2, 34) "error: an index must be an integer, not 'uint2'");
+    expect_diagnostic("Texture2D t;\nvoid g(uint2 p) { t.mips[0][p] = 1; }",
+                      AT(2, 28) "error: 'Texture2D<float4>' is read-only");
+}
+
 TB_TEST(shader_check, templates_are_not_supported_yet)
 {
     expect_diagnostic("template<typename T> T Square(T x) { return x * x; }",

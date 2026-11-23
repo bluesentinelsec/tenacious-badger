@@ -563,6 +563,20 @@ static void check_unary(tb_shader_checker *checker, tb_shader_node *node)
     tb_shader_fold(checker, node);
 }
 
+/* A texture's `mips` or `sample`, or a slice of one. */
+static bool is_texture_member(const tb_shader_type *type)
+{
+    return type->type_class == TB_SHADER_CLASS_OBJECT &&
+           (type->object == TB_SHADER_OBJECT_MIPS || type->object == TB_SHADER_OBJECT_MIPS_SLICE ||
+            type->object == TB_SHADER_OBJECT_SAMPLES ||
+            type->object == TB_SHADER_OBJECT_SAMPLES_SLICE);
+}
+
+static bool name_is(tb_shader_name name, const char *text)
+{
+    return name.length == tb_str_length(text) && memcmp(name.text, text, name.length) == 0;
+}
+
 /* Why a target cannot be assigned, from the innermost reason out. */
 static void explain_unassignable(tb_shader_checker *checker, const tb_shader_node *target)
 {
@@ -579,7 +593,9 @@ static void explain_unassignable(tb_shader_checker *checker, const tb_shader_nod
         const tb_shader_type *const base = type_of(checker, root->left);
         if (root->kind == TB_SHADER_NODE_INDEX && base->type_class == TB_SHADER_CLASS_OBJECT)
         {
-            tb_shader_check_error(checker, root->location, "'%s' is read-only", base->name);
+            /* Name the texture, not the slice of it that was indexed. */
+            const tb_shader_type *const object = is_texture_member(base) ? base->element : base;
+            tb_shader_check_error(checker, root->location, "'%s' is read-only", object->name);
             return;
         }
         root = root->left;
@@ -994,6 +1010,53 @@ static const tb_shader_type *object_element(tb_shader_checker *checker, tb_shade
     return object->element;
 }
 
+/* What a texture's `mips` or `sample` gives when indexed: a level or a
+ * sample, from a scalar; a slice gives the texel at a location of exactly as
+ * many components as the texture's, as DXC requires. */
+static const tb_shader_type *member_element(tb_shader_checker *checker, tb_shader_node *node,
+                                            const tb_shader_type *member)
+{
+    const tb_shader_type *const texture = member->element;
+    const tb_shader_type *const index =
+        tb_shader_check_arithmetic_view(checker, type_of(checker, node->right));
+    const bool is_slice = member->object == TB_SHADER_OBJECT_MIPS_SLICE ||
+                          member->object == TB_SHADER_OBJECT_SAMPLES_SLICE;
+    if (!is_slice)
+    {
+        if (!is_one_component(index))
+        {
+            tb_shader_check_error(checker, node->right->location,
+                                  "an index must be an integer, not '%s'", index->name);
+            return error_type(checker);
+        }
+        node->right =
+            convert_to(checker, node->right, scalar(checker, TB_SHADER_SCALAR_UINT), true);
+        const tb_shader_object slice = member->object == TB_SHADER_OBJECT_MIPS
+                                           ? TB_SHADER_OBJECT_MIPS_SLICE
+                                           : TB_SHADER_OBJECT_SAMPLES_SLICE;
+        return tb_shader_object_type(checker->types, slice, texture, 0, 0);
+    }
+    const tb_shader_object_methods methods = tb_shader_object_methods_of(texture->object);
+    /* A texture loaded by mip level takes the level after the location. */
+    const uint32_t size =
+        (methods.traits & TB_SHADER_TRAIT_LOAD_MIP) != 0 ? methods.load - 1 : methods.load;
+    const tb_shader_type *const location =
+        size == 1 ? scalar(checker, TB_SHADER_SCALAR_UINT)
+                  : tb_shader_vector_type(checker->types, TB_SHADER_SCALAR_UINT, size);
+    if (!tb_shader_type_is_numeric(index) || tb_shader_component_count(index) != size ||
+        index->type_class == TB_SHADER_CLASS_MATRIX)
+    {
+        tb_shader_check_error(checker, node->right->location,
+                              "'%s' takes a '%s' location, not '%s'", member->name, location->name,
+                              index->name);
+        return error_type(checker);
+    }
+    node->right = tb_shader_check_convert(checker, node->right, location);
+    node->is_lvalue = true;
+    node->is_assignable = tb_shader_object_info_of(texture->object)->is_writable;
+    return texture->element;
+}
+
 static void check_index(tb_shader_checker *checker, tb_shader_node *node)
 {
     node->left = tb_shader_check_expression(checker, node->left);
@@ -1004,6 +1067,11 @@ static void check_index(tb_shader_checker *checker, tb_shader_node *node)
     node->checked = error_type(checker);
     if (is_error(base) || is_error(index))
     {
+        return;
+    }
+    if (is_texture_member(base))
+    {
+        node->checked = member_element(checker, node, base);
         return;
     }
     if (base->type_class == TB_SHADER_CLASS_OBJECT)
@@ -1217,6 +1285,25 @@ static void check_field_access(tb_shader_checker *checker, tb_shader_node *node,
     node->is_assignable = !through_buffer && node->left->is_assignable;
 }
 
+/* A texture's `mips`, which has mip levels, or `sample`, which has samples;
+ * false for any other member. */
+static bool check_texture_member(tb_shader_checker *checker, tb_shader_node *node,
+                                 const tb_shader_type *texture)
+{
+    const uint32_t traits = tb_shader_object_methods_of(texture->object).traits;
+    const bool is_mips = (traits & TB_SHADER_TRAIT_LOAD_MIP) != 0 && name_is(node->name, "mips");
+    const bool is_samples =
+        (traits & TB_SHADER_TRAIT_LOAD_SAMPLE) != 0 && name_is(node->name, "sample");
+    if (!is_mips && !is_samples)
+    {
+        return false;
+    }
+    const tb_shader_object member = is_mips ? TB_SHADER_OBJECT_MIPS : TB_SHADER_OBJECT_SAMPLES;
+    node->checked = tb_shader_object_type(checker->types, member, texture, 0, 0);
+    node->is_lvalue = true;
+    return true;
+}
+
 static void check_member(tb_shader_checker *checker, tb_shader_node *node)
 {
     node->left = tb_shader_check_expression(checker, node->left);
@@ -1243,6 +1330,10 @@ static void check_member(tb_shader_checker *checker, tb_shader_node *node)
     if (tb_shader_type_is_numeric(base))
     {
         check_swizzle(checker, node, base);
+        return;
+    }
+    if (base->type_class == TB_SHADER_CLASS_OBJECT && check_texture_member(checker, node, base))
+    {
         return;
     }
     tb_shader_check_error(checker, node->location, "'%s' has no member '%.*s'", base->name,

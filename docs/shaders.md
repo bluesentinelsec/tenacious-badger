@@ -283,8 +283,16 @@ object:
   the type of `Store`'s value, a literal as a `uint` or a `float`, or else
   `uint`. Only `Load` and `Store` of a byte-address buffer name a type.
 
-**Not yet.** A texture's `mips` and `sample` members (`t.mips[2][p]`) come
-next, then the shader's own form. Templates come later, and so do these
+A texture with mip levels has a `mips` member, and a multisampled texture a
+`sample` member: `t.mips[2][p]` is the texel at `p` of level 2, and
+`ms.sample[3][p]` that of sample 3. The level or sample is an integer; the
+location has exactly as many components as the texture's, as DXC requires,
+so a `Texture2D` takes a `uint2` (or an `int2`, converted), never a `uint3`
+or a `uint`. Each step has a type of its own, named as DXC names it:
+`Texture2D<float>::mips_type`, then `Texture2D<float>::mips_slice_type`. A
+texel read so is read-only, except a writable texture's sample.
+
+**Not yet.** The shader's own form comes next. Templates come later, and so do these
 intrinsics: the tessellation factor functions, the packed 8-bit types and
 their `pack_` and `unpack_` functions, and the legacy `tex2D` family. The
 methods of work-graph nodes and `HitObject` come with the shader models that

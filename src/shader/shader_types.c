@@ -365,13 +365,37 @@ const tb_shader_object_info *tb_shader_object_info_of(tb_shader_object object)
     return NULL;
 }
 
+/* A texture's member, named as DXC names it: `Texture2D<float4>::mips_type`. */
+static const char *member_name(tb_shader_types *types, const tb_shader_type *probe)
+{
+    static const struct
+    {
+        tb_shader_object object;
+        const char *suffix;
+    } members[] = {
+        {TB_SHADER_OBJECT_MIPS, "mips_type"},
+        {TB_SHADER_OBJECT_MIPS_SLICE, "mips_slice_type"},
+        {TB_SHADER_OBJECT_SAMPLES, "sample_type"},
+        {TB_SHADER_OBJECT_SAMPLES_SLICE, "sample_slice_type"},
+    };
+    for (size_t index = 0; index < COUNT_OF(members); index++)
+    {
+        if (members[index].object == probe->object && probe->element != NULL)
+        {
+            return tb_fmt_string(&types->allocator, "%s::%s", probe->element->name,
+                                 members[index].suffix);
+        }
+    }
+    return "(object)";
+}
+
 /* `Texture2D<float4>`, `Texture2DMS<float4, 4>`, `RayQuery<5>`, `SamplerState`. */
 static const char *object_name(tb_shader_types *types, const tb_shader_type *probe)
 {
     const tb_shader_object_info *const info = tb_shader_object_info_of(probe->object);
     if (info == NULL)
     {
-        return "(object)";
+        return member_name(types, probe);
     }
     switch (info->template_kind)
     {
