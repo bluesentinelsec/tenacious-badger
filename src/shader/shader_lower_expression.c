@@ -18,6 +18,8 @@
 #include "badger/arena.h"
 #include "badger/assert.h"
 
+#include <string.h>
+
 /* What a call of a function that returns nothing gives, which nothing uses. */
 #define VOID_RESULT (TB_SHADER_FORM_NONE - 1)
 
@@ -141,6 +143,7 @@ static uint32_t element_of(tb_shader_lowerer *lowerer, uint32_t base_type, uint3
         return tb_shader_form_member_at(lowerer->form, type->first_member + index)->type;
     case TB_SHADER_FORM_VOID:
     case TB_SHADER_FORM_SCALAR:
+    case TB_SHADER_FORM_STRING:
         break;
     }
     return TB_SHADER_FORM_NONE;
@@ -317,6 +320,7 @@ static bool flatten(tb_shader_lowerer *lowerer, uint32_t value, tb_array *out)
         parts = found->member_count;
         break;
     case TB_SHADER_FORM_VOID:
+    case TB_SHADER_FORM_STRING:
         return false;
     }
     for (uint32_t index = 0; index < parts; index++)
@@ -362,6 +366,7 @@ static uint32_t rebuild(tb_shader_lowerer *lowerer, uint32_t type, const tb_arra
         break;
     case TB_SHADER_FORM_SCALAR:
     case TB_SHADER_FORM_VOID:
+    case TB_SHADER_FORM_STRING:
         return TB_SHADER_FORM_NONE;
     }
     uint32_t *const built = TB_ARENA_NEW_ARRAY(lowerer->arena, uint32_t, parts + 1);
@@ -496,8 +501,25 @@ static bool is_aggregate(const tb_shader_type *type)
 
 /* Whether an expression names a place the form can point to: a variable, or
  * an element or member of one. */
+/* `this`, or a field named alone in a method: of the object it was called on. */
+static bool is_this(const tb_shader_node *node)
+{
+    return node->kind == TB_SHADER_NODE_NAME && node->symbol == NULL && node->name.length == 4 &&
+           memcmp(node->name.text, "this", 4) == 0;
+}
+
+static bool is_own_field(const tb_shader_lowerer *lowerer, const tb_shader_node *node)
+{
+    return lowerer->has_this && node->kind == TB_SHADER_NODE_NAME && node->symbol != NULL &&
+           node->symbol->kind == TB_SHADER_SYMBOL_FIELD;
+}
+
 static bool is_place(const tb_shader_lowerer *lowerer, const tb_shader_node *node)
 {
+    if ((lowerer->has_this && is_this(node)) || is_own_field(lowerer, node))
+    {
+        return true;
+    }
     if (node->kind == TB_SHADER_NODE_NAME)
     {
         return binding_of(lowerer, node) != TB_SHADER_FORM_NONE;
@@ -539,6 +561,15 @@ static uint32_t index_into(tb_shader_lowerer *lowerer, uint32_t base, tb_shader_
 /* A pointer to a place `is_place` accepts. */
 static uint32_t lower_place(tb_shader_lowerer *lowerer, tb_shader_node *node)
 {
+    if (is_this(node))
+    {
+        return tb_shader_lower_argument(lowerer, 0);
+    }
+    if (is_own_field(lowerer, node))
+    {
+        return access_index(lowerer, tb_shader_lower_argument(lowerer, 0),
+                            (uint32_t)node->symbol->field_index);
+    }
     if (node->kind == TB_SHADER_NODE_NAME)
     {
         const uint32_t binding = binding_of(lowerer, node);
@@ -1198,6 +1229,48 @@ static uint32_t add_call(tb_shader_lowerer *lowerer, uint32_t function, uint32_t
     return returns ? call.result : VOID_RESULT;
 }
 
+/* The object a method is called on, as a pointer of the method's `this`:
+ * the object's own place when it is a local, through a local otherwise. */
+static uint32_t object_pointer(tb_shader_lowerer *lowerer, tb_shader_node *node, uint32_t type,
+                               output *saved, size_t *saved_count)
+{
+    tb_shader_node *const object =
+        node->left->kind == TB_SHADER_NODE_MEMBER ? node->left->left : NULL;
+    if (object == NULL)
+    {
+        if (!lowerer->has_this)
+        {
+            tb_shader_lower_unsupported(lowerer, node->location,
+                                        "calling a method without an object");
+            return TB_SHADER_FORM_NONE;
+        }
+        return tb_shader_lower_argument(lowerer, 0);
+    }
+    if (type_of_node(lowerer, object) != type)
+    {
+        tb_shader_lower_unsupported(lowerer, node->location,
+                                    "calling a base struct's method on a derived struct");
+        return TB_SHADER_FORM_NONE;
+    }
+    if (is_place(lowerer, object))
+    {
+        const uint32_t pointer = lower_place(lowerer, object);
+        if (space_of(lowerer, pointer) == TB_SHADER_FORM_FUNCTION)
+        {
+            return pointer;
+        }
+        return through_local(lowerer, object, type, true, &saved[(*saved_count)++]);
+    }
+    const uint32_t value = tb_shader_lower_value(lowerer, object);
+    if (value == TB_SHADER_FORM_NONE)
+    {
+        return TB_SHADER_FORM_NONE;
+    }
+    const uint32_t local = new_temporary(lowerer, type);
+    tb_shader_lower_store(lowerer, tb_shader_lower_local(lowerer, local), value);
+    return tb_shader_lower_local(lowerer, local);
+}
+
 static uint32_t lower_function_call(tb_shader_lowerer *lowerer, tb_shader_node *node)
 {
     const uint32_t index = tb_shader_lower_bound(lowerer, lowerer->functions, node->symbol);
@@ -1212,6 +1285,16 @@ static uint32_t lower_function_call(tb_shader_lowerer *lowerer, tb_shader_node *
     output *const outputs = TB_ARENA_NEW_ARRAY(lowerer->arena, output, count + 1);
     size_t output_count = 0;
     uint32_t at = 0;
+    if (tb_shader_lower_takes_this(node->symbol))
+    {
+        const uint32_t self = TB_ARRAY_AT(callee->parameters, tb_shader_form_parameter, 0)->type;
+        arguments[0] = object_pointer(lowerer, node, self, outputs, &output_count);
+        if (arguments[0] == TB_SHADER_FORM_NONE)
+        {
+            return TB_SHADER_FORM_NONE;
+        }
+        at = 1;
+    }
     /* An argument left out is its parameter's default value. */
     tb_shader_node *declared =
         node->symbol->declaration != NULL ? node->symbol->declaration->parameters : NULL;
@@ -1320,11 +1403,9 @@ static uint32_t lower_call(tb_shader_lowerer *lowerer, tb_shader_node *node)
                                     "calling a method of a resource or another object");
         return TB_SHADER_FORM_NONE;
     }
-    const bool is_method = (node->symbol != NULL && node->symbol->owner != NULL) ||
-                           (node->left != NULL && node->left->kind == TB_SHADER_NODE_MEMBER);
-    if (is_method || node->symbol == NULL)
+    if (node->symbol == NULL)
     {
-        tb_shader_lower_unsupported(lowerer, node->location, "calling a method of a struct");
+        tb_shader_lower_unsupported(lowerer, node->location, "calling this");
         return TB_SHADER_FORM_NONE;
     }
     return lower_function_call(lowerer, node);
@@ -1333,6 +1414,17 @@ static uint32_t lower_call(tb_shader_lowerer *lowerer, tb_shader_node *node)
 /* -------------------------------------------------------------------------
  * Expressions.
  * ------------------------------------------------------------------------- */
+
+/* `"x is %d"`: its text between the quotes, as written. */
+static uint32_t string_literal(tb_shader_lowerer *lowerer, const tb_shader_node *node)
+{
+    const tb_shader_name spelling = node->name;
+    const size_t length = spelling.length >= 2 ? spelling.length - 2 : 0;
+    tb_shader_form_expression expression =
+        new_expression(TB_SHADER_FORM_STRING_LITERAL, tb_shader_form_string(lowerer->form));
+    expression.index = tb_shader_form_add_string(lowerer->form, spelling.text + 1, length);
+    return tb_shader_lower_add(lowerer, &expression);
+}
 
 static uint32_t lower_expression(tb_shader_lowerer *lowerer, tb_shader_node *node)
 {
@@ -1368,8 +1460,7 @@ static uint32_t lower_expression(tb_shader_lowerer *lowerer, tb_shader_node *nod
         return type == TB_SHADER_FORM_NONE ? TB_SHADER_FORM_NONE : lower_list(lowerer, node, type);
     }
     case TB_SHADER_NODE_STRING:
-        tb_shader_lower_unsupported(lowerer, node->location, "a string");
-        return TB_SHADER_FORM_NONE;
+        return string_literal(lowerer, node);
     case TB_SHADER_NODE_INTEGER:
     case TB_SHADER_NODE_FLOAT:
     case TB_SHADER_NODE_BOOL:

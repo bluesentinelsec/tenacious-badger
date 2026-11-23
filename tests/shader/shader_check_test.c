@@ -238,6 +238,11 @@ TB_TEST(shader_check, structs_have_fields_methods_and_bases)
                       AT(1, 22) "error: a struct's member cannot have an initializer");
     expect_diagnostic("struct S { float a; }; float f(S s) { return s.a(); }",
                       AT(1, 47) "error: 'S' has no method 'a'");
+    /* A static method is named by its struct; a method with an object is not. */
+    expect_clean("struct S { static int twice(int x) { return 2 * x; } }; int f() { return "
+                 "S::twice(3); }");
+    expect_diagnostic("struct S { int n; int get() { return n; } }; int f() { return S::get(); }",
+                      AT(1, 63) "error: 'S::get' is not declared");
 }
 
 TB_TEST(shader_check, indexing_reads_elements)

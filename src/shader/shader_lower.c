@@ -145,8 +145,7 @@ static uint32_t new_type(tb_shader_lowerer *lowerer, const tb_shader_type *type,
         tb_shader_lower_unsupported(lowerer, location, "a resource or another object");
         return TB_SHADER_FORM_NONE;
     case TB_SHADER_CLASS_STRING:
-        tb_shader_lower_unsupported(lowerer, location, "a string");
-        return TB_SHADER_FORM_NONE;
+        return tb_shader_form_string(form);
     case TB_SHADER_CLASS_ERROR:
         break;
     }
@@ -463,6 +462,29 @@ static void lower_switch(tb_shader_lowerer *lowerer, tb_shader_node *node)
  * Declarations in a function.
  * ------------------------------------------------------------------------- */
 
+/* A static variable: a private global, whose first value, if it has one,
+ * the form's initializer stores. */
+static void declare_static(tb_shader_lowerer *lowerer, tb_shader_node *node, const char *name)
+{
+    const tb_shader_symbol *const symbol = node->symbol;
+    tb_shader_form_global global = {0};
+    global.name = name;
+    global.type = tb_shader_lower_type(lowerer, symbol->type, node->location);
+    global.space = TB_SHADER_FORM_PRIVATE;
+    if (global.type == TB_SHADER_FORM_NONE)
+    {
+        return;
+    }
+    const uint32_t index = tb_shader_form_add_global(lowerer->form, &global);
+    tb_shader_lower_bind(lowerer, lowerer->bindings, symbol,
+                         tb_shader_lower_binding(TB_SHADER_BINDING_GLOBAL, index));
+    if (node->value != NULL)
+    {
+        const tb_shader_static_value first = {index, node->value, symbol->type};
+        (void)tb_array_push(lowerer->statics, &first);
+    }
+}
+
 static void declare_local(tb_shader_lowerer *lowerer, tb_shader_node *variable)
 {
     const tb_shader_symbol *const symbol = variable->symbol;
@@ -472,7 +494,9 @@ static void declare_local(tb_shader_lowerer *lowerer, tb_shader_node *variable)
     }
     if (symbol->storage == TB_SHADER_STORAGE_STATIC && !symbol->has_value)
     {
-        tb_shader_lower_unsupported(lowerer, variable->location, "a static local");
+        declare_static(lowerer, variable,
+                       tb_fmt_string(&lowerer->allocator, "%s::%.*s", lowerer->function->name,
+                                     (int)variable->name.length, variable->name.text));
         return;
     }
     const uint32_t type = tb_shader_lower_type(lowerer, symbol->type, variable->location);
@@ -611,7 +635,31 @@ static tb_shader_form_direction direction_of(const tb_shader_node *parameter)
                                                                 : TB_SHADER_FORM_IN;
 }
 
-/* A function of the form for a function with a body, its parameters typed. */
+bool tb_shader_lower_takes_this(const tb_shader_symbol *function)
+{
+    return function->owner != NULL && function->declaration != NULL &&
+           (function->declaration->modifiers & TB_SHADER_MODIFIER_STATIC) == 0;
+}
+
+/* A function's name in the form: a method's is qualified by its struct's. */
+static const char *function_name(tb_shader_lowerer *lowerer, const tb_shader_symbol *symbol)
+{
+    const tb_shader_name name = symbol->name;
+    size_t start = name.length;
+    while (start >= 2 && !(name.text[start - 2] == ':' && name.text[start - 1] == ':'))
+    {
+        start--;
+    }
+    if (symbol->owner == NULL || start >= 2)
+    {
+        return name_text(lowerer, name);
+    }
+    return tb_fmt_string(&lowerer->allocator, "%s::%.*s", symbol->owner->name, (int)name.length,
+                         name.text);
+}
+
+/* A function of the form for a function with a body, its parameters typed;
+ * a method's first is `this`, a pointer to its object. */
 static void declare_function(tb_shader_lowerer *lowerer, tb_shader_node *node)
 {
     const uint32_t result = tb_shader_lower_type(lowerer, node->checked, node->location);
@@ -620,8 +668,20 @@ static void declare_function(tb_shader_lowerer *lowerer, tb_shader_node *node)
         return;
     }
     const uint32_t index =
-        tb_shader_form_add_function(lowerer->form, name_text(lowerer, node->symbol->name), result);
+        tb_shader_form_add_function(lowerer->form, function_name(lowerer, node->symbol), result);
     tb_shader_form_function *const function = tb_shader_form_function_at(lowerer->form, index);
+    if (tb_shader_lower_takes_this(node->symbol))
+    {
+        tb_shader_form_parameter self = {0};
+        self.name = "this";
+        self.type = tb_shader_lower_type(lowerer, node->symbol->owner, node->location);
+        self.direction = TB_SHADER_FORM_INOUT;
+        if (self.type == TB_SHADER_FORM_NONE)
+        {
+            return;
+        }
+        (void)tb_shader_form_add_parameter(function, &self);
+    }
     for (tb_shader_node *parameter = node->parameters; parameter != NULL;
          parameter = parameter->next)
     {
@@ -642,7 +702,7 @@ static void declare_function(tb_shader_lowerer *lowerer, tb_shader_node *node)
  * may change; one passed `out` or `inout` is the pointer it was given. */
 static void bind_parameters(tb_shader_lowerer *lowerer, tb_shader_node *node)
 {
-    uint32_t index = 0;
+    uint32_t index = lowerer->has_this ? 1 : 0;
     for (tb_shader_node *parameter = node->parameters; parameter != NULL;
          parameter = parameter->next, index++)
     {
@@ -676,8 +736,53 @@ static void lower_function(tb_shader_lowerer *lowerer, tb_shader_node *node)
     lowerer->block = function->body;
     lowerer->last = TB_SHADER_FORM_NONE;
     lowerer->ended = false;
+    lowerer->has_this = tb_shader_lower_takes_this(node->symbol);
     bind_parameters(lowerer, node);
     lower_statements(lowerer, node->body->children);
+    tb_shader_lower_flush(lowerer);
+    lowerer->function = NULL;
+    lowerer->has_this = false;
+}
+
+/* The form's initializer: a function that stores each static variable's
+ * first value, in the order of the source. */
+static void lower_initializer_function(tb_shader_lowerer *lowerer)
+{
+    const size_t count = tb_array_length(lowerer->statics);
+    if (count == 0)
+    {
+        return;
+    }
+    const uint32_t index = tb_shader_form_add_function(lowerer->form, "static initializer",
+                                                       tb_shader_form_void(lowerer->form));
+    tb_shader_form_function *const function = tb_shader_form_function_at(lowerer->form, index);
+    lowerer->form->initializer = index;
+    lowerer->function = function;
+    lowerer->emit_start = 0;
+    lowerer->block = function->body;
+    lowerer->last = TB_SHADER_FORM_NONE;
+    lowerer->ended = false;
+    for (size_t at = 0; at < count; at++)
+    {
+        const tb_shader_static_value *const first =
+            TB_ARRAY_AT(lowerer->statics, tb_shader_static_value, at);
+        const uint32_t value = tb_shader_lower_initializer(lowerer, first->value, first->type);
+        if (value == TB_SHADER_FORM_NONE)
+        {
+            continue;
+        }
+        tb_shader_form_expression pointer = {0};
+        const tb_shader_form_global *const global =
+            TB_ARRAY_AT(lowerer->form->globals, tb_shader_form_global, first->global);
+        pointer.kind = TB_SHADER_FORM_GLOBAL;
+        pointer.type = global->type;
+        pointer.space = global->space;
+        pointer.index = first->global;
+        pointer.operands[0] = TB_SHADER_FORM_NONE;
+        pointer.operands[1] = TB_SHADER_FORM_NONE;
+        pointer.operands[2] = TB_SHADER_FORM_NONE;
+        tb_shader_lower_store(lowerer, tb_shader_lower_add(lowerer, &pointer), value);
+    }
     tb_shader_lower_flush(lowerer);
     lowerer->function = NULL;
 }
@@ -694,9 +799,9 @@ static void declare_global(tb_shader_lowerer *lowerer, tb_shader_node *node)
     {
         return;
     }
-    if (node->value != NULL)
+    if (is_static)
     {
-        tb_shader_lower_unsupported(lowerer, node->location, "a static global's initializer");
+        declare_static(lowerer, node, name_text(lowerer, symbol->name));
         return;
     }
     tb_shader_form_global global = {0};
@@ -718,7 +823,7 @@ static void lower_declarations(tb_shader_lowerer *lowerer, tb_shader_node *first
 {
     for (tb_shader_node *node = first; node != NULL; node = node->next)
     {
-        if (node->kind == TB_SHADER_NODE_NAMESPACE)
+        if (node->kind == TB_SHADER_NODE_NAMESPACE || node->kind == TB_SHADER_NODE_STRUCT)
         {
             lower_declarations(lowerer, node->children, bodies);
         }
@@ -759,8 +864,10 @@ tb_shader_result tb_shader_lower(const tb_shader_syntax *syntax, const tb_shader
     lowerer.types = new_map(&lowerer);
     lowerer.functions = new_map(&lowerer);
     lowerer.bindings = new_map(&lowerer);
+    lowerer.statics = TB_ARRAY_CREATE(&lowerer.allocator, tb_shader_static_value);
     lower_declarations(&lowerer, syntax->declarations, false);
     lower_declarations(&lowerer, syntax->declarations, true);
+    lower_initializer_function(&lowerer);
     lowered->diagnostics = tb_array_data(lowerer.diagnostics);
     lowered->diagnostic_count = tb_array_length(lowerer.diagnostics);
     lowered->error_count = lowerer.error_count;

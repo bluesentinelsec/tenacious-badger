@@ -498,6 +498,124 @@ TB_TEST(shader_form, intrinsics_and_globals)
                 "  }\n");
 }
 
+TB_TEST(shader_form, methods_take_a_pointer_to_their_object)
+{
+    /* A method changes its object through `this`; a static method has none. */
+    expect_form("struct Counter { int n; void add(int k) { n += k; } int get() { return this.n; } "
+                "static int twice(int x) { return 2 * x; } };\n"
+                "int f() { Counter c; c.n = 0; c.add(3); return c.get() + Counter::twice(c.n); }",
+                "struct Counter { int n }\n"
+                "function void Counter::add(inout Counter this, in int k)\n"
+                "  local0 int k\n"
+                "  {\n"
+                "    store local0 arg1\n"
+                "    %3:int* function = access_index arg0 0\n"
+                "    %4:int = load %3\n"
+                "    %6:int = load local0\n"
+                "    %7:int = add %4 %6\n"
+                "    store %3 %7\n"
+                "  }\n"
+                "function int Counter::get(inout Counter this)\n"
+                "  {\n"
+                "    %1:int* function = access_index arg0 0\n"
+                "    %2:int = load %1\n"
+                "    return %2\n"
+                "  }\n"
+                "function int Counter::twice(in int x)\n"
+                "  local0 int x\n"
+                "  {\n"
+                "    store local0 arg0\n"
+                "    %4:int = load local0\n"
+                "    %5:int = multiply 2:int %4\n"
+                "    return %5\n"
+                "  }\n"
+                "function int f()\n"
+                "  local0 Counter c\n"
+                "  {\n"
+                "    %2:int* function = access_index local0 0\n"
+                "    store %2 0:int\n"
+                "    call Counter::add local0 3:int\n"
+                "    %6:int = call Counter::get local0\n"
+                "    %8:int* function = access_index local0 0\n"
+                "    %9:int = load %8\n"
+                "    %10:int = call Counter::twice %9\n"
+                "    %11:int = add %6 %10\n"
+                "    return %11\n"
+                "  }\n");
+    /* Defined outside its struct, and called on an object that is no local. */
+    expect_form("struct Light { float r; float area(); };\n"
+                "float Light::area() { return r * r; }\n"
+                "static Light sun;\n"
+                "float f(Light l) { return l.area() + sun.area(); }",
+                "struct Light { float r }\n"
+                "global0 private Light sun\n"
+                "function float Light::area(inout Light this)\n"
+                "  {\n"
+                "    %1:float* function = access_index arg0 0\n"
+                "    %2:float = load %1\n"
+                "    %4:float* function = access_index arg0 0\n"
+                "    %5:float = load %4\n"
+                "    %6:float = multiply %2 %5\n"
+                "    return %6\n"
+                "  }\n"
+                "function float f(in Light l)\n"
+                "  local0 Light l\n"
+                "  local1 Light temporary\n"
+                "  {\n"
+                "    store local0 arg0\n"
+                "    %3:float = call Light::area local0\n"
+                "    %6:Light = load global0\n"
+                "    store local1 %6\n"
+                "    %9:float = call Light::area local1\n"
+                "    %11:Light = load local1\n"
+                "    store global0 %11\n"
+                "    %13:float = add %3 %9\n"
+                "    return %13\n"
+                "  }\n");
+}
+
+TB_TEST(shader_form, static_variables_get_their_first_values_from_the_initializer)
+{
+    expect_form("static float g = 1; static const float3 axis = float3(0, 0, 1);\n"
+                "float f() { static int count = 2; count++; return g + axis.z + count; }",
+                "global0 private float g\n"
+                "global1 private float3 axis\n"
+                "global2 private int f::count\n"
+                "initializer static initializer\n"
+                "function float f()\n"
+                "  {\n"
+                "    %1:int = load global2\n"
+                "    %3:int = add %1 1:int\n"
+                "    store global2 %3\n"
+                "    %5:float = load global0\n"
+                "    %7:float3 = load global1\n"
+                "    %8:float = swizzle %7 z\n"
+                "    %9:float = add %5 %8\n"
+                "    %11:int = load global2\n"
+                "    %12:float = convert %11\n"
+                "    %13:float = add %9 %12\n"
+                "    return %13\n"
+                "  }\n"
+                "function void static initializer()\n"
+                "  {\n"
+                "    store global0 1.0:float\n"
+                "    %5:float3 = compose 0.0:float 0.0:float 1.0:float\n"
+                "    store global1 %5\n"
+                "    store global2 2:int\n"
+                "  }\n");
+}
+
+TB_TEST(shader_form, printf_takes_its_format_as_a_string)
+{
+    expect_form("void f(int x) { printf(\"x is %d\", x); }", "function void f(in int x)\n"
+                                                             "  local0 int x\n"
+                                                             "  {\n"
+                                                             "    store local0 arg0\n"
+                                                             "    %4:int = load local0\n"
+                                                             "    call printf \"x is %d\" %4\n"
+                                                             "  }\n");
+}
+
 TB_TEST(shader_form, what_the_form_does_not_hold_yet_is_reported)
 {
     expect_unsupported("cbuffer Frame { float time; }; float f() { return time; }",
@@ -506,15 +624,6 @@ TB_TEST(shader_form, what_the_form_does_not_hold_yet_is_reported)
     expect_unsupported("Texture2D t; SamplerState s; float4 f(float2 p) { return t.Sample(s, p); }",
                        "calling a method of a resource or another object is not supported by the "
                        "compiler yet");
-    expect_unsupported("struct S { float a; float get() { return a; } }; float f(S s) { return "
-                       "s.get(); }",
-                       "calling a method of a struct is not supported by the compiler yet");
-    expect_unsupported("static float g = 1; float f() { return g; }",
-                       "a static global's initializer is not supported by the compiler yet");
-    expect_unsupported("float f() { static float count; return count; }",
-                       "a static local is not supported by the compiler yet");
-    expect_unsupported("void f(int x) { printf(\"%d\", x); }",
-                       "a string is not supported by the compiler yet");
 }
 
 /* -------------------------------------------------------------------------

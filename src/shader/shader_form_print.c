@@ -128,6 +128,9 @@ static void put_operand(printer *out, uint32_t index)
     case TB_SHADER_FORM_GLOBAL:
         putf(out, "global%u", (unsigned)expression->index);
         return;
+    case TB_SHADER_FORM_STRING_LITERAL:
+        putf(out, "\"%s\"", tb_shader_form_string_at(out->form, expression->index));
+        return;
     case TB_SHADER_FORM_LOAD:
     case TB_SHADER_FORM_ACCESS:
     case TB_SHADER_FORM_ACCESS_INDEX:
@@ -239,6 +242,7 @@ static void put_computation(printer *out, const tb_shader_form_expression *expre
     case TB_SHADER_FORM_LOCAL:
     case TB_SHADER_FORM_GLOBAL:
     case TB_SHADER_FORM_CALL_RESULT:
+    case TB_SHADER_FORM_STRING_LITERAL:
         put_operand(out, (uint32_t)(expression - TB_ARRAY_DATA(out->function->expressions,
                                                                tb_shader_form_expression)));
         return;
@@ -484,6 +488,10 @@ const char *tb_shader_form_print(const tb_shader_form *form, tb_arena *arena)
             TB_ARRAY_AT(form->globals, tb_shader_form_global, index);
         putf(&out, "global%u %s %s %s\n", (unsigned)index, space_name(global->space),
              type_name(&out, global->type), global->name);
+    }
+    if (form->initializer != TB_SHADER_FORM_NONE)
+    {
+        putf(&out, "initializer %s\n", tb_shader_form_function_at(form, form->initializer)->name);
     }
     const size_t function_count = tb_shader_form_function_count(form);
     for (size_t index = 0; index < function_count; index++)
