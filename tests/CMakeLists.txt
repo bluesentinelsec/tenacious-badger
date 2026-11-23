@@ -147,7 +147,8 @@ set(TB_INTERNAL_TEST_CASE_SOURCES
     core/math_kernels_test.c
     core/reserved_arena_failure_test.c
     codec/crc32_table_test.c
-    jobs/deque_test.c)
+    jobs/deque_test.c
+    shader/shader_parse_test.c)
 set(TB_ENGINE_SOURCES ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES} ${TB_JOBS_SOURCES}
     ${TB_CODEC_SOURCES} ${TB_SERIALIZE_SOURCES} ${TB_VFS_SOURCES} ${TB_SETTINGS_SOURCES}
     ${TB_WINDOW_SOURCES} ${TB_GAME_SOURCES} ${TB_SHADER_SOURCES})
