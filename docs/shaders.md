@@ -381,10 +381,17 @@ shader's `triangle`, a mesh shader's `vertices`). A geometry shader's stream
 is a handle its methods change, given as a pointer; a tessellation shader's
 patch is a handle indexed as a buffer is.
 
+`tb_shader_form_extract()` copies the part of a form one entry point runs
+into a form of its own: the functions it calls, directly or not, the globals
+they use, and the initializer when it sets one of those globals. Reflection
+describes that form and each backend writes it, so a resource an entry point
+does not use is neither bound nor reported, as in DXC. A function that calls
+itself, directly or through others, is an error, as HLSL allows no
+recursion.
+
 **Not yet.** Arrays of constant buffers, and a base struct's method called on
 a derived struct, are not lowered yet. An attribute's argument must be a
-literal or a name, not an expression such as `4 * 2`. Next, each entry point
-takes only what it reaches, which reflection describes. Then each entry point takes only what it reaches, which
+literal or a name, not an expression such as `4 * 2`. Reflection comes next. Then each entry point takes only what it reaches, which
 reflection describes.
 
 ## Diagnostics

@@ -20,15 +20,21 @@
  * Diagnostics.
  * ------------------------------------------------------------------------- */
 
-void tb_shader_lower_unsupported(tb_shader_lowerer *lowerer, tb_shader_location location,
-                                 const char *what)
+void tb_shader_lower_error(tb_shader_lowerer *lowerer, tb_shader_location location,
+                           const char *message)
 {
-    const char *const message =
-        tb_fmt_string(&lowerer->allocator, "%s is not supported by the compiler yet", what);
     const tb_shader_diagnostic diagnostic = {TB_SHADER_ERROR, lowerer->files[location.file],
                                              location.line, location.column, message};
     (void)tb_array_push(lowerer->diagnostics, &diagnostic);
     lowerer->error_count++;
+}
+
+void tb_shader_lower_unsupported(tb_shader_lowerer *lowerer, tb_shader_location location,
+                                 const char *what)
+{
+    tb_shader_lower_error(
+        lowerer, location,
+        tb_fmt_string(&lowerer->allocator, "%s is not supported by the compiler yet", what));
 }
 
 /* -------------------------------------------------------------------------
@@ -835,6 +841,7 @@ static void declare_function(tb_shader_lowerer *lowerer, tb_shader_node *node)
     const uint32_t index =
         tb_shader_form_add_function(lowerer->form, function_name(lowerer, node->symbol), result);
     tb_shader_form_function *const function = tb_shader_form_function_at(lowerer->form, index);
+    (void)tb_array_push(lowerer->function_locations, &node->location);
     if (tb_shader_lower_takes_this(node->symbol))
     {
         tb_shader_form_parameter self = {0};
@@ -1183,6 +1190,88 @@ static void lower_declarations(tb_shader_lowerer *lowerer, tb_shader_node *first
     }
 }
 
+/* -------------------------------------------------------------------------
+ * Recursion, which HLSL does not allow.
+ * ------------------------------------------------------------------------- */
+
+typedef struct visit
+{
+    uint32_t function;
+    uint32_t next_statement;
+} visit;
+
+/* The function the next call of a function's at or after `*at` calls, or
+ * NONE when no call is left. */
+static uint32_t next_callee(const tb_shader_form_function *function, uint32_t *at)
+{
+    const size_t count = tb_shader_form_statement_count(function);
+    while (*at < count)
+    {
+        const tb_shader_form_statement *const statement =
+            tb_shader_form_statement_at(function, (*at)++);
+        if (statement->kind == TB_SHADER_FORM_CALL && statement->function != TB_SHADER_FORM_NONE)
+        {
+            return statement->function;
+        }
+    }
+    return TB_SHADER_FORM_NONE;
+}
+
+/* Walk the calls from each function, depth first; a call of a function
+ * still being walked is recursion, reported once, where that function is
+ * declared. */
+static void report_recursion(tb_shader_lowerer *lowerer)
+{
+    enum
+    {
+        UNSEEN,
+        WALKING,
+        DONE
+    };
+    const size_t count = tb_shader_form_function_count(lowerer->form);
+    uint8_t *const states = TB_ARENA_NEW_ARRAY(lowerer->arena, uint8_t, count + 1);
+    bool *const reported = TB_ARENA_NEW_ARRAY(lowerer->arena, bool, count + 1);
+    visit *const stack = TB_ARENA_NEW_ARRAY(lowerer->arena, visit, count + 1);
+    for (size_t root = 0; root < count; root++)
+    {
+        if (states[root] != UNSEEN)
+        {
+            continue;
+        }
+        size_t depth = 0;
+        stack[depth++] = (visit){(uint32_t)root, 0};
+        states[root] = WALKING;
+        while (depth > 0)
+        {
+            visit *const top = &stack[depth - 1];
+            const uint32_t callee = next_callee(
+                tb_shader_form_function_at(lowerer->form, top->function), &top->next_statement);
+            if (callee == TB_SHADER_FORM_NONE)
+            {
+                states[top->function] = DONE;
+                depth--;
+                continue;
+            }
+            if (states[callee] == WALKING && !reported[callee] &&
+                callee < tb_array_length(lowerer->function_locations))
+            {
+                reported[callee] = true;
+                tb_shader_lower_error(
+                    lowerer, *TB_ARRAY_AT(lowerer->function_locations, tb_shader_location, callee),
+                    tb_fmt_string(&lowerer->allocator,
+                                  "'%s' calls itself, directly or through other functions, "
+                                  "which HLSL does not allow",
+                                  tb_shader_form_function_at(lowerer->form, callee)->name));
+            }
+            if (states[callee] == UNSEEN)
+            {
+                states[callee] = WALKING;
+                stack[depth++] = (visit){callee, 0};
+            }
+        }
+    }
+}
+
 tb_shader_result tb_shader_lower(const tb_shader_syntax *syntax, const tb_shader_checked *checked,
                                  tb_arena *arena, tb_shader_form *form, tb_shader_lowered *lowered)
 {
@@ -1205,10 +1294,12 @@ tb_shader_result tb_shader_lower(const tb_shader_syntax *syntax, const tb_shader
     lowerer.statics = TB_ARRAY_CREATE(&lowerer.allocator, tb_shader_static_value);
     lowerer.members = new_map(&lowerer);
     lowerer.loose = TB_ARRAY_CREATE(&lowerer.allocator, tb_shader_node *);
+    lowerer.function_locations = TB_ARRAY_CREATE(&lowerer.allocator, tb_shader_location);
     lower_declarations(&lowerer, syntax->declarations, false);
     declare_loose_uniforms(&lowerer);
     lower_declarations(&lowerer, syntax->declarations, true);
     lower_initializer_function(&lowerer);
+    report_recursion(&lowerer);
     lowered->diagnostics = tb_array_data(lowerer.diagnostics);
     lowered->diagnostic_count = tb_array_length(lowerer.diagnostics);
     lowered->error_count = lowerer.error_count;

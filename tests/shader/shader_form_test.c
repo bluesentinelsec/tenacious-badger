@@ -913,6 +913,124 @@ TB_TEST(shader_form, geometry_streams_and_tessellation_patches)
         "  }\n");
 }
 
+/* A source whose lowering reports `expected` first. */
+static void expect_lowering_error(const char *source, const char *expected)
+{
+    lowered_source out = {0};
+    lower_source(&out, source);
+    TB_TEST_CONTEXT("source: %s", source);
+    TB_TEST_EXPECT_UINT(out.result, ==, TB_SHADER_FAILED);
+    TB_TEST_REQUIRE_UINT(out.lowered.diagnostic_count, >, 0);
+    TB_TEST_EXPECT_STRING(out.lowered.diagnostics[0].message, ==, expected);
+    tb_arena_destroy(out.arena);
+}
+
+TB_TEST(shader_form, recursion_is_an_error)
+{
+    expect_lowering_error("int f(int n) { return n <= 0 ? 0 : f(n - 1); }",
+                          "'f' calls itself, directly or through other functions, which HLSL "
+                          "does not allow");
+    expect_lowering_error(
+        "int g(int n); int f(int n) { return g(n); } int g(int n) { return f(n); }",
+        "'f' calls itself, directly or through other functions, which HLSL "
+        "does not allow");
+}
+
+/* The form of each entry point of a source, extracted, verified and
+ * printed one after the other. */
+static void expect_extracted(const char *source, const char *expected)
+{
+    lowered_source out = {0};
+    lower_source(&out, source);
+    TB_TEST_CONTEXT("source: %s", source);
+    TB_TEST_EXPECT_UINT(out.result, ==, TB_SHADER_OK);
+    tb_array *const text = TB_ARRAY_CREATE(NULL, char);
+    const size_t count = tb_array_length(out.form.entry_points);
+    for (size_t index = 0; index < count; index++)
+    {
+        tb_shader_form entry = {0};
+        TB_TEST_REQUIRE_UINT(tb_shader_form_extract(&out.form, (uint32_t)index, out.arena, &entry),
+                             ==, true);
+        char why[256] = {0};
+        TB_TEST_CONTEXT("verifier: %s", why);
+        TB_TEST_EXPECT_UINT(tb_shader_form_verify(&entry, why, sizeof(why)), ==, true);
+        const char *const printed = tb_shader_form_print(&entry, out.arena);
+        tb_array_append(text, "----\n", 5);
+        tb_array_append(text, printed, tb_str_length(printed));
+    }
+    const char nul = '\0';
+    (void)tb_array_push(text, &nul);
+    TB_TEST_EXPECT_STRING((const char *)tb_array_data(text), ==, expected);
+    tb_shader_form missing = {0};
+    TB_TEST_EXPECT_UINT(tb_shader_form_extract(&out.form, (uint32_t)count, out.arena, &missing), ==,
+                        false);
+    tb_array_destroy(text);
+    tb_arena_destroy(out.arena);
+}
+
+TB_TEST(shader_form, an_entry_point_takes_only_what_it_reaches)
+{
+    /* Each pixel shader keeps its own texture and the sampler; only the
+     * first reaches the static its helper reads, so only it keeps the
+     * initializer that sets it, and neither keeps a static neither uses. */
+    expect_extracted("Texture2D a : register(t0); Texture2D b : register(t1); SamplerState s;\n"
+                     "static float scale = 2; static float unused;\n"
+                     "float4 shade(float2 uv) { return a.Sample(s, uv) * scale; }\n"
+                     "[shader(\"pixel\")] float4 ps_a(float2 uv : TEXCOORD) : SV_Target { "
+                     "return shade(uv); }\n"
+                     "[shader(\"pixel\")] float4 ps_b(float2 uv : TEXCOORD) : SV_Target { "
+                     "unused = 1; return b.Sample(s, uv); }",
+                     "----\n"
+                     "global0 handle Texture2D<float4> a register(t0, space0)\n"
+                     "global1 handle SamplerState s register(s)\n"
+                     "global2 private float scale\n"
+                     "entry pixel ps_a\n"
+                     "initializer static initializer\n"
+                     "function float4 shade(in float2 uv)\n"
+                     "  local0 float2 uv\n"
+                     "  {\n"
+                     "    store local0 arg0\n"
+                     "    %3:Texture2D<float4> = load global0\n"
+                     "    %5:SamplerState = load global1\n"
+                     "    %7:float2 = load local0\n"
+                     "    %8:float4 = method Sample %3 %5 %7\n"
+                     "    %10:float = load global2\n"
+                     "    %11:float4 = splat %10\n"
+                     "    %12:float4 = multiply %8 %11\n"
+                     "    return %12\n"
+                     "  }\n"
+                     "[shader(\"pixel\")]\n"
+                     "function float4 ps_a(in float2 uv : TEXCOORD) : SV_Target\n"
+                     "  local0 float2 uv\n"
+                     "  {\n"
+                     "    store local0 arg0\n"
+                     "    %3:float2 = load local0\n"
+                     "    %4:float4 = call shade %3\n"
+                     "    return %4\n"
+                     "  }\n"
+                     "function void static initializer()\n"
+                     "  {\n"
+                     "    store global2 2.0:float\n"
+                     "  }\n"
+                     "----\n"
+                     "global0 handle Texture2D<float4> b register(t1, space0)\n"
+                     "global1 handle SamplerState s register(s)\n"
+                     "global2 private float unused\n"
+                     "entry pixel ps_b\n"
+                     "[shader(\"pixel\")]\n"
+                     "function float4 ps_b(in float2 uv : TEXCOORD) : SV_Target\n"
+                     "  local0 float2 uv\n"
+                     "  {\n"
+                     "    store local0 arg0\n"
+                     "    store global2 1.0:float\n"
+                     "    %5:Texture2D<float4> = load global0\n"
+                     "    %7:SamplerState = load global1\n"
+                     "    %9:float2 = load local0\n"
+                     "    %10:float4 = method Sample %5 %7 %9\n"
+                     "    return %10\n"
+                     "  }\n");
+}
+
 TB_TEST(shader_form, what_the_form_does_not_hold_yet_is_reported)
 {
     expect_unsupported("[shader(\"teapot\")] void f() {}",
