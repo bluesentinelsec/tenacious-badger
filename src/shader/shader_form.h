@@ -448,6 +448,16 @@ bool tb_shader_form_is_emitted(tb_shader_form_expression_kind kind);
  * debug builds after each pass. */
 bool tb_shader_form_verify(const tb_shader_form *form, char *why, size_t size);
 
+/* Copy into `out`, in `arena`, the part of a form entry point `entry_point`
+ * (an index of the form's entry points) runs: the functions it calls,
+ * directly or not, the globals they use, and the initializer when it sets
+ * one of those globals. Types and strings keep their indices; globals and
+ * functions are numbered anew, in their order in the form. `out` has that
+ * entry point alone. Returns false, with `out` empty, when there is no such
+ * entry point. */
+bool tb_shader_form_extract(const tb_shader_form *form, uint32_t entry_point, tb_arena *arena,
+                            tb_shader_form *out);
+
 /* A form as text, in `arena`, NUL-terminated, for tests and for
  * `badger-shaderc` to show. */
 const char *tb_shader_form_print(const tb_shader_form *form, tb_arena *arena);

@@ -42,6 +42,8 @@ typedef struct tb_shader_lowerer
     tb_table *members;
     /* Loose uniforms, which become the members of `$Globals`, in order. */
     tb_array *loose;
+    /* Where each function of the form is declared, by its index. */
+    tb_array *function_locations;
 
     /* Static variables with a first value, for the form's initializer:
      * tb_shader_static_value, in the order of the source. */
@@ -57,6 +59,8 @@ typedef struct tb_shader_lowerer
 } tb_shader_lowerer;
 
 /* Diagnostics. */
+void tb_shader_lower_error(tb_shader_lowerer *lowerer, tb_shader_location location,
+                           const char *message);
 void tb_shader_lower_unsupported(tb_shader_lowerer *lowerer, tb_shader_location location,
                                  const char *what);
 
