@@ -5,7 +5,10 @@
  * for whichever backend runs them: ahead of time by `badger-shaderc` and at
  * run time by the engine, with the same result. See docs/shaders.md.
  *
- * This header holds the compiler's first step: reading a shader's sources.
+ * This header reads a shader's sources (tb_shader_preprocess()), and
+ * compiles an entry point into its reflection (tb_shader_compile()): what
+ * the stage takes, gives and binds, which a pipeline is built from. Writing
+ * each backend's output comes next.
  *
  * **Virtual shader paths.** Every shader file is named by an absolute
  * virtual path, as in Unreal: `/Engine/Private/DeferredLighting.hlsl`,
@@ -33,9 +36,9 @@
  * `/Engine/Private/Foo.hlsl(12,5): error: unterminated comment`.
  *
  * @par Threading
- * tb_shader_preprocess() is thread-safe when each call has its own arena and
- * the loader is thread-safe, as the VFS loader is. Every other function is
- * thread-safe.
+ * tb_shader_preprocess() and tb_shader_compile() are thread-safe when each
+ * call has its own arena and the loader is thread-safe, as the VFS loader
+ * is. Every other function is thread-safe.
  */
 #ifndef TB_SHADER_H
 #define TB_SHADER_H
@@ -208,6 +211,184 @@ TB_API tb_shader_loader tb_shader_vfs_loader(struct tb_vfs *vfs);
  */
 TB_API size_t tb_shader_diagnostic_format(const tb_shader_diagnostic *diagnostic, char *buffer,
                                           size_t size);
+
+/* -------------------------------------------------------------------------
+ * Compiling and reflection.
+ * ------------------------------------------------------------------------- */
+
+/** @brief The stages a shader runs in, as `[shader("...")]` names them. */
+typedef enum tb_shader_stage
+{
+    TB_SHADER_STAGE_VERTEX,         /**< "vertex" */
+    TB_SHADER_STAGE_PIXEL,          /**< "pixel" */
+    TB_SHADER_STAGE_GEOMETRY,       /**< "geometry" */
+    TB_SHADER_STAGE_HULL,           /**< "hull" */
+    TB_SHADER_STAGE_DOMAIN,         /**< "domain" */
+    TB_SHADER_STAGE_COMPUTE,        /**< "compute" */
+    TB_SHADER_STAGE_AMPLIFICATION,  /**< "amplification" */
+    TB_SHADER_STAGE_MESH,           /**< "mesh" */
+    TB_SHADER_STAGE_RAY_GENERATION, /**< "raygeneration" */
+    TB_SHADER_STAGE_INTERSECTION,   /**< "intersection" */
+    TB_SHADER_STAGE_ANY_HIT,        /**< "anyhit" */
+    TB_SHADER_STAGE_CLOSEST_HIT,    /**< "closesthit" */
+    TB_SHADER_STAGE_MISS,           /**< "miss" */
+    TB_SHADER_STAGE_CALLABLE        /**< "callable" */
+} tb_shader_stage;
+
+/** @brief The component of a value a stage passes in or out, or a resource holds. */
+typedef enum tb_shader_component
+{
+    TB_SHADER_COMPONENT_FLOAT32,
+    TB_SHADER_COMPONENT_INT32,
+    TB_SHADER_COMPONENT_UINT32, /**< A bool's too. */
+    TB_SHADER_COMPONENT_FLOAT16,
+    TB_SHADER_COMPONENT_INT16,
+    TB_SHADER_COMPONENT_UINT16,
+    TB_SHADER_COMPONENT_FLOAT64,
+    TB_SHADER_COMPONENT_INT64,
+    TB_SHADER_COMPONENT_UINT64,
+    TB_SHADER_COMPONENT_MIN16_FLOAT, /**< `min16float`: 16 bits or more. */
+    TB_SHADER_COMPONENT_MIN16_INT,
+    TB_SHADER_COMPONENT_MIN16_UINT
+} tb_shader_component;
+
+/** @brief How a value a pixel shader takes in is interpolated across a primitive. */
+typedef enum tb_shader_interpolation
+{
+    TB_SHADER_INTERPOLATION_NONE,     /**< Not interpolated: an output, or a stage that does not. */
+    TB_SHADER_INTERPOLATION_LINEAR,   /**< Perspective-correct; a float's default. */
+    TB_SHADER_INTERPOLATION_CONSTANT, /**< `nointerpolation`; an integer's and a bool's. */
+    TB_SHADER_INTERPOLATION_NOPERSPECTIVE,
+    TB_SHADER_INTERPOLATION_CENTROID,
+    TB_SHADER_INTERPOLATION_NOPERSPECTIVE_CENTROID,
+    TB_SHADER_INTERPOLATION_SAMPLE,
+    TB_SHADER_INTERPOLATION_NOPERSPECTIVE_SAMPLE
+} tb_shader_interpolation;
+
+/**
+ * @brief One value a stage passes in or out: a semantic and its index.
+ *
+ * A struct passes one element for each member, and an array or a matrix one
+ * for each element or row, its semantic's index counting up from the one
+ * written: `float2 uv[2] : TEXCOORD3` is TEXCOORD 3 and TEXCOORD 4.
+ */
+typedef struct tb_shader_signature_element
+{
+    const char *semantic;    /**< Its name without the index: `TEXCOORD`, `SV_Position`. */
+    unsigned semantic_index; /**< 0 when the name has no digits after it. */
+    tb_shader_component component;
+    unsigned columns; /**< Components, from 1 to 4. */
+    tb_shader_interpolation interpolation;
+} tb_shader_signature_element;
+
+/** @brief What a binding binds, which decides its register class. */
+typedef enum tb_shader_binding_kind
+{
+    TB_SHADER_BINDING_CONSTANT_BUFFER, /**< `b`: a cbuffer, a ConstantBuffer<S>, `$Globals`. */
+    TB_SHADER_BINDING_TEXTURE_BUFFER,  /**< `t`: a tbuffer or a TextureBuffer<S>. */
+    TB_SHADER_BINDING_READ,            /**< `t`: a texture or a buffer that is read. */
+    TB_SHADER_BINDING_READ_WRITE,      /**< `u`: one that is written too. */
+    TB_SHADER_BINDING_SAMPLER          /**< `s` */
+} tb_shader_binding_kind;
+
+/** @brief The shape of a texture or a buffer a binding binds. */
+typedef enum tb_shader_binding_shape
+{
+    TB_SHADER_SHAPE_NONE, /**< A constant buffer or a sampler. */
+    TB_SHADER_SHAPE_BUFFER,
+    TB_SHADER_SHAPE_STRUCTURED_BUFFER,
+    TB_SHADER_SHAPE_BYTE_ADDRESS_BUFFER,
+    TB_SHADER_SHAPE_TEXTURE1D,
+    TB_SHADER_SHAPE_TEXTURE1D_ARRAY,
+    TB_SHADER_SHAPE_TEXTURE2D,
+    TB_SHADER_SHAPE_TEXTURE2D_ARRAY,
+    TB_SHADER_SHAPE_TEXTURE2DMS,
+    TB_SHADER_SHAPE_TEXTURE2DMS_ARRAY,
+    TB_SHADER_SHAPE_TEXTURE3D,
+    TB_SHADER_SHAPE_TEXTURE_CUBE,
+    TB_SHADER_SHAPE_TEXTURE_CUBE_ARRAY,
+    TB_SHADER_SHAPE_ACCELERATION_STRUCTURE,
+    TB_SHADER_SHAPE_FEEDBACK_TEXTURE2D,
+    TB_SHADER_SHAPE_FEEDBACK_TEXTURE2D_ARRAY
+} tb_shader_binding_shape;
+
+/**
+ * @brief A constant buffer, texture, buffer or sampler a stage binds, and
+ * where: in a register class (by its kind), a register and a space.
+ *
+ * Only what the entry point uses is bound, as in DXC. A binding the source
+ * gives no register takes the lowest registers of its class in space 0 that
+ * are free, in the order of the source, `$Globals` first, as DXC assigns them.
+ */
+typedef struct tb_shader_binding
+{
+    const char *name;
+    tb_shader_binding_kind kind;
+    tb_shader_binding_shape shape;
+    unsigned space;
+    unsigned register_index; /**< The first register. */
+    unsigned count; /**< Registers: an array's elements, 1 alone; 0 for an array of no size. */
+    /** A texture's or a typed buffer's element: its component and components; 0 columns for none.
+     */
+    tb_shader_component element;
+    unsigned element_columns;
+} tb_shader_binding;
+
+/** @brief What a stage takes, gives and binds: what a pipeline is built from. */
+typedef struct tb_shader_reflection
+{
+    tb_shader_stage stage;
+    /** `[numthreads(x, y, z)]` of a compute, mesh or amplification shader; zeros otherwise. */
+    unsigned thread_group[3];
+    const tb_shader_signature_element *inputs; /**< In the order of the entry point's parameters. */
+    size_t input_count;
+    const tb_shader_signature_element *outputs; /**< Its result's, then its `out` parameters'. */
+    size_t output_count;
+    const tb_shader_binding *bindings; /**< By kind (`b`, `s`, `t`, `u`), then as assigned. */
+    size_t binding_count;
+} tb_shader_reflection;
+
+/** @brief What to compile: a source, and the function a stage runs from it. */
+typedef struct tb_shader_compile_request
+{
+    tb_shader_preprocess_request source; /**< What to read, as tb_shader_preprocess() reads it. */
+    const char *entry_point;             /**< Required; the function's name, NUL-terminated. */
+    tb_shader_stage stage;
+} tb_shader_compile_request;
+
+/** @brief A compiled shader. Everything in it lives in the caller's arena. */
+typedef struct tb_shader_compiled
+{
+    tb_shader_reflection reflection;         /**< Filled in on OK. */
+    const tb_shader_diagnostic *diagnostics; /**< Errors and warnings, in the order found. */
+    size_t diagnostic_count;                 /**< Entries of `diagnostics`. */
+} tb_shader_compiled;
+
+/**
+ * @brief Compile a shader's entry point for a stage, and describe what it
+ * takes, gives and binds.
+ *
+ * Reads the source as tb_shader_preprocess() does, checks it as DXC does,
+ * and lowers it into the compiler's own form, of which the entry point keeps
+ * only what it reaches. Writing each backend's output comes later; for now
+ * the result is the reflection.
+ * @param request Required.
+ * @param arena Where the output lives, until the arena is reset or destroyed.
+ * @param[out] output Required. On OK, filled in; on FAILED and INVALID, the
+ * diagnostics say why; on NO_MEMORY, zero.
+ * @return OK, INVALID, FAILED or NO_MEMORY.
+ * @par Errors Running out of memory for the compile's own work ends the
+ * process, as allocation does. Only the output's arena reports NO_MEMORY.
+ */
+TB_API tb_shader_result tb_shader_compile(const tb_shader_compile_request *request, tb_arena *arena,
+                                          tb_shader_compiled *output);
+
+/**
+ * @brief Name a stage as `[shader("...")]` does: "pixel", "closesthit".
+ * @param stage Any value; one that is no stage is named "unknown stage".
+ * @return A string with static storage duration; never NULL.
+ */
+TB_API const char *tb_shader_stage_name(tb_shader_stage stage);
 
 /**
  * @brief Name a result, for a log or a message: "failed", "no memory".

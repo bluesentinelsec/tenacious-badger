@@ -9,12 +9,12 @@
 #include "badger/table.h"
 
 /* What a name of the shader's is in the form. */
-typedef enum tb_shader_binding_kind
+typedef enum tb_shader_variable_kind
 {
-    TB_SHADER_BINDING_LOCAL,
-    TB_SHADER_BINDING_GLOBAL,
-    TB_SHADER_BINDING_ARGUMENT /* An `out` or `inout` parameter: a pointer. */
-} tb_shader_binding_kind;
+    TB_SHADER_VARIABLE_LOCAL,
+    TB_SHADER_VARIABLE_GLOBAL,
+    TB_SHADER_VARIABLE_ARGUMENT /* An `out` or `inout` parameter: a pointer. */
+} tb_shader_variable_kind;
 
 /* A static variable and the first value its initializer stores. */
 typedef struct tb_shader_static_value
@@ -71,8 +71,8 @@ void tb_shader_lower_bind(tb_shader_lowerer *lowerer, tb_table *map, const void 
 uint32_t tb_shader_lower_bound(const tb_shader_lowerer *lowerer, const tb_table *map,
                                const void *key);
 /* A binding of a variable: its kind and index. */
-uint32_t tb_shader_lower_binding(tb_shader_binding_kind kind, uint32_t index);
-tb_shader_binding_kind tb_shader_lower_binding_kind(uint32_t binding);
+uint32_t tb_shader_lower_binding(tb_shader_variable_kind kind, uint32_t index);
+tb_shader_variable_kind tb_shader_lower_binding_kind(uint32_t binding);
 uint32_t tb_shader_lower_binding_index(uint32_t binding);
 /* A member of a constant buffer: its global and its member's index. */
 uint32_t tb_shader_lower_member_binding(uint32_t global, uint32_t member);

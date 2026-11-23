@@ -7,6 +7,7 @@ set(TB_SHADER_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_check_declaration.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_check_expression.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_check_statement.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shader_compile.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_condition.c"
         "${CMAKE_CURRENT_SOURCE_DIR}/shader_form.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_form_extract.c"
@@ -23,6 +24,7 @@ set(TB_SHADER_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_parse_statement.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_path.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_preprocessor.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shader_reflect.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_syntax_print.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_types.c"
     CACHE INTERNAL "Shader compiler sources")

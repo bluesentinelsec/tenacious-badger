@@ -81,15 +81,15 @@ uint32_t tb_shader_lower_bound(const tb_shader_lowerer *lowerer, const tb_table 
 #define BINDING_KIND_SHIFT 28
 #define BINDING_INDEX_MASK ((UINT32_C(1) << BINDING_KIND_SHIFT) - 1)
 
-uint32_t tb_shader_lower_binding(tb_shader_binding_kind kind, uint32_t index)
+uint32_t tb_shader_lower_binding(tb_shader_variable_kind kind, uint32_t index)
 {
     TB_ASSERT(index <= BINDING_INDEX_MASK);
     return ((uint32_t)kind << BINDING_KIND_SHIFT) | (index & BINDING_INDEX_MASK);
 }
 
-tb_shader_binding_kind tb_shader_lower_binding_kind(uint32_t binding)
+tb_shader_variable_kind tb_shader_lower_binding_kind(uint32_t binding)
 {
-    return (tb_shader_binding_kind)(binding >> BINDING_KIND_SHIFT);
+    return (tb_shader_variable_kind)(binding >> BINDING_KIND_SHIFT);
 }
 
 uint32_t tb_shader_lower_binding_index(uint32_t binding)
@@ -566,7 +566,7 @@ static void declare_static(tb_shader_lowerer *lowerer, tb_shader_node *node, con
     }
     const uint32_t index = tb_shader_form_add_global(lowerer->form, &global);
     tb_shader_lower_bind(lowerer, lowerer->bindings, symbol,
-                         tb_shader_lower_binding(TB_SHADER_BINDING_GLOBAL, index));
+                         tb_shader_lower_binding(TB_SHADER_VARIABLE_GLOBAL, index));
     if (node->value != NULL)
     {
         const tb_shader_static_value first = {index, node->value, symbol->type};
@@ -596,7 +596,7 @@ static void declare_local(tb_shader_lowerer *lowerer, tb_shader_node *variable)
     const uint32_t local =
         tb_shader_form_add_local(lowerer->function, name_text(lowerer, variable->name), type);
     tb_shader_lower_bind(lowerer, lowerer->bindings, symbol,
-                         tb_shader_lower_binding(TB_SHADER_BINDING_LOCAL, local));
+                         tb_shader_lower_binding(TB_SHADER_VARIABLE_LOCAL, local));
     if (variable->value == NULL)
     {
         return;
@@ -887,13 +887,13 @@ static void bind_parameters(tb_shader_lowerer *lowerer, tb_shader_node *node)
         if (entry->direction != TB_SHADER_FORM_IN)
         {
             tb_shader_lower_bind(lowerer, lowerer->bindings, parameter->symbol,
-                                 tb_shader_lower_binding(TB_SHADER_BINDING_ARGUMENT, index));
+                                 tb_shader_lower_binding(TB_SHADER_VARIABLE_ARGUMENT, index));
             continue;
         }
         const uint32_t local =
             tb_shader_form_add_local(lowerer->function, entry->name, entry->type);
         tb_shader_lower_bind(lowerer, lowerer->bindings, parameter->symbol,
-                             tb_shader_lower_binding(TB_SHADER_BINDING_LOCAL, local));
+                             tb_shader_lower_binding(TB_SHADER_VARIABLE_LOCAL, local));
         tb_shader_lower_store(lowerer, tb_shader_lower_local(lowerer, local),
                               tb_shader_lower_argument(lowerer, index));
     }
@@ -1051,7 +1051,7 @@ static void declare_input(tb_shader_lowerer *lowerer, tb_shader_node *node)
     }
     const uint32_t index = tb_shader_form_add_global(lowerer->form, &global);
     tb_shader_lower_bind(lowerer, lowerer->bindings, symbol,
-                         tb_shader_lower_binding(TB_SHADER_BINDING_GLOBAL, index));
+                         tb_shader_lower_binding(TB_SHADER_VARIABLE_GLOBAL, index));
 }
 
 /* A constant buffer of variables: a uniform global whose type is the
@@ -1154,7 +1154,7 @@ static void declare_global(tb_shader_lowerer *lowerer, tb_shader_node *node)
     }
     const uint32_t index = tb_shader_form_add_global(lowerer->form, &global);
     tb_shader_lower_bind(lowerer, lowerer->bindings, symbol,
-                         tb_shader_lower_binding(TB_SHADER_BINDING_GLOBAL, index));
+                         tb_shader_lower_binding(TB_SHADER_VARIABLE_GLOBAL, index));
 }
 
 /* Declare what the form holds of a list of declarations, namespaces' too;
