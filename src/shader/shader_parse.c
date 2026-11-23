@@ -322,8 +322,9 @@ tb_shader_node *tb_shader_new_node(tb_shader_parser *parser, tb_shader_node_kind
     return node;
 }
 
-tb_shader_type_syntax *tb_shader_new_type_syntax(tb_shader_parser *parser, tb_shader_type_syntax_kind kind,
-                                   tb_shader_location location)
+tb_shader_type_syntax *tb_shader_new_type_syntax(tb_shader_parser *parser,
+                                                 tb_shader_type_syntax_kind kind,
+                                                 tb_shader_location location)
 {
     tb_shader_type_syntax *const type = TB_ARENA_NEW(parser->arena, tb_shader_type_syntax);
     type->kind = kind;

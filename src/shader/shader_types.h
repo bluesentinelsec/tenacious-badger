@@ -121,12 +121,12 @@ typedef enum tb_shader_object
 /* What an object's template arguments are. */
 typedef enum tb_shader_object_template
 {
-    TB_SHADER_TEMPLATE_NONE,          /* `SamplerState` */
-    TB_SHADER_TEMPLATE_ELEMENT,       /* `Texture2D<float4>`, and `Texture2D` is `<float4>` */
-    TB_SHADER_TEMPLATE_STRUCTURE,     /* `StructuredBuffer<T>`: required */
-    TB_SHADER_TEMPLATE_SAMPLES,       /* `Texture2DMS<float4, 4>`: element, and optional samples */
-    TB_SHADER_TEMPLATE_PATCH,         /* `InputPatch<T, 3>`: both required */
-    TB_SHADER_TEMPLATE_FLAGS          /* `RayQuery<flags>`, and optional second flags */
+    TB_SHADER_TEMPLATE_NONE,      /* `SamplerState` */
+    TB_SHADER_TEMPLATE_ELEMENT,   /* `Texture2D<float4>`, and `Texture2D` is `<float4>` */
+    TB_SHADER_TEMPLATE_STRUCTURE, /* `StructuredBuffer<T>`: required */
+    TB_SHADER_TEMPLATE_SAMPLES,   /* `Texture2DMS<float4, 4>`: element, and optional samples */
+    TB_SHADER_TEMPLATE_PATCH,     /* `InputPatch<T, 3>`: both required */
+    TB_SHADER_TEMPLATE_FLAGS      /* `RayQuery<flags>`, and optional second flags */
 } tb_shader_object_template;
 
 /* What is known of a built-in object. */
@@ -135,8 +135,9 @@ typedef struct tb_shader_object_info
     tb_shader_object object;
     const char *name;
     tb_shader_object_template template_kind;
-    bool is_writable;           /* A UAV. */
-    uint32_t index_dimensions;  /* `object[i]` takes this many components; 0 when it cannot be indexed. */
+    bool is_writable; /* A UAV. */
+    uint32_t
+        index_dimensions; /* `object[i]` takes this many components; 0 when it cannot be indexed. */
 } tb_shader_object_info;
 
 /* The built-in object a name declares, or NULL. */
@@ -155,22 +156,22 @@ typedef struct tb_shader_structure
     tb_shader_symbol **fields;
     size_t field_count;
     tb_table *members; /* Fields and methods by name, the base's included. */
-    bool is_complete;         /* Its body has been read. */
+    bool is_complete;  /* Its body has been read. */
 } tb_shader_structure;
 
 struct tb_shader_type
 {
     tb_shader_type_class type_class;
-    tb_shader_scalar scalar;  /* SCALAR, VECTOR, MATRIX; ENUM: its underlying scalar. */
-    uint32_t rows;            /* MATRIX; 1 otherwise. */
-    uint32_t columns;         /* VECTOR: its components; MATRIX; 1 for a scalar. */
+    tb_shader_scalar scalar;       /* SCALAR, VECTOR, MATRIX; ENUM: its underlying scalar. */
+    uint32_t rows;                 /* MATRIX; 1 otherwise. */
+    uint32_t columns;              /* VECTOR: its components; MATRIX; 1 for a scalar. */
     const tb_shader_type *element; /* ARRAY: the element; OBJECT: its template's type, or NULL. */
-    uint32_t length;               /* ARRAY: elements, 0 when unsized; OBJECT: samples, patch size, flags. */
-    uint32_t second_length;        /* OBJECT: RayQuery's second flags. */
-    tb_shader_object object;       /* OBJECT */
-    tb_shader_structure *structure; /* STRUCT */
+    uint32_t length; /* ARRAY: elements, 0 when unsized; OBJECT: samples, patch size, flags. */
+    uint32_t second_length;            /* OBJECT: RayQuery's second flags. */
+    tb_shader_object object;           /* OBJECT */
+    tb_shader_structure *structure;    /* STRUCT */
     const tb_shader_node *enumeration; /* ENUM: its declaration. */
-    const char *name;               /* As DXC writes it: `float4`, `Texture2D<float4>`, `int[4]`. */
+    const char *name; /* As DXC writes it: `float4`, `Texture2D<float4>`, `int[4]`. */
 };
 
 typedef enum tb_shader_symbol_kind
@@ -188,9 +189,9 @@ typedef enum tb_shader_symbol_kind
 typedef enum tb_shader_storage
 {
     TB_SHADER_STORAGE_LOCAL,
-    TB_SHADER_STORAGE_STATIC,      /* `static`, at namespace scope or in a function. */
+    TB_SHADER_STORAGE_STATIC, /* `static`, at namespace scope or in a function. */
     TB_SHADER_STORAGE_GROUPSHARED,
-    TB_SHADER_STORAGE_UNIFORM,     /* A global that is not static: a constant or a resource. */
+    TB_SHADER_STORAGE_UNIFORM, /* A global that is not static: a constant or a resource. */
     TB_SHADER_STORAGE_PARAMETER
 } tb_shader_storage;
 
@@ -198,19 +199,19 @@ typedef enum tb_shader_storage
 struct tb_shader_symbol
 {
     tb_shader_symbol_kind kind;
-    tb_shader_name name; /* Qualified at namespace scope: `Lighting::Falloff`. */
-    const tb_shader_type *type; /* A function's: what it returns. */
+    tb_shader_name name;         /* Qualified at namespace scope: `Lighting::Falloff`. */
+    const tb_shader_type *type;  /* A function's: what it returns. */
     tb_shader_node *declaration; /* NULL for what is built in. */
     uint64_t modifiers;
     tb_shader_storage storage;
     bool is_const;
-    bool has_value;           /* An enumerator, or a constant initialized with a constant. */
+    bool has_value; /* An enumerator, or a constant initialized with a constant. */
     tb_shader_constant value;
-    tb_shader_symbol *next_overload;     /* FUNCTION: the next function of the same name. */
-    const tb_shader_type *owner;         /* FIELD, and a method: its struct. */
-    size_t field_index;                  /* FIELD */
-    tb_shader_node *buffer;              /* VARIABLE: the cbuffer or tbuffer it is in. */
-    bool is_defined;                     /* FUNCTION: has a body. */
+    tb_shader_symbol *next_overload; /* FUNCTION: the next function of the same name. */
+    const tb_shader_type *owner;     /* FIELD, and a method: its struct. */
+    size_t field_index;              /* FIELD */
+    tb_shader_node *buffer;          /* VARIABLE: the cbuffer or tbuffer it is in. */
+    bool is_defined;                 /* FUNCTION: has a body. */
     size_t scope_depth; /* How deep in a function's scopes it was declared; 0 outside. */
 };
 

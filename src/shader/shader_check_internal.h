@@ -34,8 +34,8 @@ typedef struct tb_shader_checker
     /* The function whose body is being checked, and its struct for a method. */
     tb_shader_symbol *function;
     const tb_shader_type *method_owner;
-    size_t loop_depth;   /* Loops open: where `continue` may be. */
-    size_t break_depth;  /* Loops and switches open: where `break` may be. */
+    size_t loop_depth;  /* Loops open: where `continue` may be. */
+    size_t break_depth; /* Loops and switches open: where `break` may be. */
     tb_shader_node *innermost_switch;
 } tb_shader_checker;
 

@@ -84,16 +84,16 @@ static bool expect_arguments(tb_shader_checker *checker, const tb_shader_type_sy
     }
     else if (minimum == maximum)
     {
-        tb_shader_check_error(checker, syntax->location, "'%.*s' takes %zu template argument%s, not %zu",
+        tb_shader_check_error(checker, syntax->location,
+                              "'%.*s' takes %zu template argument%s, not %zu",
                               name_length(syntax->name), syntax->name.text, minimum,
                               minimum == 1 ? "" : "s", syntax->argument_count);
     }
     else
     {
-        tb_shader_check_error(checker, syntax->location,
-                              "'%.*s' takes from %zu to %zu template arguments, not %zu",
-                              name_length(syntax->name), syntax->name.text, minimum, maximum,
-                              syntax->argument_count);
+        tb_shader_check_error(
+            checker, syntax->location, "'%.*s' takes from %zu to %zu template arguments, not %zu",
+            name_length(syntax->name), syntax->name.text, minimum, maximum, syntax->argument_count);
     }
     return false;
 }
@@ -165,7 +165,8 @@ static const tb_shader_type *element_object(tb_shader_checker *checker,
     {
         return tb_shader_error_type(checker->types);
     }
-    const tb_shader_type *element = tb_shader_vector_type(checker->types, TB_SHADER_SCALAR_FLOAT, 4);
+    const tb_shader_type *element =
+        tb_shader_vector_type(checker->types, TB_SHADER_SCALAR_FLOAT, 4);
     if (syntax->argument_count == 1)
     {
         element = argument_type(checker, syntax->arguments, syntax->location);
@@ -185,7 +186,8 @@ static const tb_shader_type *structure_object(tb_shader_checker *checker,
     {
         return tb_shader_error_type(checker->types);
     }
-    const tb_shader_type *const element = argument_type(checker, syntax->arguments, syntax->location);
+    const tb_shader_type *const element =
+        argument_type(checker, syntax->arguments, syntax->location);
     if (element->type_class == TB_SHADER_CLASS_ERROR)
     {
         return element;
@@ -194,8 +196,9 @@ static const tb_shader_type *structure_object(tb_shader_checker *checker,
                               info->object == TB_SHADER_OBJECT_TEXTURE_BUFFER;
     if (needs_struct && element->type_class != TB_SHADER_CLASS_STRUCT)
     {
-        tb_shader_check_error(checker, syntax->location, "the element of '%s' must be a struct, not '%s'",
-                              info->name, element->name);
+        tb_shader_check_error(checker, syntax->location,
+                              "the element of '%s' must be a struct, not '%s'", info->name,
+                              element->name);
         return tb_shader_error_type(checker->types);
     }
     if (tb_shader_flat_count(element) == 0)
@@ -216,7 +219,8 @@ static const tb_shader_type *counted_object(tb_shader_checker *checker,
     {
         return tb_shader_error_type(checker->types);
     }
-    const tb_shader_type *const element = argument_type(checker, syntax->arguments, syntax->location);
+    const tb_shader_type *const element =
+        argument_type(checker, syntax->arguments, syntax->location);
     if (element->type_class == TB_SHADER_CLASS_ERROR)
     {
         return element;
@@ -346,8 +350,8 @@ static const tb_shader_type *named_type(tb_shader_checker *checker,
     {
         return builtin;
     }
-    tb_shader_check_error(checker, syntax->location, "unknown type '%.*s'", name_length(syntax->name),
-                          syntax->name.text);
+    tb_shader_check_error(checker, syntax->location, "unknown type '%.*s'",
+                          name_length(syntax->name), syntax->name.text);
     return tb_shader_error_type(checker->types);
 }
 
@@ -446,7 +450,8 @@ static void check_namespace(tb_shader_checker *checker, tb_shader_node *node)
     tb_shader_symbol *existing = tb_table_get(checker->globals, &qualified);
     if (existing == NULL)
     {
-        existing = tb_shader_check_new_symbol(checker, TB_SHADER_SYMBOL_NAMESPACE, node->name, node);
+        existing =
+            tb_shader_check_new_symbol(checker, TB_SHADER_SYMBOL_NAMESPACE, node->name, node);
         (void)tb_shader_check_declare(checker, existing, node->location);
     }
     else if (existing->kind != TB_SHADER_SYMBOL_NAMESPACE)
@@ -485,8 +490,8 @@ static void check_enumerators(tb_shader_checker *checker, tb_shader_node *node,
         {
             value = next;
         }
-        tb_shader_symbol *const symbol =
-            tb_shader_check_new_symbol(checker, TB_SHADER_SYMBOL_ENUMERATOR, enumerator->name, enumerator);
+        tb_shader_symbol *const symbol = tb_shader_check_new_symbol(
+            checker, TB_SHADER_SYMBOL_ENUMERATOR, enumerator->name, enumerator);
         symbol->type = type;
         symbol->is_const = true;
         symbol->has_value = true;
@@ -605,10 +610,9 @@ static tb_shader_symbol *add_overload(tb_shader_checker *checker, tb_shader_symb
         }
         if (last->type != node->checked)
         {
-            tb_shader_check_error(checker, node->location,
-                                  "'%.*s' is declared again returning '%s', not '%s'",
-                                  name_length(node->name), node->name.text, node->checked->name,
-                                  last->type->name);
+            tb_shader_check_error(
+                checker, node->location, "'%.*s' is declared again returning '%s', not '%s'",
+                name_length(node->name), node->name.text, node->checked->name, last->type->name);
         }
         if (last->is_defined && node->body != NULL)
         {
@@ -761,13 +765,13 @@ static void check_function(tb_shader_checker *checker, tb_shader_node *node)
  * Structs.
  * ------------------------------------------------------------------------- */
 
-static void add_field(tb_shader_checker *checker, tb_shader_structure *structure,
-                      tb_array *fields, tb_shader_symbol *field, tb_shader_location location)
+static void add_field(tb_shader_checker *checker, tb_shader_structure *structure, tb_array *fields,
+                      tb_shader_symbol *field, tb_shader_location location)
 {
     if (tb_table_get(structure->members, &field->name) != NULL)
     {
-        tb_shader_check_error(checker, location, "duplicate member '%.*s'", name_length(field->name),
-                              field->name.text);
+        tb_shader_check_error(checker, location, "duplicate member '%.*s'",
+                              name_length(field->name), field->name.text);
         return;
     }
     field->field_index = tb_array_length(fields);
@@ -800,20 +804,19 @@ static void inherit(tb_shader_checker *checker, tb_shader_node *node, tb_shader_
 static void check_bit_width(tb_shader_checker *checker, tb_shader_node *member,
                             const tb_shader_type *type)
 {
-    const bool is_integer = type->type_class == TB_SHADER_CLASS_SCALAR &&
-                            tb_shader_scalar_is_integer(type->scalar);
+    const bool is_integer =
+        type->type_class == TB_SHADER_CLASS_SCALAR && tb_shader_scalar_is_integer(type->scalar);
     if (!is_integer)
     {
         if (type->type_class != TB_SHADER_CLASS_ERROR)
         {
-            tb_shader_check_error(checker, member->location, "a bit field must be an integer, not '%s'",
-                                  type->name);
+            tb_shader_check_error(checker, member->location,
+                                  "a bit field must be an integer, not '%s'", type->name);
         }
         return;
     }
-    const int64_t bits = type->scalar == TB_SHADER_SCALAR_INT64 || type->scalar == TB_SHADER_SCALAR_UINT64
-                             ? 64
-                             : 32;
+    const int64_t bits =
+        type->scalar == TB_SHADER_SCALAR_INT64 || type->scalar == TB_SHADER_SCALAR_UINT64 ? 64 : 32;
     int64_t width = 0;
     if (tb_shader_check_constant_integer(checker, member->value, &width) &&
         (width < 1 || width > bits))
@@ -835,7 +838,8 @@ static void check_field(tb_shader_checker *checker, tb_shader_type *owner, tb_ar
     field->modifiers = member->modifiers;
     member->symbol = field;
     member->checked = type;
-    if (type->type_class != TB_SHADER_CLASS_ERROR && !check_complete(checker, type, member->location))
+    if (type->type_class != TB_SHADER_CLASS_ERROR &&
+        !check_complete(checker, type, member->location))
     {
         field->type = tb_shader_error_type(checker->types);
     }
@@ -937,7 +941,8 @@ static void check_struct(tb_shader_checker *checker, tb_shader_node *node)
  * Variables and buffers.
  * ------------------------------------------------------------------------- */
 
-static const uint64_t storage_modifiers = TB_SHADER_MODIFIER_STATIC | TB_SHADER_MODIFIER_GROUPSHARED |
+static const uint64_t storage_modifiers = TB_SHADER_MODIFIER_STATIC |
+                                          TB_SHADER_MODIFIER_GROUPSHARED |
                                           TB_SHADER_MODIFIER_UNIFORM | TB_SHADER_MODIFIER_EXTERN;
 
 /* Where a variable lives, from where it is declared and its modifiers. */
@@ -977,7 +982,8 @@ static tb_shader_storage variable_storage(tb_shader_checker *checker, const tb_s
     return is_groupshared ? TB_SHADER_STORAGE_GROUPSHARED : TB_SHADER_STORAGE_UNIFORM;
 }
 
-static void check_variable_in(tb_shader_checker *checker, tb_shader_node *node, tb_shader_node *buffer)
+static void check_variable_in(tb_shader_checker *checker, tb_shader_node *node,
+                              tb_shader_node *buffer)
 {
     const tb_shader_type *type = tb_shader_check_type(checker, node->type);
     tb_shader_symbol *const symbol =
@@ -1093,7 +1099,8 @@ void tb_shader_check_local_declaration(tb_shader_checker *checker, tb_shader_nod
 {
     if (node->kind == TB_SHADER_NODE_FUNCTION)
     {
-        tb_shader_check_error(checker, node->location, "a function cannot be declared in a function");
+        tb_shader_check_error(checker, node->location,
+                              "a function cannot be declared in a function");
         return;
     }
     check_declaration(checker, node);

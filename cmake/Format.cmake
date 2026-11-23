@@ -38,5 +38,14 @@ if(TB_FORMAT_MODE STREQUAL "check" AND Git_FOUND AND EXISTS "${root}/.git")
     endforeach()
 endif()
 
-execute_process(COMMAND "${TB_CLANG_FORMAT}" ${arguments} ${sources}
-    WORKING_DIRECTORY "${root}" COMMAND_ERROR_IS_FATAL ANY)
+# Windows limits a command line to 32767 characters, which the project's paths
+# together exceed, so clang-format is given the files in batches.
+set(batch_size 50)
+list(LENGTH sources count)
+set(start 0)
+while(start LESS count)
+    list(SUBLIST sources ${start} ${batch_size} batch)
+    execute_process(COMMAND "${TB_CLANG_FORMAT}" ${arguments} ${batch}
+        WORKING_DIRECTORY "${root}" COMMAND_ERROR_IS_FATAL ANY)
+    math(EXPR start "${start} + ${batch_size}")
+endwhile()

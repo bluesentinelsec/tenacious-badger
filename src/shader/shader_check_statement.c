@@ -288,8 +288,9 @@ static bool contains_break(const tb_shader_node *node)
         return true;
     }
     /* A break in an inner loop or switch leaves that one. */
-    const bool opens_breakable = node->kind == TB_SHADER_NODE_FOR || node->kind == TB_SHADER_NODE_WHILE ||
-                                 node->kind == TB_SHADER_NODE_DO || node->kind == TB_SHADER_NODE_SWITCH;
+    const bool opens_breakable =
+        node->kind == TB_SHADER_NODE_FOR || node->kind == TB_SHADER_NODE_WHILE ||
+        node->kind == TB_SHADER_NODE_DO || node->kind == TB_SHADER_NODE_SWITCH;
     if (opens_breakable)
     {
         return false;
@@ -314,8 +315,9 @@ static bool contains_break(const tb_shader_node *node)
 static bool is_endless(const tb_shader_node *node)
 {
     const tb_shader_node *const condition = node->condition;
-    const bool forever = condition == NULL || (condition->is_constant && !condition->constant.is_float &&
-                                               condition->constant.bits != 0);
+    const bool forever =
+        condition == NULL ||
+        (condition->is_constant && !condition->constant.is_float && condition->constant.bits != 0);
     return forever && !contains_break(node->body);
 }
 

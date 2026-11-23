@@ -46,9 +46,9 @@ tb_shader_name tb_shader_name_of(const char *text)
 }
 
 static const char *const scalar_names[TB_SHADER_SCALAR_COUNT] = {
-    "bool",       "int",   "uint",  "int16_t", "uint16_t",    "int64_t",      "uint64_t",
-    "min16int",   "min16uint", "min16float", "half", "float", "double", "literal int",
-    "literal float",
+    "bool",    "int",      "uint",     "int16_t",     "uint16_t",
+    "int64_t", "uint64_t", "min16int", "min16uint",   "min16float",
+    "half",    "float",    "double",   "literal int", "literal float",
 };
 
 /* -------------------------------------------------------------------------
@@ -124,8 +124,9 @@ const tb_shader_type *tb_shader_vector_type(tb_shader_types *types, tb_shader_sc
     {
         return tb_table_get(types->interned, &probe);
     }
-    return intern(types, &probe,
-                  tb_fmt_string(&types->allocator, "%s%u", scalar_names[scalar], (unsigned)columns));
+    return intern(
+        types, &probe,
+        tb_fmt_string(&types->allocator, "%s%u", scalar_names[scalar], (unsigned)columns));
 }
 
 const tb_shader_type *tb_shader_matrix_type(tb_shader_types *types, tb_shader_scalar scalar,
@@ -166,16 +167,26 @@ typedef struct scalar_spelling
 
 /* Longest first where one spelling begins another. */
 static const scalar_spelling scalar_spellings[] = {
-    {"min16float", TB_SHADER_SCALAR_MIN16FLOAT}, {"min10float", TB_SHADER_SCALAR_MIN16FLOAT},
-    {"min16uint", TB_SHADER_SCALAR_MIN16UINT},   {"min16int", TB_SHADER_SCALAR_MIN16INT},
-    {"min12int", TB_SHADER_SCALAR_MIN16INT},     {"float16_t", TB_SHADER_SCALAR_HALF},
-    {"float32_t", TB_SHADER_SCALAR_FLOAT},       {"float64_t", TB_SHADER_SCALAR_DOUBLE},
-    {"uint16_t", TB_SHADER_SCALAR_UINT16},       {"uint32_t", TB_SHADER_SCALAR_UINT},
-    {"uint64_t", TB_SHADER_SCALAR_UINT64},       {"int16_t", TB_SHADER_SCALAR_INT16},
-    {"int32_t", TB_SHADER_SCALAR_INT},           {"int64_t", TB_SHADER_SCALAR_INT64},
-    {"double", TB_SHADER_SCALAR_DOUBLE},         {"dword", TB_SHADER_SCALAR_UINT},
-    {"float", TB_SHADER_SCALAR_FLOAT},           {"half", TB_SHADER_SCALAR_HALF},
-    {"bool", TB_SHADER_SCALAR_BOOL},             {"uint", TB_SHADER_SCALAR_UINT},
+    {"min16float", TB_SHADER_SCALAR_MIN16FLOAT},
+    {"min10float", TB_SHADER_SCALAR_MIN16FLOAT},
+    {"min16uint", TB_SHADER_SCALAR_MIN16UINT},
+    {"min16int", TB_SHADER_SCALAR_MIN16INT},
+    {"min12int", TB_SHADER_SCALAR_MIN16INT},
+    {"float16_t", TB_SHADER_SCALAR_HALF},
+    {"float32_t", TB_SHADER_SCALAR_FLOAT},
+    {"float64_t", TB_SHADER_SCALAR_DOUBLE},
+    {"uint16_t", TB_SHADER_SCALAR_UINT16},
+    {"uint32_t", TB_SHADER_SCALAR_UINT},
+    {"uint64_t", TB_SHADER_SCALAR_UINT64},
+    {"int16_t", TB_SHADER_SCALAR_INT16},
+    {"int32_t", TB_SHADER_SCALAR_INT},
+    {"int64_t", TB_SHADER_SCALAR_INT64},
+    {"double", TB_SHADER_SCALAR_DOUBLE},
+    {"dword", TB_SHADER_SCALAR_UINT},
+    {"float", TB_SHADER_SCALAR_FLOAT},
+    {"half", TB_SHADER_SCALAR_HALF},
+    {"bool", TB_SHADER_SCALAR_BOOL},
+    {"uint", TB_SHADER_SCALAR_UINT},
     {"int", TB_SHADER_SCALAR_INT},
 };
 
@@ -249,13 +260,16 @@ static const tb_shader_object_info objects[] = {
     {TB_SHADER_OBJECT_SAMPLER, "sampler2D", TB_SHADER_TEMPLATE_NONE, false, 0},
     {TB_SHADER_OBJECT_SAMPLER, "sampler3D", TB_SHADER_TEMPLATE_NONE, false, 0},
     {TB_SHADER_OBJECT_SAMPLER, "samplerCUBE", TB_SHADER_TEMPLATE_NONE, false, 0},
-    {TB_SHADER_OBJECT_SAMPLER_COMPARISON, "SamplerComparisonState", TB_SHADER_TEMPLATE_NONE, false, 0},
+    {TB_SHADER_OBJECT_SAMPLER_COMPARISON, "SamplerComparisonState", TB_SHADER_TEMPLATE_NONE, false,
+     0},
     {TB_SHADER_OBJECT_TEXTURE, "texture", TB_SHADER_TEMPLATE_NONE, false, 0},
     {TB_SHADER_OBJECT_BUFFER, "Buffer", TB_SHADER_TEMPLATE_ELEMENT, false, 1},
     {TB_SHADER_OBJECT_RW_BUFFER, "RWBuffer", TB_SHADER_TEMPLATE_ELEMENT, true, 1},
     {TB_SHADER_OBJECT_RO_BUFFER, "RasterizerOrderedBuffer", TB_SHADER_TEMPLATE_ELEMENT, true, 1},
-    {TB_SHADER_OBJECT_STRUCTURED_BUFFER, "StructuredBuffer", TB_SHADER_TEMPLATE_STRUCTURE, false, 1},
-    {TB_SHADER_OBJECT_RW_STRUCTURED_BUFFER, "RWStructuredBuffer", TB_SHADER_TEMPLATE_STRUCTURE, true, 1},
+    {TB_SHADER_OBJECT_STRUCTURED_BUFFER, "StructuredBuffer", TB_SHADER_TEMPLATE_STRUCTURE, false,
+     1},
+    {TB_SHADER_OBJECT_RW_STRUCTURED_BUFFER, "RWStructuredBuffer", TB_SHADER_TEMPLATE_STRUCTURE,
+     true, 1},
     {TB_SHADER_OBJECT_RO_STRUCTURED_BUFFER, "RasterizerOrderedStructuredBuffer",
      TB_SHADER_TEMPLATE_STRUCTURE, true, 1},
     {TB_SHADER_OBJECT_APPEND_STRUCTURED_BUFFER, "AppendStructuredBuffer",
@@ -263,7 +277,8 @@ static const tb_shader_object_info objects[] = {
     {TB_SHADER_OBJECT_CONSUME_STRUCTURED_BUFFER, "ConsumeStructuredBuffer",
      TB_SHADER_TEMPLATE_STRUCTURE, true, 0},
     {TB_SHADER_OBJECT_BYTE_ADDRESS_BUFFER, "ByteAddressBuffer", TB_SHADER_TEMPLATE_NONE, false, 0},
-    {TB_SHADER_OBJECT_RW_BYTE_ADDRESS_BUFFER, "RWByteAddressBuffer", TB_SHADER_TEMPLATE_NONE, true, 0},
+    {TB_SHADER_OBJECT_RW_BYTE_ADDRESS_BUFFER, "RWByteAddressBuffer", TB_SHADER_TEMPLATE_NONE, true,
+     0},
     {TB_SHADER_OBJECT_RO_BYTE_ADDRESS_BUFFER, "RasterizerOrderedByteAddressBuffer",
      TB_SHADER_TEMPLATE_NONE, true, 0},
     {TB_SHADER_OBJECT_TEXTURE1D, "Texture1D", TB_SHADER_TEMPLATE_ELEMENT, false, 1},
@@ -280,15 +295,19 @@ static const tb_shader_object_info objects[] = {
     {TB_SHADER_OBJECT_RW_TEXTURE2D, "RWTexture2D", TB_SHADER_TEMPLATE_ELEMENT, true, 2},
     {TB_SHADER_OBJECT_RW_TEXTURE2D_ARRAY, "RWTexture2DArray", TB_SHADER_TEMPLATE_ELEMENT, true, 3},
     {TB_SHADER_OBJECT_RW_TEXTURE2DMS, "RWTexture2DMS", TB_SHADER_TEMPLATE_SAMPLES, true, 0},
-    {TB_SHADER_OBJECT_RW_TEXTURE2DMS_ARRAY, "RWTexture2DMSArray", TB_SHADER_TEMPLATE_SAMPLES, true, 0},
+    {TB_SHADER_OBJECT_RW_TEXTURE2DMS_ARRAY, "RWTexture2DMSArray", TB_SHADER_TEMPLATE_SAMPLES, true,
+     0},
     {TB_SHADER_OBJECT_RW_TEXTURE3D, "RWTexture3D", TB_SHADER_TEMPLATE_ELEMENT, true, 3},
-    {TB_SHADER_OBJECT_RO_TEXTURE1D, "RasterizerOrderedTexture1D", TB_SHADER_TEMPLATE_ELEMENT, true, 1},
+    {TB_SHADER_OBJECT_RO_TEXTURE1D, "RasterizerOrderedTexture1D", TB_SHADER_TEMPLATE_ELEMENT, true,
+     1},
     {TB_SHADER_OBJECT_RO_TEXTURE1D_ARRAY, "RasterizerOrderedTexture1DArray",
      TB_SHADER_TEMPLATE_ELEMENT, true, 2},
-    {TB_SHADER_OBJECT_RO_TEXTURE2D, "RasterizerOrderedTexture2D", TB_SHADER_TEMPLATE_ELEMENT, true, 2},
+    {TB_SHADER_OBJECT_RO_TEXTURE2D, "RasterizerOrderedTexture2D", TB_SHADER_TEMPLATE_ELEMENT, true,
+     2},
     {TB_SHADER_OBJECT_RO_TEXTURE2D_ARRAY, "RasterizerOrderedTexture2DArray",
      TB_SHADER_TEMPLATE_ELEMENT, true, 3},
-    {TB_SHADER_OBJECT_RO_TEXTURE3D, "RasterizerOrderedTexture3D", TB_SHADER_TEMPLATE_ELEMENT, true, 3},
+    {TB_SHADER_OBJECT_RO_TEXTURE3D, "RasterizerOrderedTexture3D", TB_SHADER_TEMPLATE_ELEMENT, true,
+     3},
     {TB_SHADER_OBJECT_FEEDBACK_TEXTURE2D, "FeedbackTexture2D", TB_SHADER_TEMPLATE_ELEMENT, true, 0},
     {TB_SHADER_OBJECT_FEEDBACK_TEXTURE2D_ARRAY, "FeedbackTexture2DArray",
      TB_SHADER_TEMPLATE_ELEMENT, true, 0},
@@ -304,8 +323,10 @@ static const tb_shader_object_info objects[] = {
     {TB_SHADER_OBJECT_LINE_STREAM, "LineStream", TB_SHADER_TEMPLATE_STRUCTURE, false, 0},
     {TB_SHADER_OBJECT_TRIANGLE_STREAM, "TriangleStream", TB_SHADER_TEMPLATE_STRUCTURE, false, 0},
     {TB_SHADER_OBJECT_STATE_OBJECT_CONFIG, "StateObjectConfig", TB_SHADER_TEMPLATE_NONE, false, 0},
-    {TB_SHADER_OBJECT_GLOBAL_ROOT_SIGNATURE, "GlobalRootSignature", TB_SHADER_TEMPLATE_NONE, false, 0},
-    {TB_SHADER_OBJECT_LOCAL_ROOT_SIGNATURE, "LocalRootSignature", TB_SHADER_TEMPLATE_NONE, false, 0},
+    {TB_SHADER_OBJECT_GLOBAL_ROOT_SIGNATURE, "GlobalRootSignature", TB_SHADER_TEMPLATE_NONE, false,
+     0},
+    {TB_SHADER_OBJECT_LOCAL_ROOT_SIGNATURE, "LocalRootSignature", TB_SHADER_TEMPLATE_NONE, false,
+     0},
     {TB_SHADER_OBJECT_SUBOBJECT_TO_EXPORTS_ASSOCIATION, "SubobjectToExportsAssociation",
      TB_SHADER_TEMPLATE_NONE, false, 0},
     {TB_SHADER_OBJECT_RAYTRACING_SHADER_CONFIG, "RaytracingShaderConfig", TB_SHADER_TEMPLATE_NONE,
@@ -323,8 +344,8 @@ const tb_shader_object_info *tb_shader_find_object(tb_shader_name name)
 {
     for (size_t index = 0; index < COUNT_OF(objects); index++)
     {
-        if (tb_shader_name_equal(&name, &(tb_shader_name){objects[index].name,
-                                                          tb_str_length(objects[index].name)}))
+        if (tb_shader_name_equal(
+                &name, &(tb_shader_name){objects[index].name, tb_str_length(objects[index].name)}))
         {
             return &objects[index];
         }
@@ -348,6 +369,10 @@ const tb_shader_object_info *tb_shader_object_info_of(tb_shader_object object)
 static const char *object_name(tb_shader_types *types, const tb_shader_type *probe)
 {
     const tb_shader_object_info *const info = tb_shader_object_info_of(probe->object);
+    if (info == NULL)
+    {
+        return "(object)";
+    }
     switch (info->template_kind)
     {
     case TB_SHADER_TEMPLATE_NONE:
@@ -400,9 +425,9 @@ tb_shader_type *tb_shader_struct_type(tb_shader_types *types, tb_shader_name nam
     type->rows = 1;
     type->columns = 1;
     type->structure = structure;
-    type->name = name.length == 0 ? "(anonymous struct)"
-                                  : tb_fmt_string(&types->allocator, "%.*s", (int)name.length,
-                                                  name.text);
+    type->name = name.length == 0
+                     ? "(anonymous struct)"
+                     : tb_fmt_string(&types->allocator, "%.*s", (int)name.length, name.text);
     structure->declaration = declaration;
     structure->name = name;
     structure->members =
@@ -419,9 +444,9 @@ tb_shader_type *tb_shader_enum_type(tb_shader_types *types, tb_shader_name name,
     type->rows = 1;
     type->columns = 1;
     type->enumeration = declaration;
-    type->name = name.length == 0 ? "(anonymous enum)"
-                                  : tb_fmt_string(&types->allocator, "%.*s", (int)name.length,
-                                                  name.text);
+    type->name = name.length == 0
+                     ? "(anonymous enum)"
+                     : tb_fmt_string(&types->allocator, "%.*s", (int)name.length, name.text);
     return type;
 }
 
@@ -560,8 +585,8 @@ bool tb_shader_scalar_is_literal(tb_shader_scalar scalar)
 
 bool tb_shader_type_is_numeric(const tb_shader_type *type)
 {
-    return type->type_class == TB_SHADER_CLASS_SCALAR || type->type_class == TB_SHADER_CLASS_VECTOR ||
-           type->type_class == TB_SHADER_CLASS_MATRIX;
+    return type->type_class == TB_SHADER_CLASS_SCALAR ||
+           type->type_class == TB_SHADER_CLASS_VECTOR || type->type_class == TB_SHADER_CLASS_MATRIX;
 }
 
 uint32_t tb_shader_component_count(const tb_shader_type *type)
@@ -578,8 +603,7 @@ uint32_t tb_shader_flat_count(const tb_shader_type *type)
     case TB_SHADER_CLASS_MATRIX:
     case TB_SHADER_CLASS_ENUM:
         return tb_shader_component_count(type);
-    case TB_SHADER_CLASS_ARRAY:
-    {
+    case TB_SHADER_CLASS_ARRAY: {
         const uint32_t element = tb_shader_flat_count(type->element);
         if (element == 0 || type->length == 0 || element > UINT32_MAX / type->length)
         {
@@ -587,8 +611,7 @@ uint32_t tb_shader_flat_count(const tb_shader_type *type)
         }
         return element * type->length;
     }
-    case TB_SHADER_CLASS_STRUCT:
-    {
+    case TB_SHADER_CLASS_STRUCT: {
         uint32_t total = 0;
         const tb_shader_structure *const structure = type->structure;
         for (size_t index = 0; index < structure->field_count; index++)
@@ -629,13 +652,20 @@ tb_shader_scalar tb_shader_concrete_scalar(tb_shader_scalar scalar)
 static int scalar_rank(tb_shader_scalar scalar)
 {
     static const int ranks[TB_SHADER_SCALAR_COUNT] = {
-        [TB_SHADER_SCALAR_BOOL] = 0,       [TB_SHADER_SCALAR_LITERAL_INT] = 1,
-        [TB_SHADER_SCALAR_MIN16INT] = 2,   [TB_SHADER_SCALAR_MIN16UINT] = 3,
-        [TB_SHADER_SCALAR_INT16] = 4,      [TB_SHADER_SCALAR_UINT16] = 5,
-        [TB_SHADER_SCALAR_INT] = 6,        [TB_SHADER_SCALAR_UINT] = 7,
-        [TB_SHADER_SCALAR_INT64] = 8,      [TB_SHADER_SCALAR_UINT64] = 9,
-        [TB_SHADER_SCALAR_LITERAL_FLOAT] = 10, [TB_SHADER_SCALAR_MIN16FLOAT] = 11,
-        [TB_SHADER_SCALAR_HALF] = 12,      [TB_SHADER_SCALAR_FLOAT] = 13,
+        [TB_SHADER_SCALAR_BOOL] = 0,
+        [TB_SHADER_SCALAR_LITERAL_INT] = 1,
+        [TB_SHADER_SCALAR_MIN16INT] = 2,
+        [TB_SHADER_SCALAR_MIN16UINT] = 3,
+        [TB_SHADER_SCALAR_INT16] = 4,
+        [TB_SHADER_SCALAR_UINT16] = 5,
+        [TB_SHADER_SCALAR_INT] = 6,
+        [TB_SHADER_SCALAR_UINT] = 7,
+        [TB_SHADER_SCALAR_INT64] = 8,
+        [TB_SHADER_SCALAR_UINT64] = 9,
+        [TB_SHADER_SCALAR_LITERAL_FLOAT] = 10,
+        [TB_SHADER_SCALAR_MIN16FLOAT] = 11,
+        [TB_SHADER_SCALAR_HALF] = 12,
+        [TB_SHADER_SCALAR_FLOAT] = 13,
         [TB_SHADER_SCALAR_DOUBLE] = 14,
     };
     return ranks[scalar];

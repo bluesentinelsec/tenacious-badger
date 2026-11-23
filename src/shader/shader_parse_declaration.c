@@ -329,7 +329,8 @@ static tb_shader_node *parse_struct_body(tb_shader_parser *parser, tb_shader_nod
 static tb_shader_node *parse_enum_body(tb_shader_parser *parser, tb_shader_node *node);
 
 /* `struct`, `class`, `interface` or `enum`: a definition, or a reference to one. */
-static tb_shader_type_syntax *parse_tagged_type(tb_shader_parser *parser, tb_shader_node_list *definitions)
+static tb_shader_type_syntax *parse_tagged_type(tb_shader_parser *parser,
+                                                tb_shader_node_list *definitions)
 {
     const tb_shader_token *const keyword = tb_shader_peek(parser);
     const bool is_enum = is_word(keyword, "enum");
@@ -395,7 +396,8 @@ static tb_shader_type_syntax *parse_tagged_type(tb_shader_parser *parser, tb_sha
     return type;
 }
 
-tb_shader_type_syntax *tb_shader_parse_type(tb_shader_parser *parser, tb_shader_node_list *definitions)
+tb_shader_type_syntax *tb_shader_parse_type(tb_shader_parser *parser,
+                                            tb_shader_node_list *definitions)
 {
     const tb_shader_token *const token = tb_shader_peek(parser);
     if (is_word(token, "struct") || is_word(token, "class") || is_word(token, "interface") ||
@@ -426,7 +428,8 @@ tb_shader_type_syntax *tb_shader_parse_type(tb_shader_parser *parser, tb_shader_
         return NULL;
     }
     skip_to(parser, end);
-    tb_shader_type_syntax *const type = tb_shader_new_type_syntax(parser, TB_SHADER_TYPE_SYNTAX_NAMED, token->location);
+    tb_shader_type_syntax *const type =
+        tb_shader_new_type_syntax(parser, TB_SHADER_TYPE_SYNTAX_NAMED, token->location);
     type->name = name;
     if (kind == TB_SHADER_NAME_TEMPLATE_TYPE && tb_shader_accept(parser, "<"))
     {
@@ -437,7 +440,8 @@ tb_shader_type_syntax *tb_shader_parse_type(tb_shader_parser *parser, tb_shader_
 }
 
 /* `[4]`, `[]`, `[2][3]` after a declarator's name, around `element`. */
-static tb_shader_type_syntax *parse_array_dimensions(tb_shader_parser *parser, tb_shader_type_syntax *element)
+static tb_shader_type_syntax *parse_array_dimensions(tb_shader_parser *parser,
+                                                     tb_shader_type_syntax *element)
 {
     tb_shader_type_syntax *outer = element;
     tb_shader_type_syntax **slot = &outer;

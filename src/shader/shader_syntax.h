@@ -121,7 +121,7 @@ struct tb_shader_type_syntax
      * is also a declaration of its own, before the one that names it. */
     tb_shader_node *definition;
     tb_shader_type_syntax *element; /* ARRAY */
-    tb_shader_node *size;    /* ARRAY: the expression, or NULL for `[]`. */
+    tb_shader_node *size;           /* ARRAY: the expression, or NULL for `[]`. */
 };
 
 typedef enum tb_shader_node_kind
@@ -176,7 +176,7 @@ typedef enum tb_shader_node_kind
     TB_SHADER_NODE_INDEX,       /* left, right */
     TB_SHADER_NODE_MEMBER, /* left, name (a member, a method or a swizzle), template_arguments */
     TB_SHADER_NODE_INITIALIZER_LIST, /* children */
-    TB_SHADER_NODE_SIZEOF, /* type, or left */
+    TB_SHADER_NODE_SIZEOF,           /* type, or left */
     /* Made by checking, not by the parser: left converted to `checked`. */
     TB_SHADER_NODE_CONVERT
 } tb_shader_node_kind;

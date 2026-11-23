@@ -87,7 +87,8 @@ static conversion numeric_conversion(const tb_shader_type *from, const tb_shader
     {
         return CONVERSION_ALLOWED;
     }
-    const bool is_shorter_vector = to->type_class == TB_SHADER_CLASS_VECTOR && to_count < from_count;
+    const bool is_shorter_vector =
+        to->type_class == TB_SHADER_CLASS_VECTOR && to_count < from_count;
     return is_shorter_vector ? CONVERSION_TRUNCATES : CONVERSION_NONE;
 }
 
@@ -108,7 +109,8 @@ static conversion classify(tb_shader_checker *checker, const tb_shader_type *fro
         const bool to_enum_ok = to->type_class != TB_SHADER_CLASS_ENUM || is_explicit;
         if (numeric_from && to_enum_ok && tb_shader_component_count(from) == 1)
         {
-            const tb_shader_type *const target = to->type_class == TB_SHADER_CLASS_ENUM ? scalar(checker, to->scalar) : to;
+            const tb_shader_type *const target =
+                to->type_class == TB_SHADER_CLASS_ENUM ? scalar(checker, to->scalar) : to;
             return tb_shader_type_is_numeric(target) ? CONVERSION_ALLOWED : CONVERSION_NONE;
         }
         return CONVERSION_NONE;
@@ -140,7 +142,8 @@ static tb_shader_node *new_node(tb_shader_checker *checker, tb_shader_node_kind 
     return node;
 }
 
-static tb_shader_node *wrap(tb_shader_checker *checker, tb_shader_node *node, const tb_shader_type *type)
+static tb_shader_node *wrap(tb_shader_checker *checker, tb_shader_node *node,
+                            const tb_shader_type *type)
 {
     tb_shader_node *const converted = new_node(checker, TB_SHADER_NODE_CONVERT, node->location);
     converted->left = node;
@@ -155,7 +158,8 @@ static tb_shader_node *wrap(tb_shader_checker *checker, tb_shader_node *node, co
 static void warn_lost_fraction(tb_shader_checker *checker, const tb_shader_node *node,
                                const tb_shader_type *to)
 {
-    const bool to_integer = tb_shader_type_is_numeric(to) && tb_shader_scalar_is_integer(to->scalar);
+    const bool to_integer =
+        tb_shader_type_is_numeric(to) && tb_shader_scalar_is_integer(to->scalar);
     if (!to_integer || !node->is_constant || !node->constant.is_float)
     {
         return;
@@ -165,8 +169,8 @@ static void warn_lost_fraction(tb_shader_checker *checker, const tb_shader_node 
     {
         return;
     }
-    tb_shader_check_warning(checker, node->location, "converting %g to '%s' drops its fraction", value,
-                            to->name);
+    tb_shader_check_warning(checker, node->location, "converting %g to '%s' drops its fraction",
+                            value, to->name);
 }
 
 static tb_shader_node *convert_to(tb_shader_checker *checker, tb_shader_node *node,
@@ -184,8 +188,8 @@ static tb_shader_node *convert_to(tb_shader_checker *checker, tb_shader_node *no
     }
     if (kind == CONVERSION_NONE)
     {
-        tb_shader_check_error(checker, node->location, "cannot convert from '%s' to '%s'", from->name,
-                              type->name);
+        tb_shader_check_error(checker, node->location, "cannot convert from '%s' to '%s'",
+                              from->name, type->name);
         return node;
     }
     if (kind == CONVERSION_TRUNCATES && warn)
@@ -235,7 +239,8 @@ static void check_name(tb_shader_checker *checker, tb_shader_node *node)
     const int length = name_length(node->name);
     if (symbol == NULL)
     {
-        tb_shader_check_error(checker, node->location, "'%.*s' is not declared", length, node->name.text);
+        tb_shader_check_error(checker, node->location, "'%.*s' is not declared", length,
+                              node->name.text);
         return;
     }
     node->symbol = symbol;
@@ -324,7 +329,8 @@ static void check_literal(tb_shader_checker *checker, tb_shader_node *node)
         const tb_shader_scalar component = integer_literal_scalar(node->suffix);
         node->checked = scalar(checker, component);
         node->is_constant = true;
-        node->constant.bits = component == TB_SHADER_SCALAR_UINT ? (uint32_t)node->integer : node->integer;
+        node->constant.bits =
+            component == TB_SHADER_SCALAR_UINT ? (uint32_t)node->integer : node->integer;
         return;
     }
     const tb_shader_scalar component = float_literal_scalar(node->suffix);
@@ -353,7 +359,8 @@ static bool is_one_component(const tb_shader_type *type)
 /* The shape two numeric operands combine to: the larger, when one is a
  * scalar; otherwise the smaller, with a warning that components are dropped. */
 static const tb_shader_type *combined_shape(tb_shader_checker *checker, const tb_shader_type *left,
-                                            const tb_shader_type *right, tb_shader_location location)
+                                            const tb_shader_type *right,
+                                            tb_shader_location location)
 {
     if (is_one_component(left))
     {
@@ -374,7 +381,8 @@ static const tb_shader_type *combined_shape(tb_shader_checker *checker, const tb
     if (rows != left->rows || rows != right->rows || columns != left->columns ||
         columns != right->columns)
     {
-        tb_shader_check_warning(checker, location, "'%s' and '%s' are combined as their first %u components",
+        tb_shader_check_warning(checker, location,
+                                "'%s' and '%s' are combined as their first %u components",
                                 left->name, right->name, (unsigned)(rows * columns));
     }
     if (left->type_class == TB_SHADER_CLASS_MATRIX)
@@ -409,7 +417,8 @@ static const tb_shader_type *operand_type(tb_shader_checker *checker, tb_shader_
 static bool is_comparison(tb_shader_operator op)
 {
     return op == TB_SHADER_OP_LESS || op == TB_SHADER_OP_GREATER || op == TB_SHADER_OP_LESS_EQUAL ||
-           op == TB_SHADER_OP_GREATER_EQUAL || op == TB_SHADER_OP_EQUAL || op == TB_SHADER_OP_NOT_EQUAL;
+           op == TB_SHADER_OP_GREATER_EQUAL || op == TB_SHADER_OP_EQUAL ||
+           op == TB_SHADER_OP_NOT_EQUAL;
 }
 
 static bool is_bitwise(tb_shader_operator op)
@@ -511,14 +520,14 @@ static void check_unary(tb_shader_checker *checker, tb_shader_node *node)
     {
         if (type->scalar == TB_SHADER_SCALAR_BOOL)
         {
-            tb_shader_check_error(checker, node->location, "'%s' cannot be applied to '%s'", spelling,
-                                  type->name);
+            tb_shader_check_error(checker, node->location, "'%s' cannot be applied to '%s'",
+                                  spelling, type->name);
             return;
         }
         if (!node->left->is_assignable)
         {
-            tb_shader_check_error(checker, node->location, "'%s' needs a variable that can be assigned",
-                                  spelling);
+            tb_shader_check_error(checker, node->location,
+                                  "'%s' needs a variable that can be assigned", spelling);
         }
         node->checked = type;
         return;
@@ -532,7 +541,8 @@ static void check_unary(tb_shader_checker *checker, tb_shader_node *node)
     {
         if (!tb_shader_scalar_is_integer(type->scalar))
         {
-            tb_shader_check_error(checker, node->location, "'~' takes integers, not '%s'", type->name);
+            tb_shader_check_error(checker, node->location, "'~' takes integers, not '%s'",
+                                  type->name);
             return;
         }
         node->checked = type;
@@ -556,7 +566,8 @@ static void explain_unassignable(tb_shader_checker *checker, const tb_shader_nod
     const tb_shader_node *root = target;
     while (root->kind == TB_SHADER_NODE_MEMBER || root->kind == TB_SHADER_NODE_INDEX)
     {
-        if (root->kind == TB_SHADER_NODE_MEMBER && root->swizzle_count > 0 && root->left->is_assignable)
+        if (root->kind == TB_SHADER_NODE_MEMBER && root->swizzle_count > 0 &&
+            root->left->is_assignable)
         {
             tb_shader_check_error(checker, root->location,
                                   "a swizzle that repeats a component cannot be assigned");
@@ -573,8 +584,8 @@ static void explain_unassignable(tb_shader_checker *checker, const tb_shader_nod
     if (root->kind == TB_SHADER_NODE_NAME && root->symbol != NULL)
     {
         const tb_shader_symbol *const symbol = root->symbol;
-        const char *const what = symbol->storage == TB_SHADER_STORAGE_UNIFORM ? "a shader input"
-                                                                               : "const";
+        const char *const what =
+            symbol->storage == TB_SHADER_STORAGE_UNIFORM ? "a shader input" : "const";
         tb_shader_check_error(checker, root->location, "'%.*s' is %s, and cannot be assigned",
                               name_length(symbol->name), symbol->name.text, what);
         return;
@@ -639,8 +650,8 @@ static void check_assign(tb_shader_checker *checker, tb_shader_node *node)
     const conversion back = classify(checker, result, target, false);
     if (back == CONVERSION_NONE)
     {
-        tb_shader_check_error(checker, node->location, "cannot convert from '%s' to '%s'", result->name,
-                              target->name);
+        tb_shader_check_error(checker, node->location, "cannot convert from '%s' to '%s'",
+                              result->name, target->name);
     }
     else if (back == CONVERSION_TRUNCATES)
     {
@@ -652,12 +663,14 @@ static void check_assign(tb_shader_checker *checker, tb_shader_node *node)
 static void check_conditional(tb_shader_checker *checker, tb_shader_node *node)
 {
     node->condition = tb_shader_check_expression(checker, node->condition);
-    const tb_shader_type *const condition = arithmetic_view(checker, type_of(checker, node->condition));
+    const tb_shader_type *const condition =
+        arithmetic_view(checker, type_of(checker, node->condition));
     if (!is_error(condition) && !is_one_component(condition))
     {
-        tb_shader_check_error(checker, node->condition->location,
-                              "the condition of '?:' must be a scalar, not '%s'; use select() for vectors",
-                              condition->name);
+        tb_shader_check_error(
+            checker, node->condition->location,
+            "the condition of '?:' must be a scalar, not '%s'; use select() for vectors",
+            condition->name);
     }
     else
     {
@@ -800,7 +813,8 @@ static bool candidate_costs(tb_shader_checker *checker, tb_shader_symbol *functi
         return false;
     }
     const tb_shader_node *parameter = declaration->parameters;
-    for (size_t index = 0; index < declaration->parameter_count; index++, parameter = parameter->next)
+    for (size_t index = 0; index < declaration->parameter_count;
+         index++, parameter = parameter->next)
     {
         if (index >= count)
         {
@@ -810,8 +824,8 @@ static bool candidate_costs(tb_shader_checker *checker, tb_shader_symbol *functi
             }
             continue;
         }
-        const int cost = argument_cost(checker, type_of(checker, arguments[index]),
-                                       type_of(checker, parameter));
+        const int cost =
+            argument_cost(checker, type_of(checker, arguments[index]), type_of(checker, parameter));
         if (cost < 0)
         {
             return false;
@@ -909,8 +923,8 @@ static void bind_arguments(tb_shader_checker *checker, tb_shader_node *call,
          link = &(*link)->next, parameter = parameter->next, position++)
     {
         const tb_shader_type *const type = type_of(checker, parameter);
-        const bool is_output = (parameter->modifiers &
-                                (TB_SHADER_MODIFIER_OUT | TB_SHADER_MODIFIER_INOUT)) != 0;
+        const bool is_output =
+            (parameter->modifiers & (TB_SHADER_MODIFIER_OUT | TB_SHADER_MODIFIER_INOUT)) != 0;
         if (!is_output)
         {
             *link = tb_shader_check_convert(checker, *link, type);
@@ -924,10 +938,11 @@ static void bind_arguments(tb_shader_checker *checker, tb_shader_node *call,
         }
         else if (classify(checker, type, type_of(checker, *link), false) == CONVERSION_NONE)
         {
-            tb_shader_check_error(checker, (*link)->location,
-                                  "argument %zu of '%.*s' writes a '%s' back, which cannot become '%s'",
-                                  position, name_length(function->name), function->name.text,
-                                  type->name, type_of(checker, *link)->name);
+            tb_shader_check_error(
+                checker, (*link)->location,
+                "argument %zu of '%.*s' writes a '%s' back, which cannot become '%s'", position,
+                name_length(function->name), function->name.text, type->name,
+                type_of(checker, *link)->name);
         }
     }
 }
@@ -1056,19 +1071,20 @@ static void check_construct(tb_shader_checker *checker, tb_shader_node *node)
         }
         if (!tb_shader_type_is_numeric(argument))
         {
-            tb_shader_check_error(checker, (*link)->location, "'%s' cannot build a '%s'", argument->name,
-                                  type->name);
+            tb_shader_check_error(checker, (*link)->location, "'%s' cannot build a '%s'",
+                                  argument->name, type->name);
             return;
         }
         total += tb_shader_component_count(argument);
-        *link = convert_to(checker, *link, tb_shader_shaped_type(checker->types, type->scalar, argument),
-                           false);
+        *link = convert_to(checker, *link,
+                           tb_shader_shaped_type(checker->types, type->scalar, argument), false);
     }
     const uint32_t wanted = tb_shader_component_count(type);
     if (total != wanted)
     {
         tb_shader_check_error(checker, node->location, "'%s' needs %u components, but %u %s given",
-                              type->name, (unsigned)wanted, (unsigned)total, total == 1 ? "was" : "were");
+                              type->name, (unsigned)wanted, (unsigned)total,
+                              total == 1 ? "was" : "were");
         return;
     }
     tb_shader_fold(checker, node);
@@ -1228,8 +1244,8 @@ static void check_index(tb_shader_checker *checker, tb_shader_node *node)
     }
     if (!is_one_component(index))
     {
-        tb_shader_check_error(checker, node->right->location, "an index must be an integer, not '%s'",
-                              index->name);
+        tb_shader_check_error(checker, node->right->location,
+                              "an index must be an integer, not '%s'", index->name);
         return;
     }
     uint32_t length = 0;
@@ -1345,15 +1361,17 @@ static bool check_matrix_swizzle(tb_shader_checker *checker, tb_shader_node *nod
     {
         int row = -1;
         int column = -1;
-        const size_t used = matrix_component(name.text + offset, name.length - offset, &row, &column);
+        const size_t used =
+            matrix_component(name.text + offset, name.length - offset, &row, &column);
         if (used == 0 || count == 4)
         {
             return false;
         }
-        if (row < 0 || column < 0 || (uint32_t)row >= base->rows || (uint32_t)column >= base->columns)
+        if (row < 0 || column < 0 || (uint32_t)row >= base->rows ||
+            (uint32_t)column >= base->columns)
         {
-            tb_shader_check_error(checker, node->location, "'%.*s' is out of range for '%s'", (int)used,
-                                  name.text + offset, base->name);
+            tb_shader_check_error(checker, node->location, "'%.*s' is out of range for '%s'",
+                                  (int)used, name.text + offset, base->name);
             node->swizzle_count = 0;
             return true;
         }
@@ -1379,7 +1397,8 @@ static bool has_duplicates(const tb_shader_node *node)
     return false;
 }
 
-static void check_swizzle(tb_shader_checker *checker, tb_shader_node *node, const tb_shader_type *base)
+static void check_swizzle(tb_shader_checker *checker, tb_shader_node *node,
+                          const tb_shader_type *base)
 {
     const bool is_matrix = base->type_class == TB_SHADER_CLASS_MATRIX;
     const bool valid = is_matrix ? check_matrix_swizzle(checker, node, base)
@@ -1599,7 +1618,8 @@ static void check_kind(tb_shader_checker *checker, tb_shader_node *node)
         check_sizeof(checker, node);
         break;
     case TB_SHADER_NODE_INITIALIZER_LIST:
-        tb_shader_check_error(checker, node->location, "an initializer list is allowed only as an initializer");
+        tb_shader_check_error(checker, node->location,
+                              "an initializer list is allowed only as an initializer");
         node->checked = error_type(checker);
         break;
     case TB_SHADER_NODE_CONVERT:
@@ -1667,14 +1687,15 @@ tb_shader_node *tb_shader_check_condition(tb_shader_checker *checker, tb_shader_
     }
     if (!is_one_component(type))
     {
-        tb_shader_check_error(checker, checked->location, "the condition of %s must be a scalar, not '%s'",
-                              what, type->name);
+        tb_shader_check_error(checker, checked->location,
+                              "the condition of %s must be a scalar, not '%s'", what, type->name);
         return checked;
     }
     return convert_to(checker, checked, scalar(checker, TB_SHADER_SCALAR_BOOL), true);
 }
 
-bool tb_shader_check_constant_integer(tb_shader_checker *checker, tb_shader_node *node, int64_t *value)
+bool tb_shader_check_constant_integer(tb_shader_checker *checker, tb_shader_node *node,
+                                      int64_t *value)
 {
     tb_shader_node *const checked = tb_shader_check_expression(checker, node);
     if (checked == NULL)
@@ -1686,9 +1707,9 @@ bool tb_shader_check_constant_integer(tb_shader_checker *checker, tb_shader_node
     {
         return false;
     }
-    const bool is_integer = type->type_class == TB_SHADER_CLASS_SCALAR &&
-                            (tb_shader_scalar_is_integer(type->scalar) ||
-                             type->scalar == TB_SHADER_SCALAR_BOOL);
+    const bool is_integer =
+        type->type_class == TB_SHADER_CLASS_SCALAR &&
+        (tb_shader_scalar_is_integer(type->scalar) || type->scalar == TB_SHADER_SCALAR_BOOL);
     if (!is_integer || !checked->is_constant)
     {
         tb_shader_check_error(checker, checked->location, "expected a constant integer");

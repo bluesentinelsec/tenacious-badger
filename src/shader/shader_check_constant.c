@@ -91,17 +91,20 @@ tb_shader_constant tb_shader_constant_convert(tb_shader_constant constant, tb_sh
     tb_shader_constant result = {0};
     if (to == TB_SHADER_SCALAR_BOOL)
     {
-        result.bits = constant.is_float ? (constant.value != 0.0 ? 1u : 0u) : (constant.bits != 0 ? 1u : 0u);
+        result.bits =
+            constant.is_float ? (constant.value != 0.0 ? 1u : 0u) : (constant.bits != 0 ? 1u : 0u);
         return result;
     }
     if (tb_shader_scalar_is_float(to))
     {
         result.is_float = true;
-        const double value = constant.is_float ? constant.value : integer_value(constant.bits, from);
+        const double value =
+            constant.is_float ? constant.value : integer_value(constant.bits, from);
         result.value = round_to(value, to);
         return result;
     }
-    const uint64_t bits = constant.is_float ? truncate_to_integer(constant.value, to) : constant.bits;
+    const uint64_t bits =
+        constant.is_float ? truncate_to_integer(constant.value, to) : constant.bits;
     result.bits = normalize(bits, to);
     return result;
 }
@@ -210,8 +213,8 @@ static bool fold_float(tb_shader_operator op, double a, double b, double *result
 }
 
 /* -1, 0 or 1 as a compares to b; false for NaN. */
-static bool compare(const tb_shader_constant *a, const tb_shader_constant *b, tb_shader_scalar scalar,
-                    int *order)
+static bool compare(const tb_shader_constant *a, const tb_shader_constant *b,
+                    tb_shader_scalar scalar, int *order)
 {
     if (a->is_float)
     {
@@ -371,7 +374,8 @@ static void fold_unary(tb_shader_node *node, tb_shader_scalar scalar)
 }
 
 /* A conversion of one constant scalar: a CONVERT, a cast, `float(1)`, `x.x`. */
-static void fold_conversion(tb_shader_node *node, const tb_shader_node *operand, tb_shader_scalar to)
+static void fold_conversion(tb_shader_node *node, const tb_shader_node *operand,
+                            tb_shader_scalar to)
 {
     tb_shader_scalar from = TB_SHADER_SCALAR_INT;
     if (operand == NULL || !operand->is_constant || !foldable(operand->checked, &from))
@@ -414,7 +418,8 @@ void tb_shader_fold(tb_shader_checker *checker, tb_shader_node *node)
     else if (kind == TB_SHADER_NODE_CONDITIONAL && node->condition != NULL &&
              node->condition->is_constant)
     {
-        const tb_shader_node *const chosen = node->condition->constant.bits != 0 ? node->left : node->right;
+        const tb_shader_node *const chosen =
+            node->condition->constant.bits != 0 ? node->left : node->right;
         fold_conversion(node, chosen, scalar);
     }
 }
