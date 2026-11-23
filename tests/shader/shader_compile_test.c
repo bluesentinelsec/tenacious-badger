@@ -4,9 +4,18 @@
  * bindings and signatures were read from DXC 1.8.2502's disassembly
  * (`dxc -T ps_6_6 -Fc`) of the same shaders. */
 #include "badger/arena.h"
+#include "badger/array.h"
+#include "badger/fmt.h"
 #include "badger/shader.h"
+#include "badger/sort.h"
 #include "badger/str.h"
 #include "tb_test.h"
+#include "test_data.h"
+
+#include <string.h>
+
+extern const tb_test_file tb_shader_reflection_files[];
+extern const size_t tb_shader_reflection_files_count;
 
 #define MAIN_PATH "/Engine/Private/Main.hlsl"
 
@@ -345,6 +354,358 @@ TB_TEST(shader_compile, arrays_and_minimum_precision_are_packed_as_dxc_packs_the
     expect_at(buffer, "j", 168, 4);
     TB_TEST_EXPECT_UINT(find_variable(buffer, "i")->stride, ==, 16);
     tb_arena_destroy(out.arena);
+}
+
+static unsigned features_of(const char *text, const char *entry_point, tb_shader_stage stage)
+{
+    compiled out = {0};
+    compile_text(&out, text, entry_point, stage);
+    TB_TEST_EXPECT_UINT(out.result, ==, TB_SHADER_OK);
+    const unsigned features = out.output.reflection.features;
+    tb_arena_destroy(out.arena);
+    return features;
+}
+
+TB_TEST(shader_compile, a_shader_records_the_features_it_needs)
+{
+    /* DXC reports this one needs doubles, wave operations, 64-bit integers
+     * and inline ray tracing (ray tracing tier 1.1); its array of no size
+     * is bindless, and its atomic is of 64 bits. */
+    const unsigned compute =
+        features_of("RWByteAddressBuffer buf; RWStructuredBuffer<uint64_t> counters;\n"
+                    "RaytracingAccelerationStructure scene;\n"
+                    "Texture2D textures[] : register(t0, space1); SamplerState s;\n"
+                    "cbuffer C { double scale; };\n"
+                    "[numthreads(64, 1, 1)] void main(uint3 id : SV_DispatchThreadID) {\n"
+                    "  uint total = WaveActiveSum(id.x);\n"
+                    "  uint64_t wide = counters[id.x] + 1;\n"
+                    "  InterlockedAdd(counters[0], wide);\n"
+                    "  RayQuery<0> q; RayDesc ray = (RayDesc)0;\n"
+                    "  q.TraceRayInline(scene, 0, 0xff, ray); q.Proceed();\n"
+                    "  float4 c = textures[NonUniformResourceIndex(id.x)].SampleLevel(s, float2(0, "
+                    "0), 0);\n"
+                    "  buf.Store(0, total + (uint)(scale * c.x) + (uint)wide);\n"
+                    "}",
+                    "main", TB_SHADER_STAGE_COMPUTE);
+    TB_TEST_EXPECT_UINT(compute, ==,
+                        TB_SHADER_FEATURE_WAVE_OPERATIONS | TB_SHADER_FEATURE_BINDLESS |
+                            TB_SHADER_FEATURE_FLOAT64 | TB_SHADER_FEATURE_INT64 |
+                            TB_SHADER_FEATURE_ATOMIC64 | TB_SHADER_FEATURE_RAY_QUERY);
+    /* What an entry point does not reach needs nothing. */
+    TB_TEST_EXPECT_UINT(features_of("cbuffer C { double unused; };\n"
+                                    "float helper() { return WaveActiveSum(1.0); }\n"
+                                    "float4 main() : SV_Target { return 1; }",
+                                    "main", TB_SHADER_STAGE_PIXEL),
+                        ==, 0);
+    TB_TEST_EXPECT_UINT(features_of("RWByteAddressBuffer b;\n"
+                                    "[numthreads(1, 1, 1)] void main() { b.InterlockedAdd64(0, "
+                                    "1); }",
+                                    "main", TB_SHADER_STAGE_COMPUTE),
+                        ==, TB_SHADER_FEATURE_ATOMIC64 | TB_SHADER_FEATURE_INT64);
+    TB_TEST_EXPECT_UINT(features_of("FeedbackTexture2D feedback; Texture2D t; SamplerState s;\n"
+                                    "float4 main(float2 uv : UV) : SV_Target { "
+                                    "feedback.WriteSamplerFeedback(t, s, uv); return 1; }",
+                                    "main", TB_SHADER_STAGE_PIXEL),
+                        ==, TB_SHADER_FEATURE_SAMPLER_FEEDBACK);
+    TB_TEST_EXPECT_UINT(features_of("void rg() {}", "rg", TB_SHADER_STAGE_RAY_GENERATION), ==,
+                        TB_SHADER_FEATURE_RAY_TRACING);
+    TB_TEST_EXPECT_UINT(
+        features_of("[numthreads(1, 1, 1)] void as() {}", "as", TB_SHADER_STAGE_AMPLIFICATION), ==,
+        TB_SHADER_FEATURE_MESH_SHADER);
+}
+
+TB_TEST(shader_compile, features_are_named_for_the_console)
+{
+    TB_TEST_EXPECT_STRING(tb_shader_feature_name(TB_SHADER_FEATURE_WAVE_OPERATIONS), ==,
+                          "wave operations");
+    TB_TEST_EXPECT_STRING(tb_shader_feature_name(TB_SHADER_FEATURE_BINDLESS), ==,
+                          "bindless resources");
+    TB_TEST_EXPECT_STRING(tb_shader_feature_name(TB_SHADER_FEATURE_FLOAT64), ==, "64-bit floats");
+    TB_TEST_EXPECT_STRING(tb_shader_feature_name(TB_SHADER_FEATURE_INT64), ==, "64-bit integers");
+    TB_TEST_EXPECT_STRING(tb_shader_feature_name(TB_SHADER_FEATURE_ATOMIC64), ==, "64-bit atomics");
+    TB_TEST_EXPECT_STRING(tb_shader_feature_name(TB_SHADER_FEATURE_RAY_QUERY), ==, "ray queries");
+    TB_TEST_EXPECT_STRING(tb_shader_feature_name(TB_SHADER_FEATURE_RAY_TRACING), ==,
+                          "ray-tracing pipelines");
+    TB_TEST_EXPECT_STRING(tb_shader_feature_name(TB_SHADER_FEATURE_MESH_SHADER), ==,
+                          "mesh shaders");
+    TB_TEST_EXPECT_STRING(tb_shader_feature_name(TB_SHADER_FEATURE_SAMPLER_FEEDBACK), ==,
+                          "sampler feedback");
+    TB_TEST_EXPECT_STRING(tb_shader_feature_name((tb_shader_feature)0), ==, "unknown feature");
+}
+
+/* -------------------------------------------------------------------------
+ * The corpus: reflection as DXC reports it (tools/shader_reflection_goldens.py).
+ * ------------------------------------------------------------------------- */
+
+typedef struct report
+{
+    tb_arena *arena;
+    tb_allocator allocator;
+    tb_array *lines; /* const char * */
+} report;
+
+static void add_line(report *out, const char *format, ...) TB_TEST_PRINTF_FORMAT(2, 3);
+
+static void add_line(report *out, const char *format, ...)
+{
+    va_list arguments;
+    va_start(arguments, format);
+    const char *const line = tb_fmt_vstring(&out->allocator, format, arguments);
+    va_end(arguments);
+    (void)tb_array_push(out->lines, &line);
+}
+
+static const char *format_name(tb_shader_component component)
+{
+    if (component == TB_SHADER_COMPONENT_INT32)
+    {
+        return "int";
+    }
+    return component == TB_SHADER_COMPONENT_UINT32 ? "uint" : "float";
+}
+
+/* DXC's names of the interpolations the corpus uses. */
+static const char *interpolation_name(tb_shader_interpolation interpolation)
+{
+    if (interpolation == TB_SHADER_INTERPOLATION_LINEAR)
+    {
+        return "linear";
+    }
+    if (interpolation == TB_SHADER_INTERPOLATION_CONSTANT)
+    {
+        return "nointerpolation";
+    }
+    return interpolation == TB_SHADER_INTERPOLATION_NOPERSPECTIVE ? "noperspective" : "?";
+}
+
+static const char *binding_type(tb_shader_binding_kind kind)
+{
+    switch (kind)
+    {
+    case TB_SHADER_BINDING_CONSTANT_BUFFER:
+        return "cbuffer";
+    case TB_SHADER_BINDING_TEXTURE_BUFFER:
+        return "tbuffer";
+    case TB_SHADER_BINDING_READ:
+        return "texture";
+    case TB_SHADER_BINDING_READ_WRITE:
+        return "UAV";
+    case TB_SHADER_BINDING_SAMPLER:
+        return "sampler";
+    }
+    return "?";
+}
+
+static void report_bindings(report *out, const tb_shader_reflection *reflection)
+{
+    static const char *const prefixes[] = {"cb", "t", "t", "u", "s"};
+    for (size_t index = 0; index < reflection->binding_count; index++)
+    {
+        const tb_shader_binding *const binding = &reflection->bindings[index];
+        char bind[64] = {0};
+        (void)tb_fmt_buffer(bind, sizeof(bind), "%s%u", prefixes[binding->kind],
+                            binding->register_index);
+        if (binding->space != 0)
+        {
+            char spaced[64] = {0};
+            (void)tb_fmt_buffer(spaced, sizeof(spaced), "%s,space%u", bind, binding->space);
+            memcpy(bind, spaced, sizeof(bind));
+        }
+        if (binding->count == 0)
+        {
+            add_line(out, "binding %s %s %s unbounded", binding->name, binding_type(binding->kind),
+                     bind);
+        }
+        else
+        {
+            add_line(out, "binding %s %s %s %u", binding->name, binding_type(binding->kind), bind,
+                     binding->count);
+        }
+    }
+}
+
+static void report_signature(report *out, const char *kind,
+                             const tb_shader_signature_element *elements, size_t count,
+                             bool interpolates)
+{
+    for (size_t index = 0; index < count; index++)
+    {
+        const tb_shader_signature_element *const element = &elements[index];
+        if (interpolates)
+        {
+            add_line(out, "%s %s %u %s %u %s", kind, element->semantic, element->semantic_index,
+                     format_name(element->component), element->columns,
+                     interpolation_name(element->interpolation));
+        }
+        else
+        {
+            add_line(out, "%s %s %u %s %u", kind, element->semantic, element->semantic_index,
+                     format_name(element->component), element->columns);
+        }
+    }
+}
+
+/* A variable and, for a struct, its members, each by its path. */
+static void report_variable(report *out, const tb_shader_constant_buffer *buffer,
+                            const tb_shader_variable *variable, const char *prefix)
+{
+    const char *const path = tb_fmt_string(&out->allocator, "%s.%s", prefix, variable->name);
+    add_line(out, "variable %s %u", path, variable->offset);
+    for (unsigned at = 0; at < variable->member_count; at++)
+    {
+        report_variable(out, buffer, &buffer->variables[variable->first_member + at], path);
+    }
+}
+
+static void report_buffers(report *out, const tb_shader_reflection *reflection)
+{
+    for (size_t index = 0; index < reflection->buffer_count; index++)
+    {
+        const tb_shader_constant_buffer *const buffer = &reflection->buffers[index];
+        add_line(out, "buffer %s %u", buffer->name, buffer->size);
+        for (size_t at = 0; at < buffer->top_count; at++)
+        {
+            report_variable(out, buffer, &buffer->variables[at], buffer->name);
+        }
+    }
+}
+
+/* The features DXC names: of those the engine records, the ones it shares. */
+static void report_features(report *out, unsigned features)
+{
+    static const struct
+    {
+        tb_shader_feature feature;
+        const char *name;
+    } named[] = {
+        {TB_SHADER_FEATURE_FLOAT64, "float64"},
+        {TB_SHADER_FEATURE_INT64, "int64"},
+        {TB_SHADER_FEATURE_WAVE_OPERATIONS, "wave"},
+        {TB_SHADER_FEATURE_RAY_QUERY, "rayquery"},
+    };
+    for (size_t index = 0; index < TB_TEST_COUNT_OF(named); index++)
+    {
+        if ((features & (unsigned)named[index].feature) != 0)
+        {
+            add_line(out, "feature %s", named[index].name);
+        }
+    }
+}
+
+static int compare_lines(const void *left, const void *right, void *context)
+{
+    (void)context;
+    return tb_str_compare(*(const char *const *)left, *(const char *const *)right);
+}
+
+/* The reflection as tools/shader_reflection_goldens.py writes DXC's: sorted lines. */
+static const char *render(report *out, const tb_shader_reflection *reflection)
+{
+    report_bindings(out, reflection);
+    report_signature(out, "input", reflection->inputs, reflection->input_count,
+                     reflection->stage == TB_SHADER_STAGE_PIXEL);
+    report_signature(out, "output", reflection->outputs, reflection->output_count, false);
+    report_buffers(out, reflection);
+    report_features(out, reflection->features);
+    const size_t count = tb_array_length(out->lines);
+    tb_sort(tb_array_data(out->lines), count, sizeof(const char *), compare_lines, NULL);
+    tb_array *const text = TB_ARRAY_CREATE(&out->allocator, char);
+    for (size_t index = 0; index < count; index++)
+    {
+        const char *const line = *TB_ARRAY_AT(out->lines, const char *, index);
+        tb_array_append(text, line, tb_str_length(line));
+        tb_array_append(text, "\n", 1);
+    }
+    const char nul = '\0';
+    (void)tb_array_push(text, &nul);
+    return tb_array_data(text);
+}
+
+/* `// dxc: -T ps_6_6 -E main`: the stage and the entry point a shader is compiled for. */
+static bool read_arguments(const char *text, tb_shader_stage *stage, char *entry, size_t size)
+{
+    static const struct
+    {
+        const char *prefix;
+        tb_shader_stage stage;
+    } profiles[] = {
+        {"vs_", TB_SHADER_STAGE_VERTEX},        {"ps_", TB_SHADER_STAGE_PIXEL},
+        {"gs_", TB_SHADER_STAGE_GEOMETRY},      {"hs_", TB_SHADER_STAGE_HULL},
+        {"ds_", TB_SHADER_STAGE_DOMAIN},        {"cs_", TB_SHADER_STAGE_COMPUTE},
+        {"as_", TB_SHADER_STAGE_AMPLIFICATION}, {"ms_", TB_SHADER_STAGE_MESH},
+    };
+    const size_t profile = tb_str_find(text, 0, tb_str_length(text), "-T ");
+    const size_t name = tb_str_find(text, 0, tb_str_length(text), "-E ");
+    const size_t line_end = tb_str_find_char(text, 0, tb_str_length(text), '\n');
+    if (profile >= line_end || name >= line_end)
+    {
+        return false;
+    }
+    bool found = false;
+    for (size_t index = 0; index < TB_TEST_COUNT_OF(profiles); index++)
+    {
+        if (tb_str_matches_at(text, profile + 3, profiles[index].prefix))
+        {
+            *stage = profiles[index].stage;
+            found = true;
+        }
+    }
+    const size_t start = name + 3;
+    size_t end = start;
+    while (end < line_end && text[end] != ' ' && text[end] != '\r' && end - start + 1 < size)
+    {
+        end++;
+    }
+    memcpy(entry, text + start, end - start);
+    entry[end - start] = '\0';
+    return found;
+}
+
+static const tb_test_file *golden_of(const tb_test_file *shader)
+{
+    const size_t stem = tb_str_length(shader->name) - tb_str_length(".hlsl");
+    for (size_t index = 0; index < tb_shader_reflection_files_count; index++)
+    {
+        const tb_test_file *const file = &tb_shader_reflection_files[index];
+        if (tb_str_length(file->name) == stem + tb_str_length(".dxc") &&
+            memcmp(file->name, shader->name, stem) == 0 && tb_str_ends_with(file->name, ".dxc"))
+        {
+            return file;
+        }
+    }
+    return NULL;
+}
+
+TB_TEST(shader_compile, reflection_matches_dxc)
+{
+    size_t shaders = 0;
+    for (size_t index = 0; index < tb_shader_reflection_files_count; index++)
+    {
+        const tb_test_file *const shader = &tb_shader_reflection_files[index];
+        if (!tb_str_ends_with(shader->name, ".hlsl"))
+        {
+            continue;
+        }
+        shaders++;
+        TB_TEST_CONTEXT("shader %s", shader->name);
+        const char *const text = (const char *)shader->bytes;
+        const tb_test_file *const golden = golden_of(shader);
+        TB_TEST_REQUIRE_POINTER(golden, !=, NULL);
+        tb_shader_stage stage = TB_SHADER_STAGE_PIXEL;
+        char entry[64] = {0};
+        TB_TEST_REQUIRE_UINT(read_arguments(text, &stage, entry, sizeof(entry)), ==, true);
+        compiled out = {0};
+        compile_text(&out, text, entry, stage);
+        TB_TEST_EXPECT_UINT(out.result, ==, TB_SHADER_OK);
+        report lines = {0};
+        lines.arena = out.arena;
+        lines.allocator = tb_arena_allocator(out.arena);
+        lines.lines = TB_ARRAY_CREATE(&lines.allocator, const char *);
+        TB_TEST_EXPECT_STRING(render(&lines, &out.output.reflection), ==,
+                              (const char *)golden->bytes);
+        tb_arena_destroy(out.arena);
+    }
+    TB_TEST_EXPECT_UINT(shaders, >, 0);
 }
 
 TB_TEST(shader_compile, what_cannot_be_compiled_says_why)

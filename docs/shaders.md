@@ -439,13 +439,28 @@ if (tb_shader_compile(&request, arena, &compiled) == TB_SHADER_OK)
   of its own; and `packoffset(c1.y)` where it says. A parameter layout
   written in C is checked against these.
 
-The tests compare all of this with what DXC reports for the same shaders.
+- **Features:** what the shader needs beyond the portable core of raster and
+  compute shaders, among wave operations, bindless resources (an array of no
+  size, or NonUniformResourceIndex()), 64-bit floats, integers and atomics,
+  ray queries, ray-tracing pipelines, mesh shaders and sampler feedback. A
+  backend that lacks one reports the shader unavailable, and the renderer
+  falls back to what it can run, saying why. Only what the entry point
+  reaches counts.
 
-**Not yet.** The features each shader needs come next. `#pragma
-pack_matrix(row_major)` is not followed yet: a matrix is `row_major` only
-when its declaration says so. How DXC packs a signature's elements
-into registers, a hull shader's patch constants, and a mesh shader's
-primitives are not described yet.
+**Checked against DXC.** `tests/data/shader_reflection/` holds shaders, each
+naming the arguments DXC compiles it with on its first line (`// dxc: -T
+ps_6_6 -E main`), and beside each, as `NAME.dxc`, what DXC reports for it:
+its bindings, signatures, buffers' layouts and the features both name, as
+sorted lines. `tools/shader_reflection_goldens.py` writes them from the
+Windows SDK's `dxc`; a test renders the engine's reflection as the same lines
+and compares, on every platform, and a Windows job of CI runs the tool with
+`--check`, so a DXC that reports otherwise fails the build. To add a case, add
+a shader, run the tool, and review what it wrote.
+
+**Not yet.** `#pragma pack_matrix(row_major)` is not followed yet: a matrix
+is `row_major` only when its declaration says so. How DXC packs a
+signature's elements into registers, a hull shader's patch constants, and a
+mesh shader's primitives are not described yet.
 
 ## Diagnostics
 

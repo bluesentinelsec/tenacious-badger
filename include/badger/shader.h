@@ -381,6 +381,25 @@ typedef struct tb_shader_constant_buffer
     size_t top_count;
 } tb_shader_constant_buffer;
 
+/**
+ * @brief What a shader needs beyond the portable core of raster and compute
+ * shaders: the features a backend must have to run it. A backend that lacks
+ * one reports the shader unavailable, and the renderer falls back.
+ */
+typedef enum tb_shader_feature
+{
+    TB_SHADER_FEATURE_WAVE_OPERATIONS = 1u << 0, /**< `Wave*` and `Quad*` intrinsics. */
+    TB_SHADER_FEATURE_BINDLESS = 1u << 1,    /**< An array of resources of no size, or one indexed
+                                                  by NonUniformResourceIndex(). */
+    TB_SHADER_FEATURE_FLOAT64 = 1u << 2,     /**< `double`. */
+    TB_SHADER_FEATURE_INT64 = 1u << 3,       /**< `int64_t` and `uint64_t`. */
+    TB_SHADER_FEATURE_ATOMIC64 = 1u << 4,    /**< An atomic of 64 bits. */
+    TB_SHADER_FEATURE_RAY_QUERY = 1u << 5,   /**< Inline ray tracing: RayQuery. */
+    TB_SHADER_FEATURE_RAY_TRACING = 1u << 6, /**< A stage of a ray-tracing pipeline. */
+    TB_SHADER_FEATURE_MESH_SHADER = 1u << 7, /**< A mesh or amplification shader. */
+    TB_SHADER_FEATURE_SAMPLER_FEEDBACK = 1u << 8 /**< FeedbackTexture2D. */
+} tb_shader_feature;
+
 /** @brief What a stage takes, gives and binds: what a pipeline is built from. */
 typedef struct tb_shader_reflection
 {
@@ -396,6 +415,7 @@ typedef struct tb_shader_reflection
     /** The layout of each constant and texture buffer bound, in the order of `bindings`. */
     const tb_shader_constant_buffer *buffers;
     size_t buffer_count;
+    unsigned features; /**< A combination of tb_shader_feature. */
 } tb_shader_reflection;
 
 /** @brief What to compile: a source, and the function a stage runs from it. */
@@ -439,6 +459,13 @@ TB_API tb_shader_result tb_shader_compile(const tb_shader_compile_request *reque
  * @return A string with static storage duration; never NULL.
  */
 TB_API const char *tb_shader_stage_name(tb_shader_stage stage);
+
+/**
+ * @brief Name a feature, for a log or the console: "wave operations".
+ * @param feature One of tb_shader_feature; any other value is named "unknown feature".
+ * @return A string with static storage duration; never NULL.
+ */
+TB_API const char *tb_shader_feature_name(tb_shader_feature feature);
 
 /**
  * @brief Name a result, for a log or a message: "failed", "no memory".

@@ -1,0 +1,43 @@
+binding Layout cbuffer cb0 1
+binding Packed cbuffer cb1 1
+buffer Layout 464
+buffer Packed 36
+feature float64
+output SV_Target 0 float 4
+variable Layout.after_s1 36
+variable Layout.arr 48
+variable Layout.d 288
+variable Layout.flag 320
+variable Layout.h 324
+variable Layout.light 96
+variable Layout.light.color 96
+variable Layout.light.inner 112
+variable Layout.light.inner.a 112
+variable Layout.light.inner.b 116
+variable Layout.light.range 108
+variable Layout.light.tail 124
+variable Layout.lights 336
+variable Layout.lights.color 336
+variable Layout.lights.inner 352
+variable Layout.lights.inner.a 352
+variable Layout.lights.inner.b 356
+variable Layout.lights.range 348
+variable Layout.lights.tail 364
+variable Layout.m22 256
+variable Layout.m32arr 400
+variable Layout.m43 144
+variable Layout.mf 304
+variable Layout.rm43 192
+variable Layout.s1 32
+variable Layout.tail1 84
+variable Layout.tail2 128
+variable Layout.tail3 280
+variable Layout.tail4 296
+variable Layout.tail5 460
+variable Layout.v2 16
+variable Layout.v3 4
+variable Layout.w2 24
+variable Layout.x 0
+variable Packed.p0 20
+variable Packed.p1 0
+variable Packed.p2 32

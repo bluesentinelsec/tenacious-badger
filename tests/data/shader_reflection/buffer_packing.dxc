@@ -1,0 +1,15 @@
+binding M cbuffer cb0 1
+buffer M 172
+output SV_Target 0 float 4
+variable M.a 0
+variable M.arr 112
+variable M.arr.v 112
+variable M.b 16
+variable M.c 32
+variable M.d 48
+variable M.e 64
+variable M.f 80
+variable M.g 96
+variable M.h 140
+variable M.i 144
+variable M.j 168

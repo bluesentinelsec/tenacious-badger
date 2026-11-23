@@ -309,3 +309,29 @@ const char *tb_shader_stage_name(tb_shader_stage stage)
     return (size_t)stage < STAGE_COUNT ? tb_shader_form_stage_name((tb_shader_form_stage)stage)
                                        : "unknown stage";
 }
+
+const char *tb_shader_feature_name(tb_shader_feature feature)
+{
+    switch (feature)
+    {
+    case TB_SHADER_FEATURE_WAVE_OPERATIONS:
+        return "wave operations";
+    case TB_SHADER_FEATURE_BINDLESS:
+        return "bindless resources";
+    case TB_SHADER_FEATURE_FLOAT64:
+        return "64-bit floats";
+    case TB_SHADER_FEATURE_INT64:
+        return "64-bit integers";
+    case TB_SHADER_FEATURE_ATOMIC64:
+        return "64-bit atomics";
+    case TB_SHADER_FEATURE_RAY_QUERY:
+        return "ray queries";
+    case TB_SHADER_FEATURE_RAY_TRACING:
+        return "ray-tracing pipelines";
+    case TB_SHADER_FEATURE_MESH_SHADER:
+        return "mesh shaders";
+    case TB_SHADER_FEATURE_SAMPLER_FEEDBACK:
+        return "sampler feedback";
+    }
+    return "unknown feature";
+}

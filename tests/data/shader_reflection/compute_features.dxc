@@ -1,0 +1,12 @@
+binding C cbuffer cb0 1
+binding buf UAV u0 1
+binding counters UAV u1 1
+binding s sampler s0 1
+binding scene texture t0 1
+binding textures texture t0,space1 unbounded
+buffer C 8
+feature float64
+feature int64
+feature rayquery
+feature wave
+variable C.scale 0

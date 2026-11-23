@@ -3,6 +3,8 @@
  * textures and samplers it binds, with registers assigned as DXC assigns
  * them. */
 #include "shader_reflect.h"
+#include "shader_intrinsics.h"
+#include "shader_methods.h"
 
 #include "badger/array.h"
 #include "badger/fmt.h"
@@ -644,6 +646,165 @@ static void reflect_buffers(reflector *state, tb_shader_reflection *reflection)
 }
 
 /* -------------------------------------------------------------------------
+ * Features: what the entry point needs beyond the portable core.
+ * ------------------------------------------------------------------------- */
+
+/* The features a type needs: a double's, a 64-bit integer's, a RayQuery's,
+ * a feedback texture's, an array of resources of no size's. */
+static unsigned type_features(const reflector *state, uint32_t type)
+{
+    const tb_shader_form_type *const found = type_at(state, type);
+    switch (found->kind)
+    {
+    case TB_SHADER_FORM_SCALAR:
+    case TB_SHADER_FORM_VECTOR:
+    case TB_SHADER_FORM_MATRIX:
+        if (found->scalar == TB_SHADER_SCALAR_DOUBLE)
+        {
+            return TB_SHADER_FEATURE_FLOAT64;
+        }
+        return found->scalar == TB_SHADER_SCALAR_INT64 || found->scalar == TB_SHADER_SCALAR_UINT64
+                   ? TB_SHADER_FEATURE_INT64
+                   : 0u;
+    case TB_SHADER_FORM_ARRAY: {
+        const bool unbounded =
+            found->length == 0 && type_at(state, found->element)->kind == TB_SHADER_FORM_RESOURCE;
+        return type_features(state, found->element) | (unbounded ? TB_SHADER_FEATURE_BINDLESS : 0u);
+    }
+    case TB_SHADER_FORM_STRUCT: {
+        unsigned features = 0;
+        for (uint32_t at = 0; at < found->member_count; at++)
+        {
+            features |= type_features(
+                state, tb_shader_form_member_at(state->form, found->first_member + at)->type);
+        }
+        return features;
+    }
+    case TB_SHADER_FORM_RESOURCE:
+        if (found->object == TB_SHADER_OBJECT_RAY_QUERY)
+        {
+            return TB_SHADER_FEATURE_RAY_QUERY;
+        }
+        if (found->object == TB_SHADER_OBJECT_FEEDBACK_TEXTURE2D ||
+            found->object == TB_SHADER_OBJECT_FEEDBACK_TEXTURE2D_ARRAY)
+        {
+            return TB_SHADER_FEATURE_SAMPLER_FEEDBACK;
+        }
+        return found->element == TB_SHADER_FORM_NONE ? 0u : type_features(state, found->element);
+    case TB_SHADER_FORM_VOID:
+    case TB_SHADER_FORM_STRING:
+        break;
+    }
+    return 0;
+}
+
+static bool starts_with(const char *text, const char *prefix)
+{
+    return tb_str_starts_with(text, prefix);
+}
+
+/* The features an intrinsic or a method needs: a wave's or a quad's
+ * operation, NonUniformResourceIndex, an atomic of 64 bits. */
+static unsigned call_features(const reflector *state, const tb_shader_form_function *function,
+                              uint32_t intrinsic, uint32_t method, uint32_t first_operand,
+                              uint32_t operand_count)
+{
+    unsigned features = 0;
+    const tb_shader_intrinsic_info *const info =
+        tb_shader_intrinsic_info_of((tb_shader_intrinsic)intrinsic);
+    if (info != NULL)
+    {
+        if (starts_with(info->name, "Wave") || starts_with(info->name, "Quad"))
+        {
+            features |= TB_SHADER_FEATURE_WAVE_OPERATIONS;
+        }
+        if (intrinsic == (uint32_t)TB_SHADER_INTRINSIC_NON_UNIFORM_RESOURCE_INDEX)
+        {
+            features |= TB_SHADER_FEATURE_BINDLESS;
+        }
+        if (starts_with(info->name, "Interlocked") && operand_count > 0)
+        {
+            const uint32_t target = tb_shader_form_operand_at(function, first_operand);
+            const tb_shader_form_type *const type =
+                type_at(state, tb_shader_form_expression_at(function, target)->type);
+            if (scalar_bytes(type->scalar) == 8)
+            {
+                features |= TB_SHADER_FEATURE_ATOMIC64;
+            }
+        }
+    }
+    const tb_shader_method_info *const called = tb_shader_method_info_of((tb_shader_method)method);
+    if (called != NULL && starts_with(called->name, "Interlocked") &&
+        tb_str_ends_with(called->name, "64"))
+    {
+        features |= TB_SHADER_FEATURE_ATOMIC64;
+    }
+    return features;
+}
+
+static unsigned function_features(const reflector *state, const tb_shader_form_function *function)
+{
+    unsigned features = 0;
+    const size_t expression_count = tb_shader_form_expression_count(function);
+    for (size_t index = 0; index < expression_count; index++)
+    {
+        const tb_shader_form_expression *const expression =
+            tb_shader_form_expression_at(function, (uint32_t)index);
+        features |= type_features(state, expression->type);
+        if (expression->kind == TB_SHADER_FORM_INTRINSIC)
+        {
+            features |= call_features(state, function, expression->intrinsic, expression->method,
+                                      expression->first_operand, expression->operand_count);
+        }
+    }
+    const size_t local_count = tb_array_length(function->locals);
+    for (size_t index = 0; index < local_count; index++)
+    {
+        features |=
+            type_features(state, TB_ARRAY_AT(function->locals, tb_shader_form_local, index)->type);
+    }
+    const size_t statement_count = tb_shader_form_statement_count(function);
+    for (size_t index = 0; index < statement_count; index++)
+    {
+        const tb_shader_form_statement *const statement =
+            tb_shader_form_statement_at(function, (uint32_t)index);
+        if (statement->kind == TB_SHADER_FORM_CALL)
+        {
+            features |= call_features(state, function, statement->intrinsic, statement->method,
+                                      statement->first_operand, statement->operand_count);
+        }
+    }
+    return features;
+}
+
+static unsigned stage_features(tb_shader_stage stage)
+{
+    if (stage == TB_SHADER_STAGE_MESH || stage == TB_SHADER_STAGE_AMPLIFICATION)
+    {
+        return TB_SHADER_FEATURE_MESH_SHADER;
+    }
+    return stage >= TB_SHADER_STAGE_RAY_GENERATION ? TB_SHADER_FEATURE_RAY_TRACING : 0u;
+}
+
+static unsigned reflect_features(const reflector *state)
+{
+    unsigned features = stage_features(state->stage);
+    const size_t global_count = tb_array_length(state->form->globals);
+    for (size_t index = 0; index < global_count; index++)
+    {
+        features |= type_features(
+            state, TB_ARRAY_AT(state->form->globals, tb_shader_form_global, index)->type);
+    }
+    const size_t function_count = tb_shader_form_function_count(state->form);
+    for (size_t index = 0; index < function_count; index++)
+    {
+        features |=
+            function_features(state, tb_shader_form_function_at(state->form, (uint32_t)index));
+    }
+    return features;
+}
+
+/* -------------------------------------------------------------------------
  * The entry point.
  * ------------------------------------------------------------------------- */
 
@@ -692,6 +853,7 @@ const char *tb_shader_reflect(const tb_shader_form *form, tb_arena *arena,
     reflect_signatures(&state, function);
     reflect_bindings(&state);
     reflect_buffers(&state, reflection);
+    reflection->features = reflect_features(&state);
     reflection->inputs = tb_array_data(state.inputs);
     reflection->input_count = tb_array_length(state.inputs);
     reflection->outputs = tb_array_data(state.outputs);
