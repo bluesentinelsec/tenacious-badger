@@ -2,11 +2,13 @@
 set(TB_SHADER_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/shader.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_check.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shader_check_call.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_check_constant.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_check_declaration.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_check_expression.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_check_statement.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_condition.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shader_intrinsics.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_lexer.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_parse.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_parse_declaration.c"

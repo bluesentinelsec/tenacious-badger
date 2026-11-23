@@ -217,9 +217,10 @@ Comparisons give bools shaped as their operands.
 **Overloads.** A call chooses the function whose parameters its arguments
 convert to most cheaply, argument by argument: the same type, then a wider
 type of the same kind, then a narrower one, then another kind; filling a
-vector costs more than any of those, and dropping components most. A call
-that no function is best for is ambiguous, as `g(1)` is between `g(float)`
-and `g(double)`. An `out` or `inout` argument must be assignable.
+vector costs more than any of those, dropping components more, and dropping
+all but one most. A call that no function is best for is ambiguous, as
+`g(1)` is between `g(float)` and `g(double)`. An `out` or `inout` argument
+must be assignable.
 
 **What may be assigned.** A global that is not `static` is one of the
 shader's inputs, as in DXC, and cannot be assigned; nor can a `const`, a
@@ -234,8 +235,37 @@ toward zero.
 `default` must be where they belong, and a case value appears once in a
 switch. A function that returns a value must return one on every path.
 
-**Not yet.** HLSL's intrinsic functions and the methods of resources come
-next; templates come later.
+**Intrinsic functions.** HLSL's intrinsics are a table
+(`src/shader/shader_intrinsics.h`): each one's name and the signatures of its
+overloads, written as templates, as DXC's own table writes them. `lerp` is
+`$1(float#1<a1>, $1, $1)`: three arguments of one type, any shape, of a
+floating-point component. A call's arguments decide each template as DXC
+decides it:
+
+- The components of a template's arguments combine as an operator's operands
+  do, so `max(int, uint)` is a `uint` and `min(half, float)` a `float`.
+- A component outside the template's class becomes the class's fallback, so
+  `sin(int)` is a `float` and `countbits(float)` takes a `uint`. Some classes
+  take nothing else: `asfloat(uint64_t)` is an error.
+- Shapes combine to the smallest vector or matrix among the arguments, and a
+  scalar takes any shape: `lerp(float3, float3, float)` is a `float3`, and
+  `max(float3, float4)` a `float3`, with a warning. A vector does not combine
+  with a matrix. A template written as a scalar takes only a scalar.
+- A literal stays literal where the class takes one: `max(1, 2)` is a
+  literal int.
+
+Then each argument converts to its parameter, and the overloads of a name are
+chosen among as any call's are. `mul` has nine overloads, one for each pair of
+a scalar, a vector and a matrix. The table covers arithmetic and
+trigonometry, vectors and matrices, logic, bits and reinterpretation,
+derivatives and pixel-shader attributes, barriers and atomics, wave and quad
+operations, ray tracing, mesh shaders, `NonUniformResourceIndex` and
+`printf`. A function of the shader's hides an intrinsic of its name.
+
+**Not yet.** The methods of resources (`Sample`, `Load`, `GetDimensions`, ...)
+come next. Templates come later, and so do these intrinsics: the
+tessellation factor functions, the packed 8-bit types and their `pack_` and
+`unpack_` functions, and the legacy `tex2D` family.
 
 ## Diagnostics
 

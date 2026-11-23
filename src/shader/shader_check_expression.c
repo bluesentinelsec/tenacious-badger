@@ -36,7 +36,8 @@ static const tb_shader_type *type_of(tb_shader_checker *checker, const tb_shader
 }
 
 /* An unscoped enum takes part in arithmetic as its integer. */
-static const tb_shader_type *arithmetic_view(tb_shader_checker *checker, const tb_shader_type *type)
+const tb_shader_type *tb_shader_check_arithmetic_view(tb_shader_checker *checker,
+                                                      const tb_shader_type *type)
 {
     if (type->type_class == TB_SHADER_CLASS_ENUM && !type->enumeration->is_scoped)
     {
@@ -104,7 +105,7 @@ static conversion classify(tb_shader_checker *checker, const tb_shader_type *fro
     {
         /* An enum converts to its integer implicitly when unscoped; anything
          * numeric becomes one only by a cast. */
-        const tb_shader_type *const view = arithmetic_view(checker, from);
+        const tb_shader_type *const view = tb_shader_check_arithmetic_view(checker, from);
         const bool numeric_from = tb_shader_type_is_numeric(view) || is_explicit;
         const bool to_enum_ok = to->type_class != TB_SHADER_CLASS_ENUM || is_explicit;
         if (numeric_from && to_enum_ok && tb_shader_component_count(from) == 1)
@@ -397,8 +398,8 @@ static const tb_shader_type *combined_shape(tb_shader_checker *checker, const tb
 static const tb_shader_type *operand_type(tb_shader_checker *checker, tb_shader_node *node,
                                           const tb_shader_type *left, const tb_shader_type *right)
 {
-    left = arithmetic_view(checker, left);
-    right = arithmetic_view(checker, right);
+    left = tb_shader_check_arithmetic_view(checker, left);
+    right = tb_shader_check_arithmetic_view(checker, right);
     if (!tb_shader_type_is_numeric(left) || !tb_shader_type_is_numeric(right))
     {
         tb_shader_check_error(checker, node->location, "'%s' cannot be applied to '%s' and '%s'",
@@ -435,7 +436,8 @@ static bool is_logical(tb_shader_operator op)
 /* `&&` and `||` take scalars in HLSL 2021; vectors use and() and or(). */
 static tb_shader_node *logical_operand(tb_shader_checker *checker, tb_shader_node *operand)
 {
-    const tb_shader_type *const type = arithmetic_view(checker, type_of(checker, operand));
+    const tb_shader_type *const type =
+        tb_shader_check_arithmetic_view(checker, type_of(checker, operand));
     if (is_error(type))
     {
         return operand;
@@ -500,7 +502,8 @@ static void check_binary(tb_shader_checker *checker, tb_shader_node *node)
 static void check_unary(tb_shader_checker *checker, tb_shader_node *node)
 {
     node->left = tb_shader_check_expression(checker, node->left);
-    const tb_shader_type *type = arithmetic_view(checker, type_of(checker, node->left));
+    const tb_shader_type *type =
+        tb_shader_check_arithmetic_view(checker, type_of(checker, node->left));
     node->checked = error_type(checker);
     if (is_error(type))
     {
@@ -664,7 +667,7 @@ static void check_conditional(tb_shader_checker *checker, tb_shader_node *node)
 {
     node->condition = tb_shader_check_expression(checker, node->condition);
     const tb_shader_type *const condition =
-        arithmetic_view(checker, type_of(checker, node->condition));
+        tb_shader_check_arithmetic_view(checker, type_of(checker, node->condition));
     if (!is_error(condition) && !is_one_component(condition))
     {
         tb_shader_check_error(
@@ -690,8 +693,8 @@ static void check_conditional(tb_shader_checker *checker, tb_shader_node *node)
     {
         node->checked = left;
     }
-    else if (tb_shader_type_is_numeric(arithmetic_view(checker, left)) &&
-             tb_shader_type_is_numeric(arithmetic_view(checker, right)))
+    else if (tb_shader_type_is_numeric(tb_shader_check_arithmetic_view(checker, left)) &&
+             tb_shader_type_is_numeric(tb_shader_check_arithmetic_view(checker, right)))
     {
         const tb_shader_type *const common = operand_type(checker, node, left, right);
         node->checked = common != NULL ? common : error_type(checker);
@@ -715,7 +718,7 @@ static void check_conditional(tb_shader_checker *checker, tb_shader_node *node)
  * ------------------------------------------------------------------------- */
 
 /* Check each node of a list, keeping what replaces it. */
-static void check_list(tb_shader_checker *checker, tb_shader_node **first)
+void tb_shader_check_list(tb_shader_checker *checker, tb_shader_node **first)
 {
     for (tb_shader_node **link = first; *link != NULL; link = &(*link)->next)
     {
@@ -728,7 +731,7 @@ static void check_list(tb_shader_checker *checker, tb_shader_node **first)
 }
 
 /* -------------------------------------------------------------------------
- * Calls.
+ * Overloads: what an argument costs.
  * ------------------------------------------------------------------------- */
 
 /* How far a scalar is from another, for choosing an overload: 0 the same,
@@ -766,8 +769,8 @@ static int scalar_cost(tb_shader_scalar from, tb_shader_scalar to)
 }
 
 /* The cost of passing a `from` where a `to` is taken, or -1 when it cannot be. */
-static int argument_cost(tb_shader_checker *checker, const tb_shader_type *from,
-                         const tb_shader_type *to)
+int tb_shader_check_argument_cost(tb_shader_checker *checker, const tb_shader_type *from,
+                                  const tb_shader_type *to)
 {
     const conversion kind = classify(checker, from, to, false);
     if (kind == CONVERSION_NONE)
@@ -778,266 +781,30 @@ static int argument_cost(tb_shader_checker *checker, const tb_shader_type *from,
     {
         return 0;
     }
-    const tb_shader_type *const view = arithmetic_view(checker, from);
+    const tb_shader_type *const view = tb_shader_check_arithmetic_view(checker, from);
     int shape = 0;
     if (kind == CONVERSION_TRUNCATES)
     {
-        shape = 3;
+        /* Dropping all but one component is worse than dropping some. */
+        shape = to->type_class == TB_SHADER_CLASS_SCALAR ? 4 : 3;
     }
-    else if (tb_shader_component_count(view) == 1 && tb_shader_component_count(to) > 1)
+    else if (tb_shader_component_count(view) == 1 &&
+             (tb_shader_component_count(to) > 1 || view->type_class != to->type_class))
     {
+        /* A scalar made a vector or a matrix, `float1` included. */
         shape = 1;
     }
-    else if (view->type_class != to->type_class && !is_one_component(to))
+    else if (view->type_class != to->type_class)
     {
         shape = 2;
     }
     return shape * 10 + scalar_cost(view->scalar, to->scalar);
 }
 
-#define MAX_ARGUMENTS 64
-
-typedef struct candidate
+bool tb_shader_check_converts(tb_shader_checker *checker, const tb_shader_type *from,
+                              const tb_shader_type *to)
 {
-    tb_shader_symbol *function;
-    int costs[MAX_ARGUMENTS];
-} candidate;
-
-/* The costs of calling `function` with the arguments, or false when it cannot be. */
-static bool candidate_costs(tb_shader_checker *checker, tb_shader_symbol *function,
-                            tb_shader_node *const *arguments, size_t count, candidate *out)
-{
-    const tb_shader_node *const declaration = function->declaration;
-    if (count > declaration->parameter_count)
-    {
-        return false;
-    }
-    const tb_shader_node *parameter = declaration->parameters;
-    for (size_t index = 0; index < declaration->parameter_count;
-         index++, parameter = parameter->next)
-    {
-        if (index >= count)
-        {
-            if (parameter->value == NULL)
-            {
-                return false;
-            }
-            continue;
-        }
-        const int cost =
-            argument_cost(checker, type_of(checker, arguments[index]), type_of(checker, parameter));
-        if (cost < 0)
-        {
-            return false;
-        }
-        out->costs[index] = cost;
-    }
-    out->function = function;
-    return true;
-}
-
-/* Whether `a` is a better choice than `b`: no worse for any argument, and
- * better for one. */
-static bool is_better(const candidate *a, const candidate *b, size_t count)
-{
-    bool better = false;
-    for (size_t index = 0; index < count; index++)
-    {
-        if (a->costs[index] > b->costs[index])
-        {
-            return false;
-        }
-        better = better || a->costs[index] < b->costs[index];
-    }
-    return better;
-}
-
-static const char *argument_list(tb_shader_checker *checker, tb_shader_node *const *arguments,
-                                 size_t count)
-{
-    tb_array *const text = TB_ARRAY_CREATE(&checker->allocator, char);
-    for (size_t index = 0; index < count; index++)
-    {
-        const char *const name = type_of(checker, arguments[index])->name;
-        if (index > 0)
-        {
-            tb_array_append(text, ", ", 2);
-        }
-        tb_array_append(text, name, tb_str_length(name));
-    }
-    const char nul = '\0';
-    (void)tb_array_push(text, &nul);
-    return tb_array_data(text);
-}
-
-/* The overload a call chooses, or NULL after reporting why none. */
-static tb_shader_symbol *choose_overload(tb_shader_checker *checker, tb_shader_node *call,
-                                         tb_shader_symbol *first, tb_shader_node *const *arguments,
-                                         size_t count)
-{
-    const tb_shader_name name = first->name;
-    candidate *const viable = TB_ARENA_NEW_ARRAY(checker->arena, candidate, 1);
-    tb_array *const candidates = TB_ARRAY_CREATE(&checker->allocator, candidate);
-    for (tb_shader_symbol *function = first; function != NULL; function = function->next_overload)
-    {
-        if (candidate_costs(checker, function, arguments, count, viable))
-        {
-            (void)tb_array_push(candidates, viable);
-        }
-    }
-    const size_t viable_count = tb_array_length(candidates);
-    const candidate *const options = tb_array_data(candidates);
-    const int length = name_length(name);
-    const tb_shader_location at = call->left != NULL ? call->left->location : call->location;
-    if (viable_count == 0)
-    {
-        tb_shader_check_error(checker, at, "no '%.*s' takes (%s)", length, name.text,
-                              argument_list(checker, arguments, count));
-        return NULL;
-    }
-    for (size_t index = 0; index < viable_count; index++)
-    {
-        bool best = true;
-        for (size_t other = 0; other < viable_count && best; other++)
-        {
-            best = other == index || is_better(&options[index], &options[other], count);
-        }
-        if (best)
-        {
-            return options[index].function;
-        }
-    }
-    tb_shader_check_error(checker, at, "the call to '%.*s' with (%s) is ambiguous", length,
-                          name.text, argument_list(checker, arguments, count));
-    return NULL;
-}
-
-/* Convert each argument to its parameter's type; an output must be a place
- * the parameter's value can be written back to. */
-static void bind_arguments(tb_shader_checker *checker, tb_shader_node *call,
-                           const tb_shader_symbol *function)
-{
-    const tb_shader_node *parameter = function->declaration->parameters;
-    size_t position = 1;
-    for (tb_shader_node **link = &call->children; *link != NULL && parameter != NULL;
-         link = &(*link)->next, parameter = parameter->next, position++)
-    {
-        const tb_shader_type *const type = type_of(checker, parameter);
-        const bool is_output =
-            (parameter->modifiers & (TB_SHADER_MODIFIER_OUT | TB_SHADER_MODIFIER_INOUT)) != 0;
-        if (!is_output)
-        {
-            *link = tb_shader_check_convert(checker, *link, type);
-            continue;
-        }
-        if (!(*link)->is_assignable)
-        {
-            tb_shader_check_error(checker, (*link)->location,
-                                  "argument %zu of '%.*s' is an output, so it must be assignable",
-                                  position, name_length(function->name), function->name.text);
-        }
-        else if (classify(checker, type, type_of(checker, *link), false) == CONVERSION_NONE)
-        {
-            tb_shader_check_error(
-                checker, (*link)->location,
-                "argument %zu of '%.*s' writes a '%s' back, which cannot become '%s'", position,
-                name_length(function->name), function->name.text, type->name,
-                type_of(checker, *link)->name);
-        }
-    }
-}
-
-static void resolve_call(tb_shader_checker *checker, tb_shader_node *call, tb_shader_symbol *first)
-{
-    tb_shader_node *arguments[MAX_ARGUMENTS] = {0};
-    size_t count = 0;
-    for (tb_shader_node *argument = call->children; argument != NULL; argument = argument->next)
-    {
-        if (count == MAX_ARGUMENTS)
-        {
-            tb_shader_check_error(checker, call->location, "a call takes at most %d arguments",
-                                  MAX_ARGUMENTS);
-            return;
-        }
-        if (is_error(type_of(checker, argument)))
-        {
-            return;
-        }
-        arguments[count++] = argument;
-    }
-    tb_shader_symbol *const chosen = choose_overload(checker, call, first, arguments, count);
-    if (chosen == NULL)
-    {
-        return;
-    }
-    call->symbol = chosen;
-    call->checked = chosen->type;
-    bind_arguments(checker, call, chosen);
-}
-
-/* What a callee names: a function, or a method of a struct. */
-static tb_shader_symbol *callee_function(tb_shader_checker *checker, tb_shader_node *callee)
-{
-    if (callee == NULL)
-    {
-        return NULL;
-    }
-    if (callee->kind == TB_SHADER_NODE_NAME)
-    {
-        tb_shader_symbol *const symbol = tb_shader_check_lookup(checker, callee->name);
-        if (symbol == NULL)
-        {
-            tb_shader_check_error(checker, callee->location, "'%.*s' is not declared",
-                                  name_length(callee->name), callee->name.text);
-            return NULL;
-        }
-        if (symbol->kind != TB_SHADER_SYMBOL_FUNCTION)
-        {
-            tb_shader_check_error(checker, callee->location, "'%.*s' is not a function",
-                                  name_length(callee->name), callee->name.text);
-            return NULL;
-        }
-        callee->symbol = symbol;
-        return symbol;
-    }
-    if (callee->kind != TB_SHADER_NODE_MEMBER)
-    {
-        tb_shader_check_error(checker, callee->location, "this expression cannot be called");
-        return NULL;
-    }
-    callee->left = tb_shader_check_expression(checker, callee->left);
-    const tb_shader_type *const object = type_of(checker, callee->left);
-    if (is_error(object))
-    {
-        return NULL;
-    }
-    tb_shader_symbol *const method = object->type_class == TB_SHADER_CLASS_STRUCT
-                                         ? tb_shader_find_member(object, callee->name)
-                                         : NULL;
-    if (method == NULL || method->kind != TB_SHADER_SYMBOL_FUNCTION)
-    {
-        tb_shader_check_error(checker, callee->location, "'%s' has no method '%.*s'", object->name,
-                              name_length(callee->name), callee->name.text);
-        return NULL;
-    }
-    callee->symbol = method;
-    return method;
-}
-
-static void check_call(tb_shader_checker *checker, tb_shader_node *node)
-{
-    node->checked = error_type(checker);
-    tb_shader_symbol *const function = callee_function(checker, node->left);
-    check_list(checker, &node->children);
-    if (node->left != NULL && node->left->template_arguments != NULL)
-    {
-        tb_shader_check_error(checker, node->location, "templates are not supported yet");
-        return;
-    }
-    if (function != NULL)
-    {
-        resolve_call(checker, node, function);
-    }
+    return classify(checker, from, to, false) != CONVERSION_NONE;
 }
 
 /* -------------------------------------------------------------------------
@@ -1047,7 +814,7 @@ static void check_call(tb_shader_checker *checker, tb_shader_node *node)
 static void check_construct(tb_shader_checker *checker, tb_shader_node *node)
 {
     const tb_shader_type *const type = tb_shader_check_type(checker, node->type);
-    check_list(checker, &node->children);
+    tb_shader_check_list(checker, &node->children);
     node->checked = type;
     if (is_error(type))
     {
@@ -1064,7 +831,8 @@ static void check_construct(tb_shader_checker *checker, tb_shader_node *node)
     uint32_t total = 0;
     for (tb_shader_node **link = &node->children; *link != NULL; link = &(*link)->next)
     {
-        const tb_shader_type *const argument = arithmetic_view(checker, type_of(checker, *link));
+        const tb_shader_type *const argument =
+            tb_shader_check_arithmetic_view(checker, type_of(checker, *link));
         if (is_error(argument))
         {
             return;
@@ -1231,7 +999,8 @@ static void check_index(tb_shader_checker *checker, tb_shader_node *node)
     node->left = tb_shader_check_expression(checker, node->left);
     node->right = tb_shader_check_expression(checker, node->right);
     const tb_shader_type *const base = type_of(checker, node->left);
-    const tb_shader_type *const index = arithmetic_view(checker, type_of(checker, node->right));
+    const tb_shader_type *const index =
+        tb_shader_check_arithmetic_view(checker, type_of(checker, node->right));
     node->checked = error_type(checker);
     if (is_error(base) || is_error(index))
     {
@@ -1451,7 +1220,8 @@ static void check_field_access(tb_shader_checker *checker, tb_shader_node *node,
 static void check_member(tb_shader_checker *checker, tb_shader_node *node)
 {
     node->left = tb_shader_check_expression(checker, node->left);
-    const tb_shader_type *const base = arithmetic_view(checker, type_of(checker, node->left));
+    const tb_shader_type *const base =
+        tb_shader_check_arithmetic_view(checker, type_of(checker, node->left));
     node->checked = error_type(checker);
     if (is_error(base))
     {
@@ -1600,7 +1370,7 @@ static void check_kind(tb_shader_checker *checker, tb_shader_node *node)
         check_conditional(checker, node);
         break;
     case TB_SHADER_NODE_CALL:
-        check_call(checker, node);
+        tb_shader_check_call(checker, node);
         break;
     case TB_SHADER_NODE_CONSTRUCT:
         check_construct(checker, node);
@@ -1680,7 +1450,8 @@ tb_shader_node *tb_shader_check_condition(tb_shader_checker *checker, tb_shader_
                                           const char *what)
 {
     tb_shader_node *const checked = tb_shader_check_expression(checker, node);
-    const tb_shader_type *const type = arithmetic_view(checker, type_of(checker, checked));
+    const tb_shader_type *const type =
+        tb_shader_check_arithmetic_view(checker, type_of(checker, checked));
     if (checked == NULL || is_error(type))
     {
         return checked;
@@ -1702,7 +1473,8 @@ bool tb_shader_check_constant_integer(tb_shader_checker *checker, tb_shader_node
     {
         return false;
     }
-    const tb_shader_type *const type = arithmetic_view(checker, type_of(checker, checked));
+    const tb_shader_type *const type =
+        tb_shader_check_arithmetic_view(checker, type_of(checker, checked));
     if (is_error(type))
     {
         return false;

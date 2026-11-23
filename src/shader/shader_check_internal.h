@@ -3,6 +3,7 @@
 #define TB_SHADER_CHECK_INTERNAL_H
 
 #include "shader_check.h"
+#include "shader_intrinsics.h"
 
 #include "badger/allocator.h"
 #include "badger/array.h"
@@ -37,6 +38,9 @@ typedef struct tb_shader_checker
     size_t loop_depth;  /* Loops open: where `continue` may be. */
     size_t break_depth; /* Loops and switches open: where `break` may be. */
     tb_shader_node *innermost_switch;
+
+    /* The intrinsics by name, made when a call first needs them. */
+    tb_table *intrinsics;
 } tb_shader_checker;
 
 /* Diagnostics. */
@@ -92,6 +96,24 @@ tb_shader_node *tb_shader_check_condition(tb_shader_checker *checker, tb_shader_
  * case's value, a template's argument. Returns false after reporting why not. */
 bool tb_shader_check_constant_integer(tb_shader_checker *checker, tb_shader_node *node,
                                       int64_t *value);
+
+/* Check each expression of a list, keeping what each returns in its place. */
+void tb_shader_check_list(tb_shader_checker *checker, tb_shader_node **first);
+/* An unscoped enum as the integer it takes part in arithmetic as; any other type as it is. */
+const tb_shader_type *tb_shader_check_arithmetic_view(tb_shader_checker *checker,
+                                                      const tb_shader_type *type);
+/* Whether a `from` converts to a `to` implicitly. */
+bool tb_shader_check_converts(tb_shader_checker *checker, const tb_shader_type *from,
+                              const tb_shader_type *to);
+/* How far passing a `from` where a `to` is taken is from passing a `to`, for
+ * choosing an overload; -1 when it cannot be passed. */
+int tb_shader_check_argument_cost(tb_shader_checker *checker, const tb_shader_type *from,
+                                  const tb_shader_type *to);
+
+/* Calls (shader_check_call.c). */
+void tb_shader_check_call(tb_shader_checker *checker, tb_shader_node *node);
+/* Whether every signature of an intrinsic reads, so the table can be tested. */
+bool tb_shader_check_intrinsic_is_valid(tb_shader_types *types, tb_shader_intrinsic intrinsic);
 
 /* Constants (shader_check_constant.c). */
 /* Fold a checked expression whose operands are folded, when it is constant. */
