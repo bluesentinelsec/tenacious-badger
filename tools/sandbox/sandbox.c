@@ -3,10 +3,12 @@
  * scene and Tab the next; holding the right mouse button flies the camera
  * (WASD, Q and E down and up, Shift faster, the wheel changes speed). With
  * --frames it stops after that many frames, and with --capture it saves the
- * last as a .bmp first, so a scene can become a test. */
+ * last as a .bmp first, so a scene can become a test. The frame time is
+ * drawn in the corner of every scene, and printed. */
 #include "sandbox.h"
 
 #include "badger/arena.h"
+#include "badger/canvas.h"
 #include "badger/cli.h"
 #include "badger/crash.h"
 #include "badger/dxc.h"
@@ -20,6 +22,8 @@
 #include "badger/str.h"
 #include "badger/version.h"
 
+#include "test_data.h"
+
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -28,6 +32,21 @@
 #define SANDBOX_MOST_VALUES 32
 /* Seconds between the frame times the sandbox prints. */
 #define SANDBOX_REPORT_SECONDS 2.0
+/* Seconds between changes of the frame time drawn on screen, and how much
+ * of each frame's time goes into the average it shows. */
+#define SANDBOX_SHOW_SECONDS 0.25
+#define SANDBOX_SHOW_WEIGHT 0.1
+/* The frame time's text: its size, and its margin from the window's corner,
+ * in logical units. */
+#define SANDBOX_STATUS_SIZE 13.0f
+#define SANDBOX_STATUS_MARGIN 8.0f
+#define SANDBOX_STATUS_LAYER 1000
+/* The size labels in the world are drawn at, in logical units. */
+#define SANDBOX_LABEL_SIZE 14.0f
+
+/* The fonts of tests/data/fonts, built in by CMake. */
+extern const tb_test_file sandbox_font_files[];
+extern const size_t sandbox_font_files_count;
 /* The fly camera: radians a unit of mouse motion turns it, meters a second
  * it moves, and how much Shift and a notch of the wheel change that. */
 #define SANDBOX_LOOK_SPEED 0.0025f
@@ -81,6 +100,10 @@ typedef struct sandbox_run
     double reported;
     uint64_t frames;
     double slowest;
+    /* The frame time drawn on screen: an average, and when it last changed. */
+    double average;
+    double shown;
+    char status_line[96];
     int status;
 } sandbox_run;
 
@@ -301,6 +324,16 @@ static bool sandbox_event(void *context, const tb_window_event *event)
 
 static void sandbox_report(sandbox_run *run, double seconds)
 {
+    run->average = run->average == 0.0
+                       ? seconds
+                       : run->average + (seconds - run->average) * SANDBOX_SHOW_WEIGHT;
+    if (run->status_line[0] == '\0' || run->clock - run->shown >= SANDBOX_SHOW_SECONDS)
+    {
+        (void)tb_fmt_buffer(run->status_line, sizeof(run->status_line),
+                            "%.2f ms a frame (%.0f a second)", run->average * 1000.0,
+                            run->average > 0.0 ? 1.0 / run->average : 0.0);
+        run->shown = run->clock;
+    }
     run->frames++;
     run->slowest = seconds > run->slowest ? seconds : run->slowest;
     if (run->clock - run->reported < SANDBOX_REPORT_SECONDS)
@@ -315,6 +348,34 @@ static void sandbox_report(sandbox_run *run, double seconds)
     run->reported = run->clock;
     run->frames = 0;
     run->slowest = 0.0;
+}
+
+/* The frame time, in the bottom left corner over everything. */
+static void sandbox_draw_status(sandbox_run *run)
+{
+    tb_renderer *const renderer = run->box.renderer;
+    const tb_font *const font = run->box.fonts[SANDBOX_FONT_ROBOTO];
+    const tb_text line = tb_text_from_cstr(run->status_line);
+    const tb_canvas_view view = tb_canvas_view_logical(renderer);
+    uint32_t width = 0;
+    uint32_t height = 0;
+    tb_vec2 size = {0};
+    tb_vec2 at = {0};
+
+    tb_renderer_size(renderer, &width, &height);
+    tb_canvas_set_view(renderer, &view);
+    tb_canvas_set_layer(renderer, SANDBOX_STATUS_LAYER);
+    size = tb_canvas_measure_text(renderer, font, line, SANDBOX_STATUS_SIZE, NULL);
+    at = (tb_vec2){SANDBOX_STATUS_MARGIN * 2.0f,
+                   (float)height / view.scale - SANDBOX_STATUS_MARGIN * 2.0f - size.y};
+    tb_canvas_fill_rounded_rect(renderer,
+                                (tb_canvas_rect){SANDBOX_STATUS_MARGIN,
+                                                 at.y - SANDBOX_STATUS_MARGIN,
+                                                 size.x + SANDBOX_STATUS_MARGIN * 2.0f,
+                                                 size.y + SANDBOX_STATUS_MARGIN * 2.0f},
+                                6.0f, (tb_vec4){0.0f, 0.0f, 0.0f, 0.6f});
+    tb_canvas_draw_text(renderer, font, line, SANDBOX_STATUS_SIZE, at,
+                        (tb_vec4){0.9f, 0.95f, 1.0f, 1.0f}, NULL);
 }
 
 /* Whether this frame is the last of --frames, which --capture saves. */
@@ -362,6 +423,7 @@ static void sandbox_frame_callback(void *context, const tb_game_time *time)
         frame.seconds = run->clock - run->scene_started;
         sandbox_scenes[run->scene].draw(&run->box, run->state, &frame);
     }
+    sandbox_draw_status(run);
     if (tb_renderer_end_frame(run->box.renderer) != TB_RHI_OK)
     {
         (void)tb_fmt_print_error("badger-sandbox: the device was lost\n");
@@ -438,6 +500,36 @@ static size_t sandbox_find_scene(const char *name)
     return sandbox_scene_count;
 }
 
+/* Open the fonts every scene may draw with, from the bytes built in. */
+static int sandbox_open_fonts(sandbox *box)
+{
+    static const char *const names[SANDBOX_FONT_COUNT] = {
+        [SANDBOX_FONT_ROBOTO] = "Roboto-Regular.ttf",
+        [SANDBOX_FONT_VGA] = "Px437_IBM_VGA_8x16.ttf",
+        [SANDBOX_FONT_SILKSCREEN] = "Silkscreen-Regular.ttf"};
+
+    for (int font = 0; font < SANDBOX_FONT_COUNT; font++)
+    {
+        const tb_test_file *file = NULL;
+        tb_font_error error = {0};
+        for (size_t index = 0; index < sandbox_font_files_count; index++)
+        {
+            if (tb_str_equal(sandbox_font_files[index].name, names[font]))
+            {
+                file = &sandbox_font_files[index];
+            }
+        }
+        if (file == NULL ||
+            tb_font_open(file->bytes, file->length, NULL, &box->fonts[font], &error) != TB_FONT_OK)
+        {
+            (void)tb_fmt_print_error("badger-sandbox: error: the font %s could not be opened\n",
+                                     names[font]);
+            return EXIT_FAILURE;
+        }
+    }
+    return EXIT_SUCCESS;
+}
+
 static int sandbox_open_renderer(sandbox_run *run, tb_window_system *system)
 {
     tb_rhi_error error = TB_RHI_ERROR_INIT;
@@ -466,6 +558,12 @@ static int sandbox_open_renderer(sandbox_run *run, tb_window_system *system)
         return EXIT_FAILURE;
     }
     run->box.device = tb_renderer_device(run->box.renderer);
+    if (sandbox_open_fonts(&run->box) != EXIT_SUCCESS)
+    {
+        return EXIT_FAILURE;
+    }
+    tb_renderer_set_debug_font(run->box.renderer, run->box.fonts[SANDBOX_FONT_ROBOTO],
+                               SANDBOX_LABEL_SIZE);
     tb_rhi_device_info_of(run->box.device, &run->box.info);
     if (run->box.info.backend == TB_RHI_BACKEND_D3D12 &&
         tb_dxc_open(&run->box.dxc, &dxc_error) != TB_DXC_OK)
@@ -486,6 +584,10 @@ static void sandbox_close(sandbox_run *run, tb_window_system *system)
 {
     sandbox_leave_scene(run);
     tb_renderer_destroy(run->box.renderer);
+    for (int font = 0; font < SANDBOX_FONT_COUNT; font++)
+    {
+        tb_font_close(run->box.fonts[font]);
+    }
     tb_dxc_close(run->box.dxc);
     tb_window_destroy(run->box.window);
     tb_window_system_close(system);

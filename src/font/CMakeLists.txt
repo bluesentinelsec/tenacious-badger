@@ -5,6 +5,7 @@ set(TB_FONT_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/font_cmap.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/font_glyf.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/font_kern.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/font_layout.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/font_name.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/font_raster.c"
     CACHE INTERNAL "Font sources")

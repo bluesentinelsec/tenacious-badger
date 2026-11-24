@@ -222,6 +222,146 @@ static void canvas_destroy(sandbox *box, void *state)
 }
 
 /* ---------------------------------------------------------------------------
+ * text: Roboto at sizes from 10 to 48, paragraphs wrapping in panels whose
+ * width changes, left, centered and right, pixel fonts at whole multiples
+ * of their sizes, and labels over the shapes.
+ * ------------------------------------------------------------------------- */
+
+#define TEXT_MARGIN 24.0f
+#define TEXT_PANEL_PADDING 12.0f
+#define TEXT_PARAGRAPH_SIZE 14.0f
+
+static const char text_paragraph[] =
+    "Tenacious Badger lays out text in lines: kerned pairs such as AV, To and "
+    "Wa sit closer, and each glyph lands on a whole pixel at the display's "
+    "own scale. Long words such as Llanfairpwllgwyngyllgogerychwyrndrobwll "
+    "break where they must.\nA line break starts a new line.";
+
+static const char *const text_shape_names[SHAPE_COUNT] = {"cube", "plane", "sphere", "cylinder",
+                                                          "cone", "torus", "capsule"};
+
+static bool text_create(sandbox *box, void **state)
+{
+    return shapes_create(box, state);
+}
+
+/* A rounded panel around a box of the canvas, grown by the padding. */
+static void text_panel(sandbox *box, tb_canvas_rect inside)
+{
+    const tb_canvas_rect panel = {inside.x - TEXT_PANEL_PADDING, inside.y - TEXT_PANEL_PADDING,
+                                  inside.width + TEXT_PANEL_PADDING * 2.0f,
+                                  inside.height + TEXT_PANEL_PADDING * 2.0f};
+
+    tb_canvas_fill_rounded_rect(box->renderer, panel, 8.0f, (tb_vec4){0.06f, 0.07f, 0.09f, 0.88f});
+    tb_canvas_stroke_rounded_rect(box->renderer, panel, 8.0f, 1.0f,
+                                  (tb_vec4){0.35f, 0.65f, 1.0f, 0.8f});
+}
+
+/* Roboto at a run of sizes, each line naming its own. */
+static void text_sizes(sandbox *box, float y)
+{
+    static const float sizes[] = {10, 12, 14, 16, 20, 24, 32, 48};
+    const tb_font *const font = box->fonts[SANDBOX_FONT_ROBOTO];
+
+    for (size_t index = 0; index < sizeof(sizes) / sizeof(sizes[0]); index++)
+    {
+        char line[96] = {0};
+        const tb_text text =
+            tb_text_make(line, tb_fmt_buffer(line, sizeof(line),
+                                             "%.0f: The quick brown fox jumps over the lazy dog",
+                                             (double)sizes[index]));
+        tb_canvas_draw_text(box->renderer, font, text, sizes[index], (tb_vec2){TEXT_MARGIN, y},
+                            (tb_vec4){0.92f, 0.94f, 0.97f, 1}, NULL);
+        y += tb_canvas_measure_text(box->renderer, font, text, sizes[index], NULL).y;
+    }
+}
+
+/* The paragraph in three panels, left, centered and right, as wide as the
+ * time says, their bottoms at `bottom`. */
+static void text_paragraphs(sandbox *box, float bottom, float t)
+{
+    static const tb_font_align aligns[] = {TB_FONT_ALIGN_LEFT, TB_FONT_ALIGN_CENTER,
+                                           TB_FONT_ALIGN_RIGHT};
+    const tb_font *const font = box->fonts[SANDBOX_FONT_ROBOTO];
+    const float width = 230.0f + 110.0f * sinf(t * 0.7f);
+    const tb_text text = TB_TEXT(text_paragraph);
+    tb_font_layout_options options[3] = {0};
+    float tallest = 0.0f;
+
+    for (size_t index = 0; index < 3; index++)
+    {
+        options[index] = (tb_font_layout_options){.wrap_width = width, .align = aligns[index]};
+        tallest = fmaxf(tallest, tb_canvas_measure_text(box->renderer, font, text,
+                                                        TEXT_PARAGRAPH_SIZE, &options[index])
+                                     .y);
+    }
+    for (size_t index = 0; index < 3; index++)
+    {
+        const tb_vec2 at = {TEXT_MARGIN + TEXT_PANEL_PADDING +
+                                (float)index * (340.0f + TEXT_PANEL_PADDING * 3.0f),
+                            bottom - TEXT_PANEL_PADDING - tallest};
+        text_panel(box, (tb_canvas_rect){at.x, at.y, width, tallest});
+        tb_canvas_set_layer(box->renderer, 1);
+        tb_canvas_draw_text(box->renderer, font, text, TEXT_PARAGRAPH_SIZE, at,
+                            (tb_vec4){0.85f, 0.88f, 0.92f, 1}, &options[index]);
+        tb_canvas_set_layer(box->renderer, 0);
+    }
+}
+
+/* One line of a pixel font, its right edge at `right`. */
+static float text_pixel_line(sandbox *box, sandbox_font font, tb_text text, float size,
+                             float pixel_size, tb_vec2 top_right, tb_vec4 color)
+{
+    const tb_font_layout_options options = {.pixel_size = pixel_size};
+    const tb_vec2 measured =
+        tb_canvas_measure_text(box->renderer, box->fonts[font], text, size, &options);
+
+    tb_canvas_draw_text(box->renderer, box->fonts[font], text, size,
+                        (tb_vec2){top_right.x - measured.x, top_right.y}, color, &options);
+    return top_right.y + measured.y;
+}
+
+/* The pixel fonts, on whole pixels at whole multiples of their sizes,
+ * against the right edge. */
+static void text_pixel_fonts(sandbox *box, float right, float y)
+{
+    y = text_pixel_line(box, SANDBOX_FONT_VGA, TB_TEXT("Px437 IBM VGA 8x16 at 16 px: C:\\> DIR /W"),
+                        16.0f, 16.0f, (tb_vec2){right, y}, (tb_vec4){0.65f, 1.0f, 0.65f, 1});
+    y = text_pixel_line(box, SANDBOX_FONT_VGA, TB_TEXT("Twice: 32 px"), 32.0f, 16.0f,
+                        (tb_vec2){right, y}, (tb_vec4){1.0f, 0.75f, 0.35f, 1});
+    y = text_pixel_line(box, SANDBOX_FONT_SILKSCREEN, TB_TEXT("SILKSCREEN AT 8 PX"), 8.0f, 8.0f,
+                        (tb_vec2){right, y + 8.0f}, (tb_vec4){1.0f, 0.55f, 0.8f, 1});
+    (void)text_pixel_line(box, SANDBOX_FONT_SILKSCREEN, TB_TEXT("AND AT 24, THREE TIMES"), 24.0f,
+                          8.0f, (tb_vec2){right, y}, (tb_vec4){1.0f, 0.55f, 0.8f, 1});
+}
+
+static void text_draw(sandbox *box, void *state, const sandbox_frame *frame)
+{
+    const tb_canvas_view view = tb_canvas_view_logical(box->renderer);
+    uint32_t width = 0;
+    uint32_t height = 0;
+
+    shapes_draw(box, state, frame);
+    for (int shape = 0; shape < SHAPE_COUNT; shape++)
+    {
+        const float x = ((float)shape - (float)(SHAPE_COUNT - 1) * 0.5f) * 1.6f;
+        tb_debug_text(box->renderer, (tb_vec3){x, 1.55f, 0.0f},
+                      tb_text_from_cstr(text_shape_names[shape]), (tb_vec4){1.0f, 0.9f, 0.5f, 1});
+    }
+    tb_renderer_size(box->renderer, &width, &height);
+    tb_canvas_set_view(box->renderer, &view);
+    text_sizes(box, TEXT_MARGIN);
+    /* Room under the panels for the frame time. */
+    text_paragraphs(box, (float)height / view.scale - 64.0f, (float)frame->seconds);
+    text_pixel_fonts(box, (float)width / view.scale - TEXT_MARGIN, TEXT_MARGIN);
+}
+
+static void text_destroy(sandbox *box, void *state)
+{
+    shapes_destroy(box, state);
+}
+
+/* ---------------------------------------------------------------------------
  * triangle: three colored corners, turning, drawn through the RHI itself.
  * ------------------------------------------------------------------------- */
 
@@ -460,6 +600,12 @@ const sandbox_scene sandbox_scenes[] = {
      canvas_create,
      canvas_draw,
      canvas_destroy},
+    {"text",
+     "text: sizes, wrapping paragraphs, alignment, pixel fonts, and labels in the world",
+     {0.10f, 0.11f, 0.13f, 1},
+     text_create,
+     text_draw,
+     text_destroy},
     {"triangle",
      "a triangle of three colored corners, turning, drawn through the RHI",
      {0.08f, 0.09f, 0.11f, 1},

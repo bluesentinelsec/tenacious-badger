@@ -275,7 +275,7 @@ tb_rhi_result tb_renderer_create(const tb_renderer_options *options, tb_renderer
             goto failed;
         }
     }
-    result = tb_renderer_canvas_create(renderer, error);
+    result = tb_renderer_canvas_create(renderer, options->glyph_atlas_size, error);
     if (result != TB_RHI_OK)
     {
         goto failed;
@@ -396,6 +396,7 @@ bool tb_renderer_begin_frame(tb_renderer *renderer, const tb_camera *camera, tb_
     renderer->draw_count = 0;
     renderer->custom_count = 0;
     tb_canvas_batch_begin(&renderer->canvas, renderer->width, renderer->height);
+    tb_renderer_text_begin_frame(renderer);
     tb_mutex_lock(&renderer->lines_lock);
     renderer->lines[0].count = 0;
     renderer->lines[1].count = 0;
@@ -631,6 +632,7 @@ tb_rhi_result tb_renderer_end_frame(tb_renderer *renderer)
 
     TB_ASSERT(renderer != NULL);
     TB_ASSERT_MSG(renderer->in_frame, "a frame ended that was not begun");
+    tb_renderer_text_end_frame(renderer);
     renderer->in_frame = false;
     tb_renderer_upload_frame(renderer, &recording);
 
