@@ -6,6 +6,10 @@
 *.gif binary
 *.ico binary
 *.pdf binary
+*.ttf binary
 # Test data is kept byte for byte: a corpus or an archive whose line endings
 # changed would test something else.
 tests/data/** -text
+# The fonts the engine carries, and their licenses, are kept byte for byte
+# as their authors published them.
+resources/fonts/** -text

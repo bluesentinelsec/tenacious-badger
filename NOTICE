@@ -3,3 +3,19 @@ Copyright 2026 bluesentinelsec
 
 Licensed under the Apache License, Version 2.0.
 See LICENSE for the full license text.
+
+Third-party fonts
+-----------------
+
+The engine library carries the fonts of resources/fonts/, each under its
+own license, whose full text is in licenses/fonts/ beside this notice (in
+the source tree, resources/fonts/licenses/). See licenses/fonts/README.md
+for each family's authors and upstream source.
+
+Under the SIL Open Font License, Version 1.1: EB Garamond, Source Serif 4,
+Libre Baskerville, Inter, Roboto, Source Sans 3, JetBrains Mono, Fira Code,
+IBM Plex Mono, Press Start 2P, VT323, Silkscreen, and Monocraft.
+
+Under the Creative Commons Attribution-ShareAlike 4.0 International
+License: Px437 IBM VGA 8x16, (c) VileR, from The Ultimate Oldschool PC Font
+Pack (https://int10h.org/oldschool-pc-fonts/), unmodified.

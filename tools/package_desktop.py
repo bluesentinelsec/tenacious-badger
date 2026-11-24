@@ -52,12 +52,29 @@ def verify_windows_signatures(folder, publisher):
     return signing
 
 
+def verify_font_licenses(folder):
+    """The licenses of the fonts the engine carries travel with it (NOTICE)."""
+    expected = sorted(path.name for path in (ROOT / 'resources/fonts/licenses').iterdir())
+    shipped = folder / 'licenses/fonts'
+    require(shipped.is_dir(), 'Missing the licenses of the embedded fonts')
+    for name in expected + ['README.md']:
+        require((shipped / name).is_file(), f'Missing font license: {name}')
+    require('Px437 IBM VGA 8x16' in (folder / 'NOTICE').read_text(encoding='utf-8'),
+            'Missing the attribution of the embedded fonts')
+
+
+def copy_font_licenses(folder):
+    shutil.copytree(ROOT / 'resources/fonts/licenses', folder / 'licenses/fonts')
+    shutil.copy2(ROOT / 'resources/fonts/README.md', folder / 'licenses/fonts/README.md')
+
+
 def metadata_check(folder, metadata, system):
     version = metadata['version']
     publisher = metadata['publisher']
     identifier = metadata['identifier']
     require((folder / 'LICENSE').is_file(), 'Missing Apache-2.0 license')
     require(publisher in (folder / 'NOTICE').read_text(), 'Missing personal attribution')
+    verify_font_licenses(folder)
     if system == 'Windows':
         verify_windows_signatures(folder, publisher)
         executable = folder / 'burrow.exe'
@@ -170,6 +187,7 @@ def main():
             launch = 'Run ./burrow from a terminal. Desktop metadata is in share/ for optional desktop integration.'
         for document in ['LICENSE', 'NOTICE']:
             shutil.copy2(ROOT / document, folder / document)
+        copy_font_licenses(folder)
         (folder / 'README.txt').write_text(f"Tenacious Badger — under construction\n\n{launch}\n\nBurrow opens its window and runs its game loop; nothing is rendered yet. Escape quits. Run it with check to print a line that proves it starts, and with --help for its options.\nPublisher: {metadata['publisher']}\nLicense: Apache-2.0\n", encoding='utf-8')
         (folder / 'BUILD-INFO.json').write_text(json.dumps(metadata, indent=2) + '\n')
         metadata_check(folder, metadata, system)

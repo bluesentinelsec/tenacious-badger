@@ -19,6 +19,7 @@
 #include "badger/deflate.h"
 #include "badger/fmt.h"
 #include "badger/font.h"
+#include "badger/font_catalog.h"
 #include "badger/fs.h"
 #include "badger/hash.h"
 #include "badger/json.h"
@@ -522,6 +523,63 @@ TB_TEST(core_thread_safety, every_thread_can_read_one_font)
     expect_no_wrong_answer(workers);
     shared_font = NULL;
     tb_font_close(font);
+}
+
+/* --- the embedded fonts, asked for by every thread at once ---------------------- */
+
+#define FONT_SLOTS ((size_t)64)
+
+static const tb_font_catalog *shared_catalog;
+static const void *font_bytes_seen[THREAD_COUNT][FONT_SLOTS];
+
+/* Every thread asks for every embedded font, starting at a font of its own,
+ * and finds each role; each records the bytes it was given. */
+static void ask_for_every_font(void *argument)
+{
+    worker *const self = argument;
+    const size_t count = tb_font_embedded_count();
+    for (size_t step = 0; step < count && count <= FONT_SLOTS; step++)
+    {
+        const size_t index = (self->number + step) % count;
+        const void *bytes = NULL;
+        size_t length = 0;
+        tb_font_catalog_get_bytes(shared_catalog, index, &bytes, &length);
+        font_bytes_seen[self->number][index] = bytes;
+        count_unless(self, bytes != NULL && length > 0);
+    }
+    for (size_t role = 0; role < TB_FONT_ROLE_COUNT; role++)
+    {
+        size_t index = SIZE_MAX;
+        count_unless(self, tb_font_catalog_find_role(shared_catalog, (tb_font_role)role, &index) ==
+                               (count > 0));
+    }
+}
+
+TB_TEST(core_thread_safety, every_thread_gets_the_same_embedded_fonts)
+{
+    worker workers[THREAD_COUNT] = {0};
+    tb_font_catalog *catalog = tb_font_catalog_create(NULL);
+    TB_TEST_REQUIRE_UINT(tb_font_embedded_count(), <=, FONT_SLOTS);
+    for (size_t thread = 0; thread < THREAD_COUNT; thread++)
+    {
+        for (size_t index = 0; index < FONT_SLOTS; index++)
+        {
+            font_bytes_seen[thread][index] = NULL;
+        }
+    }
+    shared_catalog = catalog;
+    run_on_every_thread(ask_for_every_font, workers, NULL);
+    expect_no_wrong_answer(workers);
+    /* One decompression of each font, which every thread was given. */
+    for (size_t index = 0; index < tb_font_embedded_count(); index++)
+    {
+        for (size_t thread = 1; thread < THREAD_COUNT; thread++)
+        {
+            TB_TEST_EXPECT_POINTER(font_bytes_seen[thread][index], ==, font_bytes_seen[0][index]);
+        }
+    }
+    shared_catalog = NULL;
+    tb_font_catalog_destroy(catalog);
 }
 
 /* --- a JSON document, read by every thread at once ------------------------------ */

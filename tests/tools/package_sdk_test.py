@@ -32,9 +32,10 @@ def main():
             'import sys\nfrom pathlib import Path\n'
             f'Path({str(marker)!r}).write_text(sys.executable)\n')
         # Launch a real child process with no interpreter discoverable on PATH.
-        # Native signing and SDK contents are covered by the packaging CI jobs.
+        # Native signing, font licenses, and SDK contents are covered by the
+        # packaging CI jobs.
         with patch.object(package_sdk, 'ROOT', root), \
-                patch.object(package_sdk, 'verify_windows_signatures'), \
+                patch.object(package_sdk, 'verify_windows_signatures'),                 patch.object(package_sdk, 'verify_font_licenses'), \
                 patch.dict(os.environ, {'PATH': str(root / 'empty-path')}):
             package_sdk.verify(prefix, {'publisher': 'bluesentinelsec'})
         assert Path(marker.read_text()).samefile(sys.executable)
