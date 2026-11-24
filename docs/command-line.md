@@ -22,7 +22,7 @@ destination is set says what kind of entry it is:
 | `choice` | one of `choices` | its index |
 | `texts` | any text, each time it is given | appended to an array of `capacity`, with `*count` |
 
-An entry with a `short_name` or `long_name` is an option; one with neither is
+An entry with a `short_name`, `long_name`, or `single_dash` is an option. An entry without any of these is
 a positional argument, named by `name`. An argument with `texts` takes all
 the arguments that are left, and comes last.
 
@@ -76,8 +76,57 @@ A value that begins with `-`, other than a negative number, is not taken as
 the value of the option before it: `--output --verbose` is an error, so a
 forgotten value is caught. Write `--output=--verbose` for that name.
 
-The parser allocates nothing. Text values point into the arguments, which
-must outlive their use.
+Use `.single_dash = "c:v"` for `-c:v libx264`. An exact match wins over a
+short-option group. Other groups and attached values such as `-xzf archive.tar.gz`
+and `-Iinclude` keep their usual meaning. For hundreds of sibling commands,
+sort the table by `strcmp(name)` and set `.commands_sorted = true` on its parent
+to use binary search.
+
+## Environment and config files
+
+A destination starts with its caller-supplied default. Set an option's
+`.environment` and `.config_key` to opt into other sources. The first
+available source supplies the value in this order: command line,
+environment, config file, destination default. Normal conversion,
+range and choice checks also apply to values from those sources.
+
+```c
+const char *path = NULL, *profile = "local";
+tb_fs_buffer storage = {0};
+const tb_cli_option options[] = {
+    {.long_name = "config", .text = &path},
+    {.long_name = "profile", .text = &profile,
+     .environment = "APP_PROFILE", .config_key = "profile"},
+};
+const tb_cli_command program = {
+    .name = "tool", .options = options, .option_count = TB_CLI_COUNT_OF(options),
+    .config_path = &path, .config_storage = &storage,
+};
+```
+
+With `profile = "staging"` in the file, `tool --config settings.conf`
+selects staging. Setting `APP_PROFILE=prod` selects prod, and adding
+`--profile test` selects test. Read the destinations after a successful
+parse. Call `tb_fs_buffer_free(&storage)` after using them, including on
+parse errors. Argument and environment strings also borrow their source
+storage. Keep the environment stable while using borrowed values.
+
+Config files support flat `key=value` lines, optional surrounding quotes,
+blank lines, and whole-line `#` comments. The file limit is 1 MiB. The first
+matching key supplies the value for an option. Unbound keys are ignored.
+Flags accept `true` and `false`. A repeated text option takes its values from
+the command line when present, or one fallback string. A parse without a
+config file reads argv into caller-provided storage without allocating.
+
+## Shell completion
+
+Call `tb_cli_write_completion(&program, shell, sink, context)` to write a
+registration script for `bash`, `zsh`, `fish`, or `powershell`. Source the
+output in that shell (after `compinit` for Zsh). The generated script offers
+commands and option names for the selected command, including inherited
+options. The function returns false if the shell or a declaration's spelling
+cannot be represented. See [the acceptance tests](../tests/core/cli_benchmark_test.c)
+for complete declarations and command lines.
 
 ## What the user sees
 
@@ -154,3 +203,30 @@ int main(int count, char **values)
     return status;
 }
 ```
+
+## Checking the benchmark ladder
+
+Run the following against a built tree. The acceptance cases check parsed
+values and selected commands through the public API.
+
+| Benchmark | Coverage |
+| --- | --- |
+| 1, 2, 3, 9, 11 | The `core_cli.*` suite covers defaults, conversion, required arguments, clusters, variadic arguments, command help, usage and typo suggestions. |
+| 4, 5, 6, 8, 13 | The `cli_ladder.*` suite checks compiler include/define accumulation, Cargo choices and diagnostics, both FFmpeg single-dash spellings, and Git, tar, curl and Docker parsing. |
+| 7 | The kubectl case selects every one of 512 children and checks both get and apply. The release benchmark measures the same number of siblings in declaration order and sorted order. |
+| 10 | The Docker case declares a subcommand with two short flags, one long flag, three value options and a required image in fewer than 50 lines. |
+| 12 | Generate Bash, Zsh, Fish and PowerShell registrations from the tree. Tests check subcommand and inherited option scope. |
+| 14 | The random-argv case mixes arbitrary byte strings with valid options, clusters, malformed tokens and empty arguments. Each repetition uses a new seed. |
+| 15 | The layered-source case reads a temporary file and checks default, file, environment and CLI precedence. |
+
+```text
+tb_tests "core_cli.*" "cli_ladder.*"
+tb_bench --repeats 5 cli
+tb_tests_sanitized --repeat 1000 cli_ladder.random_argv
+```
+
+The last command parses two million generated argument vectors. On Windows
+the sanitizer build uses AddressSanitizer. Use a release build for timing,
+since debug builds also check declarations on every parse. Rebuild binary
+consumers when upgrading to 0.4.0 because the option and command structures
+gained fields.

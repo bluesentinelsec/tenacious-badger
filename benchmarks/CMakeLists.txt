@@ -17,6 +17,7 @@ add_executable(tb_bench
     core/array_bench.c
     core/atom_bench.c
     core/bit_bench.c
+    core/cli_bench.c
     core/decimal_bench.c
     core/diagnostics_bench.c
     core/fmt_bench.c
