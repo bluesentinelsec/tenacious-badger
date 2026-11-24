@@ -137,6 +137,17 @@ tb_font_result tb_font_open_gpos(tb_font *font, tb_font_span gpos, tb_font_error
 /* Release what tb_font_open_gpos() allocated. */
 void tb_font_close_gpos(tb_font *font);
 
+/* -------------------------------------------------------------------------
+ * Rasterizing.
+ * ------------------------------------------------------------------------- */
+
+/* A size in pixels to the em as it is drawn: 0 for one that is not a
+ * positive finite number, and at most TB_FONT_RASTER_MAX_PIXELS_PER_EM. */
+float tb_font_raster_clamp_size(float pixels_per_em);
+
+/* The fraction of a subpixel offset, from 0 up to 1; 0 for one that is not finite. */
+float tb_font_raster_subpixel(float subpixel_x);
+
 /* The byte range of a glyph in glyf, which loca was checked to give. */
 tb_font_span tb_font_glyph_data(const tb_font *font, uint16_t glyph);
 

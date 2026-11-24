@@ -92,6 +92,8 @@ set(TB_TEST_CASE_SOURCES
     font/font_builder.c
     font/font_test.c
     font/font_damage_test.c
+    font/font_raster_test.c
+    font/font_atlas_test.c
     ${TB_FONT_DATA_SOURCE}
     jobs/jobs_test.c
     serialize/json_test.c
