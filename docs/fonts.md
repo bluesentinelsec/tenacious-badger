@@ -1,9 +1,12 @@
 # Fonts
 
-The `font` module reads TrueType fonts (`.ttf`). Its code lives in
-`src/font/`, and its header is `badger/font.h`. Everything is the engine's
-own C; no font library is used. It reads; drawing glyphs into pixels, and
-the fonts the engine carries, come later.
+The `font` module reads TrueType fonts (`.ttf`), and draws their glyphs
+into pixels. Its code lives in `src/font/`. `badger/font.h` is the half
+that reads, and `badger/font_raster.h` the half that draws: glyphs
+rasterized into bitmaps of coverage, and an atlas that packs them into one
+image for the renderer. Everything is the engine's own C; no font library
+is used. The texture that holds an atlas on the GPU, and the fonts the
+engine carries, come later.
 
 ## Opening a font
 
@@ -73,6 +76,143 @@ instance is read), vertical metrics, glyph substitution, mark positioning
 and every other `GPOS` adjustment, and fonts with PostScript outlines
 (`OTTO`) or collections of fonts (`ttcf`), which are unsupported.
 
+## Drawing glyphs
+
+`badger/font_raster.h` turns outlines into pixels. A size is a number of
+pixels to the em: at `pixels_per_em`, a font unit is
+`pixels_per_em / units_per_em` pixels, which `tb_font_scale` gives.
+`tb_font_get_line_metrics` scales the ascent, descent, and line gap.
+
+```c
+const tb_font_raster_options options = {16.0f, 0.0f, TB_FONT_RASTER_SMOOTH};
+tb_font_glyph_image image = {0};
+if (tb_font_rasterize_glyph(font, glyph, &options, arena, &image, NULL) == TB_FONT_OK)
+{
+    /* image.pixels: image.width * image.height bytes of coverage, rows from
+     * the top. With the pen at (x, y) on the baseline, y growing down, the
+     * bitmap's top-left pixel goes at (x + image.left, y - image.top), and
+     * the pen moves on by image.advance. */
+}
+```
+
+- **The bitmap** is the smallest box of whole pixels around every point of
+  the outline, control points included. `tb_font_measure_glyph` gives its
+  size and place, and the advance and side bearing in pixels, without
+  drawing. A blank glyph, such as a space, has an advance and no bitmap.
+- **Subpixel offsets.** `subpixel_x`, from 0 to 1, draws the glyph that far
+  right of a whole pixel, so that text can be laid out at fractions of a
+  pixel and still be drawn from cached bitmaps of a few offsets.
+- **Limits.** Sizes are clamped to 2048 pixels to the em, and a size that is
+  not a positive finite number draws nothing. A bitmap wider or taller than
+  4096 pixels, or an outline of more than a million lines once its curves
+  are cut, is `TB_FONT_TOO_LARGE`, so a damaged glyph cannot run away with
+  time or memory.
+- **Any outline.** `tb_font_rasterize_outline` draws an outline into a
+  bitmap the caller gives, at any scale and offset, clipped to it.
+
+### The smooth mode
+
+The smooth mode gives each pixel the exact area of it inside the outline,
+the anti-aliasing of FreeType's "smooth" renderer, font-rs, and
+stb_truetype's second rasterizer.
+
+1. Each quadratic curve is cut into lines that stray at most a twentieth
+   of a pixel from it: a curve with ends p0 and p1 and control point c,
+   cut into n equal steps of its parameter, strays by at most
+   |p0 - 2c + p1| / 4n².
+2. Each line adds, to every pixel of each row it crosses, the area of the
+   pixel to its right within that row, signed by whether the line goes up
+   or down. It adds it as differences along the row, so that the area of a
+   pixel is the sum of the row's differences up to it: a line writes to
+   only the pixels it passes through, and one more.
+3. Summing each row gives each pixel's area inside the outline, the
+   windings of the contours adding up. Its magnitude, at most 1, is the
+   coverage, from 0 to 255.
+
+Rows are summed a band of 32 at a time, so the memory a glyph takes while
+it is drawn is 32 rows, whatever its size.
+
+That is the non-zero rule exactly where one contour covers a pixel. Where
+two contours wound the same way overlap within a pixel, adding their areas
+counts the overlap twice, and the pixel comes out too dark; holes, wound
+the other way, subtract correctly. Overlaps are common: Roboto draws a T as
+its bar and its stem, and an e as one contour that crosses itself. So the
+rasterizer looks for them, as edges that cross or a pixel that winds more
+than once, and draws a glyph that has them again at 8 times the size each
+way, averaging each 8 by 8 block of subpixels into a pixel. The error is
+then confined to the subpixels where the overlap's edge lies: at most 1/16
+of a pixel. FreeType does the same for the glyphs that a font marks as
+overlapping; marks that fonts often leave out.
+
+### The aliased mode
+
+The aliased mode fills a pixel when its center is inside the outline by the
+non-zero rule, and leaves it empty otherwise: each line adds its winding
+at the first pixel whose center lies right of where it crosses the row's
+center, and a pixel is full when its row's sum up to it is not zero. That
+is for pixel fonts at the sizes they were drawn for, whose edges fall on
+pixel edges, so that every pixel is wholly in or out: the VGA font
+(Px437 IBM VGA 8x16) at 16 pixels to the em, Silkscreen at 8 or 16, Press
+Start 2P at 8. At those sizes the smooth mode draws the same pixels.
+
+## The atlas
+
+A `tb_font_atlas` caches rasterized glyphs packed into one single-channel
+image, from which the renderer draws text as textured quads.
+`tb_font_atlas_get_glyph` finds a glyph there, or draws it there on first
+use, and gives its rectangle in the image and how to place it.
+
+```c
+tb_font_atlas *atlas = tb_font_atlas_create(&(tb_font_atlas_options){1024, 1024, 1, 4}, NULL);
+tb_font_atlas_glyph placed = {0};
+const tb_font_raster_options options = {16.0f, pen_x - floorf(pen_x), TB_FONT_RASTER_SMOOTH};
+if (tb_font_atlas_get_glyph(atlas, font, glyph, &options, &placed, NULL) == TB_FONT_OK)
+{
+    /* Draw placed.rect of the atlas's image at (floorf(pen_x) + placed.left,
+     * baseline - placed.top), and move the pen on by placed.advance. */
+}
+```
+
+- **Keys.** A glyph is kept by its font, glyph, size, mode, and subpixel
+  bin. The pen's fraction of a pixel is rounded to the nearest of the
+  atlas's `subpixel_bins` positions (4 is the usual choice for smooth
+  text; 1, the default, draws at whole pixels); a fraction that rounds up
+  to the next whole pixel is bin 0 with `left` one more. The atlas keeps a
+  font by its address, so reset the atlas before closing a font it holds
+  glyphs of.
+- **Packing.** Glyphs are packed by a skyline: the top edge of what is
+  packed, as level runs from left to right. A glyph goes where its bottom
+  would be highest, resting on the runs beneath it. `padding` empty pixels
+  (1 by default) surround every glyph, so that sampling one bilinearly never
+  reads its neighbour.
+- **Changes.** `tb_font_atlas_get_dirty` lists the rectangles of the image
+  that changed since `tb_font_atlas_clear_dirty`: what to copy to the GPU's
+  texture. Past 64 rectangles, the list becomes the one rectangle around
+  them all. A new or cleared atlas lists its whole image.
+- **Eviction.** When a glyph does not fit, the atlas clears: every glyph is
+  forgotten, the image is cleared, and its generation, from
+  `tb_font_atlas_generation`, counts up. Glyphs are then drawn again as they
+  are asked for. Clearing everything, rather than evicting the least used
+  glyphs, keeps packing simple and the image unfragmented; text uses few
+  glyphs at few sizes, so an atlas of the right size rarely fills. A caller
+  that has placed glyphs since the generation changed must ask for them
+  again, because their rectangles may now hold other glyphs: the renderer
+  checks the generation after laying out a frame's text, and lays it out
+  again when it changed. A glyph larger than the whole atlas is
+  `TB_FONT_TOO_LARGE`, and leaves the atlas as it was.
+
+An atlas is externally synchronized: one thread at a time, as the renderer
+lays out text.
+
+### Not done yet
+
+- **The GPU texture.** The atlas is an image in memory; the texture that
+  holds it, updated from its changed rectangles, comes with the 2D renderer.
+- **Signed distance fields**, for text that scales and rotates in 3D and
+  for outlines and glows, are not made: each size is rasterized.
+- **Hinting**, and the LCD's subpixels (ClearType's colour fringes), are not
+  used: glyphs are drawn as their outlines are, in grey.
+
 ## Damaged fonts
 
 Fonts come from mods and downloads, so the reader treats their bytes as
@@ -104,3 +244,18 @@ cuts the three fonts short at every length up to 512 bytes
 and at hundreds more, and corrupts them at thousands of places, each time
 in memory of exactly the font's length, so that the sanitizer build reports
 any read past the end.
+
+`tests/font/font_raster_test.c` checks the rasterizer against what the
+outlines are, worked out by other means: that the coverage of a glyph adds
+up to the area of its outline, by Green's theorem, and that every pixel of
+every printable character of Roboto at three sizes matches a reference
+rasterizer in the test that shares nothing with the engine's (it samples
+16 heights a row, and counts windings along each). Outlines made by hand
+check exact coverage of known shapes, the non-zero rule, clipping, and
+degenerate and oversized outlines. The aliased VGA font and Silkscreen
+must match, pixel for pixel, the cells that `tools/font_pixel_goldens.py`,
+a separate reader in Python, samples from their outlines.
+`tests/font/font_atlas_test.c` checks that packed glyphs never overlap with
+their padding, over thousands of random glyphs and sizes, that the atlas
+reports what changed, and that it clears and counts its generation when
+full.
