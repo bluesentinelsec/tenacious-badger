@@ -1,6 +1,6 @@
 # badger-sandbox: draws the engine's test scenes in a window, to look at by
 # eye. A developer tool: built with the engine, never shipped with a game.
-add_executable(badger-sandbox sandbox.c sandbox_capture.c sandbox_scenes.c)
+add_executable(badger-sandbox sandbox.c sandbox_capture.c sandbox_scenes.c sandbox_skinning.c)
 target_link_libraries(badger-sandbox PRIVATE TenaciousBadger::badger)
 
 tb_configure_target(badger-sandbox)
@@ -42,6 +42,12 @@ if(TB_BUILD_TESTS)
             COMMAND badger-sandbox --renderer d3d12 --software --validation --scene text
                 --frames 3 --capture "${CMAKE_CURRENT_BINARY_DIR}/sandbox_text.bmp")
         set_tests_properties(sandbox.draws_text_on_d3d12 PROPERTIES
+            PASS_REGULAR_EXPRESSION "saved")
+        # Skinning: clips blended on the job system, skinned by a compute pass.
+        add_test(NAME sandbox.draws_skinning_on_d3d12
+            COMMAND badger-sandbox --renderer d3d12 --software --validation --scene skinning
+                --frames 3 --capture "${CMAKE_CURRENT_BINARY_DIR}/sandbox_skinning.bmp")
+        set_tests_properties(sandbox.draws_skinning_on_d3d12 PROPERTIES
             PASS_REGULAR_EXPRESSION "saved")
     endif()
 endif()
