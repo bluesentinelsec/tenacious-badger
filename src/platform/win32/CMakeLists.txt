@@ -36,6 +36,13 @@ set(TB_WINDOW_SOURCES
     CACHE INTERNAL "Selected windowing sources")
 target_sources(badger PRIVATE ${TB_WINDOW_SOURCES})
 target_sources(badger_static PRIVATE ${TB_WINDOW_SOURCES})
+
+# DXC, loaded at run time and called through COM. It is built on the
+# foundation modules, as windowing is, so it is not part of the adapter's own
+# sources and tests.
+set(TB_DXC_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/dxc.c" CACHE INTERNAL "Selected DXC sources")
+target_sources(badger PRIVATE ${TB_DXC_SOURCES})
+target_sources(badger_static PRIVATE ${TB_DXC_SOURCES})
 configure_file(api.h.in "${PROJECT_BINARY_DIR}/generated/badger/api.h" @ONLY)
 configure_file(thread_storage.h.in
     "${PROJECT_BINARY_DIR}/generated/badger/thread_storage.h" COPYONLY)

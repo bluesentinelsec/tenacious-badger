@@ -29,6 +29,7 @@ set(TB_CORE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/bytes.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/cli.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/decimal.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/dxc.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/exclusive.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/fatal.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/fmt.c"
