@@ -20,11 +20,14 @@ typedef struct screen
     tb_window_system *system;
     tb_window *window;
     tb_renderer *renderer;
+    tb_log *log; /* where the renderer's messages go; NULL for nowhere */
 } screen;
 
-/* A window and a renderer on the null backend, logging to `log` (NULL for
- * none), or a skipped case where there is no windowing. */
-static void open_screen_logged(screen *opened, tb_log *log)
+/* A window and a renderer on the null backend, its messages logged as
+ * `config` says (NULL for none), or a skipped case where there is no
+ * windowing. The log is made once there is, so that a skipped case leaks
+ * nothing. */
+static void open_screen_logged(screen *opened, const tb_log_config *config)
 {
     tb_rhi_error error = TB_RHI_ERROR_INIT;
     tb_renderer_options options = {0};
@@ -40,8 +43,13 @@ static void open_screen_logged(screen *opened, tb_log *log)
                              .title = "skinning", .width = 160, .height = 120, .fixed_size = true},
                          &opened->window, NULL),
         ==, TB_WINDOW_OK);
+    if (config != NULL)
+    {
+        opened->log = tb_log_create();
+        TB_TEST_REQUIRE_UINT(tb_log_configure(opened->log, config), ==, TB_LOG_OK);
+    }
     options.window = opened->window;
-    options.log = log;
+    options.log = opened->log;
     options.device = (tb_rhi_device_options){.backend = TB_RHI_BACKEND_NULL};
     TB_TEST_REQUIRE_UINT(tb_renderer_create(&options, &opened->renderer, &error), ==, TB_RHI_OK);
 }
@@ -56,6 +64,7 @@ static void close_screen(screen *opened)
     tb_renderer_destroy(opened->renderer);
     tb_window_destroy(opened->window);
     tb_window_system_close(opened->system);
+    (void)tb_log_destroy(opened->log);
 }
 
 /* A strip of `rows` quads up +Y, each row bound to joint 0 below y = 1 and
@@ -243,9 +252,8 @@ static void draw_strip(tb_renderer *renderer, const tb_skinned_mesh *strip, cons
 TB_TEST(skinning_frame, the_cpu_path_is_reported_logged_and_forced)
 {
     screen opened = {0};
-    tb_log *const log = tb_log_create();
     skinning_messages messages = {0};
-    tb_log_config config = {TB_LOG_INFO, "renderer", keep_skinning_message, NULL, &messages};
+    const tb_log_config config = {TB_LOG_INFO, "renderer", keep_skinning_message, NULL, &messages};
     tb_skinned_mesh *strip = NULL;
     tb_material *material = NULL;
     tb_material_desc desc = TB_MATERIAL_DESC_INIT;
@@ -253,8 +261,7 @@ TB_TEST(skinning_frame, the_cpu_path_is_reported_logged_and_forced)
     const tb_mat4 joints[2] = {tb_mat4_identity(),
                                tb_mat4_rotation(tb_quat_from_axis_angle((tb_vec3){0, 0, 1}, 0.5f))};
 
-    TB_TEST_REQUIRE_UINT(tb_log_configure(log, &config), ==, TB_LOG_OK);
-    open_screen_logged(&opened, log);
+    open_screen_logged(&opened, &config);
     TB_TEST_EXPECT_UINT(messages.count, ==, 1);
     TB_TEST_EXPECT_STRING(messages.last, ==, "skinning on the GPU: a compute pass");
     tb_renderer_skinning_info(opened.renderer, &info);
@@ -298,7 +305,6 @@ TB_TEST(skinning_frame, the_cpu_path_is_reported_logged_and_forced)
     tb_material_destroy(opened.renderer, material);
     tb_skinned_mesh_destroy(opened.renderer, strip);
     close_screen(&opened);
-    (void)tb_log_destroy(log);
 }
 
 /* What the animation module makes, the renderer draws: an arm's skinning
