@@ -55,6 +55,7 @@ The foundation layer so far, one public header per module under
 | `window.h` | [Windows and displays](windows.md): windowed, borderless and fullscreen windows, displays and their scale, and window events |
 | `shader.h` | [Shaders](shaders.md): HLSL written once for every backend; virtual shader paths, includes and the preprocessor |
 | `rhi.h` | [The render hardware interface](rhi.md): one interface to every graphics API, with bindless resources, command lists and submissions |
+| `renderer.h` | [The renderer](renderer.md): frames from a camera, meshes and generated shapes, and debug drawing |
 | `render_graph.h` | [The render graph](render-graph.md): a frame's passes, culled, ordered, with their barriers and transient memory worked out |
 | `game_loop.h` | [The game loop](game-loop.md): fixed ticks, frames between them, frame pacing, pausing, settings applied as they change, and quitting |
 | `settings.h`, `engine_settings.h` | [Settings](settings.md): the options players and developers choose, in layers from defaults to run time, and the engine's catalog of them |
