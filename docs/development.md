@@ -61,6 +61,8 @@ The foundation layer so far, one public header per module under
 What these headers do the same way, such as how a function reports failure,
 is in [the conventions of the public API](conventions.md).
 
+[`badger-sandbox`](sandbox.md) draws the engine's test scenes in a window, to look at by eye.
+
 `burrow` loads its [settings](settings.md#burrow), opens its
 [window](windows.md), and runs [the game loop](game-loop.md#burrow), with
 nothing rendered yet; `burrow --headless` runs without a window, `burrow check`
