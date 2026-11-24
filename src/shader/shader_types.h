@@ -121,7 +121,16 @@ typedef enum tb_shader_object
     TB_SHADER_OBJECT_MIPS,
     TB_SHADER_OBJECT_MIPS_SLICE,
     TB_SHADER_OBJECT_SAMPLES,
-    TB_SHADER_OBJECT_SAMPLES_SLICE
+    TB_SHADER_OBJECT_SAMPLES_SLICE,
+    /* Shader Model 6.6's descriptor heaps, `ResourceDescriptorHeap` and
+     * `SamplerDescriptorHeap`, named as DXC names them (`.Resource`,
+     * `.Sampler`); and an element of one (`const .Resource`), which only
+     * indexing a heap makes, and which converts to any resource, or any
+     * sampler. A heap's element is its descriptor. */
+    TB_SHADER_OBJECT_RESOURCE_HEAP,
+    TB_SHADER_OBJECT_SAMPLER_HEAP,
+    TB_SHADER_OBJECT_RESOURCE_DESCRIPTOR,
+    TB_SHADER_OBJECT_SAMPLER_DESCRIPTOR
 } tb_shader_object;
 
 /* What an object's template arguments are. */
@@ -149,6 +158,12 @@ typedef struct tb_shader_object_info
 /* The built-in object a name declares, or NULL. */
 const tb_shader_object_info *tb_shader_find_object(tb_shader_name name);
 const tb_shader_object_info *tb_shader_object_info_of(tb_shader_object object);
+
+/* The descriptor an object is made from, indexing a descriptor heap:
+ * RESOURCE_DESCRIPTOR for a texture, a buffer, a constant or texture buffer
+ * and an acceleration structure; SAMPLER_DESCRIPTOR for a sampler; NONE for
+ * any other object, which no heap holds. */
+tb_shader_object tb_shader_descriptor_of(tb_shader_object object);
 
 typedef struct tb_shader_type tb_shader_type;
 typedef struct tb_shader_symbol tb_shader_symbol;
@@ -257,6 +272,8 @@ tb_shader_type *tb_shader_enum_type(tb_shader_types *types, tb_shader_name name,
                                     const tb_shader_node *declaration);
 /* A struct's field or method by name, its bases' included, or NULL. */
 tb_shader_symbol *tb_shader_find_member(const tb_shader_type *type, tb_shader_name name);
+/* A descriptor heap, RESOURCE_HEAP or SAMPLER_HEAP; its element is its descriptor. */
+const tb_shader_type *tb_shader_heap_type(tb_shader_types *types, tb_shader_object heap);
 /* The built-in structs: RayDesc and BuiltInTriangleIntersectionAttributes. */
 const tb_shader_type *tb_shader_ray_desc_type(tb_shader_types *types);
 const tb_shader_type *tb_shader_triangle_attributes_type(tb_shader_types *types);

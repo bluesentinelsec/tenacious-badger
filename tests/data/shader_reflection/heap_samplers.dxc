@@ -1,0 +1,9 @@
+binding Frame cbuffer cb0 1
+binding bound sampler s1 1
+binding shadow texture t2 1
+buffer Frame 8
+feature sampler_heap
+input TEXCOORD 0 float 2 r0.x linear
+output SV_Target 0 float 4 r0.x
+variable Frame.compare_index 4
+variable Frame.linear_index 0

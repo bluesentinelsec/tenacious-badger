@@ -45,6 +45,8 @@ FEATURES = {
     'Wave level operations': 'wave',
     '64-Bit integer': 'int64',
     'Raytracing tier 1.1 features': 'rayquery',
+    'Resource descriptor heap indexing': 'resource_heap',
+    'Sampler descriptor heap indexing': 'sampler_heap',
 }
 
 

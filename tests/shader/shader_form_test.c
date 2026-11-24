@@ -39,7 +39,8 @@ static void lower_source(lowered_source *out, const char *source)
     tb_shader_syntax syntax = {0};
     TB_TEST_EXPECT_UINT(tb_shader_parse(&unit, out->arena, &syntax), ==, TB_SHADER_OK);
     tb_shader_checked checked = {0};
-    const tb_shader_result result = tb_shader_check(&syntax, out->arena, &checked);
+    const tb_shader_result result =
+        tb_shader_check(&syntax, TB_SHADER_MODEL_DEFAULT, out->arena, &checked);
     if (checked.diagnostic_count > 0 && checked.error_count > 0)
     {
         TB_TEST_CONTEXT("check error: %s", checked.diagnostics[0].message);
@@ -730,6 +731,52 @@ TB_TEST(shader_form, resources_are_handles_and_their_elements_texels)
                 "    %15:float2 = load local1\n"
                 "    %16:float4 = method Sample %11 %13 %15\n"
                 "    return %16\n"
+                "  }\n");
+}
+
+TB_TEST(shader_form, descriptor_heaps_give_resources_by_index)
+{
+    /* A heap's element is its index until it converts to a resource, which
+     * takes it from the heap; a constant buffer is the struct it holds. */
+    expect_form("struct S { float4 c; };\n"
+                "float4 f(uint i, float2 uv, bool b) {\n"
+                "  Texture2D t = ResourceDescriptorHeap[NonUniformResourceIndex(i)];\n"
+                "  SamplerState s = SamplerDescriptorHeap[b ? i : 0];\n"
+                "  ConstantBuffer<S> k = ResourceDescriptorHeap[i + 1];\n"
+                "  return t.Sample(s, uv) + k.c; }",
+                "struct S { float4 c }\n"
+                "function float4 f(in uint i, in float2 uv, in bool b)\n"
+                "  local0 uint i\n"
+                "  local1 float2 uv\n"
+                "  local2 bool b\n"
+                "  local3 Texture2D<float4> t\n"
+                "  local4 SamplerState s\n"
+                "  local5 S k\n"
+                "  {\n"
+                "    store local0 arg0\n"
+                "    store local1 arg1\n"
+                "    store local2 arg2\n"
+                "    %7:uint = load local0\n"
+                "    %8:uint = NonUniformResourceIndex %7\n"
+                "    %9:Texture2D<float4> = resource_heap %8\n"
+                "    store local3 %9\n"
+                "    %12:bool = load local2\n"
+                "    %14:uint = load local0\n"
+                "    %16:uint = select %12 %14 0:uint\n"
+                "    %17:SamplerState = sampler_heap %16\n"
+                "    store local4 %17\n"
+                "    %20:uint = load local0\n"
+                "    %22:uint = add %20 1:uint\n"
+                "    %23:S = resource_heap %22\n"
+                "    store local5 %23\n"
+                "    %26:Texture2D<float4> = load local3\n"
+                "    %28:SamplerState = load local4\n"
+                "    %30:float2 = load local1\n"
+                "    %31:float4 = method Sample %26 %28 %30\n"
+                "    %33:float4* function = access_index local5 0\n"
+                "    %34:float4 = load %33\n"
+                "    %35:float4 = add %31 %34\n"
+                "    return %35\n"
                 "  }\n");
 }
 
@@ -1552,6 +1599,47 @@ TB_TEST(shader_form, the_verifier_checks_texels)
     method.method = 1;
     (void)tb_shader_form_add_expression(function_of(&b), &method);
     expect_broken(&b, "%0: a method takes its object first");
+}
+
+static uint32_t heap_of(built *b, tb_shader_form_heap heap, uint32_t index, uint32_t type)
+{
+    tb_shader_form_expression made = {0};
+    made.kind = TB_SHADER_FORM_HEAP;
+    made.type = type;
+    made.operands[0] = index;
+    made.index = heap;
+    return tb_shader_form_add_expression(function_of(b), &made);
+}
+
+TB_TEST(shader_form, the_verifier_checks_descriptor_heaps)
+{
+    built b = {0};
+    start(&b, false);
+    const uint32_t texture =
+        tb_shader_form_resource(&b.form, TB_SHADER_OBJECT_TEXTURE2D, b.f32, 0, 0, "Texture2D");
+    const uint32_t taken =
+        heap_of(&b, TB_SHADER_FORM_HEAP_RESOURCE, constant(&b, b.i32, 0), texture);
+    emit(&b, function_of(&b)->body, taken, taken + 1);
+    expect_sound(&b);
+
+    start(&b, false);
+    const uint32_t sampler = tb_shader_form_resource(&b.form, TB_SHADER_OBJECT_SAMPLER,
+                                                     TB_SHADER_FORM_NONE, 0, 0, "SamplerState");
+    (void)heap_of(&b, TB_SHADER_FORM_HEAP_SAMPLER, constant(&b, b.f32, 0), sampler);
+    expect_broken(&b, "%1: a heap's index is an integer");
+
+    /* A sampler is not in the resource heap, nor a texture in the sampler heap. */
+    start(&b, false);
+    const uint32_t misplaced = tb_shader_form_resource(&b.form, TB_SHADER_OBJECT_SAMPLER,
+                                                       TB_SHADER_FORM_NONE, 0, 0, "SamplerState");
+    (void)heap_of(&b, TB_SHADER_FORM_HEAP_RESOURCE, constant(&b, b.i32, 0), misplaced);
+    expect_broken(&b, "%1: not what that heap holds");
+
+    start(&b, false);
+    const uint32_t image =
+        tb_shader_form_resource(&b.form, TB_SHADER_OBJECT_TEXTURE2D, b.f32, 0, 0, "Texture2D");
+    (void)heap_of(&b, TB_SHADER_FORM_HEAP_SAMPLER, constant(&b, b.i32, 0), image);
+    expect_broken(&b, "%1: not what that heap holds");
 }
 
 TB_TEST(shader_form, the_verifier_checks_calls)

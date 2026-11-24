@@ -818,6 +818,12 @@ static uint32_t texel(tb_shader_lowerer *lowerer, tb_shader_node *node)
 
 static uint32_t lower_index(tb_shader_lowerer *lowerer, tb_shader_node *node)
 {
+    /* `ResourceDescriptorHeap[i]` is `i` until it converts to a resource. */
+    if (is_object(node->left->checked, TB_SHADER_OBJECT_RESOURCE_HEAP) ||
+        is_object(node->left->checked, TB_SHADER_OBJECT_SAMPLER_HEAP))
+    {
+        return tb_shader_lower_value(lowerer, node->right);
+    }
     if (is_place(lowerer, node))
     {
         return tb_shader_lower_load(lowerer, lower_place(lowerer, node));
@@ -1250,6 +1256,17 @@ static uint32_t lower_conversion(tb_shader_lowerer *lowerer, tb_shader_node *nod
     if (value == TB_SHADER_FORM_NONE || type == TB_SHADER_FORM_NONE)
     {
         return TB_SHADER_FORM_NONE;
+    }
+    const bool from_resource_heap =
+        is_object(node->left->checked, TB_SHADER_OBJECT_RESOURCE_DESCRIPTOR);
+    if (from_resource_heap || is_object(node->left->checked, TB_SHADER_OBJECT_SAMPLER_DESCRIPTOR))
+    {
+        /* A descriptor, which is its index, made the resource it converts to. */
+        tb_shader_form_expression expression = new_expression(TB_SHADER_FORM_HEAP, type);
+        expression.operands[0] = value;
+        expression.index =
+            from_resource_heap ? TB_SHADER_FORM_HEAP_RESOURCE : TB_SHADER_FORM_HEAP_SAMPLER;
+        return tb_shader_lower_add(lowerer, &expression);
     }
     return convert(lowerer, value, type, node->location);
 }

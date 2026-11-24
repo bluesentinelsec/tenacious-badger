@@ -22,7 +22,8 @@ typedef struct checked_source
     const char *tree;
 } checked_source;
 
-static void check_source(checked_source *out, const char *source)
+/* Check a source for a shader model, from TB_SHADER_MODEL(). */
+static void check_source_for(checked_source *out, const char *source, unsigned shader_model)
 {
     out->arena = tb_arena_create(0);
     tb_shader_file file = {0};
@@ -41,8 +42,13 @@ static void check_source(checked_source *out, const char *source)
         TB_TEST_CONTEXT("parse error: %s", out->syntax.diagnostics[0].message);
     }
     TB_TEST_EXPECT_UINT(parsed, ==, TB_SHADER_OK);
-    out->result = tb_shader_check(&out->syntax, out->arena, &out->checked);
+    out->result = tb_shader_check(&out->syntax, shader_model, out->arena, &out->checked);
     out->tree = tb_shader_syntax_print_typed(&out->syntax, out->arena);
+}
+
+static void check_source(checked_source *out, const char *source)
+{
+    check_source_for(out, source, TB_SHADER_MODEL_DEFAULT);
 }
 
 static void finish(checked_source *out)
@@ -1012,6 +1018,155 @@ TB_TEST(shader_check, mips_and_samples_refuse_what_dxc_refuses)
                       AT(2, 28) "error: 'Texture2D<float4>' is read-only");
 }
 
+/* -------------------------------------------------------------------------
+ * Descriptor heaps (Shader Model 6.6). Messages and what is allowed were
+ * read from DXC 1.8's answers to the same shaders.
+ * ------------------------------------------------------------------------- */
+
+/* A source checked for a shader model, with no diagnostics. */
+static void expect_clean_for(const char *source, unsigned shader_model)
+{
+    checked_source out = {0};
+    check_source_for(&out, source, shader_model);
+    TB_TEST_CONTEXT("source: %s", source);
+    if (out.checked.diagnostic_count > 0)
+    {
+        char message[256] = {0};
+        diagnostic_text(&out, 0, message, sizeof(message));
+        TB_TEST_CONTEXT("first diagnostic: %s", message);
+    }
+    TB_TEST_EXPECT_UINT(out.checked.diagnostic_count, ==, 0);
+    finish(&out);
+}
+
+TB_TEST(shader_check, a_descriptor_heap_element_converts_to_a_resource)
+{
+    /* Indexing a heap gives a descriptor, which the variable's type converts. */
+    expect_typed(
+        "Texture2D f(uint i) { return ResourceDescriptorHeap[i]; }",
+        "(function Texture2D<float4> f ((parameter uint i)) (block (return (convert ([] "
+        "ResourceDescriptorHeap:.Resource i:uint):const .Resource):Texture2D<float4>)))\n");
+    expect_typed("SamplerState f(int i) { return SamplerDescriptorHeap[i]; }",
+                 "(function SamplerState f ((parameter int i)) (block (return (convert ([] "
+                 "SamplerDescriptorHeap:.Sampler (convert i:int):uint):const "
+                 ".Sampler):SamplerState)))\n");
+    /* Every resource the resource heap holds, and both samplers. */
+    expect_clean("struct S { float4 c; };\n"
+                 "void f(uint i) {\n"
+                 "  Buffer<float4> a = ResourceDescriptorHeap[i];\n"
+                 "  RWBuffer<uint> b = ResourceDescriptorHeap[i];\n"
+                 "  ByteAddressBuffer c = ResourceDescriptorHeap[i];\n"
+                 "  RWByteAddressBuffer d = ResourceDescriptorHeap[i];\n"
+                 "  StructuredBuffer<S> e = ResourceDescriptorHeap[i];\n"
+                 "  AppendStructuredBuffer<S> g = ResourceDescriptorHeap[i];\n"
+                 "  ConstantBuffer<S> h = ResourceDescriptorHeap[i];\n"
+                 "  TextureBuffer<S> j = ResourceDescriptorHeap[i];\n"
+                 "  Texture2DMS<float4, 4> k = ResourceDescriptorHeap[i];\n"
+                 "  RWTexture3D<float> l = ResourceDescriptorHeap[i];\n"
+                 "  RasterizerOrderedTexture2D<float4> m = ResourceDescriptorHeap[i];\n"
+                 "  FeedbackTexture2D n = ResourceDescriptorHeap[i];\n"
+                 "  RaytracingAccelerationStructure o = ResourceDescriptorHeap[i];\n"
+                 "  SamplerState p = SamplerDescriptorHeap[i];\n"
+                 "  SamplerComparisonState q = SamplerDescriptorHeap[i];\n"
+                 "}");
+    /* An assignment, an argument, a cast, a member and a choice of two convert too. */
+    expect_clean("struct S { Texture2D t; };\n"
+                 "float4 g(Texture2D t) { return t.Load(int3(0, 0, 0)); }\n"
+                 "float4 f(uint i, bool b) {\n"
+                 "  Texture2D t; t = ResourceDescriptorHeap[i];\n"
+                 "  S s; s.t = ResourceDescriptorHeap[i + 1];\n"
+                 "  Texture2D u = b ? ResourceDescriptorHeap[0] : ResourceDescriptorHeap[1];\n"
+                 "  return g(ResourceDescriptorHeap[i]) + ((Texture2D)ResourceDescriptorHeap[i])"
+                 ".Load(int3(0, 0, 0));\n"
+                 "}");
+    /* The index converts to a uint from any one component; DXC takes
+     * NonUniformResourceIndex() around it, and a float, a bool, a uint1. */
+    expect_clean("void f(float a, bool b, uint1 c, uint d) {\n"
+                 "  Texture2D t = ResourceDescriptorHeap[a];\n"
+                 "  t = ResourceDescriptorHeap[b];\n"
+                 "  t = ResourceDescriptorHeap[c];\n"
+                 "  t = ResourceDescriptorHeap[NonUniformResourceIndex(d)];\n"
+                 "}");
+    /* A local of the name hides the heap, as any local hides a global. */
+    expect_clean("float f() { float ResourceDescriptorHeap = 1; return ResourceDescriptorHeap; }");
+}
+
+TB_TEST(shader_check, descriptor_heaps_come_with_shader_model_6_6)
+{
+    /* As in DXC, before 6.6 the heaps are not declared, so their names are free. */
+    expect_clean_for("Texture2D ResourceDescriptorHeap; float SamplerDescriptorHeap;",
+                     TB_SHADER_MODEL(6, 5));
+    checked_source out = {0};
+    check_source_for(&out, "Texture2D f(uint i) { return ResourceDescriptorHeap[i]; }",
+                     TB_SHADER_MODEL(6, 5));
+    char message[256] = {0};
+    diagnostic_text(&out, 0, message, sizeof(message));
+    TB_TEST_EXPECT_STRING(message, ==, AT(1, 30) "error: 'ResourceDescriptorHeap' is not declared");
+    finish(&out);
+    expect_clean_for("SamplerState f(uint i) { return SamplerDescriptorHeap[i]; }",
+                     TB_SHADER_MODEL(6, 7));
+}
+
+TB_TEST(shader_check, descriptor_heaps_refuse_what_dxc_refuses)
+{
+    /* What is not a resource, or a sampler, is not in a heap. */
+    expect_diagnostic("float4 f() { float4 v = ResourceDescriptorHeap[0]; return v; }",
+                      AT(1, 47) "error: cannot convert from 'const .Resource' to 'float4'");
+    expect_diagnostic("float f(uint i) { float x = SamplerDescriptorHeap[i]; return x; }",
+                      AT(1, 50) "error: cannot convert from 'const .Sampler' to 'float'");
+    expect_diagnostic("struct S { float x; }; float f(uint i) { S s = ResourceDescriptorHeap[i]; "
+                      "return s.x; }",
+                      AT(1, 70) "error: cannot convert from 'const .Resource' to 'S'");
+    expect_diagnostic(
+        "void f(uint i) { Texture2D t[2] = ResourceDescriptorHeap[i]; }",
+        AT(1, 57) "error: cannot convert from 'const .Resource' to 'Texture2D<float4>[2]'");
+    expect_diagnostic("void f(uint i) { RayQuery<0> q = ResourceDescriptorHeap[i]; }",
+                      AT(1, 56) "error: cannot convert from 'const .Resource' to 'RayQuery<0>'");
+    expect_diagnostic("float4 f(uint i) { return (float4)ResourceDescriptorHeap[i]; }",
+                      AT(1, 27) "error: cannot cast from 'const .Resource' to 'float4'");
+    /* A resource comes from the resource heap, a sampler from the sampler heap. */
+    expect_diagnostic("void f(uint i) { SamplerState s = ResourceDescriptorHeap[i]; }",
+                      AT(1, 57) "error: a 'SamplerState' comes from SamplerDescriptorHeap, not "
+                                "ResourceDescriptorHeap");
+    expect_diagnostic("void f(uint i) { Texture2D t = SamplerDescriptorHeap[i]; }",
+                      AT(1, 53) "error: a 'Texture2D<float4>' comes from ResourceDescriptorHeap, "
+                                "not SamplerDescriptorHeap");
+    /* A heap is indexed once, by one component. */
+    expect_diagnostic("void f() { Texture2D t = ResourceDescriptorHeap; }",
+                      AT(1, 26) "error: cannot convert from '.Resource' to 'Texture2D<float4>'");
+    expect_diagnostic("void f(uint2 i) { Texture2D t = ResourceDescriptorHeap[i]; }",
+                      AT(1, 56) "error: an index must be an integer, not 'uint2'");
+    expect_diagnostic("void f(uint i) { Texture2D t = ResourceDescriptorHeap[i][0]; }",
+                      AT(1, 57) "error: 'const .Resource' cannot be indexed");
+    /* A descriptor is not a value of its own: it has no members, no
+     * operators and no size, and cannot be assigned or passed out. */
+    expect_diagnostic("float4 f(uint i) { return ResourceDescriptorHeap[i].Load(int3(0, 0, 0)); }",
+                      AT(1, 52) "error: 'const .Resource' has no method 'Load'");
+    expect_diagnostic(
+        "int f(uint i) { return ResourceDescriptorHeap[i] + 1; }",
+        AT(1, 50) "error: '+' cannot be applied to 'const .Resource' and 'literal int'");
+    expect_diagnostic("uint f(uint i) { return sizeof(ResourceDescriptorHeap[i]); }",
+                      AT(1, 25) "error: 'const .Resource' has no size");
+    expect_diagnostic("Texture2D g; void f(uint i) { ResourceDescriptorHeap[i] = g; }",
+                      AT(1, 53) "error: '.Resource' is read-only");
+    expect_diagnostic("void f() { ResourceDescriptorHeap = 0; }",
+                      AT(1, 12) "error: 'ResourceDescriptorHeap' is a shader input, and cannot be "
+                                "assigned");
+    expect_diagnostic(
+        "void g(inout Texture2D t) {} void f(uint i) { g(ResourceDescriptorHeap[i]); }",
+        AT(1, 71) "error: argument 1 of 'g' is an output, so it must be assignable");
+    /* Every resource is as near as another, so a choice of two is ambiguous. */
+    expect_diagnostic(
+        "float4 g(Texture2D t) { return 1; } float4 g(Buffer<float4> b) { return 2; }\n"
+        "float4 f(uint i) { return g(ResourceDescriptorHeap[i]); }",
+        AT(2, 27) "error: the call to 'g' with (const .Resource) is ambiguous");
+    /* The heaps are declared, so a shader's own declaration of the name is a redefinition. */
+    expect_diagnostic("Texture2D ResourceDescriptorHeap;",
+                      AT(1, 11) "error: redefinition of 'ResourceDescriptorHeap'");
+    expect_diagnostic("float SamplerDescriptorHeap(uint i) { return i; }",
+                      AT(1, 7) "error: redefinition of 'SamplerDescriptorHeap'");
+}
+
 TB_TEST(shader_check, templates_are_not_supported_yet)
 {
     expect_diagnostic("template<typename T> T Square(T x) { return x * x; }",
@@ -1033,8 +1188,9 @@ TB_TEST(shader_check, errors_of_the_syntax_come_first)
     tb_shader_unit unit = {0};
     TB_TEST_EXPECT_UINT(tb_shader_preprocess_unit(&request, out.arena, &unit), ==, TB_SHADER_OK);
     TB_TEST_EXPECT_UINT(tb_shader_parse(&unit, out.arena, &out.syntax), ==, TB_SHADER_FAILED);
-    TB_TEST_EXPECT_UINT(tb_shader_check(&out.syntax, out.arena, &out.checked), ==,
-                        TB_SHADER_FAILED);
+    TB_TEST_EXPECT_UINT(
+        tb_shader_check(&out.syntax, TB_SHADER_MODEL_DEFAULT, out.arena, &out.checked), ==,
+        TB_SHADER_FAILED);
     TB_TEST_REQUIRE_UINT(out.checked.diagnostic_count, ==, 2);
     TB_TEST_EXPECT_UINT(out.checked.error_count, ==, 2);
     char message[256] = {0};

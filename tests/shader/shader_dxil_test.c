@@ -354,6 +354,51 @@ TB_TEST(shader_dxil, every_corpus_shader_compiles_into_signed_dxil)
     tb_dxc_close(dxc);
 }
 
+/* The sandbox's textured pixel shader (#268), which reaches its texture and
+ * its sampler through the RHI's bindless heaps, as docs/rhi.md binds them. */
+static const char *const bindless_source =
+    "struct DrawConstants { uint Texture; uint Sampler; float Angle; float Aspect; };\n"
+    "ConstantBuffer<DrawConstants> Draw : register(b0);\n"
+    "struct VertexOut { float4 Position : SV_Position; float2 UV : TEXCOORD0; };\n"
+    "float4 MainPS(VertexOut input) : SV_Target\n"
+    "{\n"
+    "    Texture2D<float4> image = ResourceDescriptorHeap[Draw.Texture];\n"
+    "    SamplerState sampler = SamplerDescriptorHeap[Draw.Sampler];\n"
+    "    return image.Sample(sampler, input.UV);\n"
+    "}\n";
+
+TB_TEST(shader_dxil, a_shader_of_the_descriptor_heaps_compiles_into_signed_dxil)
+{
+    tb_dxc *const dxc = open_or_skip();
+    tb_shader_compile_request request = {0};
+    request.entry_point = "MainPS";
+    request.stage = TB_SHADER_STAGE_PIXEL;
+    request.target = TB_SHADER_TARGET_DXIL;
+    request.dxc = dxc;
+    compiled out = {0};
+    compile_text(&out, bindless_source, &request);
+    TB_TEST_EXPECT_UINT(out.result, ==, TB_SHADER_OK);
+    expect_signed_dxil(&out.output);
+    const tb_shader_reflection *const reflection = &out.output.reflection;
+    TB_TEST_EXPECT_UINT(reflection->features, ==,
+                        TB_SHADER_FEATURE_RESOURCE_HEAP | TB_SHADER_FEATURE_SAMPLER_HEAP);
+    TB_TEST_REQUIRE_UINT(reflection->binding_count, ==, 1);
+    TB_TEST_EXPECT_STRING(reflection->bindings[0].name, ==, "Draw");
+    tb_arena_destroy(out.arena);
+
+    /* Before Shader Model 6.6 there are no heaps: the compiler says so
+     * before DXC is asked, as DXC would. */
+    request.shader_model = TB_SHADER_MODEL(6, 5);
+    compile_text(&out, bindless_source, &request);
+    TB_TEST_EXPECT_UINT(out.result, ==, TB_SHADER_FAILED);
+    TB_TEST_REQUIRE_UINT(out.output.diagnostic_count, >, 0);
+    TB_TEST_EXPECT_STRING(out.output.diagnostics[0].message, ==,
+                          "'ResourceDescriptorHeap' is not declared");
+    TB_TEST_EXPECT_UINT(out.output.diagnostics[0].line, ==, 6);
+    tb_arena_destroy(out.arena);
+    tb_dxc_close(dxc);
+}
+
 TB_TEST(shader_dxil, a_debug_compile_embeds_its_debug_information)
 {
     tb_dxc *const dxc = open_or_skip();

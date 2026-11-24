@@ -1,0 +1,12 @@
+binding Draw cbuffer cb0 1
+buffer Draw 16
+feature resource_heap
+feature sampler_heap
+input LAYER 0 uint 1 r2.x nointerpolation
+input SV_Position 0 float 4 r0.x noperspective
+input TEXCOORD 0 float 2 r1.x linear
+output SV_Target 0 float 4 r0.x
+variable Draw.Angle 8
+variable Draw.Aspect 12
+variable Draw.Sampler 4
+variable Draw.Texture 0
