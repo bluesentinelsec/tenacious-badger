@@ -10,7 +10,7 @@ import tarfile
 import tempfile
 import zipfile
 
-from package_desktop import ROOT, require, run, verify_windows_signatures
+from package_desktop import ROOT, require, run, verify_font_licenses, verify_windows_signatures
 from verify_foundation import verify_foundation
 
 
@@ -23,6 +23,7 @@ def verify(prefix, metadata):
     static_name = 'badger_static.lib' if platform.system() == 'Windows' else 'libbadger_static.a'
     require((prefix / 'lib' / static_name).is_file(), 'Missing static engine library')
     require(metadata['publisher'] in (prefix / 'NOTICE').read_text(), 'Missing personal attribution')
+    verify_font_licenses(prefix)
     if platform.system() == 'Windows':
         verify_windows_signatures(prefix, metadata['publisher'])
     run([sys.executable, ROOT / 'tests/ffi/ctypes_smoke.py',

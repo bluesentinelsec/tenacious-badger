@@ -3,20 +3,6 @@
 add_executable(badger-sandbox sandbox.c sandbox_capture.c sandbox_scenes.c)
 target_link_libraries(badger-sandbox PRIVATE TenaciousBadger::badger)
 
-# The fonts of the tests' data, built into the sandbox to draw text with, as
-# the tests embed them (cmake/EmbedTestData.cmake).
-set(sandbox_font_directory "${PROJECT_SOURCE_DIR}/tests/data/fonts")
-set(sandbox_font_source "${CMAKE_CURRENT_BINARY_DIR}/sandbox_font_data.c")
-file(GLOB sandbox_font_files CONFIGURE_DEPENDS "${sandbox_font_directory}/*.ttf")
-add_custom_command(OUTPUT "${sandbox_font_source}"
-    COMMAND "${CMAKE_COMMAND}" "-DOUTPUT=${sandbox_font_source}" "-DNAME=sandbox_font_files"
-        "-DDIRECTORY=${sandbox_font_directory}" "-DPATTERN=*.ttf"
-        -P "${PROJECT_SOURCE_DIR}/cmake/EmbedTestData.cmake"
-    DEPENDS ${sandbox_font_files} "${PROJECT_SOURCE_DIR}/cmake/EmbedTestData.cmake"
-    COMMENT "Embedding the sandbox's fonts"
-    VERBATIM)
-target_sources(badger-sandbox PRIVATE "${sandbox_font_source}")
-target_include_directories(badger-sandbox PRIVATE "${PROJECT_SOURCE_DIR}/tests/support")
 tb_configure_target(badger-sandbox)
 tb_analyze_target(badger-sandbox)
 
@@ -44,6 +30,12 @@ if(TB_BUILD_TESTS)
             COMMAND badger-sandbox --renderer d3d12 --software --validation --scene materials
                 --frames 3 --capture "${CMAKE_CURRENT_BINARY_DIR}/sandbox_materials.bmp")
         set_tests_properties(sandbox.draws_materials_on_d3d12 PROPERTIES
+            PASS_REGULAR_EXPRESSION "saved")
+        # A cube map's faces uploaded and mipmapped, drawn as the sky.
+        add_test(NAME sandbox.draws_a_cube_sky_on_d3d12
+            COMMAND badger-sandbox --renderer d3d12 --software --validation --scene sky_cube
+                --frames 3 --capture "${CMAKE_CURRENT_BINARY_DIR}/sandbox_sky_cube.bmp")
+        set_tests_properties(sandbox.draws_a_cube_sky_on_d3d12 PROPERTIES
             PASS_REGULAR_EXPRESSION "saved")
         # Text: paragraphs, alignment, pixel fonts and labels.
         add_test(NAME sandbox.draws_text_on_d3d12

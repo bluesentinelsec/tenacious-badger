@@ -5,6 +5,7 @@
 #include "badger/assert.h"
 #include "badger/canvas.h"
 #include "badger/font.h"
+#include "badger/font_catalog.h"
 #include "badger/font_layout.h"
 #include "badger/str.h"
 #include "badger/window.h"
@@ -147,7 +148,8 @@ TB_TEST(canvas_text, text_measures_in_the_view_units)
 }
 
 /* A label is drawn where its point is in front of the camera, in the
- * debug font; behind the camera, or with no debug font, it is not. */
+ * debug font, or until one is chosen in the catalog's UI font; behind the
+ * camera, it is not. */
 TB_TEST(canvas_text, labels_are_drawn_at_points_in_front_of_the_camera)
 {
     screen opened = {0};
@@ -157,7 +159,8 @@ TB_TEST(canvas_text, labels_are_drawn_at_points_in_front_of_the_camera)
     begin(opened.renderer);
     tb_debug_text(opened.renderer, (tb_vec3){0, 0, 0}, TB_TEXT("origin"), (tb_vec4){1, 1, 1, 1});
     stats = end(opened.renderer);
-    TB_TEST_EXPECT_UINT(stats.glyphs, ==, 0);
+    /* A build that carries no fonts has no default to draw labels in. */
+    TB_TEST_EXPECT_UINT(stats.glyphs, ==, tb_font_embedded_count() > 0 ? 6u : 0u);
 
     tb_renderer_set_debug_font(opened.renderer, opened.font, 12.0f);
     begin(opened.renderer);
@@ -178,7 +181,11 @@ TB_TEST(canvas_text, labels_are_drawn_at_points_in_front_of_the_camera)
     }
     stats = end(opened.renderer);
     TB_TEST_EXPECT_UINT(stats.glyphs, >, 100);
-    tb_renderer_set_debug_font(opened.renderer, NULL, 0.0f);
+    tb_renderer_set_debug_font(opened.renderer, NULL, 12.0f);
+    begin(opened.renderer);
+    tb_debug_text(opened.renderer, (tb_vec3){0, 0, 0}, TB_TEXT("default"), (tb_vec4){1, 1, 1, 1});
+    stats = end(opened.renderer);
+    TB_TEST_EXPECT_UINT(stats.glyphs, ==, tb_font_embedded_count() > 0 ? 7u : 0u);
     close_screen(&opened);
 }
 

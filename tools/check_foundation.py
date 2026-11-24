@@ -270,6 +270,13 @@ AUTHORIZED = {
         'implements the platform interfaces beneath the foundation modules, and is built '
         'and tested without them'),
 
+    # The build runs badger-fontpack to make the engine's fonts, so it cannot
+    # link the engine; it is built from the compressor's sources alone.
+    'tools/fontpack/': (
+        {'malloc', 'realloc', 'free', 'fopen', 'fclose', 'fread', 'fseek', 'ftell', 'fprintf',
+         'fflush', 'remove', 'abort'},
+        'builds the engine\'s embedded fonts, before the engine library exists'),
+
     # Benchmarks that measure the C library beside the module that replaces it.
     'benchmarks/core/memory_bench.c': (
         {'malloc', 'free'},

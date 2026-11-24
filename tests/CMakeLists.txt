@@ -36,6 +36,12 @@ tb_embed_test_data(TB_FONT_DATA_SOURCE tb_font_files fonts "*.ttf")
 # Shaders, and what DXC reports for them (tools/shader_reflection_goldens.py).
 tb_embed_test_data(TB_SHADER_REFLECTION_SOURCE tb_shader_reflection_files shader_reflection "*")
 
+# The cases of the embedded fonts expect what TB_EMBED_FONTS chose.
+set(tb_embed_fonts_modes all defaults none)
+list(FIND tb_embed_fonts_modes "${TB_EMBED_FONTS}" tb_embed_fonts_mode)
+set_source_files_properties(font/font_catalog_test.c PROPERTIES
+    COMPILE_DEFINITIONS "TB_TEST_EMBED_FONTS=${tb_embed_fonts_mode}")
+
 # Every test case of the project, in one executable: tb_tests. Add the source
 # of a new test here. Suites are named <module>_<feature>, so one pattern
 # selects a module (tb_tests "core_*") or a feature (tb_tests "core_sum.*").
@@ -90,6 +96,7 @@ set(TB_TEST_CASE_SOURCES
     core/utf8_test.c
     core/xp_test.c
     font/font_builder.c
+    font/font_catalog_test.c
     font/font_test.c
     font/font_damage_test.c
     font/font_raster_test.c
@@ -113,6 +120,7 @@ set(TB_TEST_CASE_SOURCES
     render/text_test.c
     render/render_graph_test.c
     render/renderer_test.c
+    render/sky_test.c
     rhi/rhi_test.c
     shader/shader_dxil_test.c
     shader/shader_preprocess_test.c
@@ -151,7 +159,8 @@ if(WIN32)
     tb_embed_test_data(TB_RHI_SHADER_SOURCE tb_rhi_shader_files rhi "*.dxil")
     list(APPEND TB_TEST_CASE_SOURCES rhi/rhi_d3d12_test.c ${TB_RHI_SHADER_SOURCE}
         render/canvas_d3d12_test.c render/material_d3d12_test.c
-        render/renderer_d3d12_test.c render/text_d3d12_test.c)
+        render/renderer_d3d12_test.c render/sky_d3d12_test.c
+        render/text_d3d12_test.c)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     list(APPEND TB_TEST_CASE_SOURCES platform/linux/window_x11_test.c)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
@@ -178,6 +187,7 @@ set(TB_INTERNAL_TEST_CASE_SOURCES
     core/math_kernels_test.c
     core/reserved_arena_failure_test.c
     codec/crc32_table_test.c
+    font/font_embedded_cache_test.c
     jobs/deque_test.c
     render/canvas_batch_test.c
     rhi/rhi_choice_test.c
@@ -195,7 +205,8 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     list(APPEND TB_INTERNAL_TEST_CASE_SOURCES platform/linux/window_input_test.c)
 endif()
 set(TB_ENGINE_SOURCES ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES} ${TB_JOBS_SOURCES}
-    ${TB_CODEC_SOURCES} ${TB_SERIALIZE_SOURCES} ${TB_FONT_SOURCES} ${TB_VFS_SOURCES}
+    ${TB_CODEC_SOURCES} ${TB_SERIALIZE_SOURCES} ${TB_FONT_SOURCES} ${TB_FONT_DATA_OBJECTS}
+    ${TB_VFS_SOURCES}
     ${TB_SETTINGS_SOURCES} ${TB_WINDOW_SOURCES} ${TB_DXC_SOURCES} ${TB_GAME_SOURCES}
     ${TB_SHADER_SOURCES} ${TB_RHI_SOURCES} ${TB_RENDER_SOURCES})
 

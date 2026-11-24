@@ -18,6 +18,8 @@
 #define TB_TEXT_MOST_REFRESHES 3
 /* The layer labels are drawn on: over everything. */
 #define TB_TEXT_LABEL_LAYER INT32_MAX
+/* The size labels are drawn at until one is chosen, in logical units. */
+#define TB_TEXT_DEFAULT_LABEL_SIZE 14.0f
 /* A point this near the camera's plane, or behind it, has no label. */
 #define TB_TEXT_NEAREST_W 0.000001f
 
@@ -58,6 +60,10 @@ void tb_renderer_text_destroy(tb_renderer *renderer)
     renderer->glyph_atlas = NULL;
     tb_arena_destroy(renderer->text_arena);
     renderer->text_arena = NULL;
+    tb_font_close(renderer->default_debug_font);
+    renderer->default_debug_font = NULL;
+    tb_font_catalog_destroy(renderer->default_catalog);
+    renderer->default_catalog = NULL;
     tb_free(renderer->glyphs);
     tb_free(renderer->labels);
     tb_free(renderer->label_bytes);
@@ -225,9 +231,35 @@ void tb_canvas_forget_font(tb_renderer *renderer, const tb_font *font)
 void tb_renderer_set_debug_font(tb_renderer *renderer, const struct tb_font *font, float size)
 {
     TB_ASSERT(renderer != NULL);
-    TB_ASSERT_MSG(font == NULL || size > 0.0f, "a debug font of some size");
+    TB_ASSERT_MSG(size > 0.0f, "a debug font of some size");
     renderer->debug_font = font;
     renderer->debug_font_size = size;
+}
+
+/* Open the font of the UI role of the engine's catalog, the first time a
+ * label needs it; NULL in a build that carries none. */
+static const tb_font *tb_text_default_debug_font(tb_renderer *renderer)
+{
+    size_t index = 0;
+    const void *bytes = NULL;
+    size_t length = 0;
+
+    if (renderer->default_debug_font_tried)
+    {
+        return renderer->default_debug_font;
+    }
+    renderer->default_debug_font_tried = true;
+    renderer->default_catalog = tb_font_catalog_create(NULL);
+    if (!tb_font_catalog_find_role(renderer->default_catalog, TB_FONT_ROLE_UI, &index))
+    {
+        return NULL;
+    }
+    tb_font_catalog_get_bytes(renderer->default_catalog, index, &bytes, &length);
+    if (tb_font_open(bytes, length, NULL, &renderer->default_debug_font, NULL) != TB_FONT_OK)
+    {
+        renderer->default_debug_font = NULL;
+    }
+    return renderer->default_debug_font;
 }
 
 void tb_debug_text(tb_renderer *renderer, tb_vec3 position, tb_text text, tb_vec4 color)
@@ -268,13 +300,16 @@ void tb_debug_text(tb_renderer *renderer, tb_vec3 position, tb_text text, tb_vec
     tb_mutex_unlock(&renderer->lines_lock);
 }
 
-/* Draw each label centered on where its point is drawn, over everything. */
-static void tb_text_draw_labels(tb_renderer *renderer)
+/* Draw each label centered on where its point is drawn, over everything,
+ * in a font. */
+static void tb_text_draw_labels(tb_renderer *renderer, const tb_font *font)
 {
     const float aspect = (float)renderer->width / (float)renderer->height;
     const tb_mat4 clip = tb_mat4_mul(tb_camera_projection_of(&renderer->camera, aspect),
                                      tb_camera_view(&renderer->camera));
-    const float size = renderer->debug_font_size * tb_canvas_view_logical(renderer).scale;
+    const float size = (renderer->debug_font_size > 0.0f ? renderer->debug_font_size
+                                                         : TB_TEXT_DEFAULT_LABEL_SIZE) *
+                       tb_canvas_view_logical(renderer).scale;
     const tb_canvas_view view = renderer->canvas.view;
     const int32_t layer = renderer->canvas.layer;
 
@@ -292,13 +327,13 @@ static void tb_text_draw_labels(tb_renderer *renderer)
         {
             continue;
         }
-        tb_font_layout_text(renderer->debug_font,
+        tb_font_layout_text(font,
                             tb_text_make(&renderer->label_bytes[label->offset], label->length),
                             size, NULL, renderer->text_arena, &layout);
         origin.x = (at.x / at.w * 0.5f + 0.5f) * (float)renderer->width - layout.width * 0.5f;
         origin.y = (0.5f - at.y / at.w * 0.5f) * (float)renderer->height - layout.height * 0.5f;
-        tb_text_draw_layout(renderer, renderer->debug_font, &layout,
-                            (tb_vec2){roundf(origin.x), roundf(origin.y)}, label->color);
+        tb_text_draw_layout(renderer, font, &layout, (tb_vec2){roundf(origin.x), roundf(origin.y)},
+                            label->color);
         tb_arena_reset(renderer->text_arena);
     }
     tb_mutex_unlock(&renderer->lines_lock);
@@ -444,9 +479,19 @@ static void tb_text_upload(tb_renderer *renderer)
 
 void tb_renderer_text_end_frame(tb_renderer *renderer)
 {
-    if (renderer->debug_font != NULL)
+    size_t labels = 0;
+    const tb_font *font = renderer->debug_font;
+
+    tb_mutex_lock(&renderer->lines_lock);
+    labels = renderer->label_count;
+    tb_mutex_unlock(&renderer->lines_lock);
+    if (labels > 0 && font == NULL)
     {
-        tb_text_draw_labels(renderer);
+        font = tb_text_default_debug_font(renderer);
+    }
+    if (labels > 0 && font != NULL)
+    {
+        tb_text_draw_labels(renderer, font);
     }
     tb_text_refresh(renderer);
     tb_text_upload(renderer);

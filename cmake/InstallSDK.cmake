@@ -8,6 +8,9 @@ install(FILES "${PROJECT_BINARY_DIR}/generated/badger/api.h"
     "${PROJECT_BINARY_DIR}/generated/badger/version.h" DESTINATION include/badger)
 install(FILES "${PROJECT_SOURCE_DIR}/LICENSE" "${PROJECT_SOURCE_DIR}/NOTICE"
     DESTINATION .)
+# The fonts the library carries are under licenses that travel with them (NOTICE).
+install(DIRECTORY "${PROJECT_SOURCE_DIR}/resources/fonts/licenses/" DESTINATION licenses/fonts)
+install(FILES "${PROJECT_SOURCE_DIR}/resources/fonts/README.md" DESTINATION licenses/fonts)
 if(WIN32 AND TB_WINDOWS_SELF_SIGN)
     install(FILES "${TB_SIGNING_DIRECTORY}/self-signing.cer"
         "${TB_SIGNING_DIRECTORY}/signing.json" DESTINATION .)

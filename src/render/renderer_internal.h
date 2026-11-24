@@ -5,10 +5,12 @@
 #include "canvas_internal.h"
 
 #include "badger/arena.h"
+#include "badger/font_catalog.h"
 #include "badger/font_raster.h"
 #include "badger/material.h"
 #include "badger/render_graph.h"
 #include "badger/renderer.h"
+#include "badger/sky.h"
 #include "badger/thread.h"
 
 #include <stdbool.h>
@@ -144,6 +146,9 @@ struct tb_renderer
     tb_texture *material_white;        /* what a material without a texture samples */
     tb_texture *material_flat;         /* the normal map of a material without one */
 
+    tb_sky sky;                   /* behind every frame, until changed */
+    tb_rhi_pipeline sky_pipeline; /* none without bindless resources */
+
     tb_canvas_batch canvas;            /* this frame's 2D */
     tb_rhi_pipeline canvas_pipeline;   /* none without bindless resources */
     tb_rhi_sampler canvas_samplers[2]; /* linear, nearest */
@@ -160,8 +165,11 @@ struct tb_renderer
     size_t glyph_count;
     size_t glyph_capacity;
     size_t glyphs_hidden;      /* this frame's, the atlas could not hold */
-    const tb_font *debug_font; /* labels' */
+    const tb_font *debug_font; /* labels', as chosen; NULL for the default */
     float debug_font_size;
+    tb_font_catalog *default_catalog; /* holds the default debug font's bytes */
+    tb_font *default_debug_font;      /* the catalog's UI font, opened when first needed */
+    bool default_debug_font_tried;
     tb_renderer_label *labels; /* this frame's; guarded by lines_lock */
     size_t label_count;
     size_t label_capacity;
@@ -218,6 +226,22 @@ void tb_renderer_materials_begin_frame(tb_renderer *renderer);
  * UINT64_MAX when the uploads are full. */
 uint64_t tb_renderer_material_upload(tb_renderer *renderer, const tb_renderer_draw *draw,
                                      tb_mat4 clip, const tb_renderer_lighting *lighting);
+
+/* A texture's bindless index, and whether it is a cube map. */
+uint32_t tb_texture_bindless_index(const tb_texture *texture);
+bool tb_texture_is_cube(const tb_texture *texture);
+
+/* The sky's pipeline (sky.c). */
+tb_rhi_result tb_renderer_sky_create(tb_renderer *renderer, tb_rhi_error *error);
+void tb_renderer_sky_destroy(tb_renderer *renderer);
+
+/* Write the sky's constants for the frame's camera, seen at an aspect:
+ * their offset in the frame's uploads, or UINT64_MAX when there is no sky
+ * to draw or no room. */
+uint64_t tb_renderer_sky_upload(tb_renderer *renderer, float aspect);
+
+/* Draw the sky behind what the scene pass drew so far. */
+void tb_renderer_sky_record(tb_renderer *renderer, tb_rhi_command_list *list, uint64_t constants);
 
 /* The canvas's samplers, image and pipeline (canvas.c). */
 tb_rhi_result tb_renderer_canvas_create(tb_renderer *renderer, uint32_t glyph_atlas_size,

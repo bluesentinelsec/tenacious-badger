@@ -21,6 +21,7 @@ struct tb_texture
 {
     tb_rhi_texture texture;
     bool owned; /* made here, not borrowed from a caller */
+    bool cube;  /* six faces, sampled as a TextureCube */
     uint32_t width;
     uint32_t height;
     uint32_t mips;
@@ -355,6 +356,7 @@ static tb_texture *tb_texture_make(tb_renderer *renderer, const tb_texture_desc 
                   "width * height RGBA pixels for each layer");
     texture = tb_calloc(1, sizeof(*texture));
     texture->owned = true;
+    texture->cube = kind == TB_RHI_TEXTURE_CUBE;
     texture->width = desc->width;
     texture->height = desc->height;
     texture->mips = desc->no_mipmaps || !tb_texture_can_make_mips(renderer)
@@ -384,6 +386,14 @@ tb_texture *tb_texture_create(tb_renderer *renderer, const tb_texture_desc *desc
     return tb_texture_make(renderer, desc, TB_RHI_TEXTURE_2D, 1, pixels, size);
 }
 
+tb_texture *tb_texture_create_cube(tb_renderer *renderer, const tb_texture_desc *desc,
+                                   const uint8_t *pixels, size_t size)
+{
+    TB_ASSERT(desc != NULL);
+    TB_ASSERT_MSG(desc->width == desc->height, "a cube's faces are square");
+    return tb_texture_make(renderer, desc, TB_RHI_TEXTURE_CUBE, 6, pixels, size);
+}
+
 tb_texture *tb_texture_from_rhi(tb_renderer *renderer, tb_rhi_texture texture)
 {
     tb_rhi_texture_desc desc = {0};
@@ -397,6 +407,7 @@ tb_texture *tb_texture_from_rhi(tb_renderer *renderer, tb_rhi_texture texture)
     made->width = desc.width;
     made->height = desc.height;
     made->mips = desc.mips;
+    made->cube = desc.kind == TB_RHI_TEXTURE_CUBE;
     made->index = tb_rhi_texture_index(renderer->device, texture);
     return made;
 }
@@ -413,6 +424,16 @@ void tb_texture_destroy(tb_renderer *renderer, tb_texture *texture)
         tb_rhi_texture_destroy(renderer->device, texture->texture);
     }
     tb_free(texture);
+}
+
+uint32_t tb_texture_bindless_index(const tb_texture *texture)
+{
+    return texture->index;
+}
+
+bool tb_texture_is_cube(const tb_texture *texture)
+{
+    return texture->cube;
 }
 
 void tb_texture_size(const tb_texture *texture, uint32_t *width, uint32_t *height, uint32_t *mips)

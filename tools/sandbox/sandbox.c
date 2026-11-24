@@ -23,8 +23,6 @@
 #include "badger/str.h"
 #include "badger/version.h"
 
-#include "test_data.h"
-
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -42,12 +40,7 @@
 #define SANDBOX_STATUS_SIZE 13.0f
 #define SANDBOX_STATUS_MARGIN 8.0f
 #define SANDBOX_STATUS_LAYER 1000
-/* The size labels in the world are drawn at, in logical units. */
-#define SANDBOX_LABEL_SIZE 14.0f
 
-/* The fonts of tests/data/fonts, built in by CMake. */
-extern const tb_test_file sandbox_font_files[];
-extern const size_t sandbox_font_files_count;
 /* The fly camera: radians a unit of mouse motion turns it, meters a second
  * it moves, and how much Shift and a notch of the wheel change that. */
 #define SANDBOX_LOOK_SPEED 0.0025f
@@ -355,7 +348,7 @@ static void sandbox_report(sandbox_run *run, double seconds)
 static void sandbox_draw_status(sandbox_run *run)
 {
     tb_renderer *const renderer = run->box.renderer;
-    const tb_font *const font = run->box.fonts[SANDBOX_FONT_ROBOTO];
+    const tb_font *const font = run->box.fonts[SANDBOX_FONT_UI];
     const tb_text line = tb_text_from_cstr(run->status_line);
     const tb_canvas_view view = tb_canvas_view_logical(renderer);
     uint32_t width = 0;
@@ -363,6 +356,10 @@ static void sandbox_draw_status(sandbox_run *run)
     tb_vec2 size = {0};
     tb_vec2 at = {0};
 
+    if (font == NULL)
+    {
+        return; /* a build of the engine that carries no fonts */
+    }
     tb_renderer_size(renderer, &width, &height);
     tb_canvas_set_view(renderer, &view);
     tb_canvas_set_layer(renderer, SANDBOX_STATUS_LAYER);
@@ -502,34 +499,45 @@ static size_t sandbox_find_scene(const char *name)
     return sandbox_scene_count;
 }
 
-/* Open the fonts every scene may draw with, from the bytes built in. */
-static int sandbox_open_fonts(sandbox *box)
+/* Open a font of the catalog; NULL when it is not found. */
+static tb_font *sandbox_open_font(const tb_font_catalog *catalog, bool found, size_t index)
 {
-    static const char *const names[SANDBOX_FONT_COUNT] = {
-        [SANDBOX_FONT_ROBOTO] = "Roboto-Regular.ttf",
-        [SANDBOX_FONT_VGA] = "Px437_IBM_VGA_8x16.ttf",
-        [SANDBOX_FONT_SILKSCREEN] = "Silkscreen-Regular.ttf"};
+    const void *bytes = NULL;
+    size_t length = 0;
+    tb_font *font = NULL;
 
-    for (int font = 0; font < SANDBOX_FONT_COUNT; font++)
+    if (!found)
     {
-        const tb_test_file *file = NULL;
-        tb_font_error error = {0};
-        for (size_t index = 0; index < sandbox_font_files_count; index++)
-        {
-            if (tb_str_equal(sandbox_font_files[index].name, names[font]))
-            {
-                file = &sandbox_font_files[index];
-            }
-        }
-        if (file == NULL ||
-            tb_font_open(file->bytes, file->length, NULL, &box->fonts[font], &error) != TB_FONT_OK)
-        {
-            (void)tb_fmt_print_error("badger-sandbox: error: the font %s could not be opened\n",
-                                     names[font]);
-            return EXIT_FAILURE;
-        }
+        return NULL;
     }
-    return EXIT_SUCCESS;
+    tb_font_catalog_get_bytes(catalog, index, &bytes, &length);
+    if (tb_font_open(bytes, length, NULL, &font, NULL) != TB_FONT_OK)
+    {
+        return NULL;
+    }
+    return font;
+}
+
+/* Open the fonts every scene may draw with, from the engine's catalog: the
+ * UI and pixel roles, and Silkscreen. A build that carries none of them
+ * draws no text. */
+static void sandbox_open_fonts(sandbox *box)
+{
+    size_t index = 0;
+    bool found = false;
+
+    box->catalog = tb_font_catalog_create(NULL);
+    found = tb_font_catalog_find_role(box->catalog, TB_FONT_ROLE_UI, &index);
+    box->fonts[SANDBOX_FONT_UI] = sandbox_open_font(box->catalog, found, index);
+    found = tb_font_catalog_find_role(box->catalog, TB_FONT_ROLE_PIXEL, &index);
+    box->fonts[SANDBOX_FONT_VGA] = sandbox_open_font(box->catalog, found, index);
+    found = tb_font_catalog_find(box->catalog, "Silkscreen", TB_FONT_WEIGHT_REGULAR, false, &index);
+    box->fonts[SANDBOX_FONT_SILKSCREEN] = sandbox_open_font(box->catalog, found, index);
+    if (box->fonts[SANDBOX_FONT_UI] == NULL)
+    {
+        (void)tb_fmt_print("badger-sandbox: this build of the engine carries no UI font; text "
+                           "is not drawn\n");
+    }
 }
 
 static int sandbox_open_renderer(sandbox_run *run, tb_window_system *system)
@@ -561,12 +569,7 @@ static int sandbox_open_renderer(sandbox_run *run, tb_window_system *system)
         return EXIT_FAILURE;
     }
     run->box.device = tb_renderer_device(run->box.renderer);
-    if (sandbox_open_fonts(&run->box) != EXIT_SUCCESS)
-    {
-        return EXIT_FAILURE;
-    }
-    tb_renderer_set_debug_font(run->box.renderer, run->box.fonts[SANDBOX_FONT_ROBOTO],
-                               SANDBOX_LABEL_SIZE);
+    sandbox_open_fonts(&run->box);
     tb_rhi_device_info_of(run->box.device, &run->box.info);
     if (run->box.info.backend == TB_RHI_BACKEND_D3D12 &&
         tb_dxc_open(&run->box.dxc, &dxc_error) != TB_DXC_OK)
@@ -591,6 +594,7 @@ static void sandbox_close(sandbox_run *run, tb_window_system *system)
     {
         tb_font_close(run->box.fonts[font]);
     }
+    tb_font_catalog_destroy(run->box.catalog);
     tb_dxc_close(run->box.dxc);
     tb_window_destroy(run->box.window);
     tb_window_system_close(system);
