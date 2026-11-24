@@ -139,6 +139,18 @@ static const char *semantic_of(tb_shader_lowerer *lowerer, const tb_shader_annot
     return NULL;
 }
 
+/* How a declaration lays out a matrix: as it says, or else as the
+ * `#pragma pack_matrix` before it says; zero for neither. */
+static uint64_t layout_of(const tb_shader_node *declaration)
+{
+    const uint64_t layout = declaration->modifiers & TB_SHADER_FORM_LAYOUT_MODIFIERS;
+    if (layout != 0)
+    {
+        return layout;
+    }
+    return declaration->pack_matrix;
+}
+
 static uint32_t struct_type(tb_shader_lowerer *lowerer, const tb_shader_type *type,
                             tb_shader_location location)
 {
@@ -155,8 +167,8 @@ static uint32_t struct_type(tb_shader_lowerer *lowerer, const tb_shader_type *ty
         {
             members[index].semantic = semantic_of(lowerer, field->declaration->annotations);
             members[index].modifiers =
-                field->declaration->modifiers &
-                (TB_SHADER_FORM_INTERFACE_MODIFIERS | TB_SHADER_FORM_LAYOUT_MODIFIERS);
+                (field->declaration->modifiers & TB_SHADER_FORM_INTERFACE_MODIFIERS) |
+                layout_of(field->declaration);
         }
         if (members[index].type == TB_SHADER_FORM_NONE)
         {
@@ -1100,7 +1112,7 @@ static void declare_buffer(tb_shader_lowerer *lowerer, const char *name,
     for (size_t index = 0; index < count; index++)
     {
         members[index].name = name_text(lowerer, variables[index]->name);
-        members[index].modifiers = variables[index]->modifiers & TB_SHADER_FORM_LAYOUT_MODIFIERS;
+        members[index].modifiers = layout_of(variables[index]);
         members[index].packoffset = packoffset_of(variables[index]->annotations);
         members[index].type = tb_shader_lower_type(lowerer, variables[index]->symbol->type,
                                                    variables[index]->location);

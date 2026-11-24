@@ -129,7 +129,9 @@ is an error.
 **Other directives.** `#line N` and `#line N "name"` say where the following
 lines are reported from, as generated code needs. `#error` fails the compile
 with its text and `#warning` adds a warning. Every other `#pragma`, such as
-`#pragma pack_matrix(row_major)`, is passed on in the text for the compiler.
+`#pragma pack_matrix(row_major)`, is passed on in the text for the compiler,
+which follows `pack_matrix` (see [Reflection](#reflection)) and ignores the
+rest.
 An unknown directive is an error. A group that a conditional skips is not
 read, so its directives and its text need not be valid.
 
@@ -436,8 +438,11 @@ if (tb_shader_compile(&request, arena, &compiled) == TB_SHADER_OK)
   the last element of an array unpadded and what follows a struct packed into
   its last register; a matrix a register for each column, or each row when
   `row_major`; a double aligned to 8; a minimum-precision value in a register
-  of its own; and `packoffset(c1.y)` where it says. A parameter layout
-  written in C is checked against these.
+  of its own; and `packoffset(c1.y)` where it says. A matrix that says
+  neither `row_major` nor `column_major` is laid out as the last `#pragma
+  pack_matrix(row_major)` or `pack_matrix(column_major)` before it says,
+  and by columns when none does. A parameter layout written in C is checked
+  against these.
 
 - **Features:** what the shader needs beyond the portable core of raster and
   compute shaders, among wave operations, bindless resources (an array of no
@@ -457,10 +462,9 @@ and compares, on every platform, and a Windows job of CI runs the tool with
 `--check`, so a DXC that reports otherwise fails the build. To add a case, add
 a shader, run the tool, and review what it wrote.
 
-**Not yet.** `#pragma pack_matrix(row_major)` is not followed yet: a matrix
-is `row_major` only when its declaration says so. How DXC packs a
-signature's elements into registers, a hull shader's patch constants, and a
-mesh shader's primitives are not described yet.
+**Not yet.** How DXC packs a signature's elements into registers, a hull
+shader's patch constants, and a mesh shader's primitives are not described
+yet.
 
 ## Diagnostics
 

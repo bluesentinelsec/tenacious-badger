@@ -57,6 +57,8 @@ typedef struct tb_shader_parser
     tb_shader_name path;
     /* When above zero, `>` ends a template argument list instead of comparing. */
     size_t angle_depth;
+    /* The layout the last `#pragma pack_matrix` named, or zero. */
+    uint64_t pack_matrix;
 } tb_shader_parser;
 
 /* Tokens. */

@@ -734,10 +734,53 @@ static tb_shader_name parse_declarator_name(tb_shader_parser *parser)
     return parse_name(parser, "a name");
 }
 
+/* Whether `text` is `pack_matrix(layout)`, spaces anywhere between its words. */
+static bool pragma_names_layout(const char *text, size_t length, const char *layout)
+{
+    const char *const words[] = {"pack_matrix", "(", layout, ")"};
+    size_t at = 0;
+    for (size_t word = 0; word < sizeof(words) / sizeof(words[0]); word++)
+    {
+        while (at < length && (text[at] == ' ' || text[at] == '\t'))
+        {
+            at++;
+        }
+        const size_t word_length = tb_str_length(words[word]);
+        if (length - at < word_length || memcmp(text + at, words[word], word_length) != 0)
+        {
+            return false;
+        }
+        at += word_length;
+    }
+    while (at < length && (text[at] == ' ' || text[at] == '\t'))
+    {
+        at++;
+    }
+    return at == length;
+}
+
+/* `#pragma pack_matrix(row_major)` lays out every matrix declared after it
+ * by rows unless it says otherwise, as DXC does; `column_major` undoes it. */
+static void follow_pack_matrix(tb_shader_parser *parser, const tb_shader_token *pragma)
+{
+    if (pragma_names_layout(pragma->text, pragma->length, "row_major"))
+    {
+        parser->pack_matrix = TB_SHADER_MODIFIER_ROW_MAJOR;
+    }
+    else if (pragma_names_layout(pragma->text, pragma->length, "column_major"))
+    {
+        parser->pack_matrix = TB_SHADER_MODIFIER_COLUMN_MAJOR;
+    }
+}
+
 /* A variable, after its name. */
 static tb_shader_node *parse_variable(tb_shader_parser *parser, tb_shader_node *node, context where)
 {
     node->kind = TB_SHADER_NODE_VARIABLE;
+    if ((node->modifiers & (TB_SHADER_MODIFIER_ROW_MAJOR | TB_SHADER_MODIFIER_COLUMN_MAJOR)) == 0)
+    {
+        node->pack_matrix = parser->pack_matrix;
+    }
     node->type = parse_array_dimensions(parser, node->type);
     node->annotations = parse_annotations(parser);
     if (where == CONTEXT_MEMBER && at_bit_width(parser))
@@ -1014,6 +1057,7 @@ static void parse_declaration_in(tb_shader_parser *parser, tb_shader_node_list *
         tb_shader_node *const node =
             tb_shader_new_node(parser, TB_SHADER_NODE_PRAGMA, token->location);
         node->name = tb_shader_token_name(token);
+        follow_pack_matrix(parser, token);
         tb_shader_advance(parser);
         tb_shader_list_append(list, node);
     }

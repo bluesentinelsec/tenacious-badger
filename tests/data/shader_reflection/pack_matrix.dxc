@@ -1,0 +1,21 @@
+binding $Globals cbuffer cb0 1
+binding P cbuffer cb1 1
+binding Q cbuffer cb2 1
+buffer $Globals 56
+buffer P 252
+buffer Q 100
+output SV_Target 0 float 4
+variable $Globals.before 0
+variable P.a 0
+variable P.b 32
+variable P.c 48
+variable P.d 104
+variable P.g 160
+variable P.h 248
+variable P.s 112
+variable P.s.m 112
+variable P.s.x 144
+variable Q.e 0
+variable Q.f 56
+variable Q.k 64
+variable Q.l 96
