@@ -899,7 +899,8 @@ TB_TEST(ui_gallery, a_color_edit_drags_its_channels)
     fixture.scene = gallery_scene;
     fixture.color = (tb_vec4){0.5f, 0.5f, 0.5f, 1.0f};
     ui_frame(&fixture);
-    const tb_ui_command *const red = ui_text_command(&fixture, "R 0.50");
+    /* The first of the channels' values is red's. */
+    const tb_ui_command *const red = ui_text_command(&fixture, "0.50");
     TB_TEST_REQUIRE_POINTER(red, !=, NULL);
     const tb_vec2 at = ui_middle(red->rect);
     ui_move(&fixture, at.x, at.y);

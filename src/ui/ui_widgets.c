@@ -811,6 +811,10 @@ bool tb_ui_color_swatch(tb_ui *ui, const char *label, tb_vec4 color)
 bool tb_ui_color_edit(tb_ui *ui, const char *label, tb_vec4 *color)
 {
     static const char *const channels[4] = {"R", "G", "B", "A"};
+    static const tb_vec4 marks[4] = {{0.86f, 0.26f, 0.24f, 1.0f},
+                                     {0.36f, 0.72f, 0.26f, 1.0f},
+                                     {0.22f, 0.48f, 0.92f, 1.0f},
+                                     {0.62f, 0.62f, 0.62f, 1.0f}};
     tb_ui_id id = 0;
     tb_canvas_rect field = {0};
     float *const values[4] = {&color->x, &color->y, &color->z, &color->w};
@@ -832,14 +836,16 @@ bool tb_ui_color_edit(tb_ui *ui, const char *label, tb_vec4 *color)
         const tb_canvas_rect rect = {field.x + swatch + gap + (float)channel * (width + gap),
                                      field.y, width, field.height};
         double value = (double)*values[channel];
-        char format[16] = {0};
-        (void)tb_fmt_buffer(format, sizeof(format), "%s %%.2f", channels[channel]);
         if (tb_ui_drag_in(ui, tb_ui_derived_id(id, channels[channel]), rect, &value, 0.005f, 0.0,
-                          1.0, format, false))
+                          1.0, "%.2f", false))
         {
             *values[channel] = (float)value;
             changed = true;
         }
+        /* Each channel is marked by its color on its left, as Unreal marks
+         * a vector's axes. */
+        tb_ui_fill(ui, (tb_canvas_rect){rect.x, rect.y, 3.0f, rect.height}, 0.0f, marks[channel],
+                   0);
     }
     tb_ui_set_last(ui, id, field, false);
     return changed;
