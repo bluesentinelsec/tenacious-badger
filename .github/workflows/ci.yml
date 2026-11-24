@@ -106,7 +106,7 @@ jobs:
         run: >
           cmake -S . -B build/default-adapter -DCMAKE_BUILD_TYPE=Debug
           -DTB_USE_DEFAULT_PLATFORM_ADAPTER=ON
-          -DTB_BUILD_BURROW=OFF -DTB_BUILD_TESTS=OFF -DTB_BUILD_BENCHMARKS=OFF
+          -DTB_BUILD_BURROW=OFF -DTB_BUILD_SANDBOX=OFF -DTB_BUILD_TESTS=OFF -DTB_BUILD_BENCHMARKS=OFF
       - name: Build the shared and static libraries
         run: cmake --build build/default-adapter --parallel
 
