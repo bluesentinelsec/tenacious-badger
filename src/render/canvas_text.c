@@ -241,8 +241,6 @@ void tb_renderer_set_debug_font(tb_renderer *renderer, const struct tb_font *fon
 static const tb_font *tb_text_default_debug_font(tb_renderer *renderer)
 {
     size_t index = 0;
-    const void *bytes = NULL;
-    size_t length = 0;
 
     if (renderer->default_debug_font_tried)
     {
@@ -254,11 +252,8 @@ static const tb_font *tb_text_default_debug_font(tb_renderer *renderer)
     {
         return NULL;
     }
-    tb_font_catalog_get_bytes(renderer->default_catalog, index, &bytes, &length);
-    if (tb_font_open(bytes, length, NULL, &renderer->default_debug_font, NULL) != TB_FONT_OK)
-    {
-        renderer->default_debug_font = NULL;
-    }
+    (void)tb_font_catalog_open(renderer->default_catalog, index, NULL,
+                               &renderer->default_debug_font);
     return renderer->default_debug_font;
 }
 

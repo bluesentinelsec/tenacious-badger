@@ -132,7 +132,7 @@ void tb_ui_heading(tb_ui *ui, const char *text)
 {
     TB_ASSERT(ui != NULL);
     TB_ASSERT(text != NULL);
-    tb_ui_text_item(ui, TB_UI_FONT_BOLD, tb_text_from_cstr(text),
+    tb_ui_text_item(ui, TB_UI_FONT_HEADING, tb_text_from_cstr(text),
                     tb_ui_color_of(ui, TB_UI_COLOR_TEXT));
 }
 
@@ -742,7 +742,7 @@ bool tb_ui_header(tb_ui *ui, const char *label, bool default_open)
                                                                         : TB_UI_COLOR_HEADER),
                id);
     tb_ui_focus_ring(ui, item, ui->theme.frame_rounding, &interaction, id);
-    tb_ui_disclosure(ui, item, tb_ui_label_text(label), open, TB_UI_FONT_BOLD, id);
+    tb_ui_disclosure(ui, item, tb_ui_label_text(label), open, TB_UI_FONT_HEADING, id);
     tb_ui_set_last(ui, id, item, interaction.hot);
     return open;
 }

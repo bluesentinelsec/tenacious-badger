@@ -54,7 +54,7 @@ tb_ui_theme tb_ui_theme_dark(void)
     theme.colors[TB_UI_COLOR_POPUP] = tb_ui_gray(0.10f, 1.0f);
     theme.colors[TB_UI_COLOR_TABLE_ROW_ALTERNATE] = tb_ui_gray(1.0f, 0.035f);
     theme.colors[TB_UI_COLOR_SHADOW] = tb_ui_gray(0.0f, 0.30f);
-    theme.font_size = 14.0f;
+    theme.font_size = tb_font_default_role(TB_FONT_ROLE_UI).size;
     theme.window_padding = (tb_vec2){10.0f, 10.0f};
     theme.frame_padding = (tb_vec2){8.0f, 4.0f};
     theme.item_spacing = (tb_vec2){8.0f, 6.0f};
@@ -68,35 +68,41 @@ tb_ui_theme tb_ui_theme_dark(void)
     return theme;
 }
 
-/* Open the font a role of a catalog names; NULL when it has none. */
-static tb_font *tb_ui_open_role(const tb_font_catalog *catalog, tb_font_role role)
+/* Open the font of a spec; NULL when the catalog has none. */
+static tb_font *tb_ui_open_spec(const tb_font_catalog *catalog, tb_font_spec spec)
 {
     size_t index = 0;
-    const void *bytes = NULL;
-    size_t length = 0;
     tb_font *font = NULL;
 
-    if (!tb_font_catalog_find_role(catalog, role, &index))
+    if (!tb_font_catalog_find_spec(catalog, spec, &index) ||
+        !tb_font_catalog_open(catalog, index, NULL, &font))
     {
         return NULL;
-    }
-    tb_font_catalog_get_bytes(catalog, index, &bytes, &length);
-    if (tb_font_open(bytes, length, NULL, &font, NULL) != TB_FONT_OK)
-    {
-        /* coverage-off: the engine's embedded fonts all open */
-        return NULL;
-        /* coverage-on */
     }
     return font;
 }
 
-bool tb_ui_fonts_open(const tb_font_catalog *catalog, tb_ui_fonts *fonts)
+bool tb_ui_fonts_open(const tb_font_catalog *catalog, const tb_font_spec *specs, tb_ui_fonts *fonts)
 {
+    tb_font_spec roles[TB_UI_FONT_COUNT] = {0};
+    const tb_font_spec *chosen = specs;
+
     TB_ASSERT(catalog != NULL);
     TB_ASSERT(fonts != NULL);
-    fonts->fonts[TB_UI_FONT_REGULAR] = tb_ui_open_role(catalog, TB_FONT_ROLE_UI);
-    fonts->fonts[TB_UI_FONT_BOLD] = tb_ui_open_role(catalog, TB_FONT_ROLE_UI_BOLD);
-    fonts->fonts[TB_UI_FONT_MONO] = tb_ui_open_role(catalog, TB_FONT_ROLE_MONOSPACE);
+    if (chosen == NULL)
+    {
+        /* The roles' own faces, none bold: the interface is bold only where
+         * its caller asks. */
+        roles[TB_UI_FONT_REGULAR] = tb_font_spec_of_role(catalog, TB_FONT_ROLE_UI);
+        roles[TB_UI_FONT_HEADING] = tb_font_spec_of_role(catalog, TB_FONT_ROLE_HEADING);
+        roles[TB_UI_FONT_MONO] = tb_font_spec_of_role(catalog, TB_FONT_ROLE_MONOSPACE);
+        chosen = roles;
+    }
+    for (size_t index = 0; index < TB_UI_FONT_COUNT; index++)
+    {
+        fonts->fonts[index] = tb_ui_open_spec(catalog, chosen[index]);
+    }
+    fonts->size = chosen[TB_UI_FONT_REGULAR].size;
     return fonts->fonts[TB_UI_FONT_REGULAR] != NULL;
 }
 
@@ -120,6 +126,10 @@ void tb_ui_theme_set_fonts(tb_ui_theme *theme, const tb_ui_fonts *fonts)
     for (size_t index = 0; index < TB_UI_FONT_COUNT; index++)
     {
         theme->fonts[index] = fonts->fonts[index];
+    }
+    if (fonts->size > 0.0f)
+    {
+        theme->font_size = fonts->size;
     }
 }
 

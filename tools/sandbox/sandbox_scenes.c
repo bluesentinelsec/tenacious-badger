@@ -225,14 +225,14 @@ static void canvas_destroy(sandbox *box, void *state)
 }
 
 /* ---------------------------------------------------------------------------
- * text: the UI font at sizes from 10 to 48, paragraphs wrapping in panels whose
- * width changes, left, centered and right, pixel fonts at whole multiples
- * of their sizes, and labels over the shapes.
+ * text: the font roles at their own sizes (a heading, the UI font at sizes
+ * from 10 to 48, and a line of monospace), body paragraphs wrapping in
+ * panels whose width changes, left, centered and right, the pixel font at
+ * whole multiples of its size, and labels over the shapes.
  * ------------------------------------------------------------------------- */
 
 #define TEXT_MARGIN 24.0f
 #define TEXT_PANEL_PADDING 12.0f
-#define TEXT_PARAGRAPH_SIZE 14.0f
 
 static const char text_paragraph[] =
     "Tenacious Badger lays out text in lines: kerned pairs such as AV, To and "
@@ -260,6 +260,21 @@ static void text_panel(sandbox *box, tb_canvas_rect inside)
                                   (tb_vec4){0.35f, 0.65f, 1.0f, 0.8f});
 }
 
+/* One line in a role's font at its own size, from the top left; gives the
+ * top of the line after it. */
+static float text_role_line(sandbox *box, sandbox_font font, tb_text text, float y)
+{
+    const float size = box->specs[font].size;
+
+    if (box->fonts[font] == NULL)
+    {
+        return y;
+    }
+    tb_canvas_draw_text(box->renderer, box->fonts[font], text, size, (tb_vec2){TEXT_MARGIN, y},
+                        (tb_vec4){0.92f, 0.94f, 0.97f, 1}, NULL);
+    return y + tb_canvas_measure_text(box->renderer, box->fonts[font], text, size, NULL).y;
+}
+
 /* The UI font at a run of sizes, each line naming its own. */
 static void text_sizes(sandbox *box, float y)
 {
@@ -279,24 +294,28 @@ static void text_sizes(sandbox *box, float y)
     }
 }
 
-/* The paragraph in three panels, left, centered and right, as wide as the
- * time says, their bottoms at `bottom`. */
+/* The paragraph in the body font, in three panels, left, centered and
+ * right, as wide as the time says, their bottoms at `bottom`. */
 static void text_paragraphs(sandbox *box, float bottom, float t)
 {
     static const tb_font_align aligns[] = {TB_FONT_ALIGN_LEFT, TB_FONT_ALIGN_CENTER,
                                            TB_FONT_ALIGN_RIGHT};
-    const tb_font *const font = box->fonts[SANDBOX_FONT_UI];
+    const tb_font *const font = box->fonts[SANDBOX_FONT_BODY];
+    const float size = box->specs[SANDBOX_FONT_BODY].size;
     const float width = 210.0f + 100.0f * sinf(t * 0.7f - 1.2f);
     const tb_text text = TB_TEXT(text_paragraph);
     tb_font_layout_options options[3] = {0};
     float tallest = 0.0f;
 
+    if (font == NULL)
+    {
+        return;
+    }
     for (size_t index = 0; index < 3; index++)
     {
         options[index] = (tb_font_layout_options){.wrap_width = width, .align = aligns[index]};
-        tallest = fmaxf(tallest, tb_canvas_measure_text(box->renderer, font, text,
-                                                        TEXT_PARAGRAPH_SIZE, &options[index])
-                                     .y);
+        tallest = fmaxf(tallest,
+                        tb_canvas_measure_text(box->renderer, font, text, size, &options[index]).y);
     }
     for (size_t index = 0; index < 3; index++)
     {
@@ -305,42 +324,41 @@ static void text_paragraphs(sandbox *box, float bottom, float t)
                             bottom - TEXT_PANEL_PADDING - tallest};
         text_panel(box, (tb_canvas_rect){at.x, at.y, width, tallest});
         tb_canvas_set_layer(box->renderer, 1);
-        tb_canvas_draw_text(box->renderer, font, text, TEXT_PARAGRAPH_SIZE, at,
-                            (tb_vec4){0.85f, 0.88f, 0.92f, 1}, &options[index]);
+        tb_canvas_draw_text(box->renderer, font, text, size, at, (tb_vec4){0.85f, 0.88f, 0.92f, 1},
+                            &options[index]);
         tb_canvas_set_layer(box->renderer, 0);
     }
 }
 
-/* One line of a pixel font, its right edge at `right`. */
-static float text_pixel_line(sandbox *box, sandbox_font font, tb_text text, float size,
-                             float pixel_size, tb_vec2 top_right, tb_vec4 color)
+/* One line of the pixel font, its right edge at `right`. */
+static float text_pixel_line(sandbox *box, tb_text text, float size, tb_vec2 top_right,
+                             tb_vec4 color)
 {
-    const tb_font_layout_options options = {.pixel_size = pixel_size};
+    const tb_font *const font = box->fonts[SANDBOX_FONT_PIXEL];
+    const tb_font_layout_options options = {.pixel_size = box->pixel_size};
     tb_vec2 measured = {0};
 
-    if (box->fonts[font] == NULL)
+    if (font == NULL)
     {
         return top_right.y;
     }
-    measured = tb_canvas_measure_text(box->renderer, box->fonts[font], text, size, &options);
+    measured = tb_canvas_measure_text(box->renderer, font, text, size, &options);
 
-    tb_canvas_draw_text(box->renderer, box->fonts[font], text, size,
+    tb_canvas_draw_text(box->renderer, font, text, size,
                         (tb_vec2){top_right.x - measured.x, top_right.y}, color, &options);
     return top_right.y + measured.y;
 }
 
-/* The pixel fonts, on whole pixels at whole multiples of their sizes,
- * against the right edge. */
+/* The pixel font at its role's size and twice it, on whole pixels at whole
+ * multiples of its design size, against the right edge. */
 static void text_pixel_fonts(sandbox *box, float right, float y)
 {
-    y = text_pixel_line(box, SANDBOX_FONT_VGA, TB_TEXT("Px437 IBM VGA 8x16: C:\\> DIR /W"), 16.0f,
-                        16.0f, (tb_vec2){right, y}, (tb_vec4){0.65f, 1.0f, 0.65f, 1});
-    y = text_pixel_line(box, SANDBOX_FONT_VGA, TB_TEXT("A whole multiple larger"), 32.0f, 16.0f,
-                        (tb_vec2){right, y}, (tb_vec4){1.0f, 0.75f, 0.35f, 1});
-    y = text_pixel_line(box, SANDBOX_FONT_SILKSCREEN, TB_TEXT("SILKSCREEN"), 8.0f, 8.0f,
-                        (tb_vec2){right, y + 8.0f}, (tb_vec4){1.0f, 0.55f, 0.8f, 1});
-    (void)text_pixel_line(box, SANDBOX_FONT_SILKSCREEN, TB_TEXT("AND LARGER, BY WHOLE PIXELS"),
-                          24.0f, 8.0f, (tb_vec2){right, y}, (tb_vec4){1.0f, 0.55f, 0.8f, 1});
+    const float size = box->specs[SANDBOX_FONT_PIXEL].size;
+
+    y = text_pixel_line(box, TB_TEXT("Px437 IBM VGA 8x16: C:\\> DIR /W"), size, (tb_vec2){right, y},
+                        (tb_vec4){0.65f, 1.0f, 0.65f, 1});
+    (void)text_pixel_line(box, TB_TEXT("A whole multiple larger"), size * 2.0f, (tb_vec2){right, y},
+                          (tb_vec4){1.0f, 0.75f, 0.35f, 1});
 }
 
 static void text_draw(sandbox *box, void *state, const sandbox_frame *frame)
@@ -348,6 +366,7 @@ static void text_draw(sandbox *box, void *state, const sandbox_frame *frame)
     const tb_canvas_view view = tb_canvas_view_logical(box->renderer);
     uint32_t width = 0;
     uint32_t height = 0;
+    float y = TEXT_MARGIN;
 
     shapes_draw(box, state, frame);
     for (int shape = 0; shape < SHAPE_COUNT; shape++)
@@ -362,7 +381,9 @@ static void text_draw(sandbox *box, void *state, const sandbox_frame *frame)
     }
     tb_renderer_size(box->renderer, &width, &height);
     tb_canvas_set_view(box->renderer, &view);
-    text_sizes(box, TEXT_MARGIN);
+    y = text_role_line(box, SANDBOX_FONT_HEADING, TB_TEXT("A heading, in the heading role"), y);
+    y = text_role_line(box, SANDBOX_FONT_MONOSPACE, TB_TEXT("monospace: 0O 1lI {} => tb_text"), y);
+    text_sizes(box, y + TEXT_PANEL_PADDING);
     /* Room under the panels for the frame time. */
     text_paragraphs(box, (float)height / view.scale - 64.0f, (float)frame->seconds);
     text_pixel_fonts(box, (float)width / view.scale - TEXT_MARGIN, TEXT_MARGIN);

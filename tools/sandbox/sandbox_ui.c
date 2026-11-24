@@ -64,7 +64,7 @@ bool ui_scene_create(sandbox *box, void **state)
     scene->tint = (tb_vec4){0.30f, 0.62f, 0.95f, 0.6f};
     memcpy(scene->name, "Crate_01", sizeof("Crate_01"));
     memcpy(scene->tag, "prop", sizeof("prop"));
-    if (!tb_ui_fonts_open(box->catalog, &scene->fonts))
+    if (!tb_ui_fonts_open(box->catalog, NULL, &scene->fonts))
     {
         (void)tb_fmt_print("badger-sandbox: ui: this build of the engine carries no UI font; "
                            "the interface is not drawn\n");
