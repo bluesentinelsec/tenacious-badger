@@ -544,6 +544,13 @@ void tb_engine_settings_device_options(const tb_engine_settings *engine,
     options->backend = (tb_rhi_backend)tb_setting_choice(engine->graphics.renderer);
 }
 
+uint32_t tb_engine_settings_anisotropy(const tb_engine_settings *engine)
+{
+    TB_ASSERT(engine != NULL);
+    /* The choices are off, then 2x to 16x: each doubles the one before. */
+    return 1u << tb_setting_choice(engine->graphics.anisotropic_filtering);
+}
+
 /* Anisotropic filtering follows the texture quality in a preset: 2x at low
  * to 16x at ultra, as the choices after `off` go. */
 static size_t tb_engine_anisotropy_of(tb_graphics_quality quality)

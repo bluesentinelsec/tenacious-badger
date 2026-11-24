@@ -74,7 +74,7 @@ are kept apart:
 | Object | Made by | What a shader reaches it by |
 | --- | --- | --- |
 | Buffer | `tb_rhi_buffer_create` | `tb_rhi_buffer_index` (read), `tb_rhi_buffer_storage_index` (write) |
-| Texture | `tb_rhi_texture_create` | `tb_rhi_texture_index` (sample), `tb_rhi_texture_storage_index` (write) |
+| Texture | `tb_rhi_texture_create` | `tb_rhi_texture_index` (sample), `tb_rhi_texture_storage_index` and `tb_rhi_texture_storage_mip_index` (write a level) |
 | Sampler | `tb_rhi_sampler_create` | `tb_rhi_sampler_index` |
 | Shader | `tb_rhi_shader_create` | — |
 | Pipeline | `tb_rhi_graphics_pipeline_create`, `tb_rhi_compute_pipeline_create` | — |
@@ -126,6 +126,13 @@ samplers unless the options say otherwise. A full heap is
 
 Vertex buffers and input layouts remain for meshes that use them; a pipeline
 with no attributes pulls its vertices by index instead.
+
+**Storage textures** have an index for each mip level, so a compute shader
+reads one level and writes the next without views of its own: the
+renderer makes mip chains that way. A texture in sRGB is written as the
+same channels in linear (D3D12 writes no sRGB view), so the shader encodes
+what it writes. `tb_rhi_mip_count()` and `tb_rhi_mip_size()` give a chain's
+levels and their sizes.
 
 ## Recording and submitting
 

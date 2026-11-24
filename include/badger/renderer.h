@@ -28,7 +28,8 @@
  *
  * **Meshes** are triangles with positions, normals and texture coordinates,
  * made from data a caller gives or as shapes the renderer generates. A mesh
- * is drawn with a transform and a color, lit by a light from above, or flat.
+ * is drawn with a transform and a color, lit by a light from above, or flat;
+ * or with a material of textures (badger/material.h).
  *
  * **Debug drawing** puts lines in the world for one frame: lines, boxes,
  * spheres, grids, axes and arrows, tested against depth or drawn over
@@ -70,6 +71,10 @@ typedef struct tb_renderer_options
     struct tb_window *window;     /**< Required; outlives the renderer. */
     tb_rhi_device_options device; /**< The device: backend, adapter, validation. */
     bool vsync;                   /**< Wait for the display's refresh. */
+    /** Texels a material's sample blends along a slope at most: 1 (off), 2,
+     * 4, 8 or 16, as `graphics.anisotropic_filtering` says
+     * (tb_engine_settings_anisotropy()); 0 is 8, the setting's default. */
+    uint32_t anisotropy;
     /** Where messages go, the RHI's validation included; NULL drops them.
      * Borrowed until the renderer is destroyed. */
     struct tb_log *log;

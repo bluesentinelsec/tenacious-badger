@@ -13,6 +13,7 @@
 #include "badger/engine_settings.h"
 #include "badger/fmt.h"
 #include "badger/game_loop.h"
+#include "badger/material.h"
 #include "badger/memory.h"
 #include "badger/process.h"
 #include "badger/settings.h"
@@ -352,6 +353,7 @@ static void sandbox_frame_callback(void *context, const tb_game_time *time)
     {
         tb_renderer_capture_next_frame(run->box.renderer);
     }
+    tb_renderer_set_anisotropy(run->box.renderer, tb_engine_settings_anisotropy(&run->engine));
     if (!tb_renderer_begin_frame(run->box.renderer, &run->box.camera,
                                  sandbox_scenes[run->scene].clear))
     {
@@ -457,6 +459,7 @@ static int sandbox_open_renderer(sandbox_run *run, tb_window_system *system)
     renderer.device.adapter =
         sandbox_software ? TB_RHI_ADAPTER_SOFTWARE : TB_RHI_ADAPTER_HIGH_PERFORMANCE;
     renderer.device.validation = sandbox_validation;
+    renderer.anisotropy = tb_engine_settings_anisotropy(&run->engine);
     tb_engine_settings_device_options(&run->engine, &renderer.device);
     if (tb_renderer_create(&renderer, &run->box.renderer, &error) != TB_RHI_OK)
     {
