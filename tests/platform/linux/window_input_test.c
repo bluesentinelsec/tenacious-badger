@@ -26,6 +26,27 @@ TB_TEST(platform_linux_window, evdev_buttons_are_mouse_buttons)
     }
 }
 
+/* Keys come by their evdev codes on X11 and Wayland alike: the keys that
+ * edit text among them. */
+TB_TEST(platform_linux_window, evdev_codes_are_keys)
+{
+    static const struct
+    {
+        uint32_t code;
+        tb_key key;
+    } rows[] = {
+        {30, TB_KEY_A},          {14, TB_KEY_BACKSPACE}, {102, TB_KEY_HOME},
+        {107, TB_KEY_END},       {111, TB_KEY_DELETE},   {104, TB_KEY_PAGE_UP},
+        {109, TB_KEY_PAGE_DOWN}, {110, TB_KEY_INSERT},   {0x2FF, TB_KEY_UNKNOWN},
+    };
+
+    for (size_t index = 0; index < TB_TEST_COUNT_OF(rows); index++)
+    {
+        TB_TEST_CONTEXT("code %u", (unsigned)rows[index].code);
+        TB_TEST_EXPECT_UINT(tb_linux_key(rows[index].code), ==, rows[index].key);
+    }
+}
+
 TB_TEST(platform_linux_window, raw_motion_reads_the_valuators_the_mask_names)
 {
     /* x and y, then a wheel's valuator, which is not motion. */

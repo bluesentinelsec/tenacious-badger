@@ -825,6 +825,12 @@ const char *tb_key_name(tb_key key)
         [TB_KEY_RIGHT_CONTROL] = "right_control",
         [TB_KEY_LEFT_ALT] = "left_alt",
         [TB_KEY_RIGHT_ALT] = "right_alt",
+        [TB_KEY_HOME] = "home",
+        [TB_KEY_END] = "end",
+        [TB_KEY_PAGE_UP] = "page_up",
+        [TB_KEY_PAGE_DOWN] = "page_down",
+        [TB_KEY_INSERT] = "insert",
+        [TB_KEY_DELETE] = "delete",
     };
 
     if ((unsigned)key >= TB_KEY_COUNT)
