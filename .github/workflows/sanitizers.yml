@@ -21,7 +21,10 @@ jobs:
   sanitizer:
     name: ${{ matrix.os }} / ${{ matrix.compiler }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    # A job's limit is about three times its usual time (the longest, macOS
+    # TSan, takes 10 minutes): enough for a runner several times slower than
+    # usual, while a hang still ends the job.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:

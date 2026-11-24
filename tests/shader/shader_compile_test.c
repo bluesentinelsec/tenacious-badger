@@ -362,6 +362,54 @@ TB_TEST(shader_compile, arrays_and_minimum_precision_are_packed_as_dxc_packs_the
     tb_arena_destroy(out.arena);
 }
 
+/* `#pragma pack_matrix` lays out the matrices declared after it, struct
+ * members included, unless a declaration says otherwise; a later pragma
+ * changes it back. The corpus case pack_matrix.hlsl checks the offsets
+ * against DXC; this checks the layout each matrix is reported with. */
+TB_TEST(shader_compile, pack_matrix_lays_out_the_matrices_after_it)
+{
+    compiled out = {0};
+    compile_text(&out,
+                 "float2x4 before;\n"
+                 "#pragma pack_matrix(row_major)\n"
+                 "struct S { float2x4 m; };\n"
+                 "cbuffer P { float2x4 a; column_major float2x4 c; S s; };\n"
+                 "#pragma pack_matrix( column_major )\n"
+                 "cbuffer Q { float2x4 e; row_major float2x4 k; };\n"
+                 "#pragma pack_matrix(something_else)\n"
+                 "cbuffer R { float2x4 u; };\n"
+                 "float4 main() : SV_Target { return before[0] + a[0] + c[0] + s.m[0] + e[0] + "
+                 "k[0] + u[0]; }",
+                 "main", TB_SHADER_STAGE_PIXEL);
+    TB_TEST_REQUIRE_UINT(out.result, ==, TB_SHADER_OK);
+    const tb_shader_reflection *const reflection = &out.output.reflection;
+    TB_TEST_REQUIRE_UINT(reflection->buffer_count, ==, 4);
+    const struct
+    {
+        size_t buffer;
+        const char *name;
+        tb_shader_variable_class variable_class;
+    } expected[] = {
+        {0, "before", TB_SHADER_VARIABLE_MATRIX_COLUMNS},
+        {1, "a", TB_SHADER_VARIABLE_MATRIX_ROWS},
+        {1, "c", TB_SHADER_VARIABLE_MATRIX_COLUMNS},
+        {1, "m", TB_SHADER_VARIABLE_MATRIX_ROWS},
+        {2, "e", TB_SHADER_VARIABLE_MATRIX_COLUMNS},
+        {2, "k", TB_SHADER_VARIABLE_MATRIX_ROWS},
+        /* A pragma naming no layout changes nothing. */
+        {3, "u", TB_SHADER_VARIABLE_MATRIX_COLUMNS},
+    };
+    for (size_t index = 0; index < sizeof(expected) / sizeof(expected[0]); index++)
+    {
+        TB_TEST_CONTEXT("variable %s", expected[index].name);
+        const tb_shader_variable *const variable =
+            find_variable(&reflection->buffers[expected[index].buffer], expected[index].name);
+        TB_TEST_REQUIRE_POINTER(variable, !=, NULL);
+        TB_TEST_EXPECT_UINT(variable->variable_class, ==, expected[index].variable_class);
+    }
+    tb_arena_destroy(out.arena);
+}
+
 static unsigned features_of(const char *text, const char *entry_point, tb_shader_stage stage)
 {
     compiled out = {0};
