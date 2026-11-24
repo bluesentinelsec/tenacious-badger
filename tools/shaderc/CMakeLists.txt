@@ -1,9 +1,10 @@
 # badger-shaderc: compiles shaders ahead of time into shader libraries, as
 # Unreal's ShaderCompileWorker does. A developer tool: built with the engine,
-# never shipped with a game.
+# never shipped with a game. Linked as the tests are, coverage included,
+# since the engine library it links may be built for coverage.
 add_executable(badger-shaderc shaderc.c)
 target_link_libraries(badger-shaderc PRIVATE TenaciousBadger::badger_static)
-tb_configure_build_tool(badger-shaderc)
+tb_configure_target(badger-shaderc)
 tb_analyze_target(badger-shaderc)
 
 # The engine's shaders, compiled when the engine is built into a library for
