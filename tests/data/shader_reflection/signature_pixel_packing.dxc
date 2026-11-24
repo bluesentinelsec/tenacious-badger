@@ -1,0 +1,18 @@
+input COLOR 0 float 2 r4.x linear
+input COLOR 1 float 2 r5.x linear
+input FACE_FLAG 0 uint 1 r2.y nointerpolation
+input ID 0 uint 1 r2.x nointerpolation
+input MAT 0 float 3 r6.x linear
+input MAT 1 float 3 r7.x linear
+input NORMAL 0 float 3 r3.x linear
+input SV_ClipDistance 0 float 1 r8.x linear
+input SV_CullDistance 0 float 1 r8.y linear
+input SV_IsFrontFace 0 uint 1 r2.w nointerpolation
+input SV_Position 0 float 4 r0.x noperspective
+input SV_PrimitiveID 0 uint 1 r2.z nointerpolation
+input SV_SampleIndex 0 uint - - nointerpolation
+input TEXCOORD 0 float 2 r1.x linear
+input TEXCOORD 1 float 1 r1.z linear
+input TEXCOORD 2 float 1 r1.w linear
+input TEXCOORD 3 float 1 r3.w linear
+output SV_Target 0 float 4 r0.x

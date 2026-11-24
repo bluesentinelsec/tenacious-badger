@@ -1,0 +1,7 @@
+input A 0 float 1 r0.x noperspective centroid
+input B 0 float 1 r1.x noperspective sample
+input C 0 float 2 r2.x linear
+input D 0 uint 1 r4.x nointerpolation
+input SV_PrimitiveID 0 uint 1 r3.y nointerpolation
+input SV_ShadingRate 0 uint 1 r3.x nointerpolation
+output SV_Target 0 float 4 r0.x

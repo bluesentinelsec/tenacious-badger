@@ -185,8 +185,9 @@ TB_TEST(shader_compile, a_compute_shader_has_a_thread_group_and_no_signature)
 TB_TEST(shader_compile, vertex_and_geometry_signatures)
 {
     compiled out = {0};
-    /* A vertex shader's outputs are not interpolated yet; a matrix passes a
-     * row for each semantic index. */
+    /* A vertex shader's inputs take a register each. A matrix passes a
+     * column for each semantic index, as HLSL's are column-major, each in a
+     * register of its own. */
     compile_text(&out,
                  "struct VSOut { float4 position : SV_Position; float3x4 frame : FRAME2; };\n"
                  "VSOut vs(float3 p : POSITION, uint id : SV_VertexID) { VSOut o; "
@@ -199,11 +200,14 @@ TB_TEST(shader_compile, vertex_and_geometry_signatures)
                    TB_SHADER_INTERPOLATION_NONE);
     expect_element(&reflection->inputs[1], "SV_VertexID", 0, TB_SHADER_COMPONENT_UINT32, 1,
                    TB_SHADER_INTERPOLATION_NONE);
-    TB_TEST_REQUIRE_UINT(reflection->output_count, ==, 4);
-    expect_element(&reflection->outputs[1], "FRAME", 2, TB_SHADER_COMPONENT_FLOAT32, 4,
+    TB_TEST_EXPECT_UINT(reflection->inputs[1].register_index, ==, 1);
+    TB_TEST_REQUIRE_UINT(reflection->output_count, ==, 5);
+    expect_element(&reflection->outputs[1], "FRAME", 2, TB_SHADER_COMPONENT_FLOAT32, 3,
                    TB_SHADER_INTERPOLATION_NONE);
-    expect_element(&reflection->outputs[3], "FRAME", 4, TB_SHADER_COMPONENT_FLOAT32, 4,
+    expect_element(&reflection->outputs[4], "FRAME", 5, TB_SHADER_COMPONENT_FLOAT32, 3,
                    TB_SHADER_INTERPOLATION_NONE);
+    TB_TEST_EXPECT_UINT(reflection->outputs[4].register_index, ==, 4);
+    TB_TEST_EXPECT_UINT(reflection->outputs[4].first_column, ==, 0);
     tb_arena_destroy(out.arena);
 
     /* A geometry shader takes its primitive's vertex once and gives its stream's. */
@@ -220,6 +224,8 @@ TB_TEST(shader_compile, vertex_and_geometry_signatures)
                    TB_SHADER_INTERPOLATION_NONE);
     expect_element(&reflection->inputs[2], "SV_PrimitiveID", 0, TB_SHADER_COMPONENT_UINT32, 1,
                    TB_SHADER_INTERPOLATION_NONE);
+    /* A geometry shader's primitive is passed in no register. */
+    TB_TEST_EXPECT_UINT(reflection->inputs[2].register_index, ==, TB_SHADER_NO_REGISTER);
     TB_TEST_EXPECT_UINT(reflection->output_count, ==, 2);
     tb_arena_destroy(out.arena);
 }
@@ -465,17 +471,24 @@ static const char *format_name(tb_shader_component component)
 }
 
 /* DXC's names of the interpolations the corpus uses. */
+/* DXC's name of an interpolation mode. */
 static const char *interpolation_name(tb_shader_interpolation interpolation)
 {
-    if (interpolation == TB_SHADER_INTERPOLATION_LINEAR)
+    static const char *const names[] = {
+        [TB_SHADER_INTERPOLATION_NONE] = "",
+        [TB_SHADER_INTERPOLATION_LINEAR] = "linear",
+        [TB_SHADER_INTERPOLATION_CONSTANT] = "nointerpolation",
+        [TB_SHADER_INTERPOLATION_NOPERSPECTIVE] = "noperspective",
+        [TB_SHADER_INTERPOLATION_CENTROID] = "centroid",
+        [TB_SHADER_INTERPOLATION_NOPERSPECTIVE_CENTROID] = "noperspective centroid",
+        [TB_SHADER_INTERPOLATION_SAMPLE] = "sample",
+        [TB_SHADER_INTERPOLATION_NOPERSPECTIVE_SAMPLE] = "noperspective sample",
+    };
+    if ((size_t)interpolation >= sizeof(names) / sizeof(names[0]))
     {
-        return "linear";
+        return "?";
     }
-    if (interpolation == TB_SHADER_INTERPOLATION_CONSTANT)
-    {
-        return "nointerpolation";
-    }
-    return interpolation == TB_SHADER_INTERPOLATION_NOPERSPECTIVE ? "noperspective" : "?";
+    return names[interpolation];
 }
 
 static const char *binding_type(tb_shader_binding_kind kind)
@@ -531,16 +544,26 @@ static void report_signature(report *out, const char *kind,
     for (size_t index = 0; index < count; index++)
     {
         const tb_shader_signature_element *const element = &elements[index];
+        /* DXC's report gives an element in no register no components, so
+         * its width is not compared. */
+        char where[32] = "-";
+        char width[16] = "-";
+        if (element->register_index != TB_SHADER_NO_REGISTER)
+        {
+            (void)tb_fmt_buffer(where, sizeof(where), "r%u.%c", element->register_index,
+                                "xyzw"[element->first_column & 3u]);
+            (void)tb_fmt_buffer(width, sizeof(width), "%u", element->columns);
+        }
         if (interpolates)
         {
-            add_line(out, "%s %s %u %s %u %s", kind, element->semantic, element->semantic_index,
-                     format_name(element->component), element->columns,
+            add_line(out, "%s %s %u %s %s %s %s", kind, element->semantic, element->semantic_index,
+                     format_name(element->component), width, where,
                      interpolation_name(element->interpolation));
         }
         else
         {
-            add_line(out, "%s %s %u %s %u", kind, element->semantic, element->semantic_index,
-                     format_name(element->component), element->columns);
+            add_line(out, "%s %s %u %s %s %s", kind, element->semantic, element->semantic_index,
+                     format_name(element->component), width, where);
         }
     }
 }

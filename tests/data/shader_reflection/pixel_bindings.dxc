@@ -11,14 +11,14 @@ binding s sampler s0 1
 binding shadow sampler s1 1
 buffer $Globals 16
 buffer Frame 20
-input ID 0 uint 1 nointerpolation
-input NORMAL 0 float 3 linear
-input NORMAL 1 float 3 linear
-input SV_IsFrontFace 0 uint 1 nointerpolation
-input SV_Position 0 float 4 noperspective
-input TEXCOORD 0 float 2 linear
-output SV_Target 0 float 4
-output SV_Target 2 float 4
+input ID 0 uint 1 r2.x nointerpolation
+input NORMAL 0 float 3 r3.x linear
+input NORMAL 1 float 3 r4.x linear
+input SV_IsFrontFace 0 uint 1 r2.y nointerpolation
+input SV_Position 0 float 4 r0.x noperspective
+input TEXCOORD 0 float 2 r1.x linear
+output SV_Target 0 float 4 r0.x
+output SV_Target 2 float 4 r2.x
 variable $Globals.loose 0
 variable Frame.time 16
 variable Frame.tint 0

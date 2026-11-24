@@ -1,0 +1,9 @@
+input A 0 float 2 r0.x linear
+input B 0 float 1 r0.z linear
+input SV_Position 0 float 4 r3.x noperspective
+input SV_PrimitiveID 0 uint 1 r1.x nointerpolation
+input SV_RenderTargetArrayIndex 0 uint 1 r2.y nointerpolation
+input SV_ViewportArrayIndex 0 uint 1 r2.z nointerpolation
+input X 0 uint 1 r2.x nointerpolation
+input Y 0 uint 1 r4.x nointerpolation
+output SV_Target 0 float 4 r0.x

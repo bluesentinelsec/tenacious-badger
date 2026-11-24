@@ -89,6 +89,26 @@ def find_tables(lines, title, header):
     return found
 
 
+# The words DXC writes for a signature element's format.
+FORMATS = {'float', 'int', 'uint', 'bool', 'fp16', 'i16', 'u16', 'min16f', 'min16i', 'min16u',
+           'double', 'i64', 'u64', 'min2_8f', 'min10f', 'unknown'}
+
+
+def signature_rows(lines, header):
+    """The rows of a signature table, read field by field: a name longer
+    than its column, as `SV_RenderTargetArrayIndex`, pushes the rest of its
+    row right, and a long register runs into the system value after it
+    (`oStencilRefSTENCILREF`), so its columns cannot be sliced."""
+    rows = []
+    for line in lines[header + 2:]:
+        if line.strip() in (';', '') or 'no parameters' in line:
+            break
+        match = re.match(r';\s(\S+)\s+(\d+)(.*)$', line)
+        if match:
+            rows.append(match.groups())
+    return rows
+
+
 def signature(lines, title, kind, interpolation):
     tables = find_tables(lines, title, 'Name                 Index   Mask')
     result = []
@@ -98,14 +118,22 @@ def signature(lines, title, kind, interpolation):
     # rows after it share it.
     modes = {}
     for header in find_tables(lines, title, 'Name                 Index             InterpMode'):
-        for row in table_rows(lines, header):
-            modes.setdefault(row[0], []).append((int(row[1]), row[2]))
-    for row in table_rows(lines, tables[0]):
-        name, index, mask, _register, _system, form = row[:6]
-        if name == '':
-            continue
-        columns = sum(1 for letter in mask if letter in 'xyzw')
-        line = '%s %s %s %s %d' % (kind, name, index, form, columns)
+        for name, index, rest in signature_rows(lines, header):
+            modes.setdefault(name, []).append((int(index), rest.strip()))
+    for name, index, rest in signature_rows(lines, tables[0]):
+        # The mask is 4 components wide, after 3 characters of padding: `  z `,
+        # or ` N/A` for a system value passed in no register.
+        mask = rest[3:7]
+        letters = [letter for letter in mask if letter in 'xyzw']
+        fields = rest[7:].split()
+        form = next((field for field in fields if field in FORMATS), '')
+        register = re.match(r'\d*', fields[0]).group(0) if fields else ''
+        # Where it is passed: `r1.z`, its register and first component, or
+        # `-` for a system value in none (`special`, `oDepth`, `primID`).
+        where = 'r%s.%s' % (register, letters[0]) if register and letters else '-'
+        # DXC gives one in no register no components: its width is not compared.
+        width = str(len(letters)) if where != '-' else '-'
+        line = '%s %s %s %s %s %s' % (kind, name, index, form, width, where)
         if interpolation:
             starts = [mode for first, mode in sorted(modes.get(name, [])) if first <= int(index)]
             line += ' ' + (starts[-1] if starts else '')

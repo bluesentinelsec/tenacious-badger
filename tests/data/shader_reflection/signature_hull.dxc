@@ -1,0 +1,4 @@
+input POSITION 0 float 3 r0.x
+input TEXCOORD 0 float 2 r1.x
+output POSITION 0 float 3 r0.x
+output TEXCOORD 0 float 2 r1.x
