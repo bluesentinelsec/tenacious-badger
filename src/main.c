@@ -30,6 +30,7 @@ static const char *burrow_settings_file = NULL;
 static const char *burrow_values[BURROW_MOST_VALUES] = {0};
 static size_t burrow_value_count = 0;
 static const char *burrow_renderer = NULL;
+static int64_t burrow_frames = 0;
 
 static int burrow_load(burrow_settings *loaded)
 {
@@ -38,7 +39,8 @@ static int burrow_load(burrow_settings *loaded)
                                              .player_file = burrow_settings_file,
                                              .values = burrow_values,
                                              .value_count = burrow_value_count,
-                                             .renderer = burrow_renderer};
+                                             .renderer = burrow_renderer,
+                                             .frames = burrow_frames};
 
     return burrow_settings_load(&request, loaded);
 }
@@ -131,6 +133,13 @@ static const tb_cli_option burrow_options[] = {
      .help = "The graphics API to draw through for this session: auto, d3d12, d3d11, vulkan, "
              "opengl, metal, software, or null to draw nothing; the same as --set "
              "graphics.renderer=NAME."},
+    {.long_name = "frames",
+     .name = "COUNT",
+     .integer = &burrow_frames,
+     .minimum = 1,
+     .maximum = INT64_MAX,
+     .help = "Stop after this many frames, as tests do; the same as --set "
+             "developer.frame_count=COUNT."},
     {.long_name = "reset-settings",
      .flag = &burrow_reset,
      .help = "Start from the default settings, setting the player's settings file aside as "
@@ -141,8 +150,8 @@ static const tb_cli_option burrow_options[] = {
      .help = "Use this settings file in place of the player's usual one."},
     {.long_name = "headless",
      .flag = &burrow_headless,
-     .help = "Play without a window, as a server or a test does; --set "
-             "developer.frame_count=N stops it after N frames."},
+     .help = "Play without a window, as a server or a test does; --frames=N stops it after "
+             "N frames."},
     {.long_name = "mode",
      .choice = &burrow_mode,
      .choices = burrow_modes,
@@ -164,7 +173,9 @@ static const tb_cli_command burrow = {
     .name = "burrow",
     .version = TB_VERSION_STRING,
     .description = "The showcase game of the Tenacious Badger engine: a graybox first-person "
-                   "shooter, under construction.",
+                   "shooter, under construction. Fly through its room with the mouse and WASD, "
+                   "Space and Ctrl to rise and sink, and Shift to sprint; Escape frees the mouse, "
+                   "and a click takes it back.",
     .options = burrow_options,
     .option_count = TB_CLI_COUNT_OF(burrow_options),
     .commands = burrow_commands,

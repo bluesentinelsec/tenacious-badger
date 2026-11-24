@@ -211,4 +211,3 @@ shaders are `tests/data/rhi/*.hlsl`, compiled to DXIL by
 - Timestamps, indirect draws, and queries.
 - Async compute and copy queues: one queue does everything for now.
 - Rebuilding every object on another backend while the game runs (#218).
-- Making Burrow's device from `graphics.renderer`: Burrow does not draw yet.
