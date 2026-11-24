@@ -262,6 +262,41 @@ TB_API void tb_renderer_draw_mesh(tb_renderer *renderer, const tb_mesh *mesh, tb
 TB_API void tb_renderer_draw_mesh_shaded(tb_renderer *renderer, const tb_mesh *mesh,
                                          tb_mat4 transform, tb_vec4 color, tb_mesh_shading shading);
 
+/** @brief What a custom draw is given, inside the frame's scene pass. */
+typedef struct tb_renderer_draw_context
+{
+    tb_rhi_device *device;     /**< The renderer's device. */
+    tb_rhi_command_list *list; /**< To record into, inside the scene pass. */
+    tb_mat4 view;              /**< The frame's camera's view. */
+    tb_mat4 projection;        /**< Its projection, for the frame's aspect. */
+    tb_mat4 clip;              /**< `projection * view`. */
+    uint32_t width;            /**< The frame's size, in pixels. */
+    uint32_t height;           /**< See `width`. */
+    void *context;             /**< The caller's. */
+} tb_renderer_draw_context;
+
+/** @brief Records a custom draw. */
+typedef void tb_renderer_draw_function(const tb_renderer_draw_context *draw);
+
+/**
+ * @brief Record a draw of the caller's own in this frame's scene pass, after
+ * the meshes and before the debug lines: what draws through the RHI itself
+ * with pipelines of tb_renderer_target_formats().
+ * @param draw Required; called once, while the frame ends.
+ * @param context Given to `draw`.
+ */
+TB_API void tb_renderer_draw_custom(tb_renderer *renderer, tb_renderer_draw_function *draw,
+                                    void *context);
+
+/**
+ * @brief The formats of the scene pass's targets, which a custom draw's
+ * pipelines use. Its depth is reversed: clear to 0, keep what is greater.
+ * @param color Required; receives the color target's format.
+ * @param depth Required; receives the depth target's format.
+ */
+TB_API void tb_renderer_target_formats(const tb_renderer *renderer, tb_rhi_format *color,
+                                       tb_rhi_format *depth);
+
 /** @brief Debug drawing over everything, not hidden by what is nearer. */
 #define TB_DEBUG_ON_TOP 1u
 

@@ -44,6 +44,12 @@ typedef struct tb_renderer_draw
     uint64_t constants; /* where in the frame's uploads; UINT64_MAX when they ran out */
 } tb_renderer_draw;
 
+typedef struct tb_renderer_custom
+{
+    tb_renderer_draw_function *draw;
+    void *context;
+} tb_renderer_custom;
+
 typedef struct tb_renderer_line_vertex
 {
     tb_vec3 position;
@@ -93,6 +99,9 @@ struct tb_renderer
     tb_renderer_draw *draws;
     size_t draw_count;
     size_t draw_capacity;
+    tb_renderer_custom *customs;
+    size_t custom_count;
+    size_t custom_capacity;
     tb_mutex lines_lock; /* guards lines, which any thread may add to */
     tb_renderer_lines lines[2];
 

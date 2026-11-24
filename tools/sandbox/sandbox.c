@@ -1,17 +1,22 @@
 /* badger-sandbox: opens a window with the engine's settings and game loop,
- * and draws one of its scenes through the RHI. Keys 1 to 9 choose a scene,
- * and Tab the next. With --frames it stops after that many frames, and with
- * --capture it saves the last as a .bmp first, so a scene can become a test. */
+ * and draws one of its scenes through the renderer. Keys 1 to 9 choose a
+ * scene and Tab the next; holding the right mouse button flies the camera
+ * (WASD, Q and E down and up, Shift faster, the wheel changes speed). With
+ * --frames it stops after that many frames, and with --capture it saves the
+ * last as a .bmp first, so a scene can become a test. */
 #include "sandbox.h"
 
 #include "badger/arena.h"
 #include "badger/cli.h"
 #include "badger/crash.h"
 #include "badger/dxc.h"
+#include "badger/engine_settings.h"
 #include "badger/fmt.h"
+#include "badger/game_loop.h"
 #include "badger/memory.h"
 #include "badger/process.h"
 #include "badger/settings.h"
+#include "badger/shader.h"
 #include "badger/str.h"
 #include "badger/version.h"
 
@@ -23,19 +28,36 @@
 #define SANDBOX_MOST_VALUES 32
 /* Seconds between the frame times the sandbox prints. */
 #define SANDBOX_REPORT_SECONDS 2.0
+/* The fly camera: radians a unit of mouse motion turns it, meters a second
+ * it moves, and how much Shift and a notch of the wheel change that. */
+#define SANDBOX_LOOK_SPEED 0.0025f
+#define SANDBOX_MOVE_SPEED 4.0f
+#define SANDBOX_FAST 4.0f
+#define SANDBOX_WHEEL_STEP 1.2f
+#define SANDBOX_MOST_PITCH 1.55f
 
 /* The command line. */
-static const char *const sandbox_renderers[] = {"auto", "d3d12", "null"};
-static const tb_rhi_backend sandbox_backends[] = {TB_RHI_BACKEND_AUTOMATIC, TB_RHI_BACKEND_D3D12,
-                                                  TB_RHI_BACKEND_NULL};
-static size_t sandbox_renderer = 0;
-static const char *sandbox_scene_name = "cube";
+static const char *sandbox_renderer_name = NULL;
+static const char *sandbox_scene_name = "shapes";
 static int64_t sandbox_frames = 0;
 static const char *sandbox_capture_path = NULL;
 static bool sandbox_software = false;
 static bool sandbox_validation = false;
 static const char *sandbox_values[SANDBOX_MOST_VALUES] = {0};
 static size_t sandbox_value_count = 0;
+
+/* The keys the fly camera reads, held or not. */
+typedef enum sandbox_key
+{
+    SANDBOX_FORWARD,
+    SANDBOX_BACK,
+    SANDBOX_LEFT,
+    SANDBOX_RIGHT,
+    SANDBOX_DOWN,
+    SANDBOX_UP,
+    SANDBOX_FASTER,
+    SANDBOX_KEY_COUNT
+} sandbox_key;
 
 /* What runs while the window is open. */
 typedef struct sandbox_run
@@ -49,11 +71,16 @@ typedef struct sandbox_run
     bool scene_ready;
     double scene_started;
     double clock;
+    /* The fly camera. */
+    float yaw;
+    float pitch;
+    float speed;
+    bool looking;
+    bool held[SANDBOX_KEY_COUNT];
     /* Frame times since the last report. */
     double reported;
     uint64_t frames;
     double slowest;
-    tb_rhi_buffer capture;
     int status;
 } sandbox_run;
 
@@ -121,62 +148,12 @@ tb_rhi_graphics_pipeline_desc sandbox_pipeline_desc(const sandbox *box)
 {
     tb_rhi_graphics_pipeline_desc desc = {0};
 
-    (void)box;
-    desc.colors[0] = TB_RHI_FORMAT_B8G8R8A8_UNORM;
+    tb_renderer_target_formats(box->renderer, &desc.colors[0], &desc.depth);
     desc.color_count = 1;
-    desc.depth = TB_RHI_FORMAT_D32_FLOAT;
     desc.depth_test = true;
     desc.depth_write = true;
     desc.depth_compare = TB_RHI_COMPARE_GREATER; /* reversed depth */
     return desc;
-}
-
-/* ---------------------------------------------------------------------------
- * The swap chain and its depth.
- * ------------------------------------------------------------------------- */
-
-static bool sandbox_make_depth(sandbox *box)
-{
-    tb_rhi_texture_desc desc = {0};
-    tb_rhi_error error = TB_RHI_ERROR_INIT;
-
-    tb_rhi_texture_destroy(box->device, box->depth);
-    box->depth = (tb_rhi_texture){0};
-    tb_rhi_texture_desc_of(box->device, tb_rhi_swap_chain_current(box->chain), &desc);
-    box->width = desc.width;
-    box->height = desc.height;
-    if (tb_rhi_texture_create(box->device,
-                              &(tb_rhi_texture_desc){.format = TB_RHI_FORMAT_D32_FLOAT,
-                                                     .width = desc.width,
-                                                     .height = desc.height,
-                                                     .usage = TB_RHI_TEXTURE_DEPTH,
-                                                     .name = "depth"},
-                              &box->depth, &error) != TB_RHI_OK)
-    {
-        (void)tb_fmt_print_error("badger-sandbox: no depth texture: %s\n", error.message);
-        return false;
-    }
-    return true;
-}
-
-static void sandbox_resize(sandbox_run *run, const tb_window_state *state)
-{
-    tb_rhi_error error = TB_RHI_ERROR_INIT;
-
-    if (state->pixel_width == 0 || state->pixel_height == 0 ||
-        (state->pixel_width == run->box.width && state->pixel_height == run->box.height))
-    {
-        return;
-    }
-    if (tb_rhi_swap_chain_resize(run->box.chain, state->pixel_width, state->pixel_height,
-                                 run->box.vsync, &error) != TB_RHI_OK ||
-        !sandbox_make_depth(&run->box))
-    {
-        (void)tb_fmt_print_error("badger-sandbox: the swap chain could not resize: %s\n",
-                                 error.message);
-        run->status = EXIT_FAILURE;
-        tb_game_loop_quit(run->loop);
-    }
 }
 
 /* ---------------------------------------------------------------------------
@@ -213,29 +190,107 @@ static void sandbox_enter_scene(sandbox_run *run, size_t scene)
                        sandbox_scenes[scene].summary);
 }
 
-static bool sandbox_event(void *context, const tb_window_event *event)
-{
-    sandbox_run *const run = context;
+/* ---------------------------------------------------------------------------
+ * The fly camera.
+ * ------------------------------------------------------------------------- */
 
-    if (event->type == TB_WINDOW_EVENT_RESIZED)
+static void sandbox_hold(sandbox_run *run, tb_key key, bool down)
+{
+    static const tb_key keys[SANDBOX_KEY_COUNT] = {
+        [SANDBOX_FORWARD] = TB_KEY_W,        [SANDBOX_BACK] = TB_KEY_S, [SANDBOX_LEFT] = TB_KEY_A,
+        [SANDBOX_RIGHT] = TB_KEY_D,          [SANDBOX_DOWN] = TB_KEY_Q, [SANDBOX_UP] = TB_KEY_E,
+        [SANDBOX_FASTER] = TB_KEY_LEFT_SHIFT};
+
+    for (int index = 0; index < SANDBOX_KEY_COUNT; index++)
     {
-        sandbox_resize(run, &event->state);
-        return false;
+        if (keys[index] == key)
+        {
+            run->held[index] = down;
+        }
     }
-    if (event->type != TB_WINDOW_EVENT_KEY_DOWN || event->repeat)
+}
+
+static void sandbox_look(sandbox_run *run, bool looking)
+{
+    if (looking == run->looking)
     {
-        return false;
+        return;
     }
-    if (event->key >= TB_KEY_1 && event->key <= TB_KEY_9 &&
-        (size_t)(event->key - TB_KEY_1) < sandbox_scene_count)
+    /* Where the system has no relative mode, the camera does not turn. */
+    run->looking =
+        tb_window_set_relative_mouse(run->box.window, looking, NULL) == TB_WINDOW_OK && looking;
+}
+
+static void sandbox_fly(sandbox_run *run, double seconds)
+{
+    tb_camera *const camera = &run->box.camera;
+    const tb_quat turn = tb_quat_mul(tb_quat_from_axis_angle((tb_vec3){0, 1, 0}, run->yaw),
+                                     tb_quat_from_axis_angle((tb_vec3){1, 0, 0}, run->pitch));
+    const float step =
+        run->speed * (run->held[SANDBOX_FASTER] ? SANDBOX_FAST : 1.0f) * (float)seconds;
+    tb_vec3 move = {0};
+
+    camera->orientation = turn;
+    move.z -= run->held[SANDBOX_FORWARD] ? 1.0f : 0.0f;
+    move.z += run->held[SANDBOX_BACK] ? 1.0f : 0.0f;
+    move.x -= run->held[SANDBOX_LEFT] ? 1.0f : 0.0f;
+    move.x += run->held[SANDBOX_RIGHT] ? 1.0f : 0.0f;
+    move = tb_quat_rotate(turn, tb_vec3_normalize(move));
+    move.y += run->held[SANDBOX_UP] ? 1.0f : 0.0f;
+    move.y -= run->held[SANDBOX_DOWN] ? 1.0f : 0.0f;
+    camera->position = tb_vec3_add(camera->position, tb_vec3_scale(move, step));
+}
+
+/* A key that chooses a scene: 1 to 9, or Tab for the next. */
+static bool sandbox_choose(sandbox_run *run, tb_key key)
+{
+    if (key >= TB_KEY_1 && key <= TB_KEY_9 && (size_t)(key - TB_KEY_1) < sandbox_scene_count)
     {
-        sandbox_enter_scene(run, (size_t)(event->key - TB_KEY_1));
+        sandbox_enter_scene(run, (size_t)(key - TB_KEY_1));
         return true;
     }
-    if (event->key == TB_KEY_TAB)
+    if (key == TB_KEY_TAB)
     {
         sandbox_enter_scene(run, (run->scene + 1) % sandbox_scene_count);
         return true;
+    }
+    return false;
+}
+
+static bool sandbox_event(void *context, const tb_window_event *event)
+{
+    sandbox_run *const run = context;
+    const tb_window_event_type type = event->type;
+
+    if (type == TB_WINDOW_EVENT_KEY_DOWN || type == TB_WINDOW_EVENT_KEY_UP)
+    {
+        sandbox_hold(run, event->key, type == TB_WINDOW_EVENT_KEY_DOWN);
+        return type == TB_WINDOW_EVENT_KEY_DOWN && !event->repeat &&
+               sandbox_choose(run, event->key);
+    }
+    if ((type == TB_WINDOW_EVENT_MOUSE_BUTTON_DOWN || type == TB_WINDOW_EVENT_MOUSE_BUTTON_UP) &&
+        event->button == TB_MOUSE_BUTTON_RIGHT)
+    {
+        sandbox_look(run, type == TB_WINDOW_EVENT_MOUSE_BUTTON_DOWN);
+        return false;
+    }
+    if (type == TB_WINDOW_EVENT_MOUSE_RELATIVE_MOTION)
+    {
+        run->yaw -= (float)event->delta_x * SANDBOX_LOOK_SPEED;
+        run->pitch -= (float)event->delta_y * SANDBOX_LOOK_SPEED;
+        run->pitch = tb_clamp(run->pitch, -SANDBOX_MOST_PITCH, SANDBOX_MOST_PITCH);
+        return true;
+    }
+    if (type == TB_WINDOW_EVENT_MOUSE_WHEEL)
+    {
+        run->speed =
+            tb_clamp(run->speed * powf(SANDBOX_WHEEL_STEP, (float)event->delta_y), 0.1f, 200.0f);
+        return true;
+    }
+    if (type == TB_WINDOW_EVENT_FOCUS_LOST)
+    {
+        memset(run->held, 0, sizeof(run->held));
+        sandbox_look(run, false);
     }
     return false;
 }
@@ -262,25 +317,6 @@ static void sandbox_report(sandbox_run *run, double seconds)
     run->slowest = 0.0;
 }
 
-/* The frame's clear: a slow cycle of hue for the clear scene, dark grey for
- * the others. */
-static void sandbox_clear_color(const sandbox_run *run, float color[4])
-{
-    const double t = run->clock - run->scene_started;
-
-    color[3] = 1.0f;
-    if (run->scene != 0)
-    {
-        color[0] = 0.08f;
-        color[1] = 0.09f;
-        color[2] = 0.11f;
-        return;
-    }
-    color[0] = (float)(0.5 + 0.5 * sin(t));
-    color[1] = (float)(0.5 + 0.5 * sin(t + 2.0943951));
-    color[2] = (float)(0.5 + 0.5 * sin(t + 4.1887902));
-}
-
 /* Whether this frame is the last of --frames, which --capture saves. */
 static bool sandbox_capturing(const tb_game_time *time)
 {
@@ -288,117 +324,54 @@ static bool sandbox_capturing(const tb_game_time *time)
            time->frame + 1 == (uint64_t)sandbox_frames;
 }
 
-static void sandbox_copy_out(sandbox_run *run, tb_rhi_command_list *list, tb_rhi_texture image)
+static void sandbox_save_capture(sandbox_run *run)
 {
-    const uint32_t pitch = (run->box.width * 4u + 255u) & ~255u;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    const uint8_t *const pixels = tb_renderer_captured(run->box.renderer, &width, &height);
 
-    if (tb_rhi_buffer_create(run->box.device,
-                             &(tb_rhi_buffer_desc){.size = (uint64_t)pitch * run->box.height,
-                                                   .memory = TB_RHI_MEMORY_READBACK},
-                             &run->capture, NULL) != TB_RHI_OK)
-    {
-        return;
-    }
-    tb_rhi_cmd_barrier(list, &(tb_rhi_barrier){.texture = image,
-                                               .before = TB_RHI_STATE_PRESENT,
-                                               .after = TB_RHI_STATE_COPY_SOURCE});
-    tb_rhi_cmd_copy_texture_to_buffer(
-        list, &(tb_rhi_texture_copy){.buffer = run->capture, .row_pitch = pitch, .texture = image});
-    tb_rhi_cmd_barrier(list, &(tb_rhi_barrier){.texture = image,
-                                               .before = TB_RHI_STATE_COPY_SOURCE,
-                                               .after = TB_RHI_STATE_PRESENT});
-}
-
-static void sandbox_save_capture(sandbox_run *run, uint64_t submission)
-{
-    const uint32_t pitch = (run->box.width * 4u + 255u) & ~255u;
-    const size_t size = (size_t)pitch * run->box.height;
-    uint8_t *pixels = NULL;
-
-    if (run->capture.generation == 0 || tb_rhi_wait(run->box.device, submission) != TB_RHI_OK)
-    {
-        run->status = EXIT_FAILURE;
-        return;
-    }
-    pixels = tb_malloc(size);
-    tb_rhi_buffer_read(run->box.device, run->capture, 0, pixels, size);
-    if (sandbox_write_bmp(sandbox_capture_path, pixels, run->box.width, run->box.height, pitch))
+    if (pixels != NULL &&
+        sandbox_write_bmp(sandbox_capture_path, pixels, width, height, width * 4u))
     {
         (void)tb_fmt_print("badger-sandbox: saved %s\n", sandbox_capture_path);
+        return;
     }
-    else
-    {
-        (void)tb_fmt_print_error("badger-sandbox: %s could not be written\n", sandbox_capture_path);
-        run->status = EXIT_FAILURE;
-    }
-    tb_free(pixels);
-    tb_rhi_buffer_destroy(run->box.device, run->capture);
-    run->capture = (tb_rhi_buffer){0};
+    (void)tb_fmt_print_error("badger-sandbox: %s could not be written\n", sandbox_capture_path);
+    run->status = EXIT_FAILURE;
 }
 
 static void sandbox_frame_callback(void *context, const tb_game_time *time)
 {
     sandbox_run *const run = context;
-    tb_rhi_command_list *list = NULL;
-    tb_rhi_texture image = {0};
-    tb_rhi_pass pass = {.color_count = 1};
     sandbox_frame frame = {0};
-    uint64_t submission = 0;
 
     run->clock += time->frame_seconds;
     sandbox_report(run, time->frame_seconds);
-    if (!time->visible || run->box.width == 0)
+    sandbox_fly(run, time->frame_seconds);
+    if (sandbox_capturing(time))
+    {
+        tb_renderer_capture_next_frame(run->box.renderer);
+    }
+    if (!tb_renderer_begin_frame(run->box.renderer, &run->box.camera,
+                                 sandbox_scenes[run->scene].clear))
     {
         return;
     }
-    list = tb_rhi_command_list_begin(run->box.device);
-    image = tb_rhi_swap_chain_current(run->box.chain);
-    if (run->scene_ready && sandbox_scenes[run->scene].prepare != NULL)
-    {
-        sandbox_scenes[run->scene].prepare(&run->box, run->state, list);
-    }
-    tb_rhi_cmd_barriers(
-        list,
-        (const tb_rhi_barrier[]){
-            {.texture = image, .before = TB_RHI_STATE_PRESENT, .after = TB_RHI_STATE_RENDER_TARGET},
-            {.texture = run->box.depth,
-             .before = TB_RHI_STATE_COMMON,
-             .after = TB_RHI_STATE_DEPTH_WRITE}},
-        2);
-    pass.colors[0] = (tb_rhi_color_target){.texture = image, .load = TB_RHI_LOAD_CLEAR};
-    sandbox_clear_color(run, pass.colors[0].clear);
-    pass.depth = (tb_rhi_depth_target){.texture = run->box.depth, .load = TB_RHI_LOAD_CLEAR};
-    tb_rhi_cmd_begin_pass(list, &pass);
     if (run->scene_ready)
     {
-        frame.list = list;
         frame.seconds = run->clock - run->scene_started;
-        frame.aspect = (float)run->box.width / (float)run->box.height;
         sandbox_scenes[run->scene].draw(&run->box, run->state, &frame);
     }
-    tb_rhi_cmd_end_pass(list);
-    tb_rhi_cmd_barriers(
-        list,
-        (const tb_rhi_barrier[]){
-            {.texture = image, .before = TB_RHI_STATE_RENDER_TARGET, .after = TB_RHI_STATE_PRESENT},
-            {.texture = run->box.depth,
-             .before = TB_RHI_STATE_DEPTH_WRITE,
-             .after = TB_RHI_STATE_COMMON}},
-        2);
-    if (sandbox_capturing(time))
-    {
-        sandbox_copy_out(run, list, image);
-    }
-    submission = tb_rhi_submit(run->box.device, &list, 1);
-    if (sandbox_capturing(time))
-    {
-        sandbox_save_capture(run, submission);
-    }
-    if (tb_rhi_swap_chain_present(run->box.chain) != TB_RHI_OK)
+    if (tb_renderer_end_frame(run->box.renderer) != TB_RHI_OK)
     {
         (void)tb_fmt_print_error("badger-sandbox: the device was lost\n");
         run->status = EXIT_FAILURE;
         tb_game_loop_quit(run->loop);
+        return;
+    }
+    if (sandbox_capturing(time))
+    {
+        sandbox_save_capture(run);
     }
 }
 
@@ -406,17 +379,32 @@ static void sandbox_frame_callback(void *context, const tb_game_time *time)
  * Starting and stopping.
  * ------------------------------------------------------------------------- */
 
+static int sandbox_set(sandbox_run *run, const char *name, const char *value, const char *given)
+{
+    const tb_setting_result result =
+        tb_settings_set(run->settings, TB_SETTING_LAYER_COMMAND_LINE, name, value);
+
+    if (result != TB_SETTING_OK)
+    {
+        (void)tb_fmt_print_error("badger-sandbox: error: %s: %s\n", given,
+                                 tb_setting_result_name(result));
+        return TB_CLI_EXIT_USAGE;
+    }
+    return EXIT_SUCCESS;
+}
+
 static int sandbox_load_settings(sandbox_run *run)
 {
+    int status = EXIT_SUCCESS;
+
     run->settings = tb_settings_create();
     tb_engine_settings_add(run->settings, &(tb_engine_settings_options){.developer = true},
                            &run->engine);
-    for (size_t index = 0; index < sandbox_value_count; index++)
+    for (size_t index = 0; index < sandbox_value_count && status == EXIT_SUCCESS; index++)
     {
         const char *const assignment = sandbox_values[index];
         const size_t equals = tb_str_find_char(assignment, 0, TB_STR_END, '=');
         char *name = NULL;
-        tb_setting_result result = TB_SETTING_OK;
         if (equals == TB_STR_NOT_FOUND)
         {
             (void)tb_fmt_print_error("badger-sandbox: error: --set %s: expected NAME=VALUE\n",
@@ -424,21 +412,18 @@ static int sandbox_load_settings(sandbox_run *run)
             return TB_CLI_EXIT_USAGE;
         }
         name = tb_str_sub(NULL, assignment, 0, equals);
-        result = tb_settings_set(run->settings, TB_SETTING_LAYER_COMMAND_LINE, name,
-                                 assignment + equals + 1);
+        status = sandbox_set(run, name, assignment + equals + 1, assignment);
         tb_str_free(NULL, name);
-        if (result != TB_SETTING_OK)
-        {
-            (void)tb_fmt_print_error("badger-sandbox: error: --set %s: %s\n", assignment,
-                                     tb_setting_result_name(result));
-            return TB_CLI_EXIT_USAGE;
-        }
     }
-    if (sandbox_frames > 0)
+    if (status == EXIT_SUCCESS && sandbox_renderer_name != NULL)
+    {
+        status = sandbox_set(run, "graphics.renderer", sandbox_renderer_name, "--renderer");
+    }
+    if (status == EXIT_SUCCESS && sandbox_frames > 0)
     {
         (void)tb_setting_set_integer(run->engine.developer.frame_count, sandbox_frames);
     }
-    return EXIT_SUCCESS;
+    return status;
 }
 
 static size_t sandbox_find_scene(const char *name)
@@ -459,10 +444,7 @@ static int sandbox_open_renderer(sandbox_run *run, tb_window_system *system)
     tb_window_options options = {0};
     tb_window_error window_error = TB_WINDOW_ERROR_INIT;
     tb_dxc_error dxc_error = TB_DXC_ERROR_INIT;
-    const tb_rhi_device_options device = {
-        .backend = sandbox_backends[sandbox_renderer],
-        .adapter = sandbox_software ? TB_RHI_ADAPTER_SOFTWARE : TB_RHI_ADAPTER_HIGH_PERFORMANCE,
-        .validation = sandbox_validation};
+    tb_renderer_options renderer = {0};
 
     tb_engine_settings_window_options(&run->engine, SANDBOX_TITLE, &options);
     if (tb_window_create(system, &options, &run->box.window, &window_error) != TB_WINDOW_OK)
@@ -470,13 +452,20 @@ static int sandbox_open_renderer(sandbox_run *run, tb_window_system *system)
         (void)tb_fmt_print_error("badger-sandbox: error: no window: %s\n", window_error.message);
         return EXIT_FAILURE;
     }
-    if (tb_rhi_device_create(&device, &run->box.device, &error) != TB_RHI_OK)
+    renderer.window = run->box.window;
+    renderer.vsync = tb_setting_choice(run->engine.display.vsync) != 0;
+    renderer.device.adapter =
+        sandbox_software ? TB_RHI_ADAPTER_SOFTWARE : TB_RHI_ADAPTER_HIGH_PERFORMANCE;
+    renderer.device.validation = sandbox_validation;
+    tb_engine_settings_device_options(&run->engine, &renderer.device);
+    if (tb_renderer_create(&renderer, &run->box.renderer, &error) != TB_RHI_OK)
     {
         (void)tb_fmt_print_error("badger-sandbox: error: no renderer: %s; --renderer=null runs "
                                  "without one\n",
                                  error.message);
         return EXIT_FAILURE;
     }
+    run->box.device = tb_renderer_device(run->box.renderer);
     tb_rhi_device_info_of(run->box.device, &run->box.info);
     if (run->box.info.backend == TB_RHI_BACKEND_D3D12 &&
         tb_dxc_open(&run->box.dxc, &dxc_error) != TB_DXC_OK)
@@ -485,20 +474,9 @@ static int sandbox_open_renderer(sandbox_run *run, tb_window_system *system)
                                  dxc_error.message);
         return EXIT_FAILURE;
     }
-    run->box.vsync = tb_setting_choice(run->engine.display.vsync) != 0;
-    if (tb_rhi_swap_chain_create(run->box.device, run->box.window,
-                                 &(tb_rhi_swap_chain_desc){.vsync = run->box.vsync},
-                                 &run->box.chain, &error) != TB_RHI_OK)
-    {
-        (void)tb_fmt_print_error("badger-sandbox: error: no swap chain: %s\n", error.message);
-        return EXIT_FAILURE;
-    }
-    if (!sandbox_make_depth(&run->box))
-    {
-        return EXIT_FAILURE;
-    }
-    (void)tb_fmt_print("badger-sandbox: %s on %s; keys 1 to %zu choose a scene, Tab the next, "
-                       "Escape quits\n",
+    (void)tb_fmt_print("badger-sandbox: %s on %s; keys 1 to %zu choose a scene, Tab the next; "
+                       "hold the right mouse button to fly (WASD, Q/E, Shift, wheel); Escape "
+                       "quits\n",
                        tb_rhi_backend_name(run->box.info.backend), run->box.info.adapter,
                        sandbox_scene_count);
     return EXIT_SUCCESS;
@@ -507,13 +485,7 @@ static int sandbox_open_renderer(sandbox_run *run, tb_window_system *system)
 static void sandbox_close(sandbox_run *run, tb_window_system *system)
 {
     sandbox_leave_scene(run);
-    if (run->box.device != NULL)
-    {
-        (void)tb_rhi_wait_idle(run->box.device);
-        tb_rhi_texture_destroy(run->box.device, run->box.depth);
-    }
-    tb_rhi_swap_chain_destroy(run->box.chain);
-    tb_rhi_device_destroy(run->box.device);
+    tb_renderer_destroy(run->box.renderer);
     tb_dxc_close(run->box.dxc);
     tb_window_destroy(run->box.window);
     tb_window_system_close(system);
@@ -532,8 +504,8 @@ static int sandbox_main(const tb_cli_outcome *outcome, void *context)
     (void)context;
     if (scene == sandbox_scene_count)
     {
-        (void)tb_fmt_print_error("badger-sandbox: error: no scene is named %s; --list names "
-                                 "them\n",
+        (void)tb_fmt_print_error("badger-sandbox: error: no scene is named %s; `badger-sandbox "
+                                 "list` names them\n",
                                  sandbox_scene_name);
         return TB_CLI_EXIT_USAGE;
     }
@@ -549,6 +521,11 @@ static int sandbox_main(const tb_cli_outcome *outcome, void *context)
     }
     if (status == EXIT_SUCCESS)
     {
+        run.speed = SANDBOX_MOVE_SPEED;
+        run.box.camera = tb_camera_perspective(
+            tb_radians((float)tb_setting_number(run.engine.graphics.field_of_view)));
+        run.box.camera.position = (tb_vec3){0.0f, 2.2f, 5.5f};
+        run.pitch = -0.3f;
         run.loop = tb_game_loop_create(&(tb_game_loop_options){
             .system = system,
             .window = run.box.window,
@@ -578,14 +555,13 @@ static int sandbox_list(const tb_cli_outcome *outcome, void *context)
 
 static const tb_cli_option sandbox_options[] = {
     {.long_name = "renderer",
-     .choice = &sandbox_renderer,
-     .choices = sandbox_renderers,
-     .choice_count = TB_CLI_COUNT_OF(sandbox_renderers),
-     .help = "The backend to draw with; auto takes the platform's best."},
+     .name = "NAME",
+     .text = &sandbox_renderer_name,
+     .help = "The backend to draw with, as graphics.renderer names it: auto, d3d12, null..."},
     {.long_name = "scene",
      .name = "NAME",
      .text = &sandbox_scene_name,
-     .help = "The scene to start with; `badger-sandbox list` names them. The default is cube."},
+     .help = "The scene to start with; `badger-sandbox list` names them. The default is shapes."},
     {.long_name = "frames",
      .name = "COUNT",
      .integer = &sandbox_frames,

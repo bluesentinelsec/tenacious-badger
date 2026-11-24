@@ -176,8 +176,16 @@ static void draw_frame(tb_renderer *renderer, tb_mesh *cube)
     TB_TEST_REQUIRE_UINT(tb_renderer_end_frame(renderer), ==, TB_RHI_OK);
 }
 
-/* On the null backend, frames run, meshes come and go, and a capture has the
- * window's size. */
+static void count_custom(const tb_renderer_draw_context *draw)
+{
+    int *const calls = draw->context;
+    TB_TEST_EXPECT(draw->list != NULL && draw->device != NULL);
+    TB_TEST_EXPECT_UINT(draw->width, >, 0);
+    (*calls)++;
+}
+
+/* On the null backend, frames run, meshes come and go, custom draws are
+ * recorded once each, and a capture has the window's size. */
 TB_TEST(renderer_frame, frames_run_on_the_null_backend)
 {
     screen opened = {0};
@@ -200,6 +208,20 @@ TB_TEST(renderer_frame, frames_run_on_the_null_backend)
             tb_renderer_capture_next_frame(opened.renderer);
         }
         draw_frame(opened.renderer, cube);
+    }
+    {
+        int calls = 0;
+        tb_rhi_format color = TB_RHI_FORMAT_UNKNOWN;
+        tb_rhi_format depth = TB_RHI_FORMAT_UNKNOWN;
+        tb_camera camera = tb_camera_orthographic(4.0f);
+        TB_TEST_REQUIRE(tb_renderer_begin_frame(opened.renderer, &camera, (tb_vec4){0, 0, 0, 1}));
+        tb_renderer_draw_custom(opened.renderer, count_custom, &calls);
+        tb_renderer_draw_custom(opened.renderer, count_custom, &calls);
+        TB_TEST_REQUIRE_UINT(tb_renderer_end_frame(opened.renderer), ==, TB_RHI_OK);
+        TB_TEST_EXPECT_INT(calls, ==, 2);
+        tb_renderer_target_formats(opened.renderer, &color, &depth);
+        TB_TEST_EXPECT_UINT(color, ==, TB_RHI_FORMAT_B8G8R8A8_UNORM);
+        TB_TEST_EXPECT_UINT(depth, ==, TB_RHI_FORMAT_D32_FLOAT);
     }
     TB_TEST_EXPECT(tb_renderer_captured(opened.renderer, &width, &height) != NULL);
     TB_TEST_EXPECT_UINT(width, >, 0);
