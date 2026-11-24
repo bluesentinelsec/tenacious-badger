@@ -1,0 +1,12 @@
+input POSITION 0 float 3 r0.x
+input SV_InstanceID 0 uint 1 r4.x
+input SV_VertexID 0 uint 1 r2.x
+input TEXCOORD 0 float 2 r1.x
+input W 0 float 1 r3.x
+output A 0 float 2 r0.x
+output B 0 float 1 r0.z
+output C 0 float 1 r0.w
+output SV_ClipDistance 0 float 2 r2.x
+output SV_CullDistance 0 float 3 r3.x
+output SV_Position 0 float 4 r1.x
+output SV_ViewportArrayIndex 0 uint 1 r4.x

@@ -1,11 +1,11 @@
 binding Camera cbuffer cb0 1
 buffer Camera 64
-input NORMAL 0 float 3
-input POSITION 0 float 3
-input SV_VertexID 0 uint 1
-input TEXCOORD 0 float 2
-output NORMAL 0 float 3
-output SV_Position 0 float 4
-output TEXCOORD 1 float 2
-output TEXCOORD 2 float 2
+input NORMAL 0 float 3 r1.x
+input POSITION 0 float 3 r0.x
+input SV_VertexID 0 uint 1 r3.x
+input TEXCOORD 0 float 2 r2.x
+output NORMAL 0 float 3 r1.x
+output SV_Position 0 float 4 r0.x
+output TEXCOORD 1 float 2 r2.x
+output TEXCOORD 2 float 2 r3.x
 variable Camera.view_projection 0

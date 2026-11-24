@@ -1,0 +1,10 @@
+input B 0 float 1 r1.x linear
+input B 1 float 1 r2.x linear
+input B 2 float 1 r3.x linear
+input C 0 float 2 r1.y linear
+input D 0 float 1 r1.w linear
+input E 0 float 3 r2.y linear
+input SV_Barycentrics 0 float - - linear
+input SV_Position 0 float 4 r0.x noperspective
+input SV_ShadingRate 0 uint 1 r4.x nointerpolation
+output SV_Target 0 float 4 r0.x

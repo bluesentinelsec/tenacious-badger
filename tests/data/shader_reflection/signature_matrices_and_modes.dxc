@@ -1,0 +1,21 @@
+input COLOR 0 float 2 r5.z linear
+input COLOR 1 float 2 r6.z linear
+input D 0 float 1 r0.w linear
+input E 0 float 2 r7.z linear
+input F 0 float 1 r9.x centroid
+input G 0 float 1 r10.x noperspective
+input H 0 float 1 r1.w linear
+input K 0 float 1 r11.x sample
+input M 0 float 3 r0.x linear
+input M 1 float 3 r1.x linear
+input MA 0 float 2 r5.x linear
+input MA 1 float 2 r6.x linear
+input MA 2 float 2 r7.x linear
+input MA 3 float 2 r8.x linear
+input MB 0 float 2 r2.z linear
+input MB 1 float 2 r3.z linear
+input MB 2 float 2 r4.z linear
+input RM 0 float 2 r2.x linear
+input RM 1 float 2 r3.x linear
+input RM 2 float 2 r4.x linear
+output SV_Target 0 float 4 r0.x

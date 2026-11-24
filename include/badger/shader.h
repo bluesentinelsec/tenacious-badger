@@ -265,12 +265,22 @@ typedef enum tb_shader_interpolation
     TB_SHADER_INTERPOLATION_NOPERSPECTIVE_SAMPLE
 } tb_shader_interpolation;
 
+/** @brief The register of a signature element passed in none. */
+#define TB_SHADER_NO_REGISTER 0xFFFFFFFFu
+
 /**
  * @brief One value a stage passes in or out: a semantic and its index.
  *
- * A struct passes one element for each member, and an array or a matrix one
- * for each element or row, its semantic's index counting up from the one
- * written: `float2 uv[2] : TEXCOORD3` is TEXCOORD 3 and TEXCOORD 4.
+ * A struct passes one element for each member, an array one for each
+ * element, and a matrix one for each column, or each row when `row_major`,
+ * its semantic's index counting up from the one written: `float2 uv[2] :
+ * TEXCOORD3` is TEXCOORD 3 and TEXCOORD 4.
+ *
+ * Elements are packed into registers of 4 components as DXC packs them: each
+ * in the first register and components it fits, in the order declared, sharing
+ * a register only with elements interpolated the same way. A vertex shader's
+ * inputs take a register each, and a pixel shader's targets the register of
+ * their index.
  */
 typedef struct tb_shader_signature_element
 {
@@ -279,6 +289,10 @@ typedef struct tb_shader_signature_element
     tb_shader_component component;
     unsigned columns; /**< Components, from 1 to 4. */
     tb_shader_interpolation interpolation;
+    /** The register it is passed in, as DXC assigns it, or TB_SHADER_NO_REGISTER
+     *  for a system value passed in none: `SV_Depth`, `SV_SampleIndex`. */
+    unsigned register_index;
+    unsigned first_column; /**< Its first component in the register: 0 for x to 3 for w. */
 } tb_shader_signature_element;
 
 /** @brief What a binding binds, which decides its register class. */

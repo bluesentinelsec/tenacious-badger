@@ -4,7 +4,7 @@ binding Q cbuffer cb2 1
 buffer $Globals 56
 buffer P 252
 buffer Q 100
-output SV_Target 0 float 4
+output SV_Target 0 float 4 r0.x
 variable $Globals.before 0
 variable P.a 0
 variable P.b 32

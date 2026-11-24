@@ -1,0 +1,11 @@
+input POSITION 0 float 4 r0.x
+output A 0 float 1 r4.x
+output SV_ClipDistance 0 float 1 r3.x
+output SV_ClipDistance 1 float 1 r3.y
+output SV_CullDistance 0 float 1 r3.z
+output SV_Position 0 float 4 r2.x
+output SV_RenderTargetArrayIndex 0 uint 1 r0.y
+output SV_ViewportArrayIndex 0 uint 1 r0.z
+output X 0 uint 1 r0.x
+output Y 0 uint 1 r1.x
+output Z 0 uint 1 r1.y

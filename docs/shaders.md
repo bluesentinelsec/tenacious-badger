@@ -416,13 +416,26 @@ if (tb_shader_compile(&request, arena, &compiled) == TB_SHADER_OK)
 ```
 
 - **Signatures.** Each value the stage takes or gives, by its semantic's name
-  and index, its component and components. A struct passes one element for
-  each member, and an array or a matrix one for each element or row, the
-  index counting up. A pixel shader's inputs say how they are interpolated:
-  as their modifiers say, or a float linearly, `SV_Position` without
-  perspective, and an integer or a bool not at all, as DXC does. A compute
-  or ray-tracing shader has none; a geometry shader takes its primitive's
-  vertex once, and gives its stream's.
+  and index, its component and components, and the register and first
+  component it is passed in. A struct passes one element for each member, an
+  array one for each element, and a matrix one for each column, or each row
+  when `row_major`, the index counting up. A pixel shader's inputs say how
+  they are interpolated: as their modifiers say, or a float linearly,
+  `SV_Position` without perspective, and an integer or a bool not at all, as
+  DXC does. A compute or ray-tracing shader has none; a geometry shader takes
+  its primitive's vertex once, and gives its stream's.
+
+  Registers are assigned as DXC assigns them. A vertex shader's inputs take a
+  register each, in order, and a pixel shader's targets the register of their
+  index. Every other signature is packed into registers of four components:
+  each value, an array's or a matrix's rows together, in the first register
+  and components it fits, in the order declared. A register holds values of
+  one interpolation mode; clip and cull distances share registers only with
+  each other; and in a register the shader's own semantics come first, then
+  system values, then what the rasterizer generates (`SV_PrimitiveID`,
+  `SV_IsFrontFace`). A system value passed in no register, such as
+  `SV_Depth` or `SV_SampleIndex`, has none, and one that is not passed at
+  all, such as `SV_Coverage` taken or `SV_GSInstanceID`, is not listed.
 - **Bindings.** Each constant buffer, texture, buffer and sampler the entry
   point uses, and only those: its kind (which decides its register class),
   its shape, the element it holds, its register, space and count. One the
@@ -462,9 +475,8 @@ and compares, on every platform, and a Windows job of CI runs the tool with
 `--check`, so a DXC that reports otherwise fails the build. To add a case, add
 a shader, run the tool, and review what it wrote.
 
-**Not yet.** How DXC packs a signature's elements into registers, a hull
-shader's patch constants, and a mesh shader's primitives are not described
-yet.
+**Not yet.** A hull shader's patch constants, and a mesh shader's primitives,
+are not described yet.
 
 ## Diagnostics
 

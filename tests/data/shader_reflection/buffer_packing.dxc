@@ -1,6 +1,6 @@
 binding M cbuffer cb0 1
 buffer M 172
-output SV_Target 0 float 4
+output SV_Target 0 float 4 r0.x
 variable M.a 0
 variable M.arr 112
 variable M.arr.v 112

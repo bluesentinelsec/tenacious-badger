@@ -1,0 +1,7 @@
+input SV_Position 0 float 4 r0.x
+input SV_PrimitiveID 0 uint - -
+input TEXCOORD 0 float 2 r1.x
+output SV_Position 0 float 4 r0.x
+output SV_PrimitiveID 0 uint 1 r2.y
+output SV_RenderTargetArrayIndex 0 uint 1 r2.x
+output TEXCOORD 0 float 2 r1.x

@@ -23,7 +23,11 @@ typedef struct reflector
     tb_array *inputs;   /* tb_shader_signature_element */
     tb_array *outputs;  /* tb_shader_signature_element */
     tb_array *bindings; /* tb_shader_binding */
-    const char *error;  /* The first reason the entry point cannot run. */
+    /* The blocks of rows of each signature, packed into registers once all
+     * its elements are known. */
+    tb_array *input_blocks;  /* signature_block */
+    tb_array *output_blocks; /* signature_block */
+    const char *error;       /* The first reason the entry point cannot run. */
 } reflector;
 
 static void fail(reflector *state, const char *format, const char *name)
@@ -83,7 +87,7 @@ static bool is_float_component(tb_shader_component component)
            component == TB_SHADER_COMPONENT_FLOAT64 || component == TB_SHADER_COMPONENT_MIN16_FLOAT;
 }
 
-/* How a pixel shader's input is interpolated: as its modifiers say, or, by
+/* How an element is interpolated: as its modifiers say, or, by
  * default, a float's linearly, SV_Position's without perspective, and any
  * other's not at all. */
 static tb_shader_interpolation interpolation_of(const char *semantic, uint64_t modifiers,
@@ -120,10 +124,141 @@ static const char *split_semantic(reflector *state, const char *semantic, unsign
     return tb_fmt_string(&state->allocator, "%.*s", (int)length, semantic);
 }
 
+/* Where a signature is in the pipeline, which decides how DXC treats each
+ * system value in it. */
+typedef enum signature_point
+{
+    POINT_VERTEX_INPUT, /* From the input assembler: a register each, unpacked. */
+    POINT_PASSED,       /* Between stages: a vertex, domain, hull or geometry output. */
+    POINT_PIXEL_INPUT,
+    POINT_PIXEL_OUTPUT,
+    POINT_GEOMETRY_INPUT, /* A geometry shader's vertex. */
+    POINT_HULL_INPUT,     /* A hull shader's control point. */
+    POINT_DOMAIN_INPUT    /* A domain shader's control point. */
+} signature_point;
+
+/* How a signature takes an element, as DXC's table of system values says.
+ * The first three are packed, and in a register they come in this order:
+ * values of the shader's own, then system values, then values the
+ * rasterizer generates. */
+typedef enum semantic_kind
+{
+    SEMANTIC_ARBITRARY, /* A semantic of the shader's own: `TEXCOORD`. */
+    SEMANTIC_SYSTEM,    /* A system value: `SV_Position`. */
+    SEMANTIC_GENERATED, /* Generated for a pixel shader: `SV_PrimitiveID`, `SV_IsFrontFace`. */
+    SEMANTIC_CLIP_CULL, /* Packed in rows of clip and cull distances only. */
+    SEMANTIC_TARGET,    /* SV_Target: the register of its index. */
+    SEMANTIC_UNPACKED,  /* Listed, in no register: SV_Depth, SV_SampleIndex. */
+    SEMANTIC_ABSENT     /* Not in the signature: SV_Coverage taken, SV_GSInstanceID. */
+} semantic_kind;
+
+/* The rows an element takes together: an array's or a matrix's, packed as
+ * one block at the same components of consecutive registers. */
+typedef struct signature_block
+{
+    size_t first; /* Its first element. */
+    uint32_t rows;
+    unsigned columns;
+    semantic_kind kind;
+    tb_shader_interpolation mode; /* Rows of one mode only share a register. */
+} signature_block;
+
+/* DXC compares semantics without case. */
+static bool same_semantic(const char *left, const char *right)
+{
+    for (; *left != '\0' && *right != '\0'; left++, right++)
+    {
+        if (tolower((unsigned char)*left) != tolower((unsigned char)*right))
+        {
+            return false;
+        }
+    }
+    return *left == *right;
+}
+
+static signature_point point_of(tb_shader_stage stage, bool is_input)
+{
+    if (stage == TB_SHADER_STAGE_VERTEX && is_input)
+    {
+        return POINT_VERTEX_INPUT;
+    }
+    if (stage == TB_SHADER_STAGE_PIXEL)
+    {
+        return is_input ? POINT_PIXEL_INPUT : POINT_PIXEL_OUTPUT;
+    }
+    if (!is_input)
+    {
+        return POINT_PASSED;
+    }
+    if (stage == TB_SHADER_STAGE_GEOMETRY)
+    {
+        return POINT_GEOMETRY_INPUT;
+    }
+    return stage == TB_SHADER_STAGE_HULL ? POINT_HULL_INPUT : POINT_DOMAIN_INPUT;
+}
+
+/* How a signature takes a semantic: the system values it treats apart,
+ * then any other system value, then the shader's own semantics. */
+static semantic_kind kind_of_semantic(signature_point point, const char *semantic)
+{
+    static const struct
+    {
+        signature_point point;
+        const char *semantic;
+        semantic_kind kind;
+    } kinds[] = {
+        {POINT_PIXEL_INPUT, "SV_PrimitiveID", SEMANTIC_GENERATED},
+        {POINT_PIXEL_INPUT, "SV_IsFrontFace", SEMANTIC_GENERATED},
+        {POINT_PIXEL_INPUT, "SV_SampleIndex", SEMANTIC_UNPACKED},
+        {POINT_PIXEL_INPUT, "SV_Barycentrics", SEMANTIC_UNPACKED},
+        {POINT_PIXEL_INPUT, "SV_Coverage", SEMANTIC_ABSENT},
+        {POINT_PIXEL_INPUT, "SV_InnerCoverage", SEMANTIC_ABSENT},
+        {POINT_PIXEL_INPUT, "SV_CullPrimitive", SEMANTIC_ABSENT},
+        {POINT_PIXEL_OUTPUT, "SV_Target", SEMANTIC_TARGET},
+        {POINT_PIXEL_OUTPUT, "SV_Depth", SEMANTIC_UNPACKED},
+        {POINT_PIXEL_OUTPUT, "SV_DepthGreaterEqual", SEMANTIC_UNPACKED},
+        {POINT_PIXEL_OUTPUT, "SV_DepthLessEqual", SEMANTIC_UNPACKED},
+        {POINT_PIXEL_OUTPUT, "SV_Coverage", SEMANTIC_UNPACKED},
+        {POINT_PIXEL_OUTPUT, "SV_StencilRef", SEMANTIC_UNPACKED},
+        {POINT_GEOMETRY_INPUT, "SV_PrimitiveID", SEMANTIC_UNPACKED},
+        {POINT_GEOMETRY_INPUT, "SV_GSInstanceID", SEMANTIC_ABSENT},
+        {POINT_HULL_INPUT, "SV_PrimitiveID", SEMANTIC_ABSENT},
+        {POINT_HULL_INPUT, "SV_OutputControlPointID", SEMANTIC_ABSENT},
+        {POINT_DOMAIN_INPUT, "SV_PrimitiveID", SEMANTIC_ABSENT},
+        {POINT_DOMAIN_INPUT, "SV_DomainLocation", SEMANTIC_ABSENT},
+    };
+    if (same_semantic(semantic, "SV_ViewID") && point != POINT_PASSED)
+    {
+        return SEMANTIC_ABSENT;
+    }
+    if (point != POINT_VERTEX_INPUT && point != POINT_PIXEL_OUTPUT &&
+        (same_semantic(semantic, "SV_ClipDistance") || same_semantic(semantic, "SV_CullDistance")))
+    {
+        return SEMANTIC_CLIP_CULL;
+    }
+    for (size_t index = 0; index < sizeof(kinds) / sizeof(kinds[0]); index++)
+    {
+        if (kinds[index].point == point && same_semantic(kinds[index].semantic, semantic))
+        {
+            return kinds[index].kind;
+        }
+    }
+    const char prefix[] = "SV_";
+    for (size_t index = 0; index + 1 < sizeof(prefix); index++)
+    {
+        if (toupper((unsigned char)semantic[index]) != prefix[index])
+        {
+            return SEMANTIC_ARBITRARY;
+        }
+    }
+    return SEMANTIC_SYSTEM;
+}
+
 /* The elements a value of `type` passes under `semantic`: one for a scalar
- * or a vector, one for each row of a matrix and each element of an array,
- * one for each member of a struct, under the member's own semantic. */
-static void add_elements(reflector *state, tb_array *elements, uint32_t type, const char *semantic,
+ * or a vector, one for each element of an array, one for each column of a
+ * matrix, or each row when `row_major`, one for each member of a struct,
+ * under the member's own semantic. */
+static void add_elements(reflector *state, bool is_input, uint32_t type, const char *semantic,
                          uint64_t modifiers, const char *owner)
 {
     const tb_shader_form_type *const found = type_at(state, type);
@@ -133,7 +268,7 @@ static void add_elements(reflector *state, tb_array *elements, uint32_t type, co
         {
             const tb_shader_form_member *const member =
                 tb_shader_form_member_at(state->form, found->first_member + at);
-            add_elements(state, elements, member->type, member->semantic,
+            add_elements(state, is_input, member->type, member->semantic,
                          modifiers | member->modifiers, member->name);
         }
         return;
@@ -145,36 +280,216 @@ static void add_elements(reflector *state, tb_array *elements, uint32_t type, co
     }
     unsigned first = 0;
     const char *const name = split_semantic(state, semantic, &first);
-    uint32_t rows = 1;
-    uint32_t element = type;
+    uint32_t count = 1;
+    const tb_shader_form_type *row = found;
     if (found->kind == TB_SHADER_FORM_ARRAY)
     {
-        rows = found->length;
-        element = found->element;
+        count = found->length;
+        row = type_at(state, found->element);
     }
-    else if (found->kind == TB_SHADER_FORM_MATRIX)
-    {
-        rows = found->rows;
-    }
-    const tb_shader_form_type *const row = type_at(state, element);
     if (row->kind != TB_SHADER_FORM_SCALAR && row->kind != TB_SHADER_FORM_VECTOR &&
         row->kind != TB_SHADER_FORM_MATRIX)
     {
         fail(state, "'%s' is not a value a stage can pass", owner);
         return;
     }
+    const signature_point point = point_of(state->stage, is_input);
+    const semantic_kind kind = kind_of_semantic(point, name);
+    if (kind == SEMANTIC_ABSENT)
+    {
+        return;
+    }
+    unsigned columns = row->kind == TB_SHADER_FORM_SCALAR ? 1u : (unsigned)row->columns;
+    if (row->kind == TB_SHADER_FORM_MATRIX)
+    {
+        const bool by_rows = (modifiers & TB_SHADER_MODIFIER_ROW_MAJOR) != 0;
+        count *= by_rows ? row->rows : row->columns;
+        columns = by_rows ? (unsigned)row->columns : (unsigned)row->rows;
+    }
+    tb_array *const elements = is_input ? state->inputs : state->outputs;
     const tb_shader_component component = component_of(row->scalar);
-    const bool interpolates = state->stage == TB_SHADER_STAGE_PIXEL && elements == state->inputs;
-    for (uint32_t index = 0; index < rows; index++)
+    const tb_shader_interpolation mode = interpolation_of(name, modifiers, component);
+    signature_block block = {0};
+    block.first = tb_array_length(elements);
+    block.rows = count;
+    block.columns = columns;
+    block.kind = kind;
+    block.mode = mode;
+    (void)tb_array_push(is_input ? state->input_blocks : state->output_blocks, &block);
+    for (uint32_t index = 0; index < count; index++)
     {
         tb_shader_signature_element entry = {0};
         entry.semantic = name;
         entry.semantic_index = first + (unsigned)index;
         entry.component = component;
-        entry.columns = row->kind == TB_SHADER_FORM_SCALAR ? 1u : (unsigned)row->columns;
-        entry.interpolation = interpolates ? interpolation_of(name, modifiers, component)
-                                           : TB_SHADER_INTERPOLATION_NONE;
+        entry.columns = columns;
+        entry.interpolation = point == POINT_PIXEL_INPUT ? mode : TB_SHADER_INTERPOLATION_NONE;
+        entry.register_index = TB_SHADER_NO_REGISTER;
         (void)tb_array_push(elements, &entry);
+    }
+}
+
+/* A signature holds at most 32 registers of 4 components. */
+#define SIGNATURE_REGISTERS 32u
+#define SIGNATURE_COLUMNS 4u
+
+/* What a register of a signature holds so far. */
+typedef struct signature_register
+{
+    bool is_used;
+    /* The kind of the element in each component; SEMANTIC_ABSENT for none. */
+    semantic_kind kinds[4];
+    tb_shader_interpolation mode;
+} signature_register;
+
+/* Where an element must be in a register beside others: clip and cull
+ * distances rank with system values, in rows of their own. */
+static unsigned rank_of(semantic_kind kind)
+{
+    if (kind == SEMANTIC_ARBITRARY)
+    {
+        return 0;
+    }
+    return kind == SEMANTIC_GENERATED ? 2u : 1u;
+}
+
+/* Whether a register takes a block's row at `column`: components free, one
+ * interpolation mode, clip and cull distances apart from the rest, and the
+ * elements in order of their kind's rank. */
+static bool row_fits(const signature_register *taken, const signature_block *block, unsigned column)
+{
+    if (!taken->is_used)
+    {
+        return true;
+    }
+    if (taken->mode != block->mode)
+    {
+        return false;
+    }
+    const bool is_clip_cull = block->kind == SEMANTIC_CLIP_CULL;
+    const unsigned rank = rank_of(block->kind);
+    for (unsigned at = 0; at < SIGNATURE_COLUMNS; at++)
+    {
+        const semantic_kind kind = taken->kinds[at];
+        if (kind == SEMANTIC_ABSENT)
+        {
+            continue;
+        }
+        const bool inside = at >= column && at < column + block->columns;
+        if (inside || (kind == SEMANTIC_CLIP_CULL) != is_clip_cull ||
+            (at < column && rank_of(kind) > rank) ||
+            (at >= column + block->columns && rank_of(kind) < rank))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool block_fits(const signature_register *registers, const signature_block *block,
+                       uint32_t first, unsigned column)
+{
+    if (first + block->rows > SIGNATURE_REGISTERS)
+    {
+        return false;
+    }
+    for (uint32_t row = first; row < first + block->rows; row++)
+    {
+        if (!row_fits(&registers[row], block, column))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+static void take_block(signature_register *registers, const signature_block *block, uint32_t first,
+                       unsigned column)
+{
+    for (uint32_t row = first; row < first + block->rows; row++)
+    {
+        signature_register *const taken = &registers[row];
+        taken->is_used = true;
+        taken->mode = block->mode;
+        for (unsigned at = column; at < column + block->columns; at++)
+        {
+            taken->kinds[at] = block->kind;
+        }
+    }
+}
+
+static void place_block(tb_array *elements, const signature_block *block, uint32_t first,
+                        unsigned column)
+{
+    for (uint32_t row = 0; row < block->rows; row++)
+    {
+        tb_shader_signature_element *const element =
+            TB_ARRAY_AT(elements, tb_shader_signature_element, block->first + row);
+        element->register_index = first + row;
+        element->first_column = column;
+    }
+}
+
+/* Each block in the first register and components it fits, in the order
+ * declared, as DXC packs a signature between stages. */
+static void pack_block(reflector *state, signature_register *registers, tb_array *elements,
+                       const signature_block *block)
+{
+    for (uint32_t first = 0; first < SIGNATURE_REGISTERS; first++)
+    {
+        for (unsigned column = 0; column + block->columns <= SIGNATURE_COLUMNS; column++)
+        {
+            if (block_fits(registers, block, first, column))
+            {
+                take_block(registers, block, first, column);
+                place_block(elements, block, first, column);
+                return;
+            }
+        }
+    }
+    const tb_shader_signature_element *const element =
+        TB_ARRAY_AT(elements, tb_shader_signature_element, block->first);
+    fail(state, "'%s' does not fit in the 32 registers a signature has", element->semantic);
+}
+
+/* Registers for a signature's elements, as DXC assigns them: a vertex
+ * shader's inputs a register each, in order; a pixel shader's targets the
+ * register of their index; and every other signature packed. */
+static void pack_signature(reflector *state, tb_array *elements, tb_array *blocks, bool is_input)
+{
+    const signature_point point = point_of(state->stage, is_input);
+    signature_register registers[SIGNATURE_REGISTERS] = {0};
+    for (size_t row = 0; row < SIGNATURE_REGISTERS; row++)
+    {
+        for (unsigned at = 0; at < SIGNATURE_COLUMNS; at++)
+        {
+            registers[row].kinds[at] = SEMANTIC_ABSENT;
+        }
+    }
+    uint32_t next = 0;
+    const size_t count = tb_array_length(blocks);
+    for (size_t index = 0; index < count; index++)
+    {
+        const signature_block *const block = TB_ARRAY_AT(blocks, signature_block, index);
+        if (block->kind == SEMANTIC_UNPACKED)
+        {
+            continue;
+        }
+        if (block->kind == SEMANTIC_TARGET)
+        {
+            const tb_shader_signature_element *const element =
+                TB_ARRAY_AT(elements, tb_shader_signature_element, block->first);
+            place_block(elements, block, element->semantic_index, 0);
+        }
+        else if (point == POINT_VERTEX_INPUT)
+        {
+            place_block(elements, block, next, 0);
+            next += block->rows;
+        }
+        else
+        {
+            pack_block(state, registers, elements, block);
+        }
     }
 }
 
@@ -191,8 +506,7 @@ static bool has_signatures(tb_shader_stage stage)
 static void add_parameter(reflector *state, const tb_shader_form_parameter *parameter)
 {
     const tb_shader_form_type *const type = type_at(state, parameter->type);
-    tb_array *const into =
-        parameter->direction == TB_SHADER_FORM_OUT ? state->outputs : state->inputs;
+    const bool is_input = parameter->direction != TB_SHADER_FORM_OUT;
     if (type->kind == TB_SHADER_FORM_RESOURCE)
     {
         const bool is_stream = type->object == TB_SHADER_OBJECT_POINT_STREAM ||
@@ -200,8 +514,7 @@ static void add_parameter(reflector *state, const tb_shader_form_parameter *para
                                type->object == TB_SHADER_OBJECT_TRIANGLE_STREAM;
         if (type->element != TB_SHADER_FORM_NONE)
         {
-            add_elements(state, is_stream ? state->outputs : state->inputs, type->element, NULL, 0,
-                         parameter->name);
+            add_elements(state, !is_stream, type->element, NULL, 0, parameter->name);
         }
         return;
     }
@@ -210,7 +523,7 @@ static void add_parameter(reflector *state, const tb_shader_form_parameter *para
                                TB_SHADER_MODIFIER_TRIANGLEADJ | TB_SHADER_MODIFIER_VERTICES;
     if ((parameter->modifiers & primitive) != 0 && type->kind == TB_SHADER_FORM_ARRAY)
     {
-        add_elements(state, into, type->element, parameter->semantic, parameter->modifiers,
+        add_elements(state, is_input, type->element, parameter->semantic, parameter->modifiers,
                      parameter->name);
         return;
     }
@@ -220,12 +533,12 @@ static void add_parameter(reflector *state, const tb_shader_form_parameter *para
     {
         return;
     }
-    add_elements(state, into, parameter->type, parameter->semantic, parameter->modifiers,
+    add_elements(state, is_input, parameter->type, parameter->semantic, parameter->modifiers,
                  parameter->name);
     if (parameter->direction == TB_SHADER_FORM_INOUT)
     {
-        add_elements(state, state->outputs, parameter->type, parameter->semantic,
-                     parameter->modifiers, parameter->name);
+        add_elements(state, false, parameter->type, parameter->semantic, parameter->modifiers,
+                     parameter->name);
     }
 }
 
@@ -237,13 +550,15 @@ static void reflect_signatures(reflector *state, const tb_shader_form_function *
     }
     if (type_at(state, entry->result)->kind != TB_SHADER_FORM_VOID)
     {
-        add_elements(state, state->outputs, entry->result, entry->result_semantic, 0, entry->name);
+        add_elements(state, false, entry->result, entry->result_semantic, 0, entry->name);
     }
     const size_t count = tb_array_length(entry->parameters);
     for (size_t index = 0; index < count; index++)
     {
         add_parameter(state, TB_ARRAY_AT(entry->parameters, tb_shader_form_parameter, index));
     }
+    pack_signature(state, state->inputs, state->input_blocks, true);
+    pack_signature(state, state->outputs, state->output_blocks, false);
 }
 
 /* -------------------------------------------------------------------------
@@ -846,6 +1161,8 @@ const char *tb_shader_reflect(const tb_shader_form *form, tb_arena *arena,
     state.inputs = TB_ARRAY_CREATE(&state.allocator, tb_shader_signature_element);
     state.outputs = TB_ARRAY_CREATE(&state.allocator, tb_shader_signature_element);
     state.bindings = TB_ARRAY_CREATE(&state.allocator, tb_shader_binding);
+    state.input_blocks = TB_ARRAY_CREATE(&state.allocator, signature_block);
+    state.output_blocks = TB_ARRAY_CREATE(&state.allocator, signature_block);
     const tb_shader_form_function *const function =
         tb_shader_form_function_at(form, entry->function);
     reflection->stage = state.stage;
