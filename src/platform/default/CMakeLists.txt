@@ -7,6 +7,7 @@ set(TB_PLATFORM_DEFAULT_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/abort.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/atomic.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/crash.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/dxc.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/error_stream.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/library.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/process.c"

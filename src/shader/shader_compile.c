@@ -3,6 +3,7 @@
  * binds. Every step works in an arena of its own; the output is copied into
  * the caller's arena at the end, so only that copy can run out of room. */
 #include "shader_check.h"
+#include "shader_dxil.h"
 #include "shader_form.h"
 #include "shader_internal.h"
 #include "shader_lower.h"
@@ -12,6 +13,7 @@
 #include "badger/arena.h"
 #include "badger/array.h"
 #include "badger/assert.h"
+#include "badger/dxc.h"
 #include "badger/fmt.h"
 #include "badger/shader.h"
 #include "badger/str.h"
@@ -29,7 +31,10 @@ typedef struct compile
     tb_allocator allocator;
     tb_array *diagnostics; /* tb_shader_diagnostic */
     size_t error_count;
-    bool is_invalid; /* The request, not the source, is wrong. */
+    bool is_invalid;     /* The request, not the source, is wrong. */
+    tb_shader_unit unit; /* The preprocessed source, once read. */
+    const void *code;    /* What the target runs, in `scratch`. */
+    size_t code_size;
 } compile;
 
 static void add_diagnostics(compile *state, const tb_shader_diagnostic *diagnostics, size_t count)
@@ -182,7 +187,21 @@ static bool copy_output(const compile *state, const tb_shader_reflection *reflec
     }
     output->diagnostics = diagnostics;
     output->diagnostic_count = count;
-    return reflection == NULL || copy_reflection(arena, reflection, &output->reflection);
+    if (reflection == NULL)
+    {
+        return true;
+    }
+    if (state->code_size > 0)
+    {
+        /* A DXBC container is made of 32-bit words. */
+        output->code = copy_items(arena, state->code, state->code_size, 1, sizeof(uint32_t));
+        output->code_size = state->code_size;
+        if (output->code == NULL)
+        {
+            return false;
+        }
+    }
+    return copy_reflection(arena, reflection, &output->reflection);
 }
 
 /* -------------------------------------------------------------------------
@@ -224,17 +243,17 @@ static uint32_t entry_point_index(const tb_shader_form *form, uint32_t function,
 static bool reflect_entry(compile *state, const tb_shader_compile_request *request,
                           tb_shader_reflection *reflection)
 {
-    tb_shader_unit unit = {0};
+    tb_shader_unit *const unit = &state->unit;
     const tb_shader_result preprocessed =
-        tb_shader_preprocess_unit(&request->source, state->scratch, &unit);
+        tb_shader_preprocess_unit(&request->source, state->scratch, unit);
     if (preprocessed != TB_SHADER_OK)
     {
-        add_diagnostics(state, unit.diagnostics, unit.diagnostic_count);
+        add_diagnostics(state, unit->diagnostics, unit->diagnostic_count);
         state->is_invalid = preprocessed == TB_SHADER_INVALID;
         return false;
     }
     tb_shader_syntax syntax = {0};
-    (void)tb_shader_parse(&unit, state->scratch, &syntax);
+    (void)tb_shader_parse(unit, state->scratch, &syntax);
     tb_shader_checked checked = {0};
     const tb_shader_result result = tb_shader_check(&syntax, state->scratch, &checked);
     add_diagnostics(state, checked.diagnostics, checked.diagnostic_count);
@@ -274,6 +293,85 @@ static bool reflect_entry(compile *state, const tb_shader_compile_request *reque
     return extracted;
 }
 
+/* -------------------------------------------------------------------------
+ * Writing for a target.
+ * ------------------------------------------------------------------------- */
+
+/* The request's shader model, its default applied. */
+static unsigned shader_model_of(const tb_shader_compile_request *request)
+{
+    return request->shader_model == 0 ? TB_SHADER_MODEL_DEFAULT : request->shader_model;
+}
+
+/* What is wrong with the request's target, or NULL when nothing is. */
+static const char *check_target(const tb_shader_compile_request *request)
+{
+    if (request->target == TB_SHADER_TARGET_NONE)
+    {
+        return NULL;
+    }
+    if (request->target != TB_SHADER_TARGET_DXIL)
+    {
+        return "a compile's target is one of tb_shader_target";
+    }
+    if (request->dxc == NULL)
+    {
+        return "a compile for DXIL needs DXC";
+    }
+    if ((shader_model_of(request) >> 8) != 6)
+    {
+        return "DXIL is written for shader model 6";
+    }
+    return NULL;
+}
+
+/* Compile the preprocessed source into DXIL; false after an error. DXC
+ * reads the text without `#line`, so each place it names is a place in the
+ * text, which the tokens' offsets lead back to the sources. */
+static bool write_dxil(compile *state, const tb_shader_compile_request *request)
+{
+    tb_array *const text = TB_ARRAY_CREATE(&state->allocator, char);
+    tb_array *const offsets = TB_ARRAY_CREATE(&state->allocator, size_t);
+    tb_shader_render(&state->unit, false, text, offsets);
+    char profile[TB_SHADER_PROFILE_CAPACITY] = {0};
+    tb_shader_dxil_profile(request->stage, shader_model_of(request), profile);
+    tb_dxc_request dxc_request = {0};
+    dxc_request.source = tb_array_data(text);
+    dxc_request.source_length = tb_array_length(text);
+    /* The main path without its first `/`, which DXC would read as an option. */
+    dxc_request.name = request->source.path + 1;
+    dxc_request.profile = profile;
+    dxc_request.entry_point = request->entry_point;
+    dxc_request.flags = (request->flags & TB_SHADER_COMPILE_DEBUG) != 0 ? TB_DXC_DEBUG : 0u;
+    tb_dxc_output output = {0};
+    tb_dxc_error error = TB_DXC_ERROR_INIT;
+    const tb_dxc_result result = tb_dxc_compile(request->dxc, &dxc_request, &output, &error);
+    tb_shader_rendered rendered = {0};
+    rendered.unit = &state->unit;
+    rendered.text = dxc_request.source;
+    rendered.length = dxc_request.source_length;
+    rendered.offsets = tb_array_data(offsets);
+    const size_t errors =
+        tb_shader_dxc_diagnostics(output.messages, output.messages_length, dxc_request.name,
+                                  &rendered, state->scratch, state->diagnostics);
+    state->error_count += errors;
+    if (result == TB_DXC_OK)
+    {
+        void *const code = tb_arena_alloc(state->scratch, output.code_size, sizeof(uint32_t));
+        memcpy(code, output.code, output.code_size);
+        state->code = code;
+        state->code_size = output.code_size;
+    }
+    else if (errors == 0)
+    {
+        /* coverage-off: DXC says in its messages why a compile failed */
+        add_error(state, tb_fmt_string(&state->allocator, "dxc: %s", error.message));
+        /* coverage-on */
+    }
+    tb_dxc_release(&output);
+    return result == TB_DXC_OK;
+}
+
 tb_shader_result tb_shader_compile(const tb_shader_compile_request *request, tb_arena *arena,
                                    tb_shader_compiled *output)
 {
@@ -285,15 +383,25 @@ tb_shader_result tb_shader_compile(const tb_shader_compile_request *request, tb_
     state.diagnostics = TB_ARRAY_CREATE(&state.allocator, tb_shader_diagnostic);
     tb_shader_result result = TB_SHADER_OK;
     tb_shader_reflection reflection = {0};
+    const char *const target_problem = check_target(request);
     if (request->entry_point == NULL || request->entry_point[0] == '\0' ||
         (size_t)request->stage >= STAGE_COUNT)
     {
         add_error(&state, "a compile names an entry point and a stage");
         result = TB_SHADER_INVALID;
     }
+    else if (target_problem != NULL)
+    {
+        add_error(&state, target_problem);
+        result = TB_SHADER_INVALID;
+    }
     else if (!reflect_entry(&state, request, &reflection))
     {
         result = state.is_invalid ? TB_SHADER_INVALID : TB_SHADER_FAILED;
+    }
+    else if (request->target == TB_SHADER_TARGET_DXIL && !write_dxil(&state, request))
+    {
+        result = TB_SHADER_FAILED;
     }
     const tb_arena_mark mark = tb_arena_get_mark(arena);
     if (!copy_output(&state, result == TB_SHADER_OK ? &reflection : NULL, arena, output))
