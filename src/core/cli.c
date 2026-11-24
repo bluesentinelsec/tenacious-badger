@@ -1,6 +1,9 @@
+#ifndef _CRT_SECURE_NO_WARNINGS
+#define _CRT_SECURE_NO_WARNINGS /* getenv returns borrowed storage by design. */
+#endif
 /* Command lines: reading them into a program's variables (tb_cli_parse), and
- * writing the help and errors that go with them. The parser allocates
- * nothing; it keeps what it must remember in a structure on the stack. */
+ * writing the help and errors that go with them. Argument parsing uses stack storage.
+ * An optional config file lives in a caller-owned file buffer. */
 #include "badger/cli.h"
 
 #include "badger/assert.h"
@@ -60,7 +63,7 @@ typedef struct tb_cli_found
 
 static bool tb_cli_is_argument(const tb_cli_option *option)
 {
-    return option->short_name == '\0' && option->long_name == NULL;
+    return option->short_name == '\0' && option->long_name == NULL && option->single_dash == NULL;
 }
 
 static bool tb_cli_takes_value(const tb_cli_option *option)
@@ -120,6 +123,9 @@ static void tb_cli_check_option(const tb_cli_option *option)
     {
         TB_ASSERT(option->short_name == '\0' || tb_cli_is_letter(option->short_name));
         TB_ASSERT(option->short_name != 'h');
+        TB_ASSERT(option->single_dash == NULL ||
+                  (tb_cli_is_letter(option->single_dash[0]) && option->single_dash[1] != '\0' &&
+                   tb_str_find_char(option->single_dash, 0, TB_STR_END, '=') == TB_STR_NOT_FOUND));
         TB_ASSERT(option->long_name == NULL || tb_cli_long_name_is_valid(option->long_name));
         TB_ASSERT(option->long_name == NULL || (!tb_str_equal(option->long_name, "help") &&
                                                 !tb_str_equal(option->long_name, "version")));
@@ -153,6 +159,8 @@ static void tb_cli_check_command(const tb_cli_command *command)
         {
             const tb_cli_option *const other = &command->options[earlier];
             TB_ASSERT(option->short_name == '\0' || option->short_name != other->short_name);
+            TB_ASSERT(option->single_dash == NULL || other->single_dash == NULL ||
+                      !tb_str_equal(option->single_dash, other->single_dash));
             TB_ASSERT(option->long_name == NULL || other->long_name == NULL ||
                       !tb_str_equal(option->long_name, other->long_name));
         }
@@ -173,6 +181,12 @@ static void tb_cli_check_command(const tb_cli_command *command)
     for (size_t index = 0; index < command->command_count; index++)
     {
         TB_ASSERT(command->commands[index].name != NULL);
+        if (command->commands_sorted)
+        {
+            TB_ASSERT(index == 0 || tb_str_compare(command->commands[index - 1].name,
+                                                   command->commands[index].name) < 0);
+            continue;
+        }
         for (size_t earlier = 0; earlier < index; earlier++)
         {
             TB_ASSERT(
@@ -341,6 +355,10 @@ static void tb_cli_label(const tb_cli_option *option, char *label, size_t capaci
     else if (option->long_name != NULL)
     {
         (void)tb_fmt_buffer(label, capacity, "option '--%s'", option->long_name);
+    }
+    else if (option->single_dash != NULL)
+    {
+        (void)tb_fmt_buffer(label, capacity, "option '-%s'", option->single_dash);
     }
     else
     {
@@ -712,6 +730,29 @@ static tb_cli_result tb_cli_read_long(tb_cli_parser *parser, const char *argumen
 /* "-v", "-vq", "-j4", "-j 4". */
 static tb_cli_result tb_cli_read_short(tb_cli_parser *parser, const char *argument)
 {
+    for (size_t depth = parser->outcome->depth; depth > 0; depth--)
+    {
+        const tb_cli_command *level = parser->outcome->path[depth - 1];
+        for (size_t index = 0; index < level->option_count; index++)
+        {
+            const tb_cli_option *option = &level->options[index];
+            if (option->single_dash == NULL || !tb_str_equal(argument + 1, option->single_dash))
+            {
+                continue;
+            }
+            tb_cli_found found = {option, depth - 1, index};
+            if (!tb_cli_takes_value(option))
+            {
+                return tb_cli_apply(parser, &found, NULL);
+            }
+            if (!tb_cli_next_is_value(parser))
+            {
+                return tb_cli_needs_value(parser, option);
+            }
+            parser->index++;
+            return tb_cli_apply(parser, &found, parser->arguments[parser->index - 1]);
+        }
+    }
     for (size_t index = 1; argument[index] != '\0'; index++)
     {
         const char letter = argument[index];
@@ -805,11 +846,23 @@ static tb_cli_result tb_cli_read_word(tb_cli_parser *parser, const char *word)
 
     if (command->command_count > 0)
     {
-        for (size_t index = 0; index < command->command_count; index++)
+        size_t first = 0;
+        size_t end = command->command_count;
+        while (first < end)
         {
+            size_t index = command->commands_sorted ? first + (end - first) / 2 : first;
             const tb_cli_command *const chosen = &command->commands[index];
-            if (!tb_str_equal(chosen->name, word))
+            int order = tb_str_compare(chosen->name, word);
+            if (order != 0)
             {
+                if (command->commands_sorted && order > 0)
+                {
+                    end = index;
+                }
+                else
+                {
+                    first = index + 1;
+                }
                 continue;
             }
             TB_ASSERT(outcome->depth < TB_CLI_DEPTH);
@@ -834,6 +887,157 @@ static tb_cli_result tb_cli_read_word(tb_cli_parser *parser, const char *word)
         parser->positional++;
     }
     return tb_cli_apply(parser, &found, word);
+}
+
+static tb_cli_result tb_cli_fallback(tb_cli_parser *parser, tb_cli_found found, const char *text)
+{
+    const tb_cli_option *option = found.option;
+    if (option->flag != NULL)
+    {
+        if (!tb_str_equal(text, "true") && !tb_str_equal(text, "false"))
+        {
+            return tb_cli_fail(parser, "%s expects true or false",
+                               option->config_key != NULL ? option->config_key
+                                                          : option->environment);
+        }
+        *option->flag = tb_str_equal(text, "true");
+    }
+    else if (option->counter != NULL)
+    {
+        int64_t count = 0;
+        if (!tb_cli_read_integer(text, &count) || count < 0 || (uint64_t)count > SIZE_MAX)
+        {
+            return tb_cli_fail(parser, "invalid counter value '%s'", text);
+        }
+        *option->counter = (size_t)count;
+    }
+    else
+    {
+        return tb_cli_apply(parser, &found, text);
+    }
+    parser->given[found.depth][found.index] = true;
+    if (option->given != NULL)
+    {
+        *option->given = true;
+    }
+    return TB_CLI_OK;
+}
+
+static char *tb_cli_trim(char *text)
+{
+    text += tb_str_span(text, 0, TB_STR_END, " \t\r");
+    size_t end = tb_str_length(text);
+    end -= tb_str_rspan(text, 0, end, " \t\r");
+    text[end] = '\0';
+    return text;
+}
+
+/* Unbound keys may belong to another subcommand in the same config. */
+static tb_cli_result tb_cli_config_line(tb_cli_parser *parser, char *line, size_t number)
+{
+    char *key = tb_cli_trim(line);
+    if (*key == '#' || *key == '\0')
+    {
+        return TB_CLI_OK;
+    }
+    size_t separator = tb_str_find_char(key, 0, TB_STR_END, '=');
+    if (separator == TB_STR_NOT_FOUND)
+    {
+        return tb_cli_fail(parser, "config line %zu: expected key=value", number);
+    }
+    char *equals = key + separator;
+    *equals = '\0';
+    key = tb_cli_trim(key);
+    if (*key == '\0')
+    {
+        return tb_cli_fail(parser, "config line %zu: missing key", number);
+    }
+    char *value = tb_cli_trim(equals + 1);
+    if (*value == '"' || *value == '\'')
+    {
+        size_t length = tb_str_length(value);
+        if (length < 2 || value[length - 1] != *value)
+        {
+            return tb_cli_fail(parser, "config line %zu: unterminated quoted value", number);
+        }
+        value[length - 1] = '\0';
+        value++;
+    }
+    for (size_t d = 0; d < parser->outcome->depth; d++)
+    {
+        const tb_cli_command *command = parser->outcome->path[d];
+        for (size_t i = 0; i < command->option_count; i++)
+        {
+            const tb_cli_option *option = &command->options[i];
+            if (parser->given[d][i] || option->config_key == NULL ||
+                !tb_str_equal(key, option->config_key))
+            {
+                continue;
+            }
+            tb_cli_found found = {option, d, i};
+            if (tb_cli_fallback(parser, found, value) != TB_CLI_OK)
+            {
+                return TB_CLI_ERROR;
+            }
+        }
+    }
+    return TB_CLI_OK;
+}
+
+static tb_cli_result tb_cli_read_sources(tb_cli_parser *parser)
+{
+    const tb_cli_command *root = parser->outcome->path[0];
+    for (size_t d = 0; d < parser->outcome->depth; d++)
+    {
+        const tb_cli_command *command = parser->outcome->path[d];
+        for (size_t i = 0; i < command->option_count; i++)
+        {
+            const tb_cli_option *option = &command->options[i];
+            if (parser->given[d][i] || option->environment == NULL)
+            {
+                continue;
+            }
+            const char *value = getenv(option->environment);
+            tb_cli_found found = {option, d, i};
+            if (value != NULL && tb_cli_fallback(parser, found, value) != TB_CLI_OK)
+            {
+                return TB_CLI_ERROR;
+            }
+        }
+    }
+    if (root->config_path == NULL || *root->config_path == NULL)
+    {
+        return TB_CLI_OK;
+    }
+    tb_fs_buffer *storage = root->config_storage;
+    TB_ASSERT(storage != NULL && storage->data == NULL);
+    tb_path_view path = {*root->config_path, tb_str_length(*root->config_path)};
+    tb_fs_result result = tb_fs_read_file(path, NULL, 1024u * 1024u, storage);
+    if (result != TB_FS_OK)
+    {
+        return tb_cli_fail(parser, "cannot read config '%s': %s", path.data,
+                           tb_fs_result_name(result));
+    }
+    char *line = (char *)storage->data;
+    if (memchr(line, 0, storage->length) != NULL)
+    {
+        return tb_cli_fail(parser, "NUL byte in config '%s'", path.data);
+    }
+    for (size_t number = 1; line != NULL; number++)
+    {
+        char *next = memchr(line, '\n', (size_t)((char *)storage->data + storage->length - line));
+        if (next != NULL)
+        {
+            *next = '\0';
+            next++;
+        }
+        if (tb_cli_config_line(parser, line, number) != TB_CLI_OK)
+        {
+            return TB_CLI_ERROR;
+        }
+        line = next;
+    }
+    return TB_CLI_OK;
 }
 
 /* Names what is required and was not given, by every command chosen. */
@@ -878,6 +1082,10 @@ static tb_cli_result tb_cli_check_required(tb_cli_parser *parser)
             else if (option->long_name != NULL)
             {
                 tb_cli_append(parser, "--%s", option->long_name);
+            }
+            else if (option->single_dash != NULL)
+            {
+                tb_cli_append(parser, "-%s", option->single_dash);
             }
             else
             {
@@ -965,6 +1173,10 @@ tb_cli_result tb_cli_parse(const tb_cli_command *program, size_t count,
         {
             result = tb_cli_read_short(&parser, argument);
         }
+    }
+    if (result == TB_CLI_OK)
+    {
+        result = tb_cli_read_sources(&parser);
     }
     if (result == TB_CLI_OK)
     {
@@ -1143,9 +1355,14 @@ static void tb_cli_entry_name(const tb_cli_option *option, char *text, size_t ca
     {
         used = tb_fmt_buffer(text, capacity, "-%c", option->short_name);
     }
-    else
+    else if (option->long_name != NULL)
     {
         used = tb_fmt_buffer(text, capacity, "    --%s", option->long_name);
+    }
+    if (option->single_dash != NULL && used < capacity)
+    {
+        used += tb_fmt_buffer(text + used, capacity - used, "%s-%s", used ? ", " : "",
+                              option->single_dash);
     }
     if (value[0] != '\0' && used < capacity)
     {
@@ -1339,6 +1556,11 @@ static void tb_cli_usage_words(tb_cli_writer *writer, const tb_cli_outcome *outc
             {
                 used = tb_fmt_buffer(word, sizeof(word), "--%s%s%s", option->long_name,
                                      value[0] != '\0' ? " " : "", value);
+            }
+            else if (option->single_dash != NULL)
+            {
+                used = tb_fmt_buffer(word, sizeof(word), "-%s%s%s", option->single_dash,
+                                     value[0] ? " " : "", value);
             }
             else
             {

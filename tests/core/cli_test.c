@@ -748,3 +748,23 @@ TB_TEST(core_cli, a_wrong_declaration_violates_the_contract)
         TB_TEST_EXPECT_TRAP(parse_declaration, &programs[index], "assertion failed");
     }
 }
+
+TB_TEST(core_cli, generated_completions_describe_each_scope)
+{
+    const char *shells[] = {"bash", "zsh", "fish", "powershell"};
+    for (size_t i = 0; i < TB_CLI_COUNT_OF(shells); i++)
+    {
+        collected script = {0};
+        TB_TEST_REQUIRE(tb_cli_write_completion(&tool, shells[i], collect, &script));
+        TB_TEST_EXPECT(tb_str_find(script.text, 0, TB_STR_END, "0/build") != TB_STR_NOT_FOUND);
+        TB_TEST_EXPECT(tb_str_find(script.text, 0, TB_STR_END, "1/--release") != TB_STR_NOT_FOUND);
+        TB_TEST_EXPECT(tb_str_find(script.text, 0, TB_STR_END, "1/--jobs") != TB_STR_NOT_FOUND);
+        TB_TEST_EXPECT(tb_str_find(script.text, 0, TB_STR_END, "2/--release") == TB_STR_NOT_FOUND);
+    }
+    tb_cli_command unsafe = tool;
+    unsafe.name = "tool;echo";
+    collected empty = {0};
+    TB_TEST_EXPECT(!tb_cli_write_completion(&unsafe, "bash", collect, &empty));
+    TB_TEST_EXPECT(!tb_cli_write_completion(&tool, "other", collect, &empty));
+    TB_TEST_EXPECT_UINT(empty.length, ==, 0);
+}

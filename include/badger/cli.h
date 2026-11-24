@@ -14,7 +14,7 @@
  *
  * static const tb_cli_option build_options[] = {
  *     {.short_name = 'j', .long_name = "jobs", .integer = &jobs, .minimum = 1,
- *      .maximum = 64, .metavar = "N", .help = "Run N jobs at once."},
+ *      .maximum = 64, .name = "N", .help = "Run N jobs at once."},
  *     {.name = "TARGET", .text = &target, .required = true, .help = "What to build."},
  * };
  * static const tb_cli_command commands[] = {
@@ -75,13 +75,15 @@
  *
  * @par Threading
  * Thread-safe, when no two calls write the same variables. Declarations are
- * only read.
+ * only read. Give each parse its own config storage and keep the process
+ * environment stable while borrowed environment values are in use.
  */
 #ifndef TB_CLI_H
 #define TB_CLI_H
 
 #include "badger/api.h"
 #include "badger/fmt.h"
+#include "badger/fs.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -106,7 +108,7 @@ typedef struct tb_cli_outcome tb_cli_outcome;
 /**
  * @brief An option, or a positional argument, and where its value goes.
  *
- * An entry with a short or long name is an option; one with neither is an
+ * An entry with a short, long, or single-dash name is an option; one without any is an
  * argument, named by `name`. Exactly one destination is set, and it says
  * what the entry is:
  *
@@ -157,6 +159,13 @@ typedef struct tb_cli_option
     size_t *count;       /**< Receives how many of `texts` were given; required with them. */
     /** Set to true when the entry is given; NULL when nobody asks. */
     bool *given;
+    /** Exact multi-character single-dash spelling without its dash (e.g. "c:v").
+     * Exact matches take precedence over short clusters. May be the sole name. */
+    const char *single_dash;
+    /** Optional environment variable. Its borrowed value must outlive text destinations. */
+    const char *environment;
+    /** Optional key in the program's flat configuration file. */
+    const char *config_key;
 } tb_cli_option;
 
 /**
@@ -195,6 +204,18 @@ typedef struct tb_cli_command
     /** What tb_cli_run() calls when this is the command chosen; NULL for
      * none. */
     tb_cli_run_function *run;
+    /** Set when children are sorted by strcmp(name) for binary command lookup. */
+    bool commands_sorted;
+    /** Optional config filename destination (typically also bound to --config).
+     * If it holds a path, read flat key=value lines after parsing argv. Blank lines
+     * and whole-line # comments are ignored. Values may be enclosed in matching
+     * single or double quotes, without escapes. CLI overrides environment,
+     * then configuration, then destination defaults. */
+    const char **config_path;
+    /** Required with config_path on the root. Caller supplies a zero-initialized
+     * buffer and frees it with tb_fs_buffer_free after use, including on error.
+     * Text from the file borrows this storage. */
+    tb_fs_buffer *config_storage;
 } tb_cli_command;
 
 /** @brief What tb_cli_parse() came to. */
@@ -244,7 +265,8 @@ struct tb_cli_outcome
  * points at must outlive the outcome.
  * @param count Number of arguments, as `main` receives it; at least one.
  * @param arguments The arguments, the program's own name first; required.
- * Texts written to destinations point into them.
+ * Command-line texts written to destinations point into them. Environment
+ * and config values borrow their respective source storage.
  * @param[out] outcome Required; filled in whatever the result.
  * @return What the parse came to.
  */
@@ -297,6 +319,16 @@ TB_API int tb_cli_finish(const tb_cli_outcome *outcome);
  */
 TB_API int tb_cli_run(const tb_cli_command *program, size_t count, const char *const *arguments,
                       void *context);
+
+/** @brief Emit a shell completion registration for the command tree.
+ * @param program Named root declaration, borrowed for the call.
+ * @param shell One of "bash", "zsh", "fish", or "powershell".
+ * @param sink Receives the registration script. @param context Passed to sink.
+ * @return False without output for an unknown shell or unsupported command name.
+ * Completion names use ASCII letters, digits, dot, colon, underscore, and hyphen.
+ */
+TB_API bool tb_cli_write_completion(const tb_cli_command *program, const char *shell,
+                                    tb_fmt_sink *sink, void *context);
 
 /** @brief Name a result, for a log: "help asked for".
  * @param result Any value; one that is no result is named "unknown result".
