@@ -95,9 +95,9 @@ static tb_shader_stage tb_renderer_stage(tb_rhi_stage stage)
 /* A shader of the renderer's own, compiled for the device's backend: DXIL
  * through DXC for D3D12; the checked source itself for the null backend,
  * which runs nothing. */
-static tb_rhi_result tb_renderer_shader(tb_renderer *renderer, const char *path, const char *source,
-                                        const char *entry, tb_rhi_stage stage,
-                                        tb_rhi_shader *shader, tb_rhi_error *error)
+tb_rhi_result tb_renderer_shader(tb_renderer *renderer, const char *path, const char *source,
+                                 const char *entry, tb_rhi_stage stage, tb_rhi_shader *shader,
+                                 tb_rhi_error *error)
 {
     const tb_shader_file file = {path, source, tb_str_length(source)};
     tb_shader_compile_request request = {0};
@@ -280,6 +280,11 @@ tb_rhi_result tb_renderer_create(const tb_renderer_options *options, tb_renderer
     {
         goto failed;
     }
+    result = tb_renderer_materials_create(renderer, options->anisotropy, error);
+    if (result != TB_RHI_OK)
+    {
+        goto failed;
+    }
     renderer->graph = tb_render_graph_create(renderer->device);
     *made = renderer;
     return TB_RHI_OK;
@@ -299,6 +304,7 @@ void tb_renderer_destroy(tb_renderer *renderer)
     {
         (void)tb_rhi_wait_idle(renderer->device);
         tb_render_graph_destroy(renderer->graph);
+        tb_renderer_materials_destroy(renderer);
         tb_renderer_canvas_destroy(renderer);
         for (uint32_t slot = 0; slot < TB_RENDERER_FRAMES; slot++)
         {
@@ -391,6 +397,7 @@ bool tb_renderer_begin_frame(tb_renderer *renderer, const tb_camera *camera, tb_
     /* This slot's uploads were read by the frame two before; wait for it. */
     (void)tb_rhi_wait(renderer->device, frame->submission);
     frame->used = 0;
+    tb_renderer_materials_begin_frame(renderer);
     renderer->camera = *camera;
     renderer->clear = clear;
     renderer->draw_count = 0;
@@ -434,10 +441,9 @@ void tb_renderer_draw_mesh(tb_renderer *renderer, const tb_mesh *mesh, tb_mat4 t
     tb_renderer_draw_mesh_shaded(renderer, mesh, transform, color, TB_MESH_LIT);
 }
 
-void tb_renderer_draw_mesh_shaded(tb_renderer *renderer, const tb_mesh *mesh, tb_mat4 transform,
-                                  tb_vec4 color, tb_mesh_shading shading)
+void tb_renderer_add_draw(tb_renderer *renderer, const tb_renderer_draw *draw)
 {
-    TB_ASSERT(renderer != NULL && mesh != NULL);
+    TB_ASSERT(renderer != NULL && draw != NULL && draw->mesh != NULL);
     TB_ASSERT_MSG(renderer->in_frame, "a mesh drawn outside a frame");
     if (renderer->draw_count == renderer->draw_capacity)
     {
@@ -445,9 +451,24 @@ void tb_renderer_draw_mesh_shaded(tb_renderer *renderer, const tb_mesh *mesh, tb
         renderer->draws =
             tb_realloc_array(renderer->draws, renderer->draw_capacity, sizeof(*renderer->draws));
     }
-    renderer->draws[renderer->draw_count] = (tb_renderer_draw){
-        .mesh = mesh, .transform = transform, .color = color, .shading = shading};
+    renderer->draws[renderer->draw_count] = *draw;
     renderer->draw_count++;
+}
+
+void tb_renderer_draw_mesh_shaded(tb_renderer *renderer, const tb_mesh *mesh, tb_mat4 transform,
+                                  tb_vec4 color, tb_mesh_shading shading)
+{
+    TB_ASSERT(renderer != NULL && mesh != NULL);
+    tb_renderer_add_draw(
+        renderer, &(tb_renderer_draw){
+                      .mesh = mesh, .transform = transform, .color = color, .shading = shading});
+}
+
+/* Whether a draw goes through the material pipeline: it has a material, and
+ * the device the bindless resources materials need. */
+static bool tb_renderer_draws_material(const tb_renderer *renderer, const tb_renderer_draw *draw)
+{
+    return draw->material != NULL && renderer->material_pipeline.generation != 0;
 }
 
 void tb_renderer_draw_custom(tb_renderer *renderer, tb_renderer_draw_function *draw, void *context)
@@ -491,6 +512,7 @@ static void tb_renderer_upload_frame(tb_renderer *renderer, tb_renderer_recordin
     /* Light from above and a little behind the camera. */
     const tb_vec3 light =
         tb_vec3_normalize(tb_vec3_add((tb_vec3){0.3f, -1.0f, 0.2f}, tb_vec3_scale(forward, 0.5f)));
+    const tb_renderer_lighting lighting = {light, renderer->camera.position};
 
     recording->renderer = renderer;
     recording->view = tb_camera_view(&renderer->camera);
@@ -500,6 +522,12 @@ static void tb_renderer_upload_frame(tb_renderer *renderer, tb_renderer_recordin
     {
         tb_renderer_draw *const draw = &renderer->draws[index];
         tb_renderer_draw_constants constants = {0};
+        if (tb_renderer_draws_material(renderer, draw))
+        {
+            draw->constants = tb_renderer_material_upload(
+                renderer, draw, tb_mat4_mul(recording->clip, draw->transform), &lighting);
+            continue;
+        }
         constants.clip = tb_mat4_mul(recording->clip, draw->transform);
         constants.model = draw->transform;
         constants.color = draw->color;
@@ -543,13 +571,22 @@ static void tb_renderer_record_scene(const tb_render_graph_pass_context *pass)
     tb_renderer *const renderer = recording->renderer;
     const tb_renderer_frame *const frame = &renderer->frames[renderer->slot];
 
-    tb_rhi_cmd_pipeline(pass->list, renderer->mesh_pipeline);
+    tb_rhi_pipeline bound = {0};
+
     for (size_t index = 0; index < renderer->draw_count; index++)
     {
         const tb_renderer_draw *const draw = &renderer->draws[index];
+        const tb_rhi_pipeline pipeline = tb_renderer_draws_material(renderer, draw)
+                                             ? renderer->material_pipeline
+                                             : renderer->mesh_pipeline;
         if (draw->constants == UINT64_MAX)
         {
             continue; /* the frame's uploads ran out */
+        }
+        if (pipeline.index != bound.index || pipeline.generation != bound.generation)
+        {
+            tb_rhi_cmd_pipeline(pass->list, pipeline);
+            bound = pipeline;
         }
         tb_rhi_cmd_constant_buffer(pass->list, 0, frame->upload, draw->constants);
         tb_rhi_cmd_vertex_buffer(pass->list, 0, draw->mesh->vertices, 0);

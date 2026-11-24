@@ -6,6 +6,7 @@
 
 #include "badger/arena.h"
 #include "badger/font_raster.h"
+#include "badger/material.h"
 #include "badger/render_graph.h"
 #include "badger/renderer.h"
 #include "badger/thread.h"
@@ -37,9 +38,17 @@ typedef struct tb_renderer_draw_constants
     tb_vec4 light; /* the light's direction, and 1 to light the mesh or 0 */
 } tb_renderer_draw_constants;
 
+/* The light every lit draw is lit by this frame. */
+typedef struct tb_renderer_lighting
+{
+    tb_vec3 direction; /* the way the light goes */
+    tb_vec3 eye;       /* the camera's position */
+} tb_renderer_lighting;
+
 typedef struct tb_renderer_draw
 {
     const tb_mesh *mesh;
+    const tb_material *material; /* NULL for a color alone */
     tb_mat4 transform;
     tb_vec4 color;
     tb_mesh_shading shading;
@@ -127,6 +136,14 @@ struct tb_renderer
     tb_mutex lines_lock; /* guards lines, which any thread may add to */
     tb_renderer_lines lines[2];
 
+    tb_rhi_pipeline material_pipeline; /* none without bindless resources */
+    tb_rhi_pipeline mip_pipeline;      /* none without bindless resources */
+    tb_rhi_sampler material_sampler;   /* trilinear, repeating, anisotropic */
+    uint32_t anisotropy;               /* of material_sampler */
+    uint32_t anisotropy_wanted;        /* from the next frame on */
+    tb_texture *material_white;        /* what a material without a texture samples */
+    tb_texture *material_flat;         /* the normal map of a material without one */
+
     tb_canvas_batch canvas;            /* this frame's 2D */
     tb_rhi_pipeline canvas_pipeline;   /* none without bindless resources */
     tb_rhi_sampler canvas_samplers[2]; /* linear, nearest */
@@ -180,6 +197,27 @@ uint64_t tb_renderer_upload(tb_renderer *renderer, const void *data, size_t size
 
 /* Bytes this frame's uploads have left at an alignment. */
 uint64_t tb_renderer_upload_room(const tb_renderer *renderer, uint64_t alignment);
+
+/* Add a draw of a mesh to the frame. */
+void tb_renderer_add_draw(tb_renderer *renderer, const tb_renderer_draw *draw);
+
+/* Compile a shader of the renderer's own for the device's backend. */
+tb_rhi_result tb_renderer_shader(tb_renderer *renderer, const char *path, const char *source,
+                                 const char *entry, tb_rhi_stage stage, tb_rhi_shader *shader,
+                                 tb_rhi_error *error);
+
+/* The materials' sampler, textures and pipelines (material.c). */
+tb_rhi_result tb_renderer_materials_create(tb_renderer *renderer, uint32_t anisotropy,
+                                           tb_rhi_error *error);
+void tb_renderer_materials_destroy(tb_renderer *renderer);
+
+/* Take the anisotropy asked for, at the start of a frame. */
+void tb_renderer_materials_begin_frame(tb_renderer *renderer);
+
+/* Write a material draw's constants to the frame's uploads: their offset, or
+ * UINT64_MAX when the uploads are full. */
+uint64_t tb_renderer_material_upload(tb_renderer *renderer, const tb_renderer_draw *draw,
+                                     tb_mat4 clip, const tb_renderer_lighting *lighting);
 
 /* The canvas's samplers, image and pipeline (canvas.c). */
 tb_rhi_result tb_renderer_canvas_create(tb_renderer *renderer, uint32_t glyph_atlas_size,

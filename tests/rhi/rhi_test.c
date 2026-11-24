@@ -217,6 +217,83 @@ TB_TEST(rhi, a_full_heap_says_so_and_indices_come_back)
     tb_rhi_device_destroy(device);
 }
 
+/* A full mip chain halves the larger side down to one texel; each level's
+ * side is the first's halved, never below one. */
+TB_TEST(rhi, mip_chains_halve_to_one_texel)
+{
+    TB_TEST_EXPECT_UINT(tb_rhi_mip_count(1, 1), ==, 1);
+    TB_TEST_EXPECT_UINT(tb_rhi_mip_count(2, 1), ==, 2);
+    TB_TEST_EXPECT_UINT(tb_rhi_mip_count(1024, 512), ==, 11);
+    TB_TEST_EXPECT_UINT(tb_rhi_mip_count(300, 17), ==, 9);
+    TB_TEST_EXPECT_UINT(tb_rhi_mip_count(16384, 16384), ==, 15);
+    TB_TEST_EXPECT_UINT(tb_rhi_mip_size(1024, 0), ==, 1024);
+    TB_TEST_EXPECT_UINT(tb_rhi_mip_size(1024, 3), ==, 128);
+    TB_TEST_EXPECT_UINT(tb_rhi_mip_size(300, 3), ==, 37);
+    TB_TEST_EXPECT_UINT(tb_rhi_mip_size(17, 8), ==, 1);
+    TB_TEST_EXPECT_UINT(tb_rhi_mip_size(17, 40), ==, 1);
+}
+
+/* A storage texture has an index to write each level, each its own; other
+ * textures have none; and a heap without room for every level's index
+ * gives the texture none. */
+TB_TEST(rhi, a_storage_texture_has_an_index_for_each_level)
+{
+    tb_rhi_device *device = open_null(0, 0);
+    const tb_rhi_texture_desc desc = {.format = TB_RHI_FORMAT_R8G8B8A8_SRGB,
+                                      .width = 8,
+                                      .height = 4,
+                                      .mips = 4,
+                                      .usage = TB_RHI_TEXTURE_SAMPLED | TB_RHI_TEXTURE_STORAGE};
+    tb_rhi_texture texture = {0};
+    tb_rhi_texture sampled = {0};
+    uint32_t indices[4] = {0};
+
+    TB_TEST_REQUIRE_UINT(tb_rhi_texture_create(device, &desc, &texture, NULL), ==, TB_RHI_OK);
+    for (uint32_t mip = 0; mip < 4; mip++)
+    {
+        indices[mip] = tb_rhi_texture_storage_mip_index(device, texture, mip);
+        TB_TEST_EXPECT_UINT(indices[mip], !=, TB_RHI_NO_INDEX);
+        TB_TEST_EXPECT_UINT(indices[mip], !=, tb_rhi_texture_index(device, texture));
+        for (uint32_t before = 0; before < mip; before++)
+        {
+            TB_TEST_EXPECT_UINT(indices[mip], !=, indices[before]);
+        }
+    }
+    TB_TEST_EXPECT_UINT(indices[0], ==, tb_rhi_texture_storage_index(device, texture));
+    TB_TEST_REQUIRE_UINT(
+        tb_rhi_texture_create(device,
+                              &(tb_rhi_texture_desc){.format = desc.format,
+                                                     .width = 8,
+                                                     .height = 4,
+                                                     .mips = 2,
+                                                     .usage = TB_RHI_TEXTURE_SAMPLED},
+                              &sampled, NULL),
+        ==, TB_RHI_OK);
+    TB_TEST_EXPECT_UINT(tb_rhi_texture_storage_mip_index(device, sampled, 1), ==, TB_RHI_NO_INDEX);
+    tb_rhi_texture_destroy(device, texture);
+    tb_rhi_texture_destroy(device, sampled);
+    tb_rhi_device_destroy(device);
+
+    /* Five indices: one to sample and four to write; three are not enough. */
+    device = open_null(3, 1);
+    TB_TEST_EXPECT_UINT(tb_rhi_texture_create(device, &desc, &texture, NULL), ==,
+                        TB_RHI_OUT_OF_MEMORY);
+    TB_TEST_EXPECT_UINT(texture.generation, ==, 0);
+    /* What the failure took came back: three single textures fit. */
+    for (int made = 0; made < 3; made++)
+    {
+        TB_TEST_EXPECT_UINT(
+            tb_rhi_texture_create(device,
+                                  &(tb_rhi_texture_desc){.format = desc.format,
+                                                         .width = 1,
+                                                         .height = 1,
+                                                         .usage = TB_RHI_TEXTURE_SAMPLED},
+                                  &sampled, NULL),
+            ==, TB_RHI_OK);
+    }
+    tb_rhi_device_destroy(device);
+}
+
 /* A texture's defaults come back explicit: a cube has six faces. */
 TB_TEST(rhi, textures_fill_in_their_defaults)
 {

@@ -4,11 +4,13 @@
 #include "sandbox.h"
 
 #include "badger/canvas.h"
+#include "badger/material.h"
 
 #include "badger/fmt.h"
 #include "badger/math.h"
 #include "badger/memory.h"
 
+#include <math.h>
 #include <string.h>
 
 /* ---------------------------------------------------------------------------
@@ -587,6 +589,217 @@ static void textured_destroy(sandbox *box, void *state)
     tb_free(scene);
 }
 
+/* ---------------------------------------------------------------------------
+ * materials: the shapes with textures made in memory, mipmapped on the GPU,
+ * a checkered floor that shows the filtering toward the horizon, and a row
+ * of normal-mapped and metallic variants behind.
+ * ------------------------------------------------------------------------- */
+
+#define MATERIAL_TEXTURE 256u
+#define MATERIAL_TILE 32u   /* texels a side of a tile of the normal map */
+#define MATERIAL_BEVEL 6.0f /* texels of a tile's sloping edge */
+#define MATERIAL_COUNT 6
+
+typedef struct materials_scene
+{
+    shapes_scene *shapes;
+    tb_texture *checker;
+    tb_texture *gradient;
+    tb_texture *noise;
+    tb_texture *tiles;   /* a normal map of beveled tiles */
+    tb_texture *surface; /* stripes of roughness and metal */
+    tb_material *floor;
+    tb_material *plain[MATERIAL_COUNT];
+    tb_material *bumpy[MATERIAL_COUNT];
+} materials_scene;
+
+/* The height of a tile's texel: 0 in the grout, rising over the bevel to 1. */
+static float materials_tile_height(float x, float y)
+{
+    const float tile = (float)MATERIAL_TILE;
+    const float u = fmodf(x + tile, tile);
+    const float v = fmodf(y + tile, tile);
+    const float edge = fminf(fminf(u, tile - u), fminf(v, tile - v));
+
+    return fminf(edge / MATERIAL_BEVEL, 1.0f);
+}
+
+/* A normal map of beveled tiles: each texel's normal from the slope of the
+ * height around it, +Y up in the image. */
+static void materials_fill_tiles(uint8_t *pixels)
+{
+    for (uint32_t y = 0; y < MATERIAL_TEXTURE; y++)
+    {
+        for (uint32_t x = 0; x < MATERIAL_TEXTURE; x++)
+        {
+            const float fx = (float)x + 0.5f;
+            const float fy = (float)y + 0.5f;
+            const float dx =
+                materials_tile_height(fx + 1.0f, fy) - materials_tile_height(fx - 1.0f, fy);
+            const float down =
+                materials_tile_height(fx, fy + 1.0f) - materials_tile_height(fx, fy - 1.0f);
+            /* Up in the image is down the rows. */
+            const tb_vec3 normal = tb_vec3_normalize((tb_vec3){-dx * 1.5f, down * 1.5f, 1.0f});
+            uint8_t *const texel = &pixels[((size_t)y * MATERIAL_TEXTURE + x) * 4u];
+            texel[0] = (uint8_t)((normal.x * 0.5f + 0.5f) * 255.0f + 0.5f);
+            texel[1] = (uint8_t)((normal.y * 0.5f + 0.5f) * 255.0f + 0.5f);
+            texel[2] = (uint8_t)((normal.z * 0.5f + 0.5f) * 255.0f + 0.5f);
+            texel[3] = UINT8_MAX;
+        }
+    }
+}
+
+/* Vertical stripes: roughness (green) from smooth to rough across, metal
+ * (blue) in every other stripe. */
+static void materials_fill_surface(uint8_t *pixels)
+{
+    for (uint32_t y = 0; y < MATERIAL_TEXTURE; y++)
+    {
+        for (uint32_t x = 0; x < MATERIAL_TEXTURE; x++)
+        {
+            const uint32_t stripe = x / 32u;
+            uint8_t *const texel = &pixels[((size_t)y * MATERIAL_TEXTURE + x) * 4u];
+            texel[0] = 0;
+            texel[1] = (uint8_t)(40u + stripe * 30u);
+            texel[2] = stripe % 2u == 0 ? UINT8_MAX : 0;
+            texel[3] = UINT8_MAX;
+        }
+    }
+}
+
+static tb_texture *materials_texture(sandbox *box, int kind)
+{
+    const size_t size = (size_t)MATERIAL_TEXTURE * MATERIAL_TEXTURE * 4u;
+    uint8_t *const pixels = tb_malloc(size);
+    tb_texture_desc desc = {.width = MATERIAL_TEXTURE, .height = MATERIAL_TEXTURE};
+    tb_texture *texture = NULL;
+
+    switch (kind)
+    {
+    case 0:
+        tb_image_fill_checkerboard(pixels, size, MATERIAL_TEXTURE, MATERIAL_TEXTURE, 32,
+                                   (tb_vec4){0.92f, 0.92f, 0.90f, 1},
+                                   (tb_vec4){0.18f, 0.22f, 0.30f, 1});
+        desc.name = "checker";
+        break;
+    case 1:
+        tb_image_fill_gradient(pixels, size, MATERIAL_TEXTURE, MATERIAL_TEXTURE,
+                               TB_IMAGE_GRADIENT_VERTICAL, (tb_vec4){0.95f, 0.55f, 0.15f, 1},
+                               (tb_vec4){0.20f, 0.45f, 0.95f, 1});
+        desc.name = "gradient";
+        break;
+    case 2:
+        tb_image_fill_noise(pixels, size, MATERIAL_TEXTURE, MATERIAL_TEXTURE, 16, 7);
+        desc.name = "noise";
+        break;
+    case 3:
+        materials_fill_tiles(pixels);
+        desc.content = TB_TEXTURE_NORMAL;
+        desc.name = "tiles";
+        break;
+    default:
+        materials_fill_surface(pixels);
+        desc.content = TB_TEXTURE_DATA;
+        desc.name = "surface";
+        break;
+    }
+    texture = tb_texture_create(box->renderer, &desc, pixels, size);
+    tb_free(pixels);
+    return texture;
+}
+
+static bool materials_create(sandbox *box, void **state)
+{
+    static const tb_vec4 tints[MATERIAL_COUNT] = {
+        {1, 1, 1, 1}, {1, 1, 1, 1}, {0.95f, 0.75f, 0.55f, 1},
+        {1, 1, 1, 1}, {1, 1, 1, 1}, {0.85f, 0.9f, 1.0f, 1}};
+    materials_scene *const scene = tb_calloc(1, sizeof(*scene));
+    tb_texture *bases[3] = {0};
+    void *shapes = NULL;
+    tb_material_desc desc = TB_MATERIAL_DESC_INIT;
+
+    *state = scene;
+    (void)shapes_create(box, &shapes);
+    scene->shapes = shapes;
+    scene->checker = materials_texture(box, 0);
+    scene->gradient = materials_texture(box, 1);
+    scene->noise = materials_texture(box, 2);
+    scene->tiles = materials_texture(box, 3);
+    scene->surface = materials_texture(box, 4);
+    bases[0] = scene->checker;
+    bases[1] = scene->gradient;
+    bases[2] = scene->noise;
+    desc.base_color = scene->checker;
+    desc.uv_scale = (tb_vec2){12, 12};
+    desc.roughness = 0.8f;
+    scene->floor = tb_material_create(box->renderer, &desc);
+    for (int index = 0; index < MATERIAL_COUNT; index++)
+    {
+        desc = (tb_material_desc)TB_MATERIAL_DESC_INIT;
+        desc.base_color = bases[index % 3];
+        desc.base_color_factor = tints[index];
+        desc.roughness = 0.7f;
+        scene->plain[index] = tb_material_create(box->renderer, &desc);
+        /* Behind: the same, bumped by tiles; every other one metal. */
+        desc.normal = scene->tiles;
+        desc.metallic_roughness = index % 2 == 0 ? NULL : scene->surface;
+        desc.metallic = index % 2 == 0 ? 0.0f : 1.0f;
+        desc.roughness = index % 2 == 0 ? 0.5f : 1.0f;
+        scene->bumpy[index] = tb_material_create(box->renderer, &desc);
+    }
+    return true;
+}
+
+static void materials_draw(sandbox *box, void *state, const sandbox_frame *frame)
+{
+    static const tb_mesh_shape shapes[MATERIAL_COUNT] = {TB_MESH_CUBE,     TB_MESH_SPHERE,
+                                                         TB_MESH_CYLINDER, TB_MESH_TORUS,
+                                                         TB_MESH_CAPSULE,  TB_MESH_CONE};
+    const materials_scene *const scene = state;
+    const float turn = (float)frame->seconds * 0.4f;
+
+    tb_renderer_draw_mesh_material(
+        box->renderer, scene->shapes->floor,
+        tb_mat4_from_trs((tb_vec3){0, -0.01f, 0}, tb_quat_identity(), (tb_vec3){60, 1, 60}),
+        scene->floor);
+    for (int index = 0; index < MATERIAL_COUNT; index++)
+    {
+        const float x = ((float)index - (float)(MATERIAL_COUNT - 1) * 0.5f) * 1.6f;
+        const tb_quat spin = tb_quat_mul(tb_quat_from_axis_angle((tb_vec3){0, 1, 0}, turn),
+                                         tb_quat_from_axis_angle((tb_vec3){1, 0, 0}, 0.4f));
+        const tb_mesh *const mesh = scene->shapes->meshes[shapes[index]];
+        tb_renderer_draw_mesh_material(
+            box->renderer, mesh, tb_mat4_from_trs((tb_vec3){x, 0.75f, 0}, spin, (tb_vec3){1, 1, 1}),
+            scene->plain[index]);
+        tb_renderer_draw_mesh_material(
+            box->renderer, mesh,
+            tb_mat4_from_trs((tb_vec3){x, 0.75f, -2.0f}, spin, (tb_vec3){1, 1, 1}),
+            scene->bumpy[index]);
+    }
+}
+
+static void materials_destroy(sandbox *box, void *state)
+{
+    materials_scene *const scene = state;
+
+    for (int index = 0; index < MATERIAL_COUNT; index++)
+    {
+        tb_material_destroy(box->renderer, scene->plain[index]);
+        tb_material_destroy(box->renderer, scene->bumpy[index]);
+    }
+    tb_material_destroy(box->renderer, scene->floor);
+    tb_texture_destroy(box->renderer, scene->checker);
+    tb_texture_destroy(box->renderer, scene->gradient);
+    tb_texture_destroy(box->renderer, scene->noise);
+    tb_texture_destroy(box->renderer, scene->tiles);
+    tb_texture_destroy(box->renderer, scene->surface);
+    if (scene->shapes != NULL)
+    {
+        shapes_destroy(box, scene->shapes);
+    }
+    tb_free(scene);
+}
+
 const sandbox_scene sandbox_scenes[] = {
     {"shapes",
      "every shape the renderer makes, lit, under the fly camera",
@@ -600,6 +813,12 @@ const sandbox_scene sandbox_scenes[] = {
      canvas_create,
      canvas_draw,
      canvas_destroy},
+    {"materials",
+     "the shapes with textures, normal maps and metal, mipmapped, on a checkered floor",
+     {0.10f, 0.11f, 0.13f, 1},
+     materials_create,
+     materials_draw,
+     materials_destroy},
     {"text",
      "text: sizes, wrapping paragraphs, alignment, pixel fonts, and labels in the world",
      {0.10f, 0.11f, 0.13f, 1},

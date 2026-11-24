@@ -197,6 +197,8 @@ typedef struct tb_rhi_error
 /** @brief A bindless index that names nothing: what a resource that cannot
  * be read or written that way gives. */
 #define TB_RHI_NO_INDEX 0xFFFFFFFFu
+/** @brief Levels a texture may have: enough for 32768 texels a side. */
+#define TB_RHI_MAX_MIPS 16u
 
 /** @brief Which GPU a device prefers. */
 typedef enum tb_rhi_adapter_preference
@@ -292,6 +294,18 @@ TB_API uint32_t tb_rhi_format_size(tb_rhi_format format);
  * @par Threading Thread-safe. */
 TB_API bool tb_rhi_format_is_depth(tb_rhi_format format);
 
+/** @brief Levels of a full mip chain for a size: one for each halving of
+ * the larger side down to 1, the first included. 1024 by 512 has 11.
+ * @param width Texels; more than 0.
+ * @param height Texels; more than 0.
+ * @par Threading Thread-safe. */
+TB_API uint32_t tb_rhi_mip_count(uint32_t width, uint32_t height);
+
+/** @brief Texels of a side at a level: the first level's halved `mip`
+ * times, rounded down, and never less than 1.
+ * @par Threading Thread-safe. */
+TB_API uint32_t tb_rhi_mip_size(uint32_t size, uint32_t mip);
+
 /** @brief Where a buffer's memory is. */
 typedef enum tb_rhi_memory
 {
@@ -331,8 +345,12 @@ typedef enum tb_rhi_texture_kind
 /** @brief What a texture is used for, as bits. */
 typedef enum tb_rhi_texture_usage
 {
-    TB_RHI_TEXTURE_SAMPLED = 1u << 0,       /**< Read by shaders. */
-    TB_RHI_TEXTURE_STORAGE = 1u << 1,       /**< Written by shaders. */
+    TB_RHI_TEXTURE_SAMPLED = 1u << 0, /**< Read by shaders. */
+    /** Written by shaders, each level through an index of its own
+     * (tb_rhi_texture_storage_mip_index()), as `RWTexture2D` or, with more
+     * than one layer, `RWTexture2DArray`. A texture in sRGB is written as
+     * the same channels in linear: shaders encode what they write. */
+    TB_RHI_TEXTURE_STORAGE = 1u << 1,
     TB_RHI_TEXTURE_RENDER_TARGET = 1u << 2, /**< A pass's color target. */
     TB_RHI_TEXTURE_DEPTH = 1u << 3          /**< A pass's depth target. */
 } tb_rhi_texture_usage;
@@ -345,7 +363,8 @@ typedef struct tb_rhi_texture_desc
     uint32_t width;           /**< Texels; more than 0. */
     uint32_t height;          /**< Texels; more than 0. */
     uint32_t layers;          /**< Images; 0 is 1 (6 for a cube). */
-    uint32_t mips;            /**< Levels; 0 is 1. */
+    uint32_t mips;            /**< Levels; 0 is 1; up to #TB_RHI_MAX_MIPS, and
+                                 tb_rhi_mip_count() of the size. */
     uint32_t samples;         /**< Per texel; 0 is 1. */
     uint32_t usage;           /**< Bits of #tb_rhi_texture_usage. */
     float clear[4];           /**< The clear most used, which some GPUs make faster. */
@@ -756,8 +775,16 @@ TB_API void tb_rhi_texture_desc_of(tb_rhi_device *device, tb_rhi_texture texture
 TB_API uint32_t tb_rhi_texture_index(tb_rhi_device *device, tb_rhi_texture texture);
 
 /** @brief The index by which shaders write a texture of
- * #TB_RHI_TEXTURE_STORAGE, or #TB_RHI_NO_INDEX. */
+ * #TB_RHI_TEXTURE_STORAGE, its first level, or #TB_RHI_NO_INDEX. */
 TB_API uint32_t tb_rhi_texture_storage_index(tb_rhi_device *device, tb_rhi_texture texture);
+
+/** @brief The index by which shaders write one level of a texture of
+ * #TB_RHI_TEXTURE_STORAGE, or #TB_RHI_NO_INDEX for any other texture. Level
+ * 0 is tb_rhi_texture_storage_index()'s. A compute shader that makes a
+ * level from the one before reads one index and writes the next.
+ * @param mip Below the texture's levels. */
+TB_API uint32_t tb_rhi_texture_storage_mip_index(tb_rhi_device *device, tb_rhi_texture texture,
+                                                 uint32_t mip);
 
 /**
  * @brief Make a sampler.

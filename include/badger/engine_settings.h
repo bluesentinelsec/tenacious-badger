@@ -42,6 +42,7 @@
 #include "badger/window.h"
 
 #include <stdbool.h>
+#include <stdint.h>
 
 struct tb_rhi_device_options;
 
@@ -260,6 +261,17 @@ TB_API void tb_engine_settings_window_options(const tb_engine_settings *engine, 
  */
 TB_API void tb_engine_settings_device_options(const tb_engine_settings *engine,
                                               struct tb_rhi_device_options *options);
+
+/**
+ * @brief The anisotropic filtering that `graphics.anisotropic_filtering`
+ * holds, as the renderer takes it (tb_renderer_options::anisotropy and
+ * tb_renderer_set_anisotropy()): texels a sample blends along a slope at
+ * most.
+ * @param engine The engine's settings; required.
+ * @return 1 for `off`, else 2, 4, 8 or 16.
+ * @par Threading Thread-safe.
+ */
+TB_API uint32_t tb_engine_settings_anisotropy(const tb_engine_settings *engine);
 
 /**
  * @brief Set the overall quality: every quality group to `quality`, and

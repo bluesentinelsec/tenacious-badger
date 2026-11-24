@@ -1,9 +1,10 @@
 # The renderer
 
-`badger/renderer.h` draws frames to a window from a camera: meshes and debug
-lines, through [the render graph](render-graph.md) and [the RHI](rhi.md).
-It is the layer games and tools draw through, in 3D and in [2D](#2d-the-canvas);
-what it draws grows from here (text, textured materials, the lighting modes).
+`badger/renderer.h` draws frames to a window from a camera: meshes, plain or
+with [materials](#materials), and debug lines, through
+[the render graph](render-graph.md) and [the RHI](rhi.md). It is the layer
+games and tools draw through, in 3D and in [2D](#2d-the-canvas); what it
+draws grows from here (text, the lighting modes).
 
 ```c
 tb_renderer *renderer = NULL;
@@ -56,6 +57,74 @@ a caller gives (`tb_mesh_create`) or as generated shapes
 capsule, each in a unit box, facing outward. `tb_mesh_generate()` gives a
 shape's triangles to a caller that keeps its own. A mesh is drawn with a
 transform and a color, lit (a light from above, with ambient) or flat.
+
+## Materials
+
+`badger/material.h` gives meshes textures, after glTF's metallic-roughness
+model: a base color (a texture times a factor), a tangent-space normal map,
+and roughness and metallic (green and blue of a texture, times factors).
+Each texture is optional; a material without one samples white, or a flat
+normal.
+
+```c
+tb_texture *const checker = tb_texture_create(
+    renderer, &(tb_texture_desc){.width = 256, .height = 256}, pixels, sizeof(pixels));
+tb_texture *const bumps = tb_texture_create(
+    renderer, &(tb_texture_desc){.width = 256, .height = 256, .content = TB_TEXTURE_NORMAL},
+    normals, sizeof(normals));
+
+tb_material_desc desc = TB_MATERIAL_DESC_INIT;
+desc.base_color = checker;
+desc.normal = bumps;
+desc.roughness = 0.6f;
+desc.uv_scale = (tb_vec2){4, 4};
+tb_material *const tiles = tb_material_create(renderer, &desc);
+
+/* each frame */
+tb_renderer_draw_mesh_material(renderer, cube, transform, tiles);
+```
+
+**Textures** are RGBA, 8 bits a channel, from pixels in memory
+(`tb_texture_create`; loaders come later), or a texture a caller made
+through the RHI (`tb_texture_from_rhi`, borrowed). What they hold decides
+how they are read: `TB_TEXTURE_COLOR` is sRGB, as images are authored, and
+is read as linear (`R8G8B8A8_SRGB`); `TB_TEXTURE_DATA` and
+`TB_TEXTURE_NORMAL` are read as they are.
+
+**Mipmaps are made on the GPU** when a texture is created: a compute
+shader halves each level into the next, a thread a texel, reading the
+level before and writing the next through their storage indices
+(`tb_rhi_texture_storage_mip_index`). Colors average in linear light and
+are written back in sRGB; normals average and are renormalized. A compute
+pass was chosen over drawing each level as a render target: both levels
+stay in one state, storage, so the RHI's barriers (which move a whole
+texture) need no per-level states, and no pipeline per format is needed. Each
+texel averages the 2x2 texels under it, clamped at the edge; a level of
+odd size leaves out the last row or column of the one before.
+
+**Filtering** is trilinear, repeating, and anisotropic: the renderer's
+options and `tb_renderer_set_anisotropy()` take the `graphics.anisotropic_filtering`
+setting through `tb_engine_settings_anisotropy()`, and a change takes
+effect at the next frame.
+
+**Normal maps** are tangent-space, +X along u and +Y up in the image, as
+glTF's are. Meshes carry no tangents: the pixel shader works out each
+pixel's tangent frame from the screen-space derivatives of its position
+and texture coordinates (Schüler's cotangent frame). That keeps
+`tb_mesh_vertex` as it is, works for any caller's mesh, mirrored texture
+coordinates included, and costs a few instructions a pixel; precomputed
+tangents can come with model loading if profiles ask for them.
+
+**Lighting.** Materials are lit as every mesh is, by one light from above
+and behind the camera with ambient light, with a highlight that roughness
+and metallic shape: the hooks the raster lighting mode (#220) replaces.
+`unlit` draws the base color alone. A device without bindless resources
+draws a material in its base color factor.
+
+**Color.** The frame is written as the shaders compute it, linear, into a
+`B8G8R8A8_UNORM` swap chain, as every draw is until the output transform
+comes: so sRGB textures, read as linear, look darker than they were
+authored.
 
 ## Debug drawing
 
@@ -241,7 +310,9 @@ the engine's compiler, through DXC to DXIL for D3D12. They move to
 
 ## Not yet
 
-- Instanced draws, transparency, textured materials (#282), skyboxes (#281).
+- Instanced draws, transparency, skyboxes (#281).
+- The output transform: writing the frame in sRGB, and tone mapping.
+- Precomputed tangents, texture compression, and streaming of mip levels.
 - Debug drawing that lasts more than one frame.
 - Images with rounded or smoothed edges, gradients and polygons in 2D;
   a 2D pass into targets other than the frame, and 2D in the world.

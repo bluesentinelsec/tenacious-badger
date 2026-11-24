@@ -130,18 +130,63 @@ void tb_d3d12_buffer_read(void *state, void *object, uint64_t offset, void *data
  * Textures.
  * ------------------------------------------------------------------------- */
 
-/* A depth format is made typeless, so that shaders can also read it. */
-static DXGI_FORMAT tb_d3d12_resource_format(tb_rhi_format format)
+/* A depth format is made typeless, so that shaders can also read it; an
+ * sRGB format written by shaders is too, since D3D12 writes no sRGB view:
+ * shaders write its channels through a linear view, encoded. */
+static DXGI_FORMAT tb_d3d12_resource_format(const tb_rhi_texture_desc *desc)
 {
-    switch (format)
+    const bool storage = (desc->usage & TB_RHI_TEXTURE_STORAGE) != 0;
+
+    switch (desc->format)
     {
     case TB_RHI_FORMAT_D32_FLOAT:
         return DXGI_FORMAT_R32_TYPELESS;
     case TB_RHI_FORMAT_D24_UNORM_S8_UINT:
         return DXGI_FORMAT_R24G8_TYPELESS;
+    case TB_RHI_FORMAT_R8G8B8A8_SRGB:
+        return storage ? DXGI_FORMAT_R8G8B8A8_TYPELESS : DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+    case TB_RHI_FORMAT_B8G8R8A8_SRGB:
+        return storage ? DXGI_FORMAT_B8G8R8A8_TYPELESS : DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+    default:
+        return tb_d3d12_format(desc->format);
+    }
+}
+
+/* The format shaders write a texture through. */
+static DXGI_FORMAT tb_d3d12_storage_format(tb_rhi_format format)
+{
+    switch (format)
+    {
+    case TB_RHI_FORMAT_R8G8B8A8_SRGB:
+        return DXGI_FORMAT_R8G8B8A8_UNORM;
+    case TB_RHI_FORMAT_B8G8R8A8_SRGB:
+        return DXGI_FORMAT_B8G8R8A8_UNORM;
     default:
         return tb_d3d12_format(format);
     }
+}
+
+/* A view through which shaders write one level of a texture. */
+static void tb_d3d12_storage_view(tb_d3d12_device *device, const tb_rhi_texture_desc *desc,
+                                  ID3D12Resource *resource, uint32_t mip, uint32_t index)
+{
+    D3D12_UNORDERED_ACCESS_VIEW_DESC view = {0};
+
+    view.Format = tb_d3d12_storage_format(desc->format);
+    if (desc->layers > 1)
+    {
+        view.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
+        view.Texture2DArray.MipSlice = mip;
+        view.Texture2DArray.ArraySize = desc->layers;
+    }
+    else
+    {
+        view.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        view.Texture2D.MipSlice = mip;
+    }
+    ID3D12Device_CreateUnorderedAccessView(
+        device->device, resource, NULL, &view,
+        tb_d3d12_descriptor(device->resources_cpu, device->resource_increment, index));
 }
 
 static DXGI_FORMAT tb_d3d12_read_format(tb_rhi_format format)
@@ -191,20 +236,11 @@ static void tb_d3d12_texture_views(tb_d3d12_device *device, const tb_rhi_texture
     }
     if (indices.write != TB_RHI_NO_INDEX)
     {
-        D3D12_UNORDERED_ACCESS_VIEW_DESC view = {0};
-        view.Format = tb_d3d12_format(desc->format);
-        if (desc->layers > 1)
-        {
-            view.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
-            view.Texture2DArray.ArraySize = desc->layers;
-        }
-        else
-        {
-            view.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
-        }
-        ID3D12Device_CreateUnorderedAccessView(
-            device->device, resource, NULL, &view,
-            tb_d3d12_descriptor(device->resources_cpu, device->resource_increment, indices.write));
+        tb_d3d12_storage_view(device, desc, resource, 0, indices.write);
+    }
+    for (uint32_t mip = 0; mip < indices.mip_write_count; mip++)
+    {
+        tb_d3d12_storage_view(device, desc, resource, mip + 1, indices.mip_writes[mip]);
     }
 }
 
@@ -224,7 +260,7 @@ tb_rhi_result tb_d3d12_texture_create(void *state, const tb_rhi_texture_desc *de
     resource.Height = desc->height;
     resource.DepthOrArraySize = (UINT16)desc->layers;
     resource.MipLevels = (UINT16)desc->mips;
-    resource.Format = tb_d3d12_resource_format(desc->format);
+    resource.Format = tb_d3d12_resource_format(desc);
     resource.SampleDesc.Count = desc->samples;
     resource.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
     clear.Format = tb_d3d12_format(desc->format);

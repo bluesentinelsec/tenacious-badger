@@ -209,7 +209,7 @@ window falls back to borderless and says so.
 | `graphics.decal_quality` | `low`, `medium`, `high`, `ultra` | `high` | the renderer, to come |
 | `graphics.water_quality` | `low`, `medium`, `high`, `ultra` | `high` | the renderer, to come |
 | `graphics.volumetric_quality` | `low`, `medium`, `high`, `ultra` | `high` | the renderer, to come |
-| `graphics.anisotropic_filtering` | `off`, `2x`, `4x`, `8x`, `16x` | `8x` | the renderer, to come |
+| `graphics.anisotropic_filtering` | `off`, `2x`, `4x`, `8x`, `16x` | `8x` | the renderer's materials (`tb_engine_settings_anisotropy()`) |
 | `graphics.field_of_view` | number, 60 to 120 degrees | `90.0` | the renderer, to come |
 | `graphics.motion_blur` | `off`, `low`, `medium`, `high` | `off` | the renderer, to come |
 | `graphics.depth_of_field` | boolean | `true` | the renderer, to come |
