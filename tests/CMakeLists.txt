@@ -101,6 +101,7 @@ set(TB_TEST_CASE_SOURCES
     font/font_damage_test.c
     font/font_raster_test.c
     font/font_atlas_test.c
+    font/font_layout_test.c
     ${TB_FONT_DATA_SOURCE}
     jobs/jobs_test.c
     serialize/json_test.c
@@ -116,6 +117,7 @@ set(TB_TEST_CASE_SOURCES
     ${TB_SHADER_REFLECTION_SOURCE}
     render/canvas_test.c
     render/material_test.c
+    render/text_test.c
     render/render_graph_test.c
     render/renderer_test.c
     render/sky_test.c
@@ -157,7 +159,8 @@ if(WIN32)
     tb_embed_test_data(TB_RHI_SHADER_SOURCE tb_rhi_shader_files rhi "*.dxil")
     list(APPEND TB_TEST_CASE_SOURCES rhi/rhi_d3d12_test.c ${TB_RHI_SHADER_SOURCE}
         render/canvas_d3d12_test.c render/material_d3d12_test.c
-        render/renderer_d3d12_test.c render/sky_d3d12_test.c)
+        render/renderer_d3d12_test.c render/sky_d3d12_test.c
+        render/text_d3d12_test.c)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     list(APPEND TB_TEST_CASE_SOURCES platform/linux/window_x11_test.c)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")

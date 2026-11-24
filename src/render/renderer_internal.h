@@ -4,6 +4,9 @@
 
 #include "canvas_internal.h"
 
+#include "badger/arena.h"
+#include "badger/font_catalog.h"
+#include "badger/font_raster.h"
 #include "badger/material.h"
 #include "badger/render_graph.h"
 #include "badger/renderer.h"
@@ -74,6 +77,26 @@ typedef struct tb_renderer_lines
     size_t capacity;
 } tb_renderer_lines;
 
+/* A glyph drawn this frame, kept so that it can be found in the atlas
+ * again when the atlas clears before the frame ends. */
+typedef struct tb_canvas_glyph
+{
+    size_t quad; /* its quad, an index of the canvas's batch */
+    const tb_font *font;
+    uint16_t glyph;
+    tb_font_raster_options options;
+    uint64_t generation; /* the atlas's, when the glyph was placed */
+} tb_canvas_glyph;
+
+/* A label at a point in the world, its text in the labels' bytes. */
+typedef struct tb_renderer_label
+{
+    tb_vec3 position;
+    tb_vec4 color;
+    size_t offset;
+    size_t length;
+} tb_renderer_label;
+
 /* What one frame in flight writes for the GPU. */
 typedef struct tb_renderer_frame
 {
@@ -131,6 +154,28 @@ struct tb_renderer
     tb_rhi_sampler canvas_samplers[2]; /* linear, nearest */
     tb_image *canvas_white;            /* what solid quads sample */
     tb_canvas_stats canvas_stats;      /* of the last frame */
+
+    tb_font_atlas *glyph_atlas;   /* the glyphs text is drawn from */
+    tb_rhi_texture glyph_texture; /* the atlas's image on the GPU */
+    uint32_t glyph_texture_index; /* its bindless index */
+    uint32_t glyph_side;          /* its width and height */
+    bool glyph_texture_written;   /* its first copy has been made */
+    tb_arena *text_arena;         /* layouts, while text is drawn */
+    tb_canvas_glyph *glyphs;      /* this frame's */
+    size_t glyph_count;
+    size_t glyph_capacity;
+    size_t glyphs_hidden;      /* this frame's, the atlas could not hold */
+    const tb_font *debug_font; /* labels', as chosen; NULL for the default */
+    float debug_font_size;
+    tb_font_catalog *default_catalog; /* holds the default debug font's bytes */
+    tb_font *default_debug_font;      /* the catalog's UI font, opened when first needed */
+    bool default_debug_font_tried;
+    tb_renderer_label *labels; /* this frame's; guarded by lines_lock */
+    size_t label_count;
+    size_t label_capacity;
+    char *label_bytes; /* their text */
+    size_t label_bytes_used;
+    size_t label_bytes_capacity;
 
     bool capture_next;
     tb_rhi_buffer capture;
@@ -199,8 +244,21 @@ uint64_t tb_renderer_sky_upload(tb_renderer *renderer, float aspect);
 void tb_renderer_sky_record(tb_renderer *renderer, tb_rhi_command_list *list, uint64_t constants);
 
 /* The canvas's samplers, image and pipeline (canvas.c). */
-tb_rhi_result tb_renderer_canvas_create(tb_renderer *renderer, tb_rhi_error *error);
+tb_rhi_result tb_renderer_canvas_create(tb_renderer *renderer, uint32_t glyph_atlas_size,
+                                        tb_rhi_error *error);
 void tb_renderer_canvas_destroy(tb_renderer *renderer);
+
+/* The glyph atlas and its texture (canvas_text.c), made with the canvas. */
+tb_rhi_result tb_renderer_text_create(tb_renderer *renderer, uint32_t side, tb_rhi_error *error);
+void tb_renderer_text_destroy(tb_renderer *renderer);
+
+/* Forget the last frame's glyphs and labels. */
+void tb_renderer_text_begin_frame(tb_renderer *renderer);
+
+/* Before the frame's 2D is recorded, while it may still be drawn to: draw
+ * the labels, find again the glyphs that the atlas cleared, and copy what
+ * changed in the atlas to its texture. */
+void tb_renderer_text_end_frame(tb_renderer *renderer);
 
 /* Upload the frame's quads and add the pass that draws them over `image`.
  * `recording` lives until the graph is executed. */

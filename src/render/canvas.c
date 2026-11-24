@@ -34,7 +34,8 @@ struct tb_image
 /* Each quad's pixels are corner + u * axis_x + v * axis_y, grown by a pixel
  * on every side when its edges are smoothed; the pixel shader measures the
  * distance to its rounded box's edge in pixels, and keeps the pixels inside
- * its clip. Colors and images are premultiplied. */
+ * its clip. Colors and images are premultiplied. A quad of text reads its
+ * image's first channel as coverage, which multiplies its color. */
 static const char tb_canvas_source[] =
     "struct CanvasConstants { float2 Target; uint Quads; uint Offset; };\n"
     "ConstantBuffer<CanvasConstants> Canvas : register(b0);\n"
@@ -83,7 +84,9 @@ static const char tb_canvas_source[] =
     "    Texture2D<float4> image = "
     "ResourceDescriptorHeap[NonUniformResourceIndex(input.Binding.x)];\n"
     "    SamplerState filter = SamplerDescriptorHeap[NonUniformResourceIndex(input.Binding.y)];\n"
-    "    const float4 color = image.Sample(filter, input.UV) * input.Color;\n"
+    "    const float4 texel = image.Sample(filter, input.UV);\n"
+    "    const float4 color =\n"
+    "        (input.Binding.z & 2) != 0 ? input.Color * texel.r : texel * input.Color;\n"
     "    float coverage = 1.0;\n"
     "    if ((input.Binding.z & 1) != 0)\n"
     "    {\n"
@@ -401,7 +404,8 @@ void tb_canvas_stats_of(const tb_renderer *renderer, tb_canvas_stats *stats)
  * The renderer's part.
  * ------------------------------------------------------------------------- */
 
-tb_rhi_result tb_renderer_canvas_create(tb_renderer *renderer, tb_rhi_error *error)
+tb_rhi_result tb_renderer_canvas_create(tb_renderer *renderer, uint32_t glyph_atlas_size,
+                                        tb_rhi_error *error)
 {
     static const uint8_t white[4] = {UINT8_MAX, UINT8_MAX, UINT8_MAX, UINT8_MAX};
     tb_rhi_graphics_pipeline_desc desc = {0};
@@ -433,6 +437,11 @@ tb_rhi_result tb_renderer_canvas_create(tb_renderer *renderer, tb_rhi_error *err
         renderer,
         &(tb_image_desc){.width = 1, .height = 1, .filter = TB_IMAGE_NEAREST, .name = "white"},
         white, sizeof(white));
+    result = tb_renderer_text_create(renderer, glyph_atlas_size, error);
+    if (result != TB_RHI_OK)
+    {
+        return result;
+    }
     if ((renderer->info.features & TB_RHI_FEATURE_BINDLESS) == 0)
     {
         /* The canvas reaches its quads and images by index; without, it
@@ -458,6 +467,7 @@ void tb_renderer_canvas_destroy(tb_renderer *renderer)
 {
     tb_image_destroy(renderer, renderer->canvas_white);
     renderer->canvas_white = NULL;
+    tb_renderer_text_destroy(renderer);
     tb_rhi_pipeline_destroy(renderer->device, renderer->canvas_pipeline);
     tb_rhi_sampler_destroy(renderer->device, renderer->canvas_samplers[0]);
     tb_rhi_sampler_destroy(renderer->device, renderer->canvas_samplers[1]);
@@ -515,7 +525,11 @@ void tb_renderer_canvas_record(tb_renderer *renderer, tb_canvas_recording *recor
         tb_renderer_upload(renderer, quads, fit * sizeof(*quads), TB_CANVAS_QUAD_ALIGNMENT);
     TB_ASSERT_MSG(recording->offset <= UINT32_MAX, "the frame's uploads within 4 GiB");
     recording->count = (uint32_t)fit;
-    renderer->canvas_stats.quads = fit;
+    /* Glyphs the atlas could not hold are drawn with no color: not drawn. */
+    renderer->canvas_stats.glyphs = renderer->glyph_count - renderer->glyphs_hidden;
+    renderer->canvas_stats.quads =
+        fit > renderer->glyphs_hidden ? fit - renderer->glyphs_hidden : 0;
+    renderer->canvas_stats.dropped += renderer->glyphs_hidden;
     renderer->canvas_stats.draws = 1;
     pass = (tb_render_graph_pass){
         .name = "canvas", .execute = tb_renderer_record_canvas, .context = recording};

@@ -12,6 +12,9 @@
 
 /* A quad's edges are anti-aliased over a pixel, measured from its shape. */
 #define TB_CANVAS_QUAD_SMOOTH 1u
+/* A quad of text: its image's first channel is coverage, which multiplies
+ * its color. */
+#define TB_CANVAS_QUAD_COVERAGE 2u
 
 /* One quad in the frame's pixels, as the canvas shader reads it from a
  * ByteAddressBuffer: six float4s. Pixels of the quad are

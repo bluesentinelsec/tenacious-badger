@@ -4,6 +4,8 @@
 #ifndef SANDBOX_H
 #define SANDBOX_H
 
+#include "badger/font.h"
+#include "badger/font_catalog.h"
 #include "badger/renderer.h"
 #include "badger/rhi.h"
 #include "badger/window.h"
@@ -14,6 +16,17 @@
 
 struct tb_dxc;
 
+/* The fonts every scene may draw text in, from the engine's catalog. A
+ * font this build of the engine does not carry is NULL, and what would be
+ * drawn in it is not. */
+typedef enum sandbox_font
+{
+    SANDBOX_FONT_UI,         /* the catalog's UI role: smooth text */
+    SANDBOX_FONT_VGA,        /* its pixel role, Px437 IBM VGA 8x16: 16 pixels to the em */
+    SANDBOX_FONT_SILKSCREEN, /* Silkscreen: a pixel font of 8 pixels to the em */
+    SANDBOX_FONT_COUNT
+} sandbox_font;
+
 /* What every scene draws with. */
 typedef struct sandbox
 {
@@ -22,7 +35,9 @@ typedef struct sandbox
     tb_rhi_device_info info;
     struct tb_dxc *dxc; /* for D3D12; NULL for the null backend */
     tb_window *window;
-    tb_camera camera; /* the fly camera, which 3D scenes draw from */
+    tb_camera camera;         /* the fly camera, which 3D scenes draw from */
+    tb_font_catalog *catalog; /* holds the fonts' bytes */
+    tb_font *fonts[SANDBOX_FONT_COUNT];
 } sandbox;
 
 /* A frame of a scene. */

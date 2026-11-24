@@ -43,6 +43,17 @@
  * shader measures its distance to the shape's edge. A shape whose edges lie
  * on whole pixels has crisp edges.
  *
+ * **Text** is laid out by the font module (badger/font_layout.h) at the
+ * view's scale, so text in logical units is drawn at the display's own
+ * pixels and stays crisp at any display scale. Its glyphs are rasterized
+ * once into the renderer's glyph atlas, a single-channel texture, and each
+ * is drawn as a quad of the atlas's coverage times the text's color, on a
+ * whole pixel; the atlas's subpixel bins keep the pen's fractions of a
+ * pixel. Glyphs changed in the atlas are copied to its texture before the
+ * frame's 2D is drawn, and when the atlas fills and clears partway through
+ * a frame, the frame's glyphs are found again. A font drawn with stays open
+ * until the frame ends; tb_canvas_forget_font() comes before it closes.
+ *
  * @par Threading
  * Stage-owned: every function is called on the thread that renders, as the
  * renderer's are, except those marked thread-safe.
@@ -51,6 +62,7 @@
 #define TB_CANVAS_H
 
 #include "badger/api.h"
+#include "badger/font_layout.h"
 #include "badger/math.h"
 #include "badger/renderer.h"
 #include "badger/rhi.h"
@@ -128,6 +140,7 @@ typedef struct tb_canvas_stats
     size_t dropped; /**< Quads not drawn: the frame's uploads were full, or the device
                        has no bindless resources, which the canvas needs. */
     uint32_t draws; /**< Draw calls they took: one for all of them, or none. */
+    size_t glyphs;  /**< Of the quads, the glyphs of text. */
 } tb_canvas_stats;
 
 /* ---------------------------------------------------------------------------
@@ -236,6 +249,52 @@ TB_API void tb_canvas_draw_image(tb_renderer *renderer, const tb_image *image, t
 /** @brief A sprite.
  * @param sprite Required; copied. Its image, if any, alive until the frame ends. */
 TB_API void tb_canvas_draw_sprite(tb_renderer *renderer, const tb_canvas_sprite *sprite);
+
+/**
+ * @brief Text, laid out by tb_font_layout_text() and drawn with its box's
+ * top left at `position`.
+ *
+ * The text is laid out at `size` times the view's scale in pixels, and
+ * each glyph is drawn on a whole pixel, its baseline on a whole row.
+ *
+ * @param font Required; open until the frame ends.
+ * @param text UTF-8; copied as it is laid out.
+ * @param size The size in the canvas's units to the em: 16 in a logical
+ * view is 16 pixels at 100% and 24 at 150%. A size that is not a positive
+ * finite number draws nothing.
+ * @param position The top left of the text's box of lines, in the canvas's
+ * units: its first baseline is the font's ascent below it.
+ * @param color Straight alpha; zero alpha draws nothing.
+ * @param options Optional; NULL is every default. `wrap_width` is in the
+ * canvas's units; `pixel_size` is the font's own size in pixels, which a
+ * pixel font is drawn at whole multiples of, after the view's scale.
+ */
+TB_API void tb_canvas_draw_text(tb_renderer *renderer, const tb_font *font, tb_text text,
+                                float size, tb_vec2 position, tb_vec4 color,
+                                const tb_font_layout_options *options);
+
+/**
+ * @brief Measure text as tb_canvas_draw_text() would draw it in the current
+ * view, without drawing it.
+ * @param font Required.
+ * @param text UTF-8.
+ * @param size As tb_canvas_draw_text() takes it.
+ * @param options Optional; as tb_canvas_draw_text() takes them.
+ * @return The widest line and the lines' height, in the canvas's units.
+ */
+TB_API tb_vec2 tb_canvas_measure_text(const tb_renderer *renderer, const tb_font *font,
+                                      tb_text text, float size,
+                                      const tb_font_layout_options *options);
+
+/**
+ * @brief Forget the glyphs of a font, before it closes: the glyph atlas
+ * keeps glyphs by their font's address, which a font opened later may
+ * reuse. Clears the whole atlas, whose glyphs are then drawn again as text
+ * asks for them.
+ * @param font The font to forget; NULL forgets every font.
+ * @par Threading Outside a frame, on the thread that renders.
+ */
+TB_API void tb_canvas_forget_font(tb_renderer *renderer, const tb_font *font);
 
 /** @brief What the canvas drew in the last frame that ended.
  * @param stats Required; filled. */

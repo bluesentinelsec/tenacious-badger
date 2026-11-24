@@ -36,6 +36,11 @@
  * everything. It may be called from any thread between a frame's begin and
  * its end.
  *
+ * **Labels** (tb_debug_text()) are text at a point in the world, drawn by
+ * the canvas over everything, in the debug font that
+ * tb_renderer_set_debug_font() chooses, or else in the font of the UI role
+ * of the engine's font catalog (badger/font_catalog.h).
+ *
  * **Conventions** are the engine's (docs/math.md): right-handed, Y up, a
  * camera looking down −Z, and reversed depth.
  *
@@ -49,11 +54,13 @@
 #include "badger/api.h"
 #include "badger/math.h"
 #include "badger/rhi.h"
+#include "badger/text.h"
 
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
+struct tb_font;
 struct tb_log;
 struct tb_window;
 
@@ -78,6 +85,9 @@ typedef struct tb_renderer_options
     /** Where messages go, the RHI's validation included; NULL drops them.
      * Borrowed until the renderer is destroyed. */
     struct tb_log *log;
+    /** Pixels a side of the glyph atlas, the texture the canvas draws text
+     * from: from 16 to the device's largest texture; 0 for 1024. */
+    uint32_t glyph_atlas_size;
 } tb_renderer_options;
 
 /** @brief How a camera projects. */
@@ -336,5 +346,24 @@ TB_API void tb_debug_axes(tb_renderer *renderer, tb_mat4 transform, float size, 
  * @par Threading Thread-safe. */
 TB_API void tb_debug_arrow(tb_renderer *renderer, tb_vec3 from, tb_vec3 to, tb_vec4 color,
                            unsigned flags);
+
+/**
+ * @brief Choose the font labels are drawn in (tb_debug_text()). Until one
+ * is chosen, labels are drawn at 14 units in the font of the UI role of the
+ * engine's font catalog, opened the first time a label is drawn; in a
+ * build that carries no fonts, they are not drawn.
+ * @param font Open while the renderer draws with it; NULL for the default.
+ * Call tb_canvas_forget_font() before closing it.
+ * @param size Its size in the window's logical units to the em; more than 0.
+ */
+TB_API void tb_renderer_set_debug_font(tb_renderer *renderer, const struct tb_font *font,
+                                       float size);
+
+/** @brief A label at a point in the world this frame: text centered on
+ * where the point is drawn, over everything, in the debug font. A point
+ * behind the camera is not drawn.
+ * @param text UTF-8; copied.
+ * @par Threading Thread-safe. */
+TB_API void tb_debug_text(tb_renderer *renderer, tb_vec3 position, tb_text text, tb_vec4 color);
 
 #endif
