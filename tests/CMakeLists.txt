@@ -99,6 +99,7 @@ set(TB_TEST_CASE_SOURCES
     shader/shader_compile_test.c
     ${TB_SHADER_REFLECTION_SOURCE}
     rhi/rhi_test.c
+    shader/shader_dxil_test.c
     shader/shader_preprocess_test.c
     vfs/vfs_test.c
     framework/selftest/checks_test.c
@@ -159,11 +160,13 @@ set(TB_INTERNAL_TEST_CASE_SOURCES
     jobs/deque_test.c
     rhi/rhi_device_test.c
     shader/shader_check_test.c
+    shader/shader_dxc_test.c
     shader/shader_form_test.c
     shader/shader_parse_test.c)
 set(TB_ENGINE_SOURCES ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES} ${TB_JOBS_SOURCES}
     ${TB_CODEC_SOURCES} ${TB_SERIALIZE_SOURCES} ${TB_VFS_SOURCES} ${TB_SETTINGS_SOURCES}
-    ${TB_WINDOW_SOURCES} ${TB_GAME_SOURCES} ${TB_SHADER_SOURCES} ${TB_RHI_SOURCES})
+    ${TB_WINDOW_SOURCES} ${TB_DXC_SOURCES} ${TB_GAME_SOURCES} ${TB_SHADER_SOURCES}
+    ${TB_RHI_SOURCES})
 
 # The arguments go to tb_add_tests.
 function(tb_add_internal_tests target)
@@ -342,6 +345,7 @@ tb_configure_target(tb_platform_default_probe)
 tb_make_standalone(tb_platform_default_probe)
 set(TB_PLATFORM_INTERFACE_HEADERS
     "${PROJECT_SOURCE_DIR}/include/badger/crash.h"
+    "${PROJECT_SOURCE_DIR}/include/badger/dxc.h"
     "${PROJECT_SOURCE_DIR}/include/badger/virtual_memory.h"
     "${PROJECT_SOURCE_DIR}/include/badger/file.h"
     "${PROJECT_SOURCE_DIR}/include/badger/library.h"

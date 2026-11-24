@@ -767,6 +767,59 @@ it is closed. The tests load a library the build puts beside them
 (`tests/platform/library_fixture.c`) on every platform, and one of the
 system's on each.
 
+## DXC
+
+Public declaration: `include/badger/dxc.h`. DXC, Microsoft's HLSL compiler,
+is the only compiler that writes DXIL, the bytecode D3D12 runs.
+`tb_dxc_open` loads it, `tb_dxc_compile` compiles HLSL into a signed DXIL
+container, `tb_dxc_release` lets a compile's output go, and `tb_dxc_close`
+unloads it. The shader module compiles for D3D12 through it (see
+[Shaders](shaders.md#compiling-for-d3d12-dxil)); most code calls
+`tb_shader_compile` instead.
+
+| Platform | Selected implementation | Behavior |
+| --- | --- | --- |
+| Windows | `src/platform/win32/dxc.c` | Loads `dxcompiler.dll` and `dxil.dll` at run time, and calls `IDxcCompiler3` through COM's C binding |
+| Linux / Steam Deck | `src/platform/posix/dxc.c` | Unavailable: DXIL runs only on D3D12 |
+| macOS | `src/platform/posix/dxc.c` | The same |
+
+**Where Windows finds DXC.** DXC is not part of Windows, and the engine does
+not ship it. Both libraries come from one directory, the first that has both:
+
+1. the executable's directory (`TB_LIBRARY_SEARCH_APPLICATION`), where a game
+   or a tool puts a copy of its own;
+2. the Windows SDK's redistributable directory, `Redist\D3D\x64` (`arm64` on
+   ARM) under the SDK's root, by its full path. The root is the registry's
+   `KitsRoot10` value of `HKLM\SOFTWARE\Microsoft\Windows Kits\Installed
+   Roots`, read with `RegGetValueW` from `advapi32.dll`, itself loaded from
+   the system directory.
+
+`dxil.dll` is loaded first. `dxcompiler.dll` loads it by name to sign what it
+compiles, and so finds the one already loaded, from the same directory.
+D3D12 refuses DXIL that is not signed. Development builds therefore compile
+shaders at run time wherever the Windows SDK is installed. A shipped game,
+whose shaders are compiled when it is built, needs no DXC.
+
+**Unavailable, never fatal.** A machine without DXC, or a directory with one
+library and not the other, gives `TB_DXC_UNAVAILABLE`. Its message says where
+DXC was looked for and what to do, and the renderer falls back to a backend
+that needs no DXIL. On Linux and macOS DXC is always unavailable, and this is
+not "not implemented": DXIL runs only on D3D12, which only Windows has. Those
+systems lack the capability; no work is missing, as for DLSS on macOS. (DXC
+builds for Linux too; compiling DXIL there, to cook a Windows game, can come
+later.)
+
+**The COM interface from C.** The Windows SDK's `dxcapi.h` declares DXC's
+interfaces only for C++. `src/platform/win32/dxc_api.h` declares the part the
+engine calls for C, as COM does: a struct whose first member points to the
+table of functions, in the order of `dxcapi.h`, with its GUIDs.
+
+**A compile** makes a compiler of its own, so compiles run on any number of
+threads with one `tb_dxc`. It reads no file (its source has no `#include`)
+and is always HLSL 2021. It is optimized (`-O3`), or with `TB_DXC_DEBUG`
+unoptimized, with the debug information embedded (`-Od -Zi -Qembed_debug`).
+The output holds the container and DXC's messages until it is released.
+
 ## Unsupported platforms
 
 Windows, Linux, and macOS are the supported platforms, and each implements

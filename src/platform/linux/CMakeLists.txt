@@ -55,3 +55,10 @@ set(TB_WINDOW_SOURCES
     CACHE INTERNAL "Selected windowing sources")
 target_sources(badger PRIVATE ${TB_WINDOW_SOURCES})
 target_sources(badger_static PRIVATE ${TB_WINDOW_SOURCES})
+
+# DXC, which is unavailable here: DXIL runs only on D3D12. It is built on the
+# foundation modules, as windowing is.
+set(TB_DXC_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/../posix/dxc.c"
+    CACHE INTERNAL "Selected DXC sources")
+target_sources(badger PRIVATE ${TB_DXC_SOURCES})
+target_sources(badger_static PRIVATE ${TB_DXC_SOURCES})
