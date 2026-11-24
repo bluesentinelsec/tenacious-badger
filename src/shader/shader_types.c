@@ -502,20 +502,31 @@ static const char *object_name(tb_shader_types *types, const tb_shader_type *pro
         const char *const heap = heap_name(probe->object);
         return heap != NULL ? heap : member_name(types, probe);
     }
+    /* An object whose template names an element always has one; without
+     * one, it is named as it is written alone. */
+    const char *const element = probe->element != NULL ? probe->element->name : NULL;
     switch (info->template_kind)
     {
     case TB_SHADER_TEMPLATE_NONE:
         return info->name;
     case TB_SHADER_TEMPLATE_ELEMENT:
     case TB_SHADER_TEMPLATE_STRUCTURE:
-        return tb_fmt_string(&types->allocator, "%s<%s>", info->name, probe->element->name);
+        if (element == NULL)
+        {
+            return info->name;
+        }
+        return tb_fmt_string(&types->allocator, "%s<%s>", info->name, element);
     case TB_SHADER_TEMPLATE_SAMPLES:
     case TB_SHADER_TEMPLATE_PATCH:
+        if (element == NULL)
+        {
+            return info->name;
+        }
         if (probe->length == 0)
         {
-            return tb_fmt_string(&types->allocator, "%s<%s>", info->name, probe->element->name);
+            return tb_fmt_string(&types->allocator, "%s<%s>", info->name, element);
         }
-        return tb_fmt_string(&types->allocator, "%s<%s, %u>", info->name, probe->element->name,
+        return tb_fmt_string(&types->allocator, "%s<%s, %u>", info->name, element,
                              (unsigned)probe->length);
     case TB_SHADER_TEMPLATE_FLAGS:
         if (probe->second_length == 0)
