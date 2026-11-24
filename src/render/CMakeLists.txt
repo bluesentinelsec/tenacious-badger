@@ -11,6 +11,7 @@ set(TB_RENDER_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/mesh_shapes.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/render_graph.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/renderer.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/skin_vertices.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/skinning.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/sky.c"
     CACHE INTERNAL "Renderer sources")

@@ -14,7 +14,12 @@ relocatable CMake metadata. Debug SDKs include available symbols. See
 [library consumption](consuming.md) for integration details. Each archive has native product metadata and
 icons, its engine library, license/notice, launch instructions, and build metadata.
 The Windows runtime is statically linked; macOS uses a bundled Frameworks
-directory; Linux uses `$ORIGIN/lib`. Exports contain no third-party packages,
+directory; Linux uses `$ORIGIN/lib`. The shader libraries the build writes
+(`bin/Shaders/d3d12.tbsl` on Windows) travel in `Shaders/` beside the
+executable, or in `Burrow.app/Contents/Resources/Shaders` on macOS, where
+Burrow finds them: a Release build compiles no shaders at run time
+(`shaders.runtime_compile` is off), so it draws only with what they hold. The
+export's check requires each to match the build's. Exports contain no third-party packages,
 SDKs, tests, or sanitizer runtimes. macOS minimum deployment is 13; Linux records
 the build's libc baseline. See [release notes](release-notes.md) for current scope
 and signing limitations.

@@ -101,5 +101,5 @@ with tempfile.TemporaryDirectory(prefix='tb-burrow-settings-') as temporary:
     # In a window where there is a display, and with an error saying how to
     # run without one where there is not.
     status, out, err = run(*common, '--set', 'developer.frame_count=10',
-                           '--set', 'display.window_mode=windowed')
+                           '--set', 'display.window_mode=windowed', '--renderer=null')
     expect(status == 0 or 'no window' in err, f'windowed: status {status}', err)

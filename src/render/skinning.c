@@ -1,12 +1,18 @@
-/* Skinned meshes: their vertices on the GPU, the frame's skinned draws with
- * their joint matrices in the frame's uploads, and the compute pass that
- * skins them into a buffer the scene pass draws from. */
+/* Skinned meshes: their vertices on the GPU and in memory, the frame's
+ * skinned draws with their joint matrices in the frame's uploads, and the
+ * compute pass that skins them into a buffer the scene pass draws from; or,
+ * where the GPU cannot skin, their vertices skinned on the CPU into the
+ * frame's uploads. */
 #include "renderer_internal.h"
 
 #include "badger/assert.h"
 #include "badger/fatal.h"
+#include "badger/fmt.h"
+#include "badger/log.h"
 #include "badger/memory.h"
 #include "badger/skinning.h"
+
+#include <string.h>
 
 /* Bytes of a vertex as the skinning shader reads it, and as it writes it. */
 #define TB_SKIN_SOURCE_BYTES 56u
@@ -20,6 +26,8 @@
 /* The least a frame's skinned vertices are given, so that frames of
  * different sizes share the render graph's pooled memory. */
 #define TB_SKIN_MIN_BUFFER ((uint64_t)64 * 1024)
+/* The alignment of a draw's vertices skinned on the CPU, in the uploads. */
+#define TB_SKIN_CPU_ALIGNMENT 16u
 
 TB_STATIC_ASSERT(sizeof(tb_skinned_vertex) == TB_SKIN_SOURCE_BYTES,
                  "a skinned vertex as the shader reads it");
@@ -35,6 +43,7 @@ struct tb_skinned_mesh
     tb_rhi_buffer source; /* its vertices as they were bound, read by index */
     uint32_t source_index;
     uint32_t vertex_count;
+    tb_skinned_vertex *bound; /* the same, for the CPU to skin */
 };
 
 /* A draw's skinning, as the skinning shader's SkinConstants lays it out. */
@@ -83,6 +92,8 @@ tb_skinned_mesh *tb_skinned_mesh_create(tb_renderer *renderer, const tb_skinned_
     mesh = tb_calloc(1, sizeof(*mesh));
     mesh->vertex_count = (uint32_t)vertex_count;
     mesh->mesh.index_count = (uint32_t)index_count;
+    mesh->bound = tb_calloc(vertex_count, sizeof(*mesh->bound));
+    memcpy(mesh->bound, vertices, vertex_bytes);
     tb_skinned_mesh_buffer(renderer,
                            &(tb_rhi_buffer_desc){.size = vertex_bytes,
                                                  .usage = TB_RHI_BUFFER_SHADER_READ,
@@ -134,6 +145,7 @@ void tb_skinned_mesh_destroy(tb_renderer *renderer, tb_skinned_mesh *mesh)
     }
     tb_rhi_buffer_destroy(renderer->device, mesh->source);
     tb_rhi_buffer_destroy(renderer->device, mesh->mesh.indices);
+    tb_free(mesh->bound);
     tb_free(mesh);
 }
 
@@ -153,26 +165,19 @@ static void tb_renderer_add_skin(tb_renderer *renderer, const tb_renderer_skin *
     renderer->skin_count++;
 }
 
-void tb_renderer_draw_skinned(tb_renderer *renderer, const tb_skinned_draw *draw)
+/* Give a draw's mesh to the skinning pass, its joints to the frame's
+ * uploads: where in the frame's skinned vertices the pass writes it, or
+ * UINT64_MAX when the uploads have no room for its joints. */
+static uint64_t tb_renderer_skin_on_gpu(tb_renderer *renderer, const tb_skinned_draw *draw)
 {
-    const tb_skinned_mesh *mesh = NULL;
+    const tb_skinned_mesh *const mesh = draw->mesh;
     tb_renderer_skin skin = {0};
-    tb_renderer_draw added = {0};
 
-    TB_ASSERT(renderer != NULL && draw != NULL && draw->mesh != NULL && draw->joints != NULL);
-    TB_ASSERT_MSG(draw->joint_count > 0 && draw->joint_count <= TB_SKIN_MAX_JOINTS,
-                  "a skinned draw of from 1 to 65536 joints");
-    TB_ASSERT_MSG(renderer->in_frame, "a skinned mesh drawn outside a frame");
-    mesh = draw->mesh;
-    if (renderer->skin_pipeline.generation == 0)
-    {
-        return;
-    }
     skin.joints =
         tb_renderer_upload(renderer, draw->joints, draw->joint_count * sizeof(tb_mat4), 16);
     if (skin.joints == UINT64_MAX)
     {
-        return; /* the frame's uploads ran out */
+        return UINT64_MAX;
     }
     skin.source = mesh->source_index;
     skin.vertex_count = mesh->vertex_count;
@@ -180,6 +185,49 @@ void tb_renderer_draw_skinned(tb_renderer *renderer, const tb_skinned_draw *draw
     skin.output = renderer->skinned_bytes;
     renderer->skinned_bytes += (uint64_t)mesh->vertex_count * TB_SKIN_OUTPUT_BYTES;
     tb_renderer_add_skin(renderer, &skin);
+    return skin.output;
+}
+
+/* Skin a draw's vertices on the CPU into the frame's uploads: where they
+ * are, or UINT64_MAX when the uploads have no room for them. */
+static uint64_t tb_renderer_skin_on_cpu(tb_renderer *renderer, const tb_skinned_draw *draw)
+{
+    const tb_skinned_mesh *const mesh = draw->mesh;
+    const size_t vertex_count = mesh->vertex_count;
+    const size_t bytes = vertex_count * sizeof(tb_mesh_vertex);
+
+    if (bytes > tb_renderer_upload_room(renderer, TB_SKIN_CPU_ALIGNMENT))
+    {
+        return UINT64_MAX;
+    }
+    if (vertex_count > renderer->cpu_skinned_capacity)
+    {
+        renderer->cpu_skinned =
+            tb_realloc_array(renderer->cpu_skinned, vertex_count, sizeof(*renderer->cpu_skinned));
+        renderer->cpu_skinned_capacity = vertex_count;
+    }
+    tb_skin_vertices(mesh->bound, vertex_count, draw->joints, draw->joint_count,
+                     renderer->cpu_skinned);
+    return tb_renderer_upload(renderer, renderer->cpu_skinned, bytes, TB_SKIN_CPU_ALIGNMENT);
+}
+
+void tb_renderer_draw_skinned(tb_renderer *renderer, const tb_skinned_draw *draw)
+{
+    const tb_skinned_mesh *mesh = NULL;
+    tb_renderer_draw added = {0};
+    uint64_t offset = 0;
+
+    TB_ASSERT(renderer != NULL && draw != NULL && draw->mesh != NULL && draw->joints != NULL);
+    TB_ASSERT_MSG(draw->joint_count > 0 && draw->joint_count <= TB_SKIN_MAX_JOINTS,
+                  "a skinned draw of from 1 to 65536 joints");
+    TB_ASSERT_MSG(renderer->in_frame, "a skinned mesh drawn outside a frame");
+    mesh = draw->mesh;
+    offset = renderer->skin_on_cpu ? tb_renderer_skin_on_cpu(renderer, draw)
+                                   : tb_renderer_skin_on_gpu(renderer, draw);
+    if (offset == UINT64_MAX)
+    {
+        return; /* the frame's uploads ran out */
+    }
     if (draw->material != NULL)
     {
         added = tb_renderer_material_draw(&mesh->mesh, draw->transform, draw->material);
@@ -192,7 +240,8 @@ void tb_renderer_draw_skinned(tb_renderer *renderer, const tb_skinned_draw *draw
                                    .shading = draw->shading};
     }
     added.skinned = true;
-    added.skinned_offset = skin.output;
+    added.skinned_on_cpu = renderer->skin_on_cpu;
+    added.skinned_offset = offset;
     tb_renderer_add_draw(renderer, &added);
 }
 
@@ -267,28 +316,60 @@ void tb_renderer_skinning_record(tb_renderer *renderer, tb_skinning_recording *r
  * The renderer's part.
  * ------------------------------------------------------------------------- */
 
-tb_rhi_result tb_renderer_skinning_create(tb_renderer *renderer, tb_rhi_error *error)
+/* Say where the renderer skins, and why. */
+static void tb_renderer_skinning_log(const tb_renderer *renderer)
+{
+    tb_skinning_info info = {0};
+
+    if (renderer->log == NULL)
+    {
+        return;
+    }
+    tb_renderer_skinning_info(renderer, &info);
+    (void)tb_log_printf(renderer->log, TB_LOG_INFO, "renderer", "skinning on the %s: %s",
+                        tb_skinning_path_name(info.path), info.reason);
+}
+
+/* The skinning pipeline, or why the GPU cannot skin. */
+static void tb_renderer_skinning_pipeline(tb_renderer *renderer)
 {
     tb_rhi_shader shader = {0};
+    tb_rhi_error error = TB_RHI_ERROR_INIT;
     tb_rhi_result result = TB_RHI_OK;
 
     if ((renderer->info.features & TB_RHI_FEATURE_BINDLESS) == 0)
     {
-        /* The skinning shader reaches vertices and joints by index; without,
-         * skinned meshes are not drawn. */
-        return TB_RHI_OK;
+        /* The skinning shader reaches vertices and joints by index. */
+        (void)tb_fmt_buffer(renderer->skin_unavailable, sizeof(renderer->skin_unavailable), "%s",
+                            "the device has no bindless resources");
+        return;
     }
     result = tb_renderer_shader(renderer, "/Engine/Private/Skinning.hlsl", NULL, "MainCS",
-                                TB_RHI_STAGE_COMPUTE, &shader, error);
+                                TB_RHI_STAGE_COMPUTE, &shader, &error);
     if (result == TB_RHI_OK)
     {
         result = tb_rhi_compute_pipeline_create(
             renderer->device,
             &(tb_rhi_compute_pipeline_desc){.compute = shader, .name = "skinning"},
-            &renderer->skin_pipeline, error);
+            &renderer->skin_pipeline, &error);
     }
     tb_rhi_shader_destroy(renderer->device, shader);
-    return result;
+    /* coverage-off: the shader is the renderer's own, so only a broken backend refuses it */
+    if (result != TB_RHI_OK)
+    {
+        (void)tb_fmt_buffer(renderer->skin_unavailable, sizeof(renderer->skin_unavailable),
+                            "the skinning pipeline could not be made: %s", error.message);
+    }
+    /* coverage-on */
+}
+
+tb_rhi_result tb_renderer_skinning_create(tb_renderer *renderer, tb_rhi_error *error)
+{
+    (void)error;
+    tb_renderer_skinning_pipeline(renderer);
+    renderer->skin_on_cpu = renderer->skin_unavailable[0] != '\0';
+    tb_renderer_skinning_log(renderer);
+    return TB_RHI_OK;
 }
 
 void tb_renderer_skinning_destroy(tb_renderer *renderer)
@@ -296,10 +377,53 @@ void tb_renderer_skinning_destroy(tb_renderer *renderer)
     tb_rhi_pipeline_destroy(renderer->device, renderer->skin_pipeline);
     tb_free(renderer->skins);
     renderer->skins = NULL;
+    tb_free(renderer->cpu_skinned);
+    renderer->cpu_skinned = NULL;
+}
+
+/* Whether the CPU skins the next frame. */
+static bool tb_renderer_skins_on_cpu(const tb_renderer *renderer)
+{
+    return renderer->skin_cpu_forced || renderer->skin_unavailable[0] != '\0';
 }
 
 void tb_renderer_skinning_begin_frame(tb_renderer *renderer)
 {
+    const bool on_cpu = tb_renderer_skins_on_cpu(renderer);
+
     renderer->skin_count = 0;
     renderer->skinned_bytes = 0;
+    if (on_cpu != renderer->skin_on_cpu)
+    {
+        renderer->skin_on_cpu = on_cpu;
+        tb_renderer_skinning_log(renderer);
+    }
+}
+
+/* ---------------------------------------------------------------------------
+ * Which path skins.
+ * ------------------------------------------------------------------------- */
+
+void tb_renderer_skinning_info(const tb_renderer *renderer, tb_skinning_info *info)
+{
+    bool on_cpu = false;
+
+    TB_ASSERT(renderer != NULL && info != NULL);
+    on_cpu = renderer->in_frame ? renderer->skin_on_cpu : tb_renderer_skins_on_cpu(renderer);
+    info->path = on_cpu ? TB_SKINNING_CPU : TB_SKINNING_GPU;
+    info->reason = "a compute pass";
+    if (renderer->skin_unavailable[0] != '\0')
+    {
+        info->reason = renderer->skin_unavailable;
+    }
+    else if (on_cpu)
+    {
+        info->reason = "forced";
+    }
+}
+
+void tb_renderer_force_cpu_skinning(tb_renderer *renderer, bool force)
+{
+    TB_ASSERT(renderer != NULL);
+    renderer->skin_cpu_forced = force;
 }
