@@ -360,6 +360,32 @@ size_t tb_shader_form_function_count(const tb_shader_form *form)
     return tb_array_length(form->functions);
 }
 
+uint32_t tb_shader_form_patch_constant_function(const tb_shader_form *form, uint32_t function)
+{
+    const tb_shader_form_function *const named = tb_shader_form_function_at(form, function);
+    const char *name = NULL;
+    const size_t attribute_count = tb_array_length(named->attributes);
+    for (size_t index = 0; index < attribute_count; index++)
+    {
+        const tb_shader_form_attribute *const attribute =
+            TB_ARRAY_AT(named->attributes, tb_shader_form_attribute, index);
+        if (tb_str_equal(attribute->name, "patchconstantfunc") && attribute->argument_count == 1 &&
+            attribute->arguments[0].kind == TB_SHADER_FORM_ARGUMENT_STRING)
+        {
+            name = attribute->arguments[0].text;
+        }
+    }
+    const size_t count = tb_shader_form_function_count(form);
+    for (size_t index = 0; name != NULL && index < count; index++)
+    {
+        if (tb_str_equal(tb_shader_form_function_at(form, (uint32_t)index)->name, name))
+        {
+            return (uint32_t)index;
+        }
+    }
+    return TB_SHADER_FORM_NONE;
+}
+
 uint32_t tb_shader_form_add_parameter(tb_shader_form_function *function,
                                       const tb_shader_form_parameter *parameter)
 {

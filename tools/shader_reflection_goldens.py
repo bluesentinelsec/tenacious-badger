@@ -185,7 +185,8 @@ def reflect(dxc, shader):
             lines = text.read().splitlines()
     stage = arguments.group(1).split('-T')[1].split()[0][:2]
     report = (bindings(lines) + signature(lines, 'Input signature:', 'input', stage == 'ps') +
-              signature(lines, 'Output signature:', 'output', False) + nested_buffers(lines) +
+              signature(lines, 'Output signature:', 'output', False) +
+              signature(lines, 'Patch Constant signature:', 'patch', False) + nested_buffers(lines) +
               features(lines))
     return '\n'.join(sorted(report)) + '\n'
 

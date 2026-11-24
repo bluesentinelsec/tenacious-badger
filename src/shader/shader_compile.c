@@ -135,7 +135,9 @@ static bool copy_reflection(tb_arena *arena, const tb_shader_reflection *reflect
 {
     *out = *reflection;
     if (!copy_signature(arena, reflection->inputs, reflection->input_count, &out->inputs) ||
-        !copy_signature(arena, reflection->outputs, reflection->output_count, &out->outputs))
+        !copy_signature(arena, reflection->outputs, reflection->output_count, &out->outputs) ||
+        !copy_signature(arena, reflection->patch_constants, reflection->patch_constant_count,
+                        &out->patch_constants))
     {
         return false;
     }

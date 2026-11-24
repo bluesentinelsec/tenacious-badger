@@ -1,4 +1,5 @@
-/* The part of a form one entry point runs: the functions it calls, the
+/* The part of a form one entry point runs: the functions it calls (and a
+ * hull shader's patch-constant function), the
  * globals they use, and the initializer when it sets one of those globals,
  * copied into a form of its own. Reflection describes that form, and each
  * backend writes it, so what an entry point does not use is neither bound
@@ -137,6 +138,15 @@ bool tb_shader_form_extract(const tb_shader_form *form, uint32_t entry_point, tb
     state.globals = TB_ARENA_NEW_ARRAY(arena, bool, global_count + 1);
     state.pending = TB_ARENA_NEW_ARRAY(arena, uint32_t, function_count + 1);
     reach_function(&state, entry->function);
+    /* A hull shader runs its patch-constant function too. */
+    const uint32_t patch_constants =
+        entry->stage == TB_SHADER_FORM_STAGE_HULL
+            ? tb_shader_form_patch_constant_function(form, entry->function)
+            : TB_SHADER_FORM_NONE;
+    if (patch_constants != TB_SHADER_FORM_NONE)
+    {
+        reach_function(&state, patch_constants);
+    }
     scan(&state);
     const bool keeps_initializer =
         form->initializer != TB_SHADER_FORM_NONE &&
