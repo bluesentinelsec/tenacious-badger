@@ -23,15 +23,15 @@ static void trap_fatal(const tb_fatal_report *report, void *context)
 }
 
 /* What the log heard, each record on a line of its own. */
-typedef struct heard
+typedef struct transcript
 {
     char text[4096];
     size_t length;
-} heard;
+} transcript;
 
 static bool hear(void *context, const tb_log_record *record)
 {
-    heard *const log = context;
+    transcript *const log = context;
     const size_t room = sizeof(log->text) - log->length - 1;
     const size_t length = record->length < room ? record->length : room;
 
@@ -49,7 +49,7 @@ static bool hear(void *context, const tb_log_record *record)
 typedef struct listener
 {
     tb_log *log;
-    heard heard;
+    transcript heard;
 } listener;
 
 static void start_listening(listener *opened)

@@ -378,7 +378,7 @@ tb_rhi_result tb_rhi_device_create_on(const tb_rhi_backend_table *table,
     return TB_RHI_OK;
 }
 
-/* What a failure to make a device says, after "rhi: " and the backend. */
+/* The next step that "not implemented" names, for a setting and for a flag. */
 #define TB_RHI_NEXT_STEP "set graphics.renderer to auto, or run with --renderer=auto"
 
 /* Write to the options' log, where there is one. */
