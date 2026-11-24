@@ -1,21 +1,74 @@
-/* DXC's messages read back as the compiler's own diagnostics, and the
- * profile each stage compiles for. DXC compiles the text the preprocessor
+/* What a DXIL compile asks of DXC, and DXC's messages read back as the
+ * compiler's own diagnostics. DXC compiles the text the preprocessor
  * rendered, so the places it names are in that text: each must lead back to
- * the token there, in the shader's own file. These cases give the reader
- * messages written as DXC writes them, so they run on every platform, DXC
- * or not; tests/shader/shader_dxil_test.c compiles with DXC itself. */
+ * the token there, in the shader's own file. These cases stand in for DXC,
+ * with messages written as DXC writes them, so they run on every platform,
+ * DXC or not; tests/shader/shader_dxil_test.c compiles with DXC itself. */
 #include "badger/arena.h"
 #include "badger/array.h"
+#include "badger/dxc.h"
+#include "badger/fmt.h"
 #include "badger/shader.h"
 #include "badger/str.h"
 #include "shader/shader_dxil.h"
 #include "shader/shader_internal.h"
 #include "tb_test.h"
 
+#include <string.h>
+
 #define MAIN_PATH "/Engine/Private/Main.hlsl"
 #define COMMON_PATH "/Engine/Public/Common.hlsli"
 
-TB_TEST(shader_dxc_messages, each_stage_has_its_profile)
+/* What the stand-in for DXC was asked, and what it answers. One case uses
+ * it at a time. */
+static struct
+{
+    tb_dxc *dxc;
+    char name[64];
+    char profile[16];
+    char entry_point[16];
+    unsigned flags;
+    char source[512];
+    tb_dxc_result result;
+    const char *messages;
+    const char *error;
+    size_t released;
+} fake;
+
+static const unsigned char fake_code[] = {'D', 'X', 'B', 'C', 1, 2, 3, 4};
+
+static tb_dxc_result fake_compile(tb_dxc *dxc, const tb_dxc_request *request, tb_dxc_output *output,
+                                  tb_dxc_error *error)
+{
+    fake.dxc = dxc;
+    (void)tb_fmt_buffer(fake.name, sizeof(fake.name), "%s", request->name);
+    (void)tb_fmt_buffer(fake.profile, sizeof(fake.profile), "%s", request->profile);
+    (void)tb_fmt_buffer(fake.entry_point, sizeof(fake.entry_point), "%s", request->entry_point);
+    fake.flags = request->flags;
+    (void)tb_fmt_buffer(fake.source, sizeof(fake.source), "%.*s", (int)request->source_length,
+                        request->source);
+    const tb_dxc_output empty = {0};
+    *output = empty;
+    output->messages = fake.messages;
+    output->messages_length = tb_str_length(fake.messages);
+    if (fake.result == TB_DXC_OK)
+    {
+        output->code = fake_code;
+        output->code_size = sizeof(fake_code);
+    }
+    error->result = fake.result;
+    (void)tb_fmt_buffer(error->message, sizeof(error->message), "%s", fake.error);
+    return fake.result;
+}
+
+static void fake_release(tb_dxc_output *output)
+{
+    const tb_dxc_output empty = {0};
+    *output = empty;
+    fake.released++;
+}
+
+TB_TEST(shader_dxc, each_stage_has_its_profile)
 {
     static const struct
     {
@@ -116,7 +169,7 @@ static const char common_text[] = "float4 scale(float x)\n"
                                   "    return x * 0.5;\n"
                                   "}\n";
 
-TB_TEST(shader_dxc_messages, places_in_the_text_lead_back_to_the_sources)
+TB_TEST(shader_dxc, places_in_the_text_lead_back_to_the_sources)
 {
     rendered_source source = {0};
     render_source(&source, main_text, common_text);
@@ -160,7 +213,7 @@ TB_TEST(shader_dxc_messages, places_in_the_text_lead_back_to_the_sources)
     tb_arena_destroy(source.arena);
 }
 
-TB_TEST(shader_dxc_messages, what_names_no_place_in_the_text_keeps_its_own)
+TB_TEST(shader_dxc, what_names_no_place_in_the_text_keeps_its_own)
 {
     rendered_source source = {0};
     render_source(&source, main_text, common_text);
@@ -192,7 +245,7 @@ TB_TEST(shader_dxc_messages, what_names_no_place_in_the_text_keeps_its_own)
     tb_arena_destroy(source.arena);
 }
 
-TB_TEST(shader_dxc_messages, a_source_of_no_tokens_has_no_places)
+TB_TEST(shader_dxc, a_source_of_no_tokens_has_no_places)
 {
     rendered_source source = {0};
     render_source(&source, "// nothing but a comment\n", "");
@@ -202,5 +255,92 @@ TB_TEST(shader_dxc_messages, a_source_of_no_tokens_has_no_places)
     /* No messages, no diagnostics. */
     TB_TEST_EXPECT_UINT(read_messages(&source, ""), ==, 0);
     TB_TEST_EXPECT_UINT(tb_array_length(source.diagnostics), ==, 1);
+    tb_arena_destroy(source.arena);
+}
+
+/* -------------------------------------------------------------------------
+ * What a DXIL compile asks of DXC.
+ * ------------------------------------------------------------------------- */
+
+static bool write_with_fake(rendered_source *source, const tb_shader_compile_request *request,
+                            tb_shader_dxil *dxil)
+{
+    const tb_shader_dxc_functions functions = {fake_compile, fake_release};
+    fake.released = 0;
+    const bool written = tb_shader_write_dxil(&source->unit, request, &functions, source->arena,
+                                              source->diagnostics, dxil);
+    TB_TEST_EXPECT_UINT(fake.released, ==, 1);
+    return written;
+}
+
+TB_TEST(shader_dxc, dxc_compiles_the_rendered_text_for_the_stage_and_model)
+{
+    rendered_source source = {0};
+    render_source(&source, main_text, common_text);
+    tb_shader_compile_request request = {0};
+    request.source.path = MAIN_PATH;
+    request.entry_point = "main";
+    request.stage = TB_SHADER_STAGE_PIXEL;
+    request.target = TB_SHADER_TARGET_DXIL;
+    request.dxc = (tb_dxc *)&fake;
+    fake.result = TB_DXC_OK;
+    fake.messages = "Engine/Private/Main.hlsl:7:9: warning: a warning\n";
+    fake.error = "";
+    tb_shader_dxil dxil = {0};
+    TB_TEST_EXPECT_UINT(write_with_fake(&source, &request, &dxil), ==, true);
+    /* DXC gets the request's DXC, the main path without the `/` it would
+     * read as an option, the profile of the default shader model, and the
+     * text without `#line`, whose places the offsets lead back from. */
+    TB_TEST_EXPECT_POINTER(fake.dxc, ==, (tb_dxc *)&fake);
+    TB_TEST_EXPECT_STRING(fake.name, ==, "Engine/Private/Main.hlsl");
+    TB_TEST_EXPECT_STRING(fake.profile, ==, "ps_6_6");
+    TB_TEST_EXPECT_STRING(fake.entry_point, ==, "main");
+    TB_TEST_EXPECT_UINT(fake.flags, ==, 0);
+    TB_TEST_EXPECT_STRING(fake.source, ==, source.rendered.text);
+    /* The code is copied out of DXC's output, which is released. */
+    TB_TEST_REQUIRE_UINT(dxil.code_size, ==, sizeof(fake_code));
+    TB_TEST_EXPECT_POINTER(dxil.code, !=, (const void *)fake_code);
+    TB_TEST_EXPECT_BYTES(dxil.code, fake_code, sizeof(fake_code));
+    TB_TEST_EXPECT_UINT(((uintptr_t)dxil.code) % 4, ==, 0);
+    TB_TEST_EXPECT_UINT(dxil.error_count, ==, 0);
+    expect_diagnostic(&source, 0, TB_SHADER_WARNING, MAIN_PATH, 4, 16, "a warning");
+
+    request.stage = TB_SHADER_STAGE_COMPUTE;
+    request.shader_model = TB_SHADER_MODEL(6, 0);
+    request.flags = TB_SHADER_COMPILE_DEBUG;
+    fake.messages = "";
+    TB_TEST_EXPECT_UINT(write_with_fake(&source, &request, &dxil), ==, true);
+    TB_TEST_EXPECT_STRING(fake.profile, ==, "cs_6_0");
+    TB_TEST_EXPECT_UINT(fake.flags, ==, TB_DXC_DEBUG);
+    tb_arena_destroy(source.arena);
+}
+
+TB_TEST(shader_dxc, a_failed_compile_always_says_why)
+{
+    rendered_source source = {0};
+    render_source(&source, main_text, common_text);
+    tb_shader_compile_request request = {0};
+    request.source.path = MAIN_PATH;
+    request.entry_point = "main";
+    request.stage = TB_SHADER_STAGE_PIXEL;
+    request.target = TB_SHADER_TARGET_DXIL;
+    request.dxc = (tb_dxc *)&fake;
+    fake.result = TB_DXC_FAILED;
+    fake.messages = "Engine/Private/Main.hlsl:3:8: error: in the included file\n";
+    fake.error = "Engine/Private/Main.hlsl:3:8: error: in the included file";
+    tb_shader_dxil dxil = {0};
+    TB_TEST_EXPECT_UINT(write_with_fake(&source, &request, &dxil), ==, false);
+    TB_TEST_EXPECT_POINTER(dxil.code, ==, NULL);
+    TB_TEST_EXPECT_UINT(dxil.error_count, ==, 1);
+    expect_diagnostic(&source, 0, TB_SHADER_ERROR, COMMON_PATH, 3, 12, "in the included file");
+
+    /* DXC failed, and its messages said nothing: its error says it. */
+    fake.result = TB_DXC_NO_MEMORY;
+    fake.messages = "";
+    fake.error = "DXC failed to compile (HRESULT 0x8007000e)";
+    TB_TEST_EXPECT_UINT(write_with_fake(&source, &request, &dxil), ==, false);
+    TB_TEST_EXPECT_UINT(dxil.error_count, ==, 1);
+    expect_diagnostic(&source, 1, TB_SHADER_ERROR, "", 0, 0,
+                      "dxc: DXC failed to compile (HRESULT 0x8007000e)");
     tb_arena_destroy(source.arena);
 }

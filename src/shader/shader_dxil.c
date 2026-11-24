@@ -14,6 +14,11 @@
 /* What DXC calls its summary of validation errors, which the errors follow. */
 #define VALIDATION_SUMMARY "validation errors"
 
+unsigned tb_shader_dxil_model(const tb_shader_compile_request *request)
+{
+    return request->shader_model == 0 ? TB_SHADER_MODEL_DEFAULT : request->shader_model;
+}
+
 void tb_shader_dxil_profile(tb_shader_stage stage, unsigned shader_model, char *buffer)
 {
     static const char *const prefixes[] = {"vs", "ps", "gs", "hs", "ds", "cs", "as", "ms"};
@@ -258,4 +263,59 @@ size_t tb_shader_dxc_diagnostics(const char *messages, size_t length, const char
         begin = next;
     }
     return errors;
+}
+
+/* -------------------------------------------------------------------------
+ * Compiling.
+ * ------------------------------------------------------------------------- */
+
+bool tb_shader_write_dxil(const tb_shader_unit *unit, const tb_shader_compile_request *request,
+                          const tb_shader_dxc_functions *dxc, tb_arena *arena,
+                          tb_array *diagnostics, tb_shader_dxil *dxil)
+{
+    const tb_allocator allocator = tb_arena_allocator(arena);
+    tb_array *const text = TB_ARRAY_CREATE(&allocator, char);
+    tb_array *const offsets = TB_ARRAY_CREATE(&allocator, size_t);
+    tb_shader_render(unit, false, text, offsets);
+    char profile[TB_SHADER_PROFILE_CAPACITY] = {0};
+    tb_shader_dxil_profile(request->stage, tb_shader_dxil_model(request), profile);
+    tb_dxc_request dxc_request = {0};
+    dxc_request.source = tb_array_data(text);
+    dxc_request.source_length = tb_array_length(text);
+    /* The main path without its first `/`, which DXC would read as an option. */
+    dxc_request.name = request->source.path + 1;
+    dxc_request.profile = profile;
+    dxc_request.entry_point = request->entry_point;
+    dxc_request.flags = (request->flags & TB_SHADER_COMPILE_DEBUG) != 0 ? TB_DXC_DEBUG : 0u;
+    tb_dxc_output output = {0};
+    tb_dxc_error error = TB_DXC_ERROR_INIT;
+    const tb_dxc_result result = dxc->compile(request->dxc, &dxc_request, &output, &error);
+    tb_shader_rendered rendered = {0};
+    rendered.unit = unit;
+    rendered.text = dxc_request.source;
+    rendered.length = dxc_request.source_length;
+    rendered.offsets = tb_array_data(offsets);
+    const tb_shader_dxil empty = {0};
+    *dxil = empty;
+    dxil->error_count = tb_shader_dxc_diagnostics(output.messages, output.messages_length,
+                                                  dxc_request.name, &rendered, arena, diagnostics);
+    if (result == TB_DXC_OK)
+    {
+        void *const code = tb_arena_alloc(arena, output.code_size, sizeof(uint32_t));
+        memcpy(code, output.code, output.code_size);
+        dxil->code = code;
+        dxil->code_size = output.code_size;
+    }
+    else if (dxil->error_count == 0)
+    {
+        /* A failure must say why, though DXC's messages did not. */
+        tb_shader_diagnostic diagnostic = {0};
+        diagnostic.severity = TB_SHADER_ERROR;
+        diagnostic.path = "";
+        diagnostic.message = tb_fmt_string(&allocator, "dxc: %s", error.message);
+        tb_array_push(diagnostics, &diagnostic);
+        dxil->error_count = 1;
+    }
+    dxc->release(&output);
+    return result == TB_DXC_OK;
 }

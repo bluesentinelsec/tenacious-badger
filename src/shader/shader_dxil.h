@@ -7,9 +7,13 @@
 
 #include "badger/arena.h"
 #include "badger/array.h"
+#include "badger/dxc.h"
 #include "badger/shader.h"
 
 #include <stddef.h>
+
+/* A compile request's shader model, its default applied. */
+unsigned tb_shader_dxil_model(const tb_shader_compile_request *request);
 
 /* Bytes a profile needs, its NUL included: `lib_255_255`. */
 #define TB_SHADER_PROFILE_CAPACITY ((size_t)16)
@@ -38,5 +42,33 @@ typedef struct tb_shader_rendered
 size_t tb_shader_dxc_diagnostics(const char *messages, size_t length, const char *name,
                                  const tb_shader_rendered *rendered, tb_arena *arena,
                                  tb_array *diagnostics);
+
+/* How a DXIL compile reaches DXC: badger/dxc.h's tb_dxc_compile() and
+ * tb_dxc_release() in the engine, or a test's own, which stand in for DXC
+ * where there is none. */
+typedef struct tb_shader_dxc_functions
+{
+    tb_dxc_result (*compile)(tb_dxc *dxc, const tb_dxc_request *request, tb_dxc_output *output,
+                             tb_dxc_error *error);
+    void (*release)(tb_dxc_output *output);
+} tb_shader_dxc_functions;
+
+/* What writing DXIL gave. */
+typedef struct tb_shader_dxil
+{
+    const void *code; /* The DXIL container, aligned to 4 bytes; NULL after an error. */
+    size_t code_size;
+    size_t error_count; /* Of the diagnostics appended. */
+} tb_shader_dxil;
+
+/* Compile a unit, one that checked, into DXIL for a request whose target was
+ * checked: render its text without `#line`, so that each place DXC names is
+ * a place in the text, which the tokens' offsets lead back to the sources;
+ * compile that with `dxc`, passed the request's DXC; and append DXC's errors
+ * and warnings to `diagnostics` (of tb_shader_diagnostic). The code and the
+ * diagnostics' strings are in `arena`. Returns false after an error. */
+bool tb_shader_write_dxil(const tb_shader_unit *unit, const tb_shader_compile_request *request,
+                          const tb_shader_dxc_functions *dxc, tb_arena *arena,
+                          tb_array *diagnostics, tb_shader_dxil *dxil);
 
 #endif

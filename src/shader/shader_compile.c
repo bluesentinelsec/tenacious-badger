@@ -297,12 +297,6 @@ static bool reflect_entry(compile *state, const tb_shader_compile_request *reque
  * Writing for a target.
  * ------------------------------------------------------------------------- */
 
-/* The request's shader model, its default applied. */
-static unsigned shader_model_of(const tb_shader_compile_request *request)
-{
-    return request->shader_model == 0 ? TB_SHADER_MODEL_DEFAULT : request->shader_model;
-}
-
 /* What is wrong with the request's target, or NULL when nothing is. */
 static const char *check_target(const tb_shader_compile_request *request)
 {
@@ -318,58 +312,24 @@ static const char *check_target(const tb_shader_compile_request *request)
     {
         return "a compile for DXIL needs DXC";
     }
-    if ((shader_model_of(request) >> 8) != 6)
+    if ((tb_shader_dxil_model(request) >> 8) != 6)
     {
         return "DXIL is written for shader model 6";
     }
     return NULL;
 }
 
-/* Compile the preprocessed source into DXIL; false after an error. DXC
- * reads the text without `#line`, so each place it names is a place in the
- * text, which the tokens' offsets lead back to the sources. */
+/* Compile the preprocessed source into DXIL with DXC; false after an error. */
 static bool write_dxil(compile *state, const tb_shader_compile_request *request)
 {
-    tb_array *const text = TB_ARRAY_CREATE(&state->allocator, char);
-    tb_array *const offsets = TB_ARRAY_CREATE(&state->allocator, size_t);
-    tb_shader_render(&state->unit, false, text, offsets);
-    char profile[TB_SHADER_PROFILE_CAPACITY] = {0};
-    tb_shader_dxil_profile(request->stage, shader_model_of(request), profile);
-    tb_dxc_request dxc_request = {0};
-    dxc_request.source = tb_array_data(text);
-    dxc_request.source_length = tb_array_length(text);
-    /* The main path without its first `/`, which DXC would read as an option. */
-    dxc_request.name = request->source.path + 1;
-    dxc_request.profile = profile;
-    dxc_request.entry_point = request->entry_point;
-    dxc_request.flags = (request->flags & TB_SHADER_COMPILE_DEBUG) != 0 ? TB_DXC_DEBUG : 0u;
-    tb_dxc_output output = {0};
-    tb_dxc_error error = TB_DXC_ERROR_INIT;
-    const tb_dxc_result result = tb_dxc_compile(request->dxc, &dxc_request, &output, &error);
-    tb_shader_rendered rendered = {0};
-    rendered.unit = &state->unit;
-    rendered.text = dxc_request.source;
-    rendered.length = dxc_request.source_length;
-    rendered.offsets = tb_array_data(offsets);
-    const size_t errors =
-        tb_shader_dxc_diagnostics(output.messages, output.messages_length, dxc_request.name,
-                                  &rendered, state->scratch, state->diagnostics);
-    state->error_count += errors;
-    if (result == TB_DXC_OK)
-    {
-        void *const code = tb_arena_alloc(state->scratch, output.code_size, sizeof(uint32_t));
-        memcpy(code, output.code, output.code_size);
-        state->code = code;
-        state->code_size = output.code_size;
-    }
-    else if (errors == 0)
-    {
-        /* coverage-off: DXC says in its messages why a compile failed */
-        add_error(state, tb_fmt_string(&state->allocator, "dxc: %s", error.message));
-        /* coverage-on */
-    }
-    tb_dxc_release(&output);
-    return result == TB_DXC_OK;
+    const tb_shader_dxc_functions dxc = {tb_dxc_compile, tb_dxc_release};
+    tb_shader_dxil dxil = {0};
+    const bool written = tb_shader_write_dxil(&state->unit, request, &dxc, state->scratch,
+                                              state->diagnostics, &dxil);
+    state->error_count += dxil.error_count;
+    state->code = dxil.code;
+    state->code_size = dxil.code_size;
+    return written;
 }
 
 tb_shader_result tb_shader_compile(const tb_shader_compile_request *request, tb_arena *arena,
