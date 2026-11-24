@@ -80,8 +80,8 @@ static void append_line_marker(tb_array *text, const tb_shader_unit *unit,
     append_string(text, "\"\n");
 }
 
-/* Lay out the tokens as text, each on the line it came from where that can be kept. */
-static void render(const tb_shader_unit *unit, bool line_markers, tb_array *text)
+void tb_shader_render(const tb_shader_unit *unit, bool line_markers, tb_array *text,
+                      tb_array *offsets)
 {
     const tb_shader_token *previous = NULL;
     bool line_open = false; /* Something is written on the current line. */
@@ -144,6 +144,11 @@ static void render(const tb_shader_unit *unit, bool line_markers, tb_array *text
             {
                 append_string(text, " ");
             }
+        }
+        if (offsets != NULL)
+        {
+            const size_t offset = tb_array_length(text);
+            tb_array_push(offsets, &offset);
         }
         append(text, token->text, token->length);
         line_open = true;
@@ -255,7 +260,7 @@ tb_shader_result tb_shader_preprocess(const tb_shader_preprocess_request *reques
     tb_array *const text = TB_ARRAY_CREATE(&allocator, char);
     if (result == TB_SHADER_OK)
     {
-        render(&unit, (request->flags & TB_SHADER_LINE_MARKERS) != 0, text);
+        tb_shader_render(&unit, (request->flags & TB_SHADER_LINE_MARKERS) != 0, text, NULL);
     }
     const size_t length = tb_array_length(text);
     const char *const bytes = length == 0 ? "" : tb_array_data(text);

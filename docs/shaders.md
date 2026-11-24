@@ -48,7 +48,8 @@ and writes each backend's input from that:
 | Software | the compiler's own form | the software renderer, on the CPU |
 
 DXC is the only compiler that writes DXIL, so D3D12 goes through it, and gets
-each new shader model as Microsoft ships it. SPIR-V, GLSL and Metal are
+each new shader model as Microsoft ships it (see
+[Compiling for D3D12](#compiling-for-d3d12-dxil)). SPIR-V, GLSL and Metal are
 written by our compiler, so compiling at run time works on Linux, the Steam
 Deck and macOS with no SDK installed.
 
@@ -487,6 +488,69 @@ and compares, on every platform, and a Windows job of CI runs the tool with
 `--check`, so a DXC that reports otherwise fails the build. To add a case, add
 a shader, run the tool, and review what it wrote.
 
+## Compiling for D3D12: DXIL
+
+A compile's `target` says what it writes for a GPU besides the reflection,
+which every compile gives. `TB_SHADER_TARGET_DXIL` writes DXIL for D3D12
+through DXC, which `tb_dxc_open()` loads (see
+[DXC](platforms.md#dxc) for where it is found):
+
+```c
+tb_dxc *dxc = NULL;
+tb_dxc_error error = TB_DXC_ERROR_INIT;
+if (tb_dxc_open(&dxc, &error) != TB_DXC_OK)
+{
+    /* Unavailable: no DXC on this machine, or not Windows. error.message says why. */
+}
+tb_shader_compile_request request = {0};
+request.source.path = "/Engine/Private/DeferredLighting.hlsl";
+request.source.loader = &loader;
+request.entry_point = "MainPS";
+request.stage = TB_SHADER_STAGE_PIXEL;
+request.target = TB_SHADER_TARGET_DXIL;
+request.shader_model = TB_SHADER_MODEL(6, 6); /* 0 is the same: the default */
+request.dxc = dxc;
+tb_shader_compiled compiled = {0};
+if (tb_shader_compile(&request, arena, &compiled) == TB_SHADER_OK)
+{
+    /* compiled.code, compiled.code_size: the bytecode a pipeline state takes. */
+}
+tb_dxc_close(dxc);
+```
+
+- **What DXC compiles.** The source as the preprocessor wrote it, once it
+  has checked as the compiler checks it: defines applied and includes read,
+  so DXC reads no file. Writing HLSL from the compiler's own form, as every
+  other backend's output is written, comes later.
+- **How.** As HLSL 2021 (`-HV 2021`), for the entry point (`-E`) and the
+  stage's profile in the shader model (`-T ps_6_6`). A ray-tracing stage
+  compiles as a library (`lib_6_6`), every entry point of the source at once.
+  The shader model is `TB_SHADER_MODEL(major, minor)`, 6.6 by default, the
+  D3D12 baseline; a stage needs the model that brought it (6.5 for a mesh
+  shader), and DXC says so of one too old. A compile is optimized (`-O3`),
+  or with `TB_SHADER_COMPILE_DEBUG`, unoptimized with the debug information
+  PIX reads embedded (`-Od -Zi -Qembed_debug`).
+- **What comes back.** A DXBC container, signed by DXC's `dxil.dll`, holding
+  the program (`DXIL`), its signatures (`ISG1`, `OSG1`), its hash (`HASH`) and
+  its reflection, in the caller's arena, aligned to 4 bytes.
+- **DXC's errors and warnings** join the diagnostics, in the same form as
+  the compiler's own. DXC reads one text, with every included file in it,
+  and its validator ignores `#line`. So the text it gets has none: each
+  place DXC names, a line and a column of that text, leads to the token
+  there, and the diagnostic takes that token's file, line and column. An
+  error in an included file is reported in that file. DXC's notes, its
+  excerpts of the source and its summary of validation errors are left out;
+  an error it gives no place has none.
+- **The request.** A DXIL compile without DXC, an unknown target, and a
+  shader model before 6 are INVALID.
+
+The tests (`tests/shader/shader_dxil_test.c`) compile every shader of
+`tests/data/shader_reflection/` into DXIL and check each container: its size,
+its parts, and a hash that is not zero, which shows it is signed. They skip
+where DXC is unavailable. The way DXC's messages are read back is tested on
+every platform with messages written as DXC writes them
+(`tests/shader/shader_dxc_test.c`).
+
 
 
 ## Diagnostics
@@ -531,6 +595,6 @@ A file that holds a NUL byte is refused.
 
 ## Threading
 
-tb_shader_preprocess() is thread-safe when each call has its own arena and the
-loader is thread-safe. The VFS loader is, once mounting is done, because the
+tb_shader_preprocess() and tb_shader_compile() are thread-safe when each call
+has its own arena and the loader is thread-safe; compiles may share one DXC. The VFS loader is, once mounting is done, because the
 VFS reads from any number of threads at once.
