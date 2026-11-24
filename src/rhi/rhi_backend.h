@@ -173,6 +173,9 @@ typedef struct tb_rhi_backend_table
 /* The backend that accepts everything and draws nothing. */
 extern const tb_rhi_backend_table tb_rhi_null_backend;
 
+/* The Direct3D 12 backend, where the platform builds it. */
+extern const tb_rhi_backend_table tb_rhi_d3d12_backend;
+
 /* The table of a backend this platform builds, or NULL. */
 const tb_rhi_backend_table *tb_rhi_backend_table_of(tb_rhi_backend backend);
 

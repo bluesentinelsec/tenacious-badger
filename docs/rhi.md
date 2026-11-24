@@ -21,7 +21,7 @@ if (tb_rhi_device_create(&(tb_rhi_device_options){.backend = TB_RHI_BACKEND_AUTO
 | Backend | Status |
 | --- | --- |
 | `null` | Accepts every call and draws nothing, as Unreal's null RHI does: for servers, tools, and tests of what sits above the RHI. Buffers keep their bytes, and the GPU finishes each submission at once. |
-| `d3d12` | Planned first (#219). |
+| `d3d12` | Windows. Direct3D 12 through its COM C bindings, with `d3d12.dll` and `dxgi.dll` loaded at run time. Bindless where the device has Shader Model 6.6 and resource binding tier 3; the debug layer, its messages written to the log, with validation; flip-model swap chains that tear without vsync where the system allows. Tested on WARP. |
 | `d3d11`, `vulkan`, `opengl`, `metal`, `software` | Planned. |
 
 `auto` tries the platform's backends in order of preference (D3D12, Metal,
@@ -147,6 +147,16 @@ Everything is thread-safe but these: a command list is recorded by one
 thread at a time; a swap chain belongs to the thread that presents it; and
 `tb_rhi_device_destroy()` runs on the thread that made the device, once no
 other uses it.
+
+## Tests
+
+`tests/rhi/rhi_test.c` holds the device to its contracts on the null backend.
+`tests/rhi/rhi_d3d12_test.c` draws on WARP, the GPU Windows runs on the CPU,
+so every machine and CI runner draws the same pixels, and reads them back:
+clears, copies, a triangle, indexed vertices with depth, a texture sampled
+by index, a compute shader writing a buffer by index, and a swap chain. Its
+shaders are `tests/data/rhi/*.hlsl`, compiled to DXIL by
+`tools/make_rhi_test_shaders.py` with the Windows SDK's DXC and committed.
 
 ## Not yet
 
