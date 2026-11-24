@@ -1,0 +1,4 @@
+binding bound texture t0 1
+feature resource_heap
+input INDEX 0 uint 1 r0.x nointerpolation
+output SV_Target 0 float 4 r0.x

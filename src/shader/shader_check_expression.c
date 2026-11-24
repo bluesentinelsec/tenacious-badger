@@ -19,6 +19,30 @@ static bool is_error(const tb_shader_type *type)
     return type == NULL || type->type_class == TB_SHADER_CLASS_ERROR;
 }
 
+/* `ResourceDescriptorHeap` and `SamplerDescriptorHeap`. */
+static bool is_heap(const tb_shader_type *type)
+{
+    return type->type_class == TB_SHADER_CLASS_OBJECT &&
+           (type->object == TB_SHADER_OBJECT_RESOURCE_HEAP ||
+            type->object == TB_SHADER_OBJECT_SAMPLER_HEAP);
+}
+
+/* An element of a descriptor heap, which converts to a resource or a sampler. */
+static bool is_descriptor(const tb_shader_type *type)
+{
+    return type->type_class == TB_SHADER_CLASS_OBJECT &&
+           (type->object == TB_SHADER_OBJECT_RESOURCE_DESCRIPTOR ||
+            type->object == TB_SHADER_OBJECT_SAMPLER_DESCRIPTOR);
+}
+
+/* Whether a descriptor converts to `to`: a resource from the resource heap,
+ * a sampler from the sampler heap. */
+static bool descriptor_converts(const tb_shader_type *from, const tb_shader_type *to)
+{
+    return to->type_class == TB_SHADER_CLASS_OBJECT &&
+           tb_shader_descriptor_of(to->object) == from->object;
+}
+
 static const tb_shader_type *error_type(tb_shader_checker *checker)
 {
     return tb_shader_error_type(checker->types);
@@ -101,6 +125,10 @@ static conversion classify(tb_shader_checker *checker, const tb_shader_type *fro
     {
         return CONVERSION_IDENTITY;
     }
+    if (is_descriptor(from))
+    {
+        return descriptor_converts(from, to) ? CONVERSION_ALLOWED : CONVERSION_NONE;
+    }
     if (to->type_class == TB_SHADER_CLASS_ENUM || from->type_class == TB_SHADER_CLASS_ENUM)
     {
         /* An enum converts to its integer implicitly when unscoped; anything
@@ -174,6 +202,26 @@ static void warn_lost_fraction(tb_shader_checker *checker, const tb_shader_node 
                             value, to->name);
 }
 
+/* Why a value cannot convert implicitly: a resource from the sampler heap,
+ * or a sampler from the resource heap, names the heap it comes from. */
+static void explain_unconvertible(tb_shader_checker *checker, const tb_shader_node *node,
+                                  const tb_shader_type *from, const tb_shader_type *to)
+{
+    const bool is_other_heap = is_descriptor(from) && to->type_class == TB_SHADER_CLASS_OBJECT &&
+                               tb_shader_descriptor_of(to->object) != TB_SHADER_OBJECT_NONE;
+    if (is_other_heap)
+    {
+        const bool wants_sampler =
+            tb_shader_descriptor_of(to->object) == TB_SHADER_OBJECT_SAMPLER_DESCRIPTOR;
+        tb_shader_check_error(checker, node->location, "a '%s' comes from %s, not %s", to->name,
+                              wants_sampler ? "SamplerDescriptorHeap" : "ResourceDescriptorHeap",
+                              wants_sampler ? "ResourceDescriptorHeap" : "SamplerDescriptorHeap");
+        return;
+    }
+    tb_shader_check_error(checker, node->location, "cannot convert from '%s' to '%s'", from->name,
+                          to->name);
+}
+
 static tb_shader_node *convert_to(tb_shader_checker *checker, tb_shader_node *node,
                                   const tb_shader_type *type, bool warn)
 {
@@ -189,8 +237,7 @@ static tb_shader_node *convert_to(tb_shader_checker *checker, tb_shader_node *no
     }
     if (kind == CONVERSION_NONE)
     {
-        tb_shader_check_error(checker, node->location, "cannot convert from '%s' to '%s'",
-                              from->name, type->name);
+        explain_unconvertible(checker, node, from, type);
         return node;
     }
     if (kind == CONVERSION_TRUNCATES && warn)
@@ -797,6 +844,12 @@ int tb_shader_check_argument_cost(tb_shader_checker *checker, const tb_shader_ty
     {
         return 0;
     }
+    if (is_descriptor(from))
+    {
+        /* Every resource costs the same, so `f(Texture2D)` and `f(Buffer<float4>)`
+         * are ambiguous for a descriptor, as in DXC. */
+        return 1;
+    }
     const tb_shader_type *const view = tb_shader_check_arithmetic_view(checker, from);
     int shape = 0;
     if (kind == CONVERSION_TRUNCATES)
@@ -1057,6 +1110,21 @@ static const tb_shader_type *member_element(tb_shader_checker *checker, tb_shade
     return texture->element;
 }
 
+/* `ResourceDescriptorHeap[i]`: a descriptor, read-only, at an index of one
+ * component that converts to a `uint`, as DXC's operator[] of a heap takes. */
+static const tb_shader_type *heap_element(tb_shader_checker *checker, tb_shader_node *node,
+                                          const tb_shader_type *heap, const tb_shader_type *index)
+{
+    if (!is_one_component(index))
+    {
+        tb_shader_check_error(checker, node->right->location,
+                              "an index must be an integer, not '%s'", index->name);
+        return error_type(checker);
+    }
+    node->right = convert_to(checker, node->right, scalar(checker, TB_SHADER_SCALAR_UINT), true);
+    return heap->element;
+}
+
 static void check_index(tb_shader_checker *checker, tb_shader_node *node)
 {
     node->left = tb_shader_check_expression(checker, node->left);
@@ -1072,6 +1140,11 @@ static void check_index(tb_shader_checker *checker, tb_shader_node *node)
     if (is_texture_member(base))
     {
         node->checked = member_element(checker, node, base);
+        return;
+    }
+    if (is_heap(base))
+    {
+        node->checked = heap_element(checker, node, base, index);
         return;
     }
     if (base->type_class == TB_SHADER_CLASS_OBJECT)

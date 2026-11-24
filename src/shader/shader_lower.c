@@ -189,6 +189,13 @@ static uint32_t object_type(tb_shader_lowerer *lowerer, const tb_shader_type *ty
     {
         return tb_shader_lower_type(lowerer, type->element, location);
     }
+    /* An element of a descriptor heap is its index until it converts to a
+     * resource or a sampler, which takes it from the heap. */
+    if (object == TB_SHADER_OBJECT_RESOURCE_DESCRIPTOR ||
+        object == TB_SHADER_OBJECT_SAMPLER_DESCRIPTOR)
+    {
+        return tb_shader_form_scalar(lowerer->form, TB_SHADER_SCALAR_UINT);
+    }
 
     /* What a shader holds as a handle: a resource, a sampler, an
      * acceleration structure, a RayQuery, a geometry shader's stream, a

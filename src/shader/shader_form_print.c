@@ -151,6 +151,7 @@ static void put_operand(printer *out, uint32_t index)
     case TB_SHADER_FORM_INTRINSIC:
     case TB_SHADER_FORM_CALL_RESULT:
     case TB_SHADER_FORM_TEXEL:
+    case TB_SHADER_FORM_HEAP:
         putf(out, "%%%u", (unsigned)index);
         return;
     }
@@ -268,6 +269,11 @@ static void put_computation(printer *out, const tb_shader_form_expression *expre
             put(out, expression->index == 1 ? " mip " : " sample ");
             put_operand(out, expression->operands[2]);
         }
+        return;
+    case TB_SHADER_FORM_HEAP:
+        put(out,
+            expression->index == TB_SHADER_FORM_HEAP_SAMPLER ? "sampler_heap " : "resource_heap ");
+        put_operand(out, expression->operands[0]);
         return;
     case TB_SHADER_FORM_LITERAL:
     case TB_SHADER_FORM_ARGUMENT:
