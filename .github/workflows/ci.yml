@@ -261,7 +261,9 @@ jobs:
   coverage:
     name: Coverage / ${{ matrix.platform }} / ${{ matrix.compiler }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    # A job's limit is about three times its usual time: enough for a runner
+    # several times slower than usual, while a hang still ends the job.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -314,7 +316,9 @@ jobs:
   coverage-windows:
     name: Coverage / Windows / MSVC
     runs-on: windows-2025-vs2026
-    timeout-minutes: 20
+    # A job's limit is about three times its usual time: enough for a runner
+    # several times slower than usual, while a hang still ends the job.
+    timeout-minutes: 45
     env:
       CMAKE_GENERATOR: Visual Studio 18 2026
       CMAKE_GENERATOR_PLATFORM: x64
