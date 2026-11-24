@@ -50,6 +50,8 @@ struct tb_dxc
     tb_library *signer;   /* dxil.dll */
     tb_library *compiler; /* dxcompiler.dll */
     tb_dxc_create_instance_function create;
+    tb_dxc_create_instance_function create_validator; /* dxil.dll's */
+    char version[TB_DXC_VERSION_CAPACITY];
 };
 
 struct tb_dxc_compiled
@@ -58,6 +60,8 @@ struct tb_dxc_compiled
     tb_dxc_blob *code;
     tb_dxc_blob *messages;
 };
+
+typedef void(WINAPI *co_task_mem_free_function)(LPVOID memory);
 
 typedef LONG(WINAPI *reg_get_value_function)(HKEY key, LPCWSTR subkey, LPCWSTR value, DWORD flags,
                                              LPDWORD type, PVOID data, LPDWORD size);
@@ -152,11 +156,14 @@ static bool load_from(tb_dxc *dxc, const char *directory, tb_library_error *erro
     char signer[PATH_CAPACITY] = {0};
     char compiler[PATH_CAPACITY] = {0};
     tb_library_function create = NULL;
+    tb_library_function create_validator = NULL;
     (void)tb_fmt_buffer(signer, sizeof(signer), "%sdxil.dll", prefix);
     (void)tb_fmt_buffer(compiler, sizeof(compiler), "%sdxcompiler.dll", prefix);
     if (tb_library_open(signer, search, &dxc->signer, error) != TB_LIBRARY_OK ||
         tb_library_open(compiler, search, &dxc->compiler, error) != TB_LIBRARY_OK ||
         tb_library_find_function(dxc->compiler, "DxcCreateInstance", &create, error) !=
+            TB_LIBRARY_OK ||
+        tb_library_find_function(dxc->signer, "DxcCreateInstance", &create_validator, error) !=
             TB_LIBRARY_OK)
     {
         tb_library_close(dxc->compiler);
@@ -166,6 +173,7 @@ static bool load_from(tb_dxc *dxc, const char *directory, tb_library_error *erro
         return false;
     }
     dxc->create = (tb_dxc_create_instance_function)create;
+    dxc->create_validator = (tb_dxc_create_instance_function)create_validator;
     return true;
 }
 
@@ -194,6 +202,85 @@ static bool load_from_sdk(tb_dxc *dxc, char *why, size_t why_capacity)
     return true;
 }
 
+/* -------------------------------------------------------------------------
+ * Naming DXC.
+ * ------------------------------------------------------------------------- */
+
+/* Write one part of DXC, `name`, which `create` makes as `clsid`, as
+ * IDxcVersionInfo2 tells it: `dxil 1.8 (4775, 1b4f3c2de)`; its version alone
+ * where it tells no commit, and `unknown` where it tells nothing. Returns the
+ * bytes written. */
+static size_t describe_part(tb_dxc_create_instance_function create, const GUID *clsid,
+                            const char *name, co_task_mem_free_function free_memory, char *buffer,
+                            size_t capacity)
+{
+    tb_dxc_version_info *info = NULL;
+    tb_dxc_version_info *info2 = NULL;
+    UINT32 major = 0;
+    UINT32 minor = 0;
+    UINT32 commits = 0;
+    char *hash = NULL;
+    size_t written = 0;
+    if (FAILED(create(clsid, &tb_dxc_iid_version_info, (void **)&info)) ||
+        FAILED(info->lpVtbl->GetVersion(info, &major, &minor)))
+    {
+        /* coverage-off: every DXC since 1.0 tells its version */
+        written = tb_fmt_buffer(buffer, capacity, "%s unknown", name);
+        goto cleanup;
+        /* coverage-on */
+    }
+    if (free_memory != NULL &&
+        SUCCEEDED(info->lpVtbl->QueryInterface(info, &tb_dxc_iid_version_info2, (void **)&info2)) &&
+        SUCCEEDED(info2->lpVtbl->GetCommitInfo(info2, &commits, &hash)) && hash != NULL)
+    {
+        written = tb_fmt_buffer(buffer, capacity, "%s %u.%u (%u, %s)", name, (unsigned)major,
+                                (unsigned)minor, (unsigned)commits, hash);
+        free_memory(hash);
+        goto cleanup;
+    }
+    /* The Windows SDK's validator tells no commit. */
+    written = tb_fmt_buffer(buffer, capacity, "%s %u.%u", name, (unsigned)major, (unsigned)minor);
+cleanup:
+    if (info2 != NULL)
+    {
+        (void)info2->lpVtbl->Release(info2);
+    }
+    if (info != NULL)
+    {
+        (void)info->lpVtbl->Release(info);
+    }
+    return written < capacity ? written : capacity - 1;
+}
+
+/* Name the compiler and the validator loaded, into `dxc->version`. The
+ * commit's hash is DXC's to give and the caller's to free, with ole32.dll's
+ * CoTaskMemFree(); without it, the hash is left out. */
+static void describe(tb_dxc *dxc)
+{
+    tb_library *ole32 = NULL;
+    tb_library_function function = NULL;
+    co_task_mem_free_function free_memory = NULL;
+    if (tb_library_open("ole32.dll", TB_LIBRARY_SEARCH_SYSTEM, &ole32, NULL) == TB_LIBRARY_OK &&
+        tb_library_find_function(ole32, "CoTaskMemFree", &function, NULL) == TB_LIBRARY_OK)
+    {
+        free_memory = (co_task_mem_free_function)function;
+    }
+    const size_t written = describe_part(dxc->create, &tb_dxc_clsid_compiler, "dxcompiler",
+                                         free_memory, dxc->version, sizeof(dxc->version));
+    (void)tb_fmt_buffer(dxc->version + written, sizeof(dxc->version) - written, " ");
+    if (written + 1 < sizeof(dxc->version))
+    {
+        (void)describe_part(dxc->create_validator, &tb_dxc_clsid_validator, "dxil", free_memory,
+                            dxc->version + written + 1, sizeof(dxc->version) - written - 1);
+    }
+    tb_library_close(ole32);
+}
+
+const char *tb_dxc_version(const tb_dxc *dxc)
+{
+    return dxc->version;
+}
+
 tb_dxc_result tb_dxc_open(tb_dxc **dxc, tb_dxc_error *error)
 {
     tb_dxc *const loaded = tb_calloc(1, sizeof(*loaded));
@@ -211,6 +298,7 @@ tb_dxc_result tb_dxc_open(tb_dxc **dxc, tb_dxc_error *error)
                     why);
         /* coverage-on */
     }
+    describe(loaded);
     *dxc = loaded;
     succeed(error);
     return TB_DXC_OK;

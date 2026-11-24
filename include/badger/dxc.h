@@ -184,6 +184,27 @@ TB_API tb_dxc_result tb_dxc_compile(tb_dxc *dxc, const tb_dxc_request *request,
  */
 TB_API void tb_dxc_release(tb_dxc_output *output);
 
+/** @brief Bytes of the text tb_dxc_version() gives at most, its NUL included. */
+#define TB_DXC_VERSION_CAPACITY 256
+
+/**
+ * @brief Name the DXC loaded: the version of its compiler and of its
+ * validator, which signs, each with the number and the hash of the commit
+ * it was built from where it tells them (IDxcVersionInfo2), as the Windows
+ * SDK's compiler does and its validator does not:
+ * `dxcompiler 1.8 (4792, 23992152) dxil 1.8`.
+ *
+ * Two DXCs that name themselves alike compile a source alike, so the shader
+ * cache keys on this (badger/shader_cache.h). A part DXC does not tell is
+ * named `unknown`.
+ *
+ * @param dxc Required, open.
+ * @return UTF-8, NUL-terminated, shorter than TB_DXC_VERSION_CAPACITY;
+ * owned by `dxc`, and valid until tb_dxc_close().
+ * @par Threading Thread-safe.
+ */
+TB_API const char *tb_dxc_version(const tb_dxc *dxc);
+
 /** @brief Name a result, for a log or a message: "unavailable".
  * @param result Any value; one that is no result is named "unknown result".
  * @return A string with static storage duration; never NULL.

@@ -1,6 +1,7 @@
 # The shader compiler: HLSL written once, for every backend.
 set(TB_SHADER_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/shader.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shader_cache.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_check.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_check_call.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_check_constant.c"
@@ -16,6 +17,7 @@ set(TB_SHADER_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_form_verify.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_intrinsics.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_lexer.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shader_library.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_lower.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_lower_expression.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_methods.c"
