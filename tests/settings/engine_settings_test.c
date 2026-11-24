@@ -110,3 +110,69 @@ TB_TEST(settings_engine, every_default_writes_and_reads_back)
     }
     tb_settings_destroy(settings);
 }
+
+/* As in Unreal, the overall quality is what the groups are: a game starts at
+ * high, setting it sets every group and anisotropic filtering, and a player
+ * who changes one group, or the filtering, has a custom quality. */
+TB_TEST(settings_engine, the_overall_quality_is_what_the_quality_groups_are)
+{
+    tb_settings *const settings = tb_settings_create();
+    tb_engine_settings engine = {0};
+
+    tb_engine_settings_add(settings, NULL, &engine);
+    TB_TEST_EXPECT_UINT(tb_engine_settings_quality(&engine), ==, TB_GRAPHICS_QUALITY_HIGH);
+
+    tb_engine_settings_set_quality(&engine, TB_GRAPHICS_QUALITY_LOW);
+    TB_TEST_EXPECT_UINT(tb_engine_settings_quality(&engine), ==, TB_GRAPHICS_QUALITY_LOW);
+    for (size_t index = 0; index < TB_QUALITY_GROUP_COUNT; index++)
+    {
+        TB_TEST_CONTEXT("%s", tb_setting_name(engine.graphics.quality[index]));
+        TB_TEST_EXPECT_UINT(tb_setting_choice(engine.graphics.quality[index]), ==,
+                            TB_GRAPHICS_QUALITY_LOW);
+        TB_TEST_EXPECT_UINT(tb_setting_source(engine.graphics.quality[index]), ==,
+                            TB_SETTING_LAYER_RUNTIME);
+    }
+    TB_TEST_EXPECT_STRING(
+        tb_setting_choice_name(engine.graphics.anisotropic_filtering,
+                               tb_setting_choice(engine.graphics.anisotropic_filtering)),
+        ==, "2x");
+
+    tb_engine_settings_set_quality(&engine, TB_GRAPHICS_QUALITY_ULTRA);
+    TB_TEST_EXPECT_UINT(tb_engine_settings_quality(&engine), ==, TB_GRAPHICS_QUALITY_ULTRA);
+    (void)tb_setting_set_choice(engine.graphics.quality[TB_QUALITY_GROUP_SHADOWS],
+                                TB_GRAPHICS_QUALITY_MEDIUM);
+    TB_TEST_EXPECT_UINT(tb_engine_settings_quality(&engine), ==, TB_GRAPHICS_QUALITY_CUSTOM);
+
+    tb_engine_settings_set_quality(&engine, TB_GRAPHICS_QUALITY_MEDIUM);
+    TB_TEST_EXPECT_UINT(tb_engine_settings_quality(&engine), ==, TB_GRAPHICS_QUALITY_MEDIUM);
+    (void)tb_setting_set_choice(engine.graphics.anisotropic_filtering, 0);
+    TB_TEST_EXPECT_UINT(tb_engine_settings_quality(&engine), ==, TB_GRAPHICS_QUALITY_CUSTOM);
+    tb_settings_destroy(settings);
+}
+
+/* The groups are named as their settings are, so a menu can list them. */
+TB_TEST(settings_engine, each_quality_group_is_a_setting_of_its_name)
+{
+    static const char *const names[TB_QUALITY_GROUP_COUNT] = {
+        "graphics.texture_quality",
+        "graphics.geometry_quality",
+        "graphics.shading_quality",
+        "graphics.shadow_quality",
+        "graphics.reflection_quality",
+        "graphics.light_quality",
+        "graphics.directional_occlusion_quality",
+        "graphics.particle_quality",
+        "graphics.decal_quality",
+        "graphics.water_quality",
+        "graphics.volumetric_quality"};
+    tb_settings *const settings = tb_settings_create();
+    tb_engine_settings engine = {0};
+
+    tb_engine_settings_add(settings, NULL, &engine);
+    for (size_t index = 0; index < TB_QUALITY_GROUP_COUNT; index++)
+    {
+        TB_TEST_EXPECT_STRING(tb_setting_name(engine.graphics.quality[index]), ==, names[index]);
+        TB_TEST_EXPECT_UINT(tb_setting_choice_count(engine.graphics.quality[index]), ==, 4);
+    }
+    tb_settings_destroy(settings);
+}

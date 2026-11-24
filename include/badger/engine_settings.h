@@ -51,6 +51,38 @@ typedef enum tb_vsync
     TB_VSYNC_ADAPTIVE /**< Wait for the display, unless a frame is late. */
 } tb_vsync;
 
+/** @brief The levels of a quality group and of the overall quality. */
+typedef enum tb_graphics_quality
+{
+    TB_GRAPHICS_QUALITY_LOW,
+    TB_GRAPHICS_QUALITY_MEDIUM,
+    TB_GRAPHICS_QUALITY_HIGH,
+    TB_GRAPHICS_QUALITY_ULTRA,
+    /** The groups are at different levels: the overall quality only. */
+    TB_GRAPHICS_QUALITY_CUSTOM
+} tb_graphics_quality;
+
+/**
+ * @brief The quality groups: each a setting `graphics.<group>_quality` of
+ * low, medium, high or ultra, which the overall quality sets together, as
+ * Unreal's scalability groups are.
+ */
+typedef enum tb_quality_group
+{
+    TB_QUALITY_GROUP_TEXTURES,              /**< `graphics.texture_quality` */
+    TB_QUALITY_GROUP_GEOMETRY,              /**< `graphics.geometry_quality` */
+    TB_QUALITY_GROUP_SHADING,               /**< `graphics.shading_quality` */
+    TB_QUALITY_GROUP_SHADOWS,               /**< `graphics.shadow_quality` */
+    TB_QUALITY_GROUP_REFLECTIONS,           /**< `graphics.reflection_quality` */
+    TB_QUALITY_GROUP_LIGHTS,                /**< `graphics.light_quality` */
+    TB_QUALITY_GROUP_DIRECTIONAL_OCCLUSION, /**< `graphics.directional_occlusion_quality` */
+    TB_QUALITY_GROUP_PARTICLES,             /**< `graphics.particle_quality` */
+    TB_QUALITY_GROUP_DECALS,                /**< `graphics.decal_quality` */
+    TB_QUALITY_GROUP_WATER,                 /**< `graphics.water_quality` */
+    TB_QUALITY_GROUP_VOLUMETRICS,           /**< `graphics.volumetric_quality` */
+    TB_QUALITY_GROUP_COUNT                  /**< The number of groups. */
+} tb_quality_group;
+
 /** @brief How the engine's settings are set up. */
 typedef struct tb_engine_settings_options
 {
@@ -78,6 +110,7 @@ typedef struct tb_engine_settings
             *window_height; /**< A window's height, in logical units; 0 to fit the display. */
         tb_setting *fullscreen_width;  /**< Fullscreen width in pixels; 0 for the display's own. */
         tb_setting *fullscreen_height; /**< Fullscreen height in pixels; 0 for the display's own. */
+        tb_setting *aspect_ratio;      /**< auto, 16_9, 16_10, 21_9, 32_9 or 4_3. */
         tb_setting *refresh_rate; /**< Fullscreen refresh rate in hertz; 0 for the display's. */
         tb_setting *vsync;        /**< A tb_vsync. */
         tb_setting *frame_limit;  /**< Frames a second at most; 0 for no limit. */
@@ -88,18 +121,25 @@ typedef struct tb_engine_settings
     /** Family `graphics`. */
     struct
     {
-        tb_setting *render_scale;          /**< Render resolution over the output's. */
-        tb_setting *upscaler;              /**< native, dlss, fsr, xess or metalfx. */
-        tb_setting *frame_generation;      /**< Generated frames between rendered ones. */
-        tb_setting *low_latency;           /**< off, on or boost: Reflex, Anti-Lag. */
-        tb_setting *lighting;              /**< raster, hybrid or path_tracing. */
-        tb_setting *anti_aliasing;         /**< off, fxaa or taa. */
-        tb_setting *texture_quality;       /**< low to ultra. */
-        tb_setting *shadow_quality;        /**< low to ultra. */
-        tb_setting *effects_quality;       /**< low to ultra. */
+        tb_setting *render_scale;       /**< Render resolution over the output's. */
+        tb_setting *dynamic_resolution; /**< Frames a second to hold; 0 for a fixed resolution. */
+        tb_setting *upscaler;           /**< native, dlss, fsr, xess or metalfx. */
+        /** native, quality, balanced, performance, ultra_performance, or custom
+         *  for `render_scale`. */
+        tb_setting *upscaler_mode;
+        tb_setting *sharpening;       /**< 0 to 1. */
+        tb_setting *frame_generation; /**< Generated frames between rendered ones. */
+        tb_setting *low_latency;      /**< off, on or boost: Reflex, Anti-Lag. */
+        tb_setting *lighting;         /**< raster, hybrid or path_tracing. */
+        tb_setting *anti_aliasing;    /**< off, fxaa or taa. */
+        /** Each quality group, low to ultra, by its tb_quality_group. */
+        tb_setting *quality[TB_QUALITY_GROUP_COUNT];
         tb_setting *anisotropic_filtering; /**< off to 16x. */
         tb_setting *field_of_view;         /**< Horizontal, in degrees, at 16:9. */
-        tb_setting *motion_blur;           /**< Blur with motion. */
+        tb_setting *motion_blur;           /**< off, low, medium or high. */
+        tb_setting *depth_of_field;        /**< Blur out of focus. */
+        tb_setting *chromatic_aberration;  /**< Fringe colors at the edges. */
+        tb_setting *film_grain;            /**< 0 to 1, 1 as the game was made. */
     } graphics;
     /** Family `audio`. */
     struct
@@ -199,5 +239,31 @@ TB_API void tb_engine_settings_add(tb_settings *settings, const tb_engine_settin
  */
 TB_API void tb_engine_settings_window_options(const tb_engine_settings *engine, const char *title,
                                               tb_window_options *options);
+
+/**
+ * @brief Set the overall quality: every quality group to `quality`, and
+ * anisotropic filtering from 2x at low to 16x at ultra, in the runtime
+ * layer, as an options menu's overall quality does.
+ *
+ * As in Unreal, the overall quality is not a setting of its own: it is what
+ * the groups are, so a player who changes one group has a custom quality,
+ * and their file keeps each group as they chose it.
+ *
+ * @param engine The engine's settings; required.
+ * @param quality A level from low to ultra; not custom.
+ * @par Threading Thread-safe, as setting each setting is; a reader may see
+ * some groups changed before the others.
+ */
+TB_API void tb_engine_settings_set_quality(const tb_engine_settings *engine,
+                                           tb_graphics_quality quality);
+
+/**
+ * @brief The overall quality: the level every quality group is at, with
+ * anisotropic filtering at that level's, or custom when they differ.
+ * @param engine The engine's settings; required.
+ * @return A tb_graphics_quality.
+ * @par Threading Thread-safe.
+ */
+TB_API tb_graphics_quality tb_engine_settings_quality(const tb_engine_settings *engine);
 
 #endif

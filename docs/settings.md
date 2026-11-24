@@ -173,6 +173,7 @@ Games add their own, such as difficulty.
 | `display.window_height` | integer, 0 to 16384 | `0`, to fit the display | [the window](windows.md) |
 | `display.fullscreen_width` | integer, 0 to 16384 | `0`, the display's own | [the window](windows.md) |
 | `display.fullscreen_height` | integer, 0 to 16384 | `0`, the display's own | [the window](windows.md) |
+| `display.aspect_ratio` | `auto`, `16_9`, `16_10`, `21_9`, `32_9`, `4_3` | `auto`, the display's own | the renderer and the options menu, to come |
 | `display.refresh_rate` | integer, 0 to 1000 | `0`, the display's own | [the window](windows.md) |
 | `display.vsync` | `off`, `on`, `adaptive` | `on` | the renderer, to come |
 | `display.frame_limit` | integer, 0 to 1000 | `0`, no limit | [the game loop](game-loop.md) |
@@ -188,17 +189,46 @@ window falls back to borderless and says so.
 | Setting | Type | Default | Honored by |
 | --- | --- | --- | --- |
 | `graphics.render_scale` | number, 0.25 to 2 | `1.0` | the renderer, to come |
+| `graphics.dynamic_resolution` | integer, 0 to 1000 frames a second | `0`, a fixed resolution | the renderer, to come |
 | `graphics.upscaler` | `native`, `dlss`, `fsr`, `xess`, `metalfx` | `native` | the renderer, to come |
+| `graphics.upscaler_mode` | `native`, `quality`, `balanced`, `performance`, `ultra_performance`, `custom` | `quality` | the renderer, to come |
+| `graphics.sharpening` | number, 0 to 1 | `0.5` | the renderer, to come |
 | `graphics.frame_generation` | boolean | `false` | the renderer, to come |
 | `graphics.low_latency` | `off`, `on`, `boost` | `off` | the renderer, to come |
 | `graphics.lighting` | `raster`, `hybrid`, `path_tracing` | `raster` | the renderer, to come |
 | `graphics.anti_aliasing` | `off`, `fxaa`, `taa` | `taa` | the renderer, to come |
 | `graphics.texture_quality` | `low`, `medium`, `high`, `ultra` | `high` | the renderer, to come |
+| `graphics.geometry_quality` | `low`, `medium`, `high`, `ultra` | `high` | the renderer, to come |
+| `graphics.shading_quality` | `low`, `medium`, `high`, `ultra` | `high` | the renderer, to come |
 | `graphics.shadow_quality` | `low`, `medium`, `high`, `ultra` | `high` | the renderer, to come |
-| `graphics.effects_quality` | `low`, `medium`, `high`, `ultra` | `high` | the renderer, to come |
+| `graphics.reflection_quality` | `low`, `medium`, `high`, `ultra` | `high` | the renderer, to come |
+| `graphics.light_quality` | `low`, `medium`, `high`, `ultra` | `high` | the renderer, to come |
+| `graphics.directional_occlusion_quality` | `low`, `medium`, `high`, `ultra` | `high` | the renderer, to come |
+| `graphics.particle_quality` | `low`, `medium`, `high`, `ultra` | `high` | the renderer, to come |
+| `graphics.decal_quality` | `low`, `medium`, `high`, `ultra` | `high` | the renderer, to come |
+| `graphics.water_quality` | `low`, `medium`, `high`, `ultra` | `high` | the renderer, to come |
+| `graphics.volumetric_quality` | `low`, `medium`, `high`, `ultra` | `high` | the renderer, to come |
 | `graphics.anisotropic_filtering` | `off`, `2x`, `4x`, `8x`, `16x` | `8x` | the renderer, to come |
 | `graphics.field_of_view` | number, 60 to 120 degrees | `90.0` | the renderer, to come |
-| `graphics.motion_blur` | boolean | `false` | the renderer, to come |
+| `graphics.motion_blur` | `off`, `low`, `medium`, `high` | `off` | the renderer, to come |
+| `graphics.depth_of_field` | boolean | `true` | the renderer, to come |
+| `graphics.chromatic_aberration` | boolean | `true` | the renderer, to come |
+| `graphics.film_grain` | number, 0 to 1 | `1.0`, as the game was made | the renderer, to come |
+
+The upscaler's mode sets the render scale as the vendors' modes do (`native`
+renders at the output's resolution, `ultra_performance` at a third of it),
+and `custom` uses `graphics.render_scale`. `graphics.dynamic_resolution`
+lowers the render resolution from there while frames are slower than it
+asks. Sharpening is the upscaler's own where one runs, and the engine's
+otherwise.
+
+**Quality.** The eleven `graphics.*_quality` settings are quality groups, as
+Unreal's scalability groups are, and the overall quality of an options menu
+is what they are, not a setting of its own. `tb_engine_settings_set_quality()`
+sets every group to one level, and anisotropic filtering from `2x` at low to
+`16x` at ultra; `tb_engine_settings_quality()` gives that level back, or
+custom once a player has changed a group or the filtering. A player's file
+keeps each group as they chose it.
 
 ### Audio
 

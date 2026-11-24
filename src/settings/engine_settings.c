@@ -69,6 +69,11 @@ static const char *const tb_engine_lighting[] = {"raster", "hybrid", "path_traci
 static const char *const tb_engine_anti_aliasing[] = {"off", "fxaa", "taa"};
 static const char *const tb_engine_quality[] = {"low", "medium", "high", "ultra"};
 static const char *const tb_engine_anisotropy[] = {"off", "2x", "4x", "8x", "16x"};
+static const char *const tb_engine_aspect_ratios[] = {"auto", "16_9", "16_10",
+                                                      "21_9", "32_9", "4_3"};
+static const char *const tb_engine_upscaler_modes[] = {
+    "native", "quality", "balanced", "performance", "ultra_performance", "custom"};
+static const char *const tb_engine_motion_blur[] = {"off", "low", "medium", "high"};
 static const char *const tb_engine_speaker_modes[] = {"automatic", "stereo", "headphones",
                                                       "surround_5_1", "surround_7_1"};
 static const char *const tb_engine_dynamic_ranges[] = {"wide", "standard", "night"};
@@ -79,6 +84,29 @@ static const char *const tb_engine_text_sizes[] = {"standard", "large", "largest
 static const char *const tb_engine_color_blind_modes[] = {"off", "protanopia", "deuteranopia",
                                                           "tritanopia"};
 
+/* The quality groups, in the order of tb_quality_group: each a choice of
+ * tb_engine_quality, set together by tb_engine_settings_set_quality(). */
+static const struct
+{
+    const char *name;
+    const char *description;
+} tb_engine_quality_groups[] = {
+    {"graphics.texture_quality", "The detail of textures."},
+    {"graphics.geometry_quality", "The detail of models, and how far it reaches."},
+    {"graphics.shading_quality", "The detail of how surfaces take light."},
+    {"graphics.shadow_quality", "The detail of shadows."},
+    {"graphics.reflection_quality", "The detail of reflections."},
+    {"graphics.light_quality", "How many lights cast light and shadows, and how far."},
+    {"graphics.directional_occlusion_quality",
+     "The detail of ambient occlusion: the shade of creases, corners and contact."},
+    {"graphics.particle_quality", "The detail and number of particles."},
+    {"graphics.decal_quality", "The detail of decals, and how long they last."},
+    {"graphics.water_quality", "The detail of water."},
+    {"graphics.volumetric_quality", "The detail of fog, smoke and light shafts."},
+};
+TB_STATIC_ASSERT(TB_COUNT_OF(tb_engine_quality_groups) == TB_QUALITY_GROUP_COUNT,
+                 "a name for each quality group");
+
 /* The indices of the defaults that are not the first choice. */
 enum
 {
@@ -88,6 +116,7 @@ enum
     TB_ENGINE_ANTI_ALIASING_TAA = 2,
     TB_ENGINE_QUALITY_HIGH = 2,
     TB_ENGINE_ANISOTROPY_8X = 3,
+    TB_ENGINE_UPSCALER_MODE_QUALITY = 1,
     TB_ENGINE_SPEAKERS_AUTOMATIC = 0,
     TB_ENGINE_DYNAMIC_RANGE_STANDARD = 1,
     TB_ENGINE_OVERLAY_OFF = 0,
@@ -196,6 +225,11 @@ static void tb_engine_add_display(tb_settings *settings, const tb_engine_setting
                           "The height of the fullscreen resolution in pixels; 0 for the "
                           "display's own.",
                           0, 0, TB_ENGINE_MOST_PIXELS);
+    engine->display.aspect_ratio = TB_ENGINE_CHOICE(
+        settings, "display.aspect_ratio",
+        "The shape of the picture: auto for the display's own; another letterboxes or "
+        "pillarboxes it, and narrows the resolutions offered to that shape.",
+        tb_engine_aspect_ratios, 0);
     engine->display.refresh_rate =
         tb_engine_integer(settings, "display.refresh_rate",
                           "The fullscreen refresh rate in hertz; 0 for the display's own.", 0, 0,
@@ -226,11 +260,25 @@ static void tb_engine_add_graphics(tb_settings *settings, tb_engine_settings *en
         "The resolution the game renders at, as a fraction of the output's; the upscaler makes "
         "up the rest.",
         1.0, 0.25, 2.0);
+    engine->graphics.dynamic_resolution = tb_engine_integer(
+        settings, "graphics.dynamic_resolution",
+        "Lower the render resolution while frames are slow, to hold this many frames a second; 0 "
+        "to keep it.",
+        0, 0, TB_ENGINE_MOST_HERTZ);
     engine->graphics.upscaler = TB_ENGINE_CHOICE(
         settings, "graphics.upscaler",
         "What upscales and anti-aliases the rendered picture: the engine's own, or a vendor's "
         "where the hardware has it.",
         tb_engine_upscalers, TB_ENGINE_UPSCALER_NATIVE);
+    engine->graphics.upscaler_mode = TB_ENGINE_CHOICE(
+        settings, "graphics.upscaler_mode",
+        "How far the upscaler upscales: native renders at the output's resolution, quality to "
+        "ultra_performance at less and less of it, as the vendors name them; custom at the "
+        "render scale.",
+        tb_engine_upscaler_modes, TB_ENGINE_UPSCALER_MODE_QUALITY);
+    engine->graphics.sharpening = tb_engine_number(
+        settings, "graphics.sharpening",
+        "How much the picture is sharpened, by the upscaler where one runs.", 0.5, 0.0, 1.0);
     engine->graphics.frame_generation =
         tb_engine_boolean(settings, "graphics.frame_generation",
                           "Generate frames between rendered ones, where the hardware can.", false);
@@ -245,15 +293,12 @@ static void tb_engine_add_graphics(tb_settings *settings, tb_engine_settings *en
     engine->graphics.anti_aliasing = TB_ENGINE_CHOICE(
         settings, "graphics.anti_aliasing", "How edges are smoothed when nothing upscales.",
         tb_engine_anti_aliasing, TB_ENGINE_ANTI_ALIASING_TAA);
-    engine->graphics.texture_quality =
-        TB_ENGINE_CHOICE(settings, "graphics.texture_quality", "The detail of textures.",
-                         tb_engine_quality, TB_ENGINE_QUALITY_HIGH);
-    engine->graphics.shadow_quality =
-        TB_ENGINE_CHOICE(settings, "graphics.shadow_quality", "The detail of shadows.",
-                         tb_engine_quality, TB_ENGINE_QUALITY_HIGH);
-    engine->graphics.effects_quality = TB_ENGINE_CHOICE(
-        settings, "graphics.effects_quality", "The detail of particles and other effects.",
-        tb_engine_quality, TB_ENGINE_QUALITY_HIGH);
+    for (size_t index = 0; index < TB_COUNT_OF(tb_engine_quality_groups); index++)
+    {
+        engine->graphics.quality[index] = TB_ENGINE_CHOICE(
+            settings, tb_engine_quality_groups[index].name,
+            tb_engine_quality_groups[index].description, tb_engine_quality, TB_ENGINE_QUALITY_HIGH);
+    }
     engine->graphics.anisotropic_filtering = TB_ENGINE_CHOICE(
         settings, "graphics.anisotropic_filtering", "The sharpness of textures seen at an angle.",
         tb_engine_anisotropy, TB_ENGINE_ANISOTROPY_8X);
@@ -261,7 +306,16 @@ static void tb_engine_add_graphics(tb_settings *settings, tb_engine_settings *en
         settings, "graphics.field_of_view",
         "How wide the view is: horizontal degrees on a 16:9 display.", 90.0, 60.0, 120.0);
     engine->graphics.motion_blur =
-        tb_engine_boolean(settings, "graphics.motion_blur", "Blur what moves quickly.", false);
+        TB_ENGINE_CHOICE(settings, "graphics.motion_blur", "How much what moves quickly blurs.",
+                         tb_engine_motion_blur, 0);
+    engine->graphics.depth_of_field = tb_engine_boolean(
+        settings, "graphics.depth_of_field", "Blur what is out of focus, as a camera does.", true);
+    engine->graphics.chromatic_aberration =
+        tb_engine_boolean(settings, "graphics.chromatic_aberration",
+                          "Fringe colors at the edges of the picture, as a lens does.", true);
+    engine->graphics.film_grain = tb_engine_number(
+        settings, "graphics.film_grain",
+        "How much film grain the picture has: 1 as the game was made, 0 for none.", 1.0, 0.0, 1.0);
 }
 
 static void tb_engine_add_audio(tb_settings *settings, tb_engine_settings *engine)
@@ -466,4 +520,43 @@ void tb_engine_settings_add(tb_settings *settings, const tb_engine_settings_opti
     tb_engine_add_language(settings, engine);
     tb_engine_add_engine(settings, engine);
     tb_engine_add_developer(settings, options, engine);
+}
+
+/* Anisotropic filtering follows the texture quality in a preset: 2x at low
+ * to 16x at ultra, as the choices after `off` go. */
+static size_t tb_engine_anisotropy_of(tb_graphics_quality quality)
+{
+    return (size_t)quality + 1u;
+}
+
+void tb_engine_settings_set_quality(const tb_engine_settings *engine, tb_graphics_quality quality)
+{
+    TB_ASSERT(engine != NULL);
+    TB_ASSERT(quality < TB_GRAPHICS_QUALITY_CUSTOM);
+    for (size_t index = 0; index < TB_QUALITY_GROUP_COUNT; index++)
+    {
+        (void)tb_setting_set_choice(engine->graphics.quality[index], (size_t)quality);
+    }
+    (void)tb_setting_set_choice(engine->graphics.anisotropic_filtering,
+                                tb_engine_anisotropy_of(quality));
+}
+
+tb_graphics_quality tb_engine_settings_quality(const tb_engine_settings *engine)
+{
+    TB_ASSERT(engine != NULL);
+    const size_t first = tb_setting_choice(engine->graphics.quality[0]);
+    for (size_t index = 1; index < TB_QUALITY_GROUP_COUNT; index++)
+    {
+        if (tb_setting_choice(engine->graphics.quality[index]) != first)
+        {
+            return TB_GRAPHICS_QUALITY_CUSTOM;
+        }
+    }
+    const tb_graphics_quality quality = (tb_graphics_quality)first;
+    if (tb_setting_choice(engine->graphics.anisotropic_filtering) !=
+        tb_engine_anisotropy_of(quality))
+    {
+        return TB_GRAPHICS_QUALITY_CUSTOM;
+    }
+    return quality;
 }
