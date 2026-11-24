@@ -122,6 +122,10 @@ set(TB_TEST_CASE_SOURCES
     render/renderer_test.c
     render/sky_test.c
     rhi/rhi_test.c
+    ui/ui_draw_test.c
+    ui/ui_fixture.c
+    ui/ui_test.c
+    ui/ui_text_field_test.c
     shader/shader_dxil_test.c
     shader/shader_preprocess_test.c
     vfs/vfs_test.c
