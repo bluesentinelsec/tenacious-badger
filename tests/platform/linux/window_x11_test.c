@@ -241,6 +241,9 @@ TB_TEST(platform_x11_window, the_mouse_moves_enters_and_leaves)
     tb_window_event event = {0};
     x_event crossing = {0};
 
+    /* The window may be under the pointer already: it leaves first. */
+    crossing.crossing = (x_crossing_event){.type = LEAVE_NOTIFY};
+    send(&made, &crossing);
     crossing.crossing = (x_crossing_event){.type = ENTER_NOTIFY, .x = 5, .y = 6};
     send(&made, &crossing);
     TB_TEST_EXPECT(wait_for(&made, TB_WINDOW_EVENT_MOUSE_ENTERED, 5.0, &event));
@@ -303,24 +306,35 @@ TB_TEST(platform_x11_window, the_cursor_takes_each_shape)
 }
 
 /* Relative mouse mode holds the mouse while the window has the keyboard,
- * and reports XInput2's raw motion, which XTest makes where the server has
- * it. */
+ * and lets it go while it does not. */
+TB_TEST(platform_x11_window, relative_mouse_mode_follows_the_keyboard)
+{
+    fixture made = open_window();
+    tb_window_event event = {0};
+    x_event focus = {0};
+
+    TB_TEST_REQUIRE_UINT(tb_window_set_relative_mouse(made.window, true, NULL), ==, TB_WINDOW_OK);
+    focus.focus = (x_focus_event){.type = FOCUS_OUT};
+    send(&made, &focus);
+    TB_TEST_EXPECT(wait_for(&made, TB_WINDOW_EVENT_FOCUS_LOST, 0.0, &event));
+    focus.focus = (x_focus_event){.type = FOCUS_IN};
+    send(&made, &focus);
+    TB_TEST_EXPECT(wait_for(&made, TB_WINDOW_EVENT_FOCUS_GAINED, 0.0, &event));
+    TB_TEST_EXPECT_UINT(tb_window_set_relative_mouse(made.window, false, NULL), ==, TB_WINDOW_OK);
+    close_window(&made);
+}
+
+/* Relative mouse mode reports XInput2's raw motion, which XTest makes where
+ * the server has it. */
 TB_TEST(platform_x11_window, relative_mouse_mode_reports_raw_motion)
 {
     fixture made = open_window();
     tb_window_event event = {0};
     tb_window_error error = TB_WINDOW_ERROR_INIT;
-    x_event focus = {0};
     tb_library *xtest = NULL;
     tb_library_function fake_motion = NULL;
 
     TB_TEST_REQUIRE_UINT(tb_window_set_relative_mouse(made.window, true, &error), ==, TB_WINDOW_OK);
-    /* Losing the keyboard lets the mouse go; regaining it takes it again. */
-    focus.focus = (x_focus_event){.type = FOCUS_OUT};
-    send(&made, &focus);
-    focus.focus = (x_focus_event){.type = FOCUS_IN};
-    send(&made, &focus);
-    TB_TEST_EXPECT(wait_for(&made, TB_WINDOW_EVENT_FOCUS_GAINED, 0.0, &event));
     if (tb_library_open("libXtst.so.6", TB_LIBRARY_SEARCH_SYSTEM, &xtest, NULL) == TB_LIBRARY_OK &&
         tb_library_find_function(xtest, "XTestFakeRelativeMotionEvent", &fake_motion, NULL) ==
             TB_LIBRARY_OK)

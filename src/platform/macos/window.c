@@ -608,19 +608,12 @@ static tb_mouse_button tb_cocoa_button(long number)
     }
 }
 
-static void tb_cocoa_on_button(tb_id view, tb_id event, bool down)
+static void tb_cocoa_on_button(tb_id view, tb_id event, tb_mouse_button button, bool down)
 {
     tb_window *const window = tb_cocoa_view_target(view);
-    tb_mouse_button button = TB_MOUSE_BUTTON_NONE;
     tb_cocoa_point position = {0};
 
-    if (window == NULL)
-    {
-        return;
-    }
-    button =
-        tb_cocoa_button(((long (*)(tb_id, tb_sel))tb_cocoa.send)(event, tb_sel_of("buttonNumber")));
-    if (button == TB_MOUSE_BUTTON_NONE)
+    if (window == NULL || button == TB_MOUSE_BUTTON_NONE)
     {
         return;
     }
@@ -629,16 +622,48 @@ static void tb_cocoa_on_button(tb_id view, tb_id event, bool down)
                            tb_cocoa_event_modifiers(event));
 }
 
-static void tb_cocoa_mouse_down(tb_id self, tb_sel command, tb_id event)
+/* The left and right buttons have methods of their own; the others share
+ * one, and say which they are. */
+static tb_mouse_button tb_cocoa_other_button(tb_id event)
 {
-    (void)command;
-    tb_cocoa_on_button(self, event, true);
+    return tb_cocoa_button(
+        ((long (*)(tb_id, tb_sel))tb_cocoa.send)(event, tb_sel_of("buttonNumber")));
 }
 
-static void tb_cocoa_mouse_up(tb_id self, tb_sel command, tb_id event)
+static void tb_cocoa_left_down(tb_id self, tb_sel command, tb_id event)
 {
     (void)command;
-    tb_cocoa_on_button(self, event, false);
+    tb_cocoa_on_button(self, event, TB_MOUSE_BUTTON_LEFT, true);
+}
+
+static void tb_cocoa_left_up(tb_id self, tb_sel command, tb_id event)
+{
+    (void)command;
+    tb_cocoa_on_button(self, event, TB_MOUSE_BUTTON_LEFT, false);
+}
+
+static void tb_cocoa_right_down(tb_id self, tb_sel command, tb_id event)
+{
+    (void)command;
+    tb_cocoa_on_button(self, event, TB_MOUSE_BUTTON_RIGHT, true);
+}
+
+static void tb_cocoa_right_up(tb_id self, tb_sel command, tb_id event)
+{
+    (void)command;
+    tb_cocoa_on_button(self, event, TB_MOUSE_BUTTON_RIGHT, false);
+}
+
+static void tb_cocoa_other_down(tb_id self, tb_sel command, tb_id event)
+{
+    (void)command;
+    tb_cocoa_on_button(self, event, tb_cocoa_other_button(event), true);
+}
+
+static void tb_cocoa_other_up(tb_id self, tb_sel command, tb_id event)
+{
+    (void)command;
+    tb_cocoa_on_button(self, event, tb_cocoa_other_button(event), false);
 }
 
 /* Motion, with a button down or not: the mouse's deltas in relative mouse
@@ -968,18 +993,27 @@ static void tb_cocoa_add(tb_id class_object, const char *name, tb_imp implementa
  * client's methods. */
 static tb_id tb_cocoa_make_view_class(void)
 {
-    static const char *const mouse_downs[] = {"mouseDown:", "rightMouseDown:", "otherMouseDown:"};
-    static const char *const mouse_ups[] = {"mouseUp:", "rightMouseUp:", "otherMouseUp:"};
+    static const struct
+    {
+        const char *name;
+        tb_imp implementation;
+    } buttons[] = {
+        {"mouseDown:", (tb_imp)tb_cocoa_left_down},
+        {"mouseUp:", (tb_imp)tb_cocoa_left_up},
+        {"rightMouseDown:", (tb_imp)tb_cocoa_right_down},
+        {"rightMouseUp:", (tb_imp)tb_cocoa_right_up},
+        {"otherMouseDown:", (tb_imp)tb_cocoa_other_down},
+        {"otherMouseUp:", (tb_imp)tb_cocoa_other_up},
+    };
     static const char *const motions[] = {
         "mouseMoved:", "mouseDragged:", "rightMouseDragged:", "otherMouseDragged:"};
     tb_id view_class = tb_cocoa.allocate_class(tb_class("NSView"), "TBCocoaView", 0);
     tb_id protocol = tb_cocoa.get_protocol("NSTextInputClient");
 
     (void)tb_cocoa.add_ivar(view_class, "tb_target", sizeof(void *), 3, "^v");
-    for (size_t index = 0; index < 3; index++)
+    for (size_t index = 0; index < sizeof(buttons) / sizeof(buttons[0]); index++)
     {
-        tb_cocoa_add(view_class, mouse_downs[index], (tb_imp)tb_cocoa_mouse_down, "v@:@");
-        tb_cocoa_add(view_class, mouse_ups[index], (tb_imp)tb_cocoa_mouse_up, "v@:@");
+        tb_cocoa_add(view_class, buttons[index].name, buttons[index].implementation, "v@:@");
     }
     for (size_t index = 0; index < 4; index++)
     {

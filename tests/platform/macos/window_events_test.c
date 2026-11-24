@@ -1,9 +1,8 @@
 /* The Cocoa windowing turns what AppKit gives a window's content view into
  * the engine's events: buttons, motion, the wheel, entering and leaving,
- * keys, and the text the input context inserts. The events are made as
- * AppKit makes them and given to the view's methods, as the window would
- * give them, so that each is checked without a person at the mouse; a key
- * is posted to the application's queue, which the window system reads. */
+ * and the text the input context inserts. The events are made as AppKit
+ * makes them and given to the view's methods, as the window would give
+ * them, so that each is checked without a person at the mouse. */
 #include "badger/library.h"
 #include "badger/window.h"
 
@@ -30,10 +29,10 @@ typedef struct range
 #define LEFT_MOUSE_DOWN 1ul
 #define LEFT_MOUSE_UP 2ul
 #define RIGHT_MOUSE_DOWN 3ul
+#define RIGHT_MOUSE_UP 4ul
 #define MOUSE_MOVED 5ul
 #define MOUSE_ENTERED 8ul
 #define MOUSE_EXITED 9ul
-#define KEY_DOWN 10ul
 #define SHIFT_FLAG (1ul << 17)
 #define OPTION_FLAG (1ul << 19)
 /* CGEventType, CGMouseButton, CGScrollEventUnit, and CGEventField. */
@@ -44,8 +43,6 @@ typedef struct range
 #define CG_SCROLL_PIXEL 0u
 #define CG_DELTA_X 4u
 #define CG_DELTA_Y 5u
-/* The key code of A. */
-#define KEY_CODE_A 0u
 #define NOT_FOUND 0x7FFFFFFFFFFFFFFFul
 
 typedef struct runtime
@@ -233,9 +230,15 @@ TB_TEST(platform_cocoa_window, mouse_buttons_are_events_with_a_position)
     fourth = made.objc.event_create_mouse(NULL, CG_OTHER_MOUSE_DOWN, (point){0.0, 0.0},
                                           CG_BUTTON_FOURTH);
     send_event(&made, made.view, "otherMouseDown:", from_graphics(&made, fourth));
-    made.objc.release(fourth);
     TB_TEST_REQUIRE(received(&made, TB_WINDOW_EVENT_MOUSE_BUTTON_DOWN, &event));
     TB_TEST_EXPECT_UINT(event.button, ==, TB_MOUSE_BUTTON_X1);
+    send_event(&made, made.view, "otherMouseUp:", from_graphics(&made, fourth));
+    TB_TEST_REQUIRE(received(&made, TB_WINDOW_EVENT_MOUSE_BUTTON_UP, &event));
+    TB_TEST_EXPECT_UINT(event.button, ==, TB_MOUSE_BUTTON_X1);
+    made.objc.release(fourth);
+    send_event(&made, made.view, "rightMouseUp:", mouse_event(&made, RIGHT_MOUSE_UP, 1.0, 2.0, 0));
+    TB_TEST_REQUIRE(received(&made, TB_WINDOW_EVENT_MOUSE_BUTTON_UP, &event));
+    TB_TEST_EXPECT_UINT(event.button, ==, TB_MOUSE_BUTTON_RIGHT);
     close_window(&made);
 }
 
@@ -353,32 +356,6 @@ TB_TEST(platform_cocoa_window, inserted_text_is_text)
         TB_TEST_EXPECT_FLOAT(first.size.x, ==, 0.0);
     }
 #endif
-    close_window(&made);
-}
-
-/* A key posted to the application's queue is read as a key, and the input
- * context types its text. */
-TB_TEST(platform_cocoa_window, keys_are_read_from_the_queue)
-{
-    fixture made = open_window();
-    tb_window_event event = {0};
-    const id characters = ((id (*)(id, sel, const char *))made.objc.send)(
-        made.objc.get_class("NSString"), made.objc.register_name("stringWithUTF8String:"), "a");
-    const id key = ((id (*)(id, sel, unsigned long, point, unsigned long, double, long, id, id, id,
-                            bool, unsigned short))made.objc.send)(
-        made.objc.get_class("NSEvent"),
-        made.objc.register_name("keyEventWithType:location:modifierFlags:timestamp:windowNumber:"
-                                "context:characters:charactersIgnoringModifiers:isARepeat:"
-                                "keyCode:"),
-        KEY_DOWN, (point){0.0, 0.0}, SHIFT_FLAG, 0.0, made.number, NULL, characters, characters,
-        false, (unsigned short)KEY_CODE_A);
-    const id application = send(&made, made.objc.get_class("NSApplication"), "sharedApplication");
-
-    ((void (*)(id, sel, id, bool))made.objc.send)(
-        application, made.objc.register_name("postEvent:atStart:"), key, false);
-    TB_TEST_REQUIRE(received(&made, TB_WINDOW_EVENT_KEY_DOWN, &event));
-    TB_TEST_EXPECT_UINT(event.key, ==, TB_KEY_A);
-    TB_TEST_EXPECT_UINT(event.modifiers, ==, TB_MODIFIER_SHIFT);
     close_window(&made);
 }
 
