@@ -7,7 +7,7 @@ tb_analyze_target(badger-sandbox)
 
 if(TB_BUILD_TESTS)
     add_test(NAME sandbox.lists_its_scenes COMMAND badger-sandbox list)
-    set_tests_properties(sandbox.lists_its_scenes PROPERTIES PASS_REGULAR_EXPRESSION "cube")
+    set_tests_properties(sandbox.lists_its_scenes PROPERTIES PASS_REGULAR_EXPRESSION "shapes")
     # A few frames on the null backend, wherever there is a window to open.
     add_test(NAME sandbox.runs_frames_on_the_null_backend
         COMMAND badger-sandbox --renderer null --scene triangle --frames 3)
@@ -15,10 +15,10 @@ if(TB_BUILD_TESTS)
     set_tests_properties(sandbox.runs_frames_on_the_null_backend PROPERTIES
         SKIP_REGULAR_EXPRESSION "no windowing")
     if(WIN32)
-        # The same frames drawn by D3D12 on WARP, the last saved.
+        # The shapes drawn by D3D12 on WARP, the last frame saved.
         add_test(NAME sandbox.draws_and_captures_on_d3d12
-            COMMAND badger-sandbox --renderer d3d12 --software --validation --scene cube
-                --frames 3 --capture "${CMAKE_CURRENT_BINARY_DIR}/sandbox_cube.bmp")
+            COMMAND badger-sandbox --renderer d3d12 --software --validation --scene shapes
+                --frames 3 --capture "${CMAKE_CURRENT_BINARY_DIR}/sandbox_shapes.bmp")
         set_tests_properties(sandbox.draws_and_captures_on_d3d12 PROPERTIES
             PASS_REGULAR_EXPRESSION "saved")
     endif()

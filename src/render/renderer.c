@@ -306,6 +306,7 @@ void tb_renderer_destroy(tb_renderer *renderer)
     tb_rhi_device_destroy(renderer->device);
     tb_dxc_close(renderer->dxc);
     tb_free(renderer->draws);
+    tb_free(renderer->customs);
     tb_free(renderer->lines[0].vertices);
     tb_free(renderer->lines[1].vertices);
     tb_free(renderer->captured);
@@ -379,6 +380,7 @@ bool tb_renderer_begin_frame(tb_renderer *renderer, const tb_camera *camera, tb_
     renderer->camera = *camera;
     renderer->clear = clear;
     renderer->draw_count = 0;
+    renderer->custom_count = 0;
     tb_mutex_lock(&renderer->lines_lock);
     renderer->lines[0].count = 0;
     renderer->lines[1].count = 0;
@@ -426,10 +428,35 @@ void tb_renderer_draw_mesh_shaded(tb_renderer *renderer, const tb_mesh *mesh, tb
     renderer->draw_count++;
 }
 
+void tb_renderer_draw_custom(tb_renderer *renderer, tb_renderer_draw_function *draw, void *context)
+{
+    TB_ASSERT(renderer != NULL && draw != NULL);
+    TB_ASSERT_MSG(renderer->in_frame, "a custom draw outside a frame");
+    if (renderer->custom_count == renderer->custom_capacity)
+    {
+        renderer->custom_capacity =
+            renderer->custom_capacity == 0 ? 16 : renderer->custom_capacity * 2;
+        renderer->customs = tb_realloc_array(renderer->customs, renderer->custom_capacity,
+                                             sizeof(*renderer->customs));
+    }
+    renderer->customs[renderer->custom_count] = (tb_renderer_custom){draw, context};
+    renderer->custom_count++;
+}
+
+void tb_renderer_target_formats(const tb_renderer *renderer, tb_rhi_format *color,
+                                tb_rhi_format *depth)
+{
+    TB_ASSERT(renderer != NULL && color != NULL && depth != NULL);
+    *color = TB_RENDERER_COLOR_FORMAT;
+    *depth = TB_RENDERER_DEPTH_FORMAT;
+}
+
 /* The constants of the frame's draws, and its lines, into its uploads. */
 typedef struct tb_renderer_recording
 {
     tb_renderer *renderer;
+    tb_mat4 view;
+    tb_mat4 projection;
     tb_mat4 clip;
     uint64_t lines_offset[2];
 } tb_renderer_recording;
@@ -444,7 +471,9 @@ static void tb_renderer_upload_frame(tb_renderer *renderer, tb_renderer_recordin
         tb_vec3_normalize(tb_vec3_add((tb_vec3){0.3f, -1.0f, 0.2f}, tb_vec3_scale(forward, 0.5f)));
 
     recording->renderer = renderer;
-    recording->clip = tb_mat4_mul(projection, tb_camera_view(&renderer->camera));
+    recording->view = tb_camera_view(&renderer->camera);
+    recording->projection = projection;
+    recording->clip = tb_mat4_mul(projection, recording->view);
     for (size_t index = 0; index < renderer->draw_count; index++)
     {
         tb_renderer_draw *const draw = &renderer->draws[index];
@@ -504,6 +533,18 @@ static void tb_renderer_record_scene(const tb_render_graph_pass_context *pass)
         tb_rhi_cmd_vertex_buffer(pass->list, 0, draw->mesh->vertices, 0);
         tb_rhi_cmd_index_buffer(pass->list, draw->mesh->indices, 0, TB_RHI_FORMAT_R32_UINT);
         tb_rhi_cmd_draw_indexed(pass->list, draw->mesh->index_count, 1, 0, 0, 0);
+    }
+    for (size_t index = 0; index < renderer->custom_count; index++)
+    {
+        const tb_renderer_draw_context context = {.device = renderer->device,
+                                                  .list = pass->list,
+                                                  .view = recording->view,
+                                                  .projection = recording->projection,
+                                                  .clip = recording->clip,
+                                                  .width = renderer->width,
+                                                  .height = renderer->height,
+                                                  .context = renderer->customs[index].context};
+        renderer->customs[index].draw(&context);
     }
     tb_renderer_record_lines(recording, pass->list, 0);
 }
