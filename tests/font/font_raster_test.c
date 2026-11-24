@@ -246,11 +246,12 @@ static double outline_perimeter(const tb_font_outline *outline)
             const tb_font_segment *segment = &contour->segments[index];
             if (segment->type == TB_FONT_QUADRATIC)
             {
-                length +=
-                    hypot((double)segment->control.x - from.x, (double)segment->control.y - from.y);
+                length += hypot((double)segment->control.x - (double)from.x,
+                                (double)segment->control.y - (double)from.y);
                 from = segment->control;
             }
-            length += hypot((double)segment->end.x - from.x, (double)segment->end.y - from.y);
+            length += hypot((double)segment->end.x - (double)from.x,
+                            (double)segment->end.y - (double)from.y);
             from = segment->end;
         }
     }
@@ -390,8 +391,10 @@ static void reference_lines(reference *made, const tb_font_outline *outline)
             {
                 const double t = (double)step / REFERENCE_CURVE_LINES;
                 const double u = 1.0 - t;
-                const double next_x = u * u * x + 2.0 * u * t * segment->control.x + t * t * end_x;
-                const double next_y = u * u * y + 2.0 * u * t * segment->control.y + t * t * end_y;
+                const double next_x =
+                    u * u * x + 2.0 * u * t * (double)segment->control.x + t * t * end_x;
+                const double next_y =
+                    u * u * y + 2.0 * u * t * (double)segment->control.y + t * t * end_y;
                 reference_add(made, previous_x, previous_y, next_x, next_y);
                 previous_x = next_x;
                 previous_y = next_y;
@@ -499,7 +502,7 @@ TB_TEST(font_raster, the_coverage_of_each_pixel_matches_a_reference_rasterizer)
             }
             made.lines = tb_calloc(made.capacity + 1, sizeof(reference_line));
             made.scale = scale;
-            made.x = fractions[size] - image.left;
+            made.x = (double)fractions[size] - (double)image.left;
             made.y = image.top;
             reference_lines(&made, &outline);
             const size_t pixels = (size_t)image.width * image.height;
