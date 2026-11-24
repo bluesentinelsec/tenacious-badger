@@ -63,6 +63,20 @@ transform and a color, lit (a light from above, with ambient) or flat.
 `tb_debug_axes` and `tb_debug_arrow` add lines to the frame from any thread,
 tested against depth or, with `TB_DEBUG_ON_TOP`, drawn over everything.
 
+`tb_debug_text` adds a label at a point in the world, from any thread: at
+the end of the frame each point is projected by the frame's camera, and its
+text is drawn by the canvas centered on it, on the highest layer, over
+everything, at the window's display scale. Labels are drawn in the font
+`tb_renderer_set_debug_font()` chooses, at a size in logical units; until
+one is chosen they are not drawn. A point behind the camera has no label.
+
+```c
+tb_renderer_set_debug_font(renderer, font, 14.0f);
+/* each frame */
+tb_debug_text(renderer, enemy_position, TB_TEXT("enemy 3: patrolling"),
+              (tb_vec4){1, 0.9f, 0.5f, 1});
+```
+
 ## 2D: the canvas
 
 `badger/canvas.h` draws 2D over a frame, as Unreal's Canvas and Godot's
@@ -142,6 +156,34 @@ stay crisp. Images and sprites are not smoothed at their edges; a sprite
 sheet read with `TB_IMAGE_LINEAR` may bleed from neighboring frames, which
 `TB_IMAGE_NEAREST` at whole scales does not.
 
+**Text.** `tb_canvas_draw_text(renderer, font, text, size, position, color,
+options)` draws UTF-8 laid out by the font module ([fonts](fonts.md#laying-out-text)),
+its box's top left at `position`, in the canvas's units:
+
+```c
+const tb_font_layout_options wrapped = {.wrap_width = 240, .align = TB_FONT_ALIGN_CENTER};
+tb_canvas_draw_text(renderer, font, TB_TEXT("Press Start"), 16.0f, (tb_vec2){32, 32},
+                    (tb_vec4){1, 1, 1, 1}, &wrapped);
+const tb_vec2 size = tb_canvas_measure_text(renderer, font, TB_TEXT("Press Start"), 16.0f,
+                                            &wrapped);
+```
+
+- **Crisp at any scale.** Text is laid out at `size` times the view's scale
+  in pixels, not drawn at one size and scaled: 16 units in a logical view
+  is a 24-pixel font at 150%. Each glyph's bitmap lands on whole pixels and
+  each baseline on a whole row; the pen's fraction of a pixel is kept by
+  the atlas's four subpixel bins.
+- **Pixel fonts** (`pixel_size` in the options) are drawn aliased at the
+  whole multiple of their size nearest `size` times the view's scale, on
+  whole pixels: in a `tb_canvas_view_fit(..., true)` view of a pixel-art
+  game, a font of 8 pixels at 8 units is a square of the view's pixels for
+  each of the font's.
+- **Measuring.** `tb_canvas_measure_text` gives the widest line and the
+  lines' height in the view's units, as drawing would lay them out.
+- **Fonts' lifetimes.** A font drawn with stays open until the frame ends.
+  Before closing one, call `tb_canvas_forget_font`, outside a frame: the
+  atlas keeps glyphs by their font's address.
+
 **Images** are RGBA, 8 bits a channel, made from pixels in memory
 (`tb_image_create`), changed in regions (`tb_image_update`, submitted at
 once, seen by the frame being drawn), and read nearest or linear. Asset
@@ -167,7 +209,25 @@ image or shape, because everything a quad needs is reached by index:
   samples a white pixel, so no quad branches on whether it has an image.
 
 Views and clips are applied on the CPU, so changing them does not split
-the draw. The frame's uploads (16 MiB) hold about 170,000 quads beside the
+the draw.
+
+**Glyphs** are quads too. The renderer keeps a glyph atlas
+(`tb_font_atlas`, 1024 pixels a side unless `tb_renderer_options.glyph_atlas_size`
+says otherwise) and its image on the GPU as an `R8_UNORM` texture. A text
+quad samples it nearest, each texel on one pixel, and its pixel shader
+multiplies the quad's premultiplied color by the texel's first channel,
+the glyph's coverage. At the end of each frame, before the canvas pass:
+
+1. Labels are laid out and drawn.
+2. If the atlas cleared partway through the frame, because a glyph did not
+   fit, the frame's glyphs placed before are asked for again, and their
+   quads' texture coordinates patched. Asking may clear it again when the
+   frame's glyphs do not all fit together; after three tries, those still
+   missing are given no color, and counted as dropped.
+3. The atlas's changed rectangles (`tb_font_atlas_get_dirty`) are packed
+   into one staging buffer and copied to the texture by one command list,
+   submitted before the frame's, and the list of changes cleared. A frame
+   that draws only glyphs it drew before copies nothing. The frame's uploads (16 MiB) hold about 170,000 quads beside the
 meshes' constants; past that, the last in order are dropped, and
 `tb_canvas_stats_of()` counts them. A device without bindless resources
 (below Shader Model 6.6 or resource binding tier 3) draws no 2D, and the
@@ -182,6 +242,8 @@ the engine's compiler, through DXC to DXIL for D3D12. They move to
 ## Not yet
 
 - Instanced draws, transparency, textured materials (#282), skyboxes (#281).
-- Debug drawing that lasts more than one frame, and text labels (#278).
-- Text (#278); images with rounded or smoothed edges, gradients and polygons in 2D;
+- Debug drawing that lasts more than one frame.
+- Images with rounded or smoothed edges, gradients and polygons in 2D;
   a 2D pass into targets other than the frame, and 2D in the world.
+- Text that scales and turns in 3D (signed distance fields), outlines and
+  shadows of text, and markup within a string.

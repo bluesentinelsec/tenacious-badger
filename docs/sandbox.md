@@ -20,20 +20,23 @@ badger-sandbox --frames 120 --capture shapes.bmp   # stop after 120 frames, savi
 While it runs, keys 1 to 9 choose a scene, Tab moves to the next, and Escape
 quits. Holding the right mouse button flies the camera, as in Unreal's
 viewport: the mouse looks, W A S D move, Q and E go down and up, Shift goes
-faster, and the wheel changes the speed. It prints the frame time every two
-seconds.
+faster, and the wheel changes the speed. The frame time is drawn in the
+bottom left corner of every scene, and printed every two seconds.
 
 | Scene | What it shows |
 | --- | --- |
 | `shapes` | Every shape the renderer generates, lit and turning on a floor, with debug boxes, a grid, axes and an arrow |
 | `canvas` | The 2D layer over the shapes: rounded panels, circles, rectangles, lines of any thickness, images made in memory, and a turning sprite, in logical units |
+| `text` | Text over the shapes: Roboto from 10 to 48 pixels, a paragraph wrapping in three panels (left, centered and right) whose width changes over time, the VGA font and Silkscreen at whole multiples of their sizes, and labels in the world naming the shapes |
 | `triangle` | A triangle of three colored corners, turning, drawn through the RHI itself inside the renderer's scene pass |
 | `textured` | A checkerboard made in memory, sampled through the texture's and sampler's bindless indices |
 | `clear` | The swap chain cleared to a plain color |
 
 The sandbox draws through [the renderer](renderer.md); the `triangle` and
 `textured` scenes record their own RHI commands into its scene pass with
-`tb_renderer_draw_custom()`.
+`tb_renderer_draw_custom()`. It draws text in the fonts of the tests' data
+(`tests/data/fonts`: Roboto, Px437 IBM VGA 8x16 and Silkscreen), which CMake
+builds into it, and labels in Roboto.
 
 Shaders are HLSL in the sandbox's sources, compiled when a scene starts by
 the engine's compiler, through DXC to DXIL for D3D12. The window, settings

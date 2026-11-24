@@ -1,12 +1,14 @@
 # Fonts
 
-The `font` module reads TrueType fonts (`.ttf`), and draws their glyphs
-into pixels. Its code lives in `src/font/`. `badger/font.h` is the half
-that reads, and `badger/font_raster.h` the half that draws: glyphs
-rasterized into bitmaps of coverage, and an atlas that packs them into one
-image for the renderer. Everything is the engine's own C; no font library
-is used. The texture that holds an atlas on the GPU, and the fonts the
-engine carries, come later.
+The `font` module reads TrueType fonts (`.ttf`), draws their glyphs into
+pixels, and lays out text. Its code lives in `src/font/`. `badger/font.h`
+reads; `badger/font_raster.h` draws: glyphs rasterized into bitmaps of
+coverage, and an atlas that packs them into one image for the renderer;
+and `badger/font_layout.h` lays out UTF-8 into lines of placed glyphs,
+apart from any renderer. Everything is the engine's own C; no font library
+is used. The canvas draws text from the atlas
+([renderer](renderer.md#2d-the-canvas)); the fonts the engine carries come
+later.
 
 ## Opening a font
 
@@ -204,14 +206,78 @@ if (tb_font_atlas_get_glyph(atlas, font, glyph, &options, &placed, NULL) == TB_F
 An atlas is externally synchronized: one thread at a time, as the renderer
 lays out text.
 
+The renderer keeps one atlas, and the texture that holds it on the GPU,
+updated from its changed rectangles before each frame's 2D is drawn (see
+[the renderer](renderer.md#how-it-draws)).
+
 ### Not done yet
 
-- **The GPU texture.** The atlas is an image in memory; the texture that
-  holds it, updated from its changed rectangles, comes with the 2D renderer.
 - **Signed distance fields**, for text that scales and rotates in 3D and
   for outlines and glows, are not made: each size is rasterized.
 - **Hinting**, and the LCD's subpixels (ClearType's colour fringes), are not
   used: glyphs are drawn as their outlines are, in grey.
+
+## Laying out text
+
+`tb_font_layout_text` turns UTF-8 into glyphs placed in pixels at a size,
+in lines; the canvas draws what it lays out, and an interface measures
+with it. It only reads the font, so it is thread-safe, and it allocates
+the layout's arrays from an arena the caller gives.
+
+```c
+const tb_font_layout_options options = {.wrap_width = 300.0f, .align = TB_FONT_ALIGN_CENTER};
+tb_font_layout layout = {0};
+tb_font_layout_text(font, TB_TEXT("Hello, world"), 24.0f, &options, arena, &layout);
+for (size_t index = 0; index < layout.glyph_count; index++)
+{
+    const tb_font_layout_glyph *glyph = &layout.glyphs[index];
+    const tb_font_layout_line *line = &layout.lines[glyph->line];
+    /* draw glyph->glyph with its pen at (line->x + glyph->x, line->baseline) */
+}
+```
+
+- **Placing.** Each character is one glyph: the font's glyph for it, or
+  glyph 0, the missing glyph. The pen moves by each glyph's advance, plus
+  the kerning (`tb_font_get_kerning`) between it and the glyph before it on
+  its line, scaled to the size and not rounded: the atlas's subpixel bins
+  draw glyphs at fractions of a pixel.
+- **Characters.** Each byte that does not begin a valid UTF-8 character
+  reads as U+FFFD. `\n` ends a line; `\r` takes no place, so `\r\n` ends
+  one line; a tab is as wide as four spaces.
+- **Breaking lines.** Given `wrap_width`, a line breaks before a word that
+  would end past it, after the spaces before that word; the spaces stay on
+  the line they end, are not counted in its width, and never break a line
+  themselves. A word wider than the whole width breaks between any two of
+  its characters. Every line holds at least one character. A text that ends
+  with `\n` ends with an empty line, where a caret can stand.
+- **Lines.** From baseline to baseline is the font's line height
+  (`tb_font_get_line_metrics`) times `line_spacing`. The first baseline is
+  the ascent below the box's top. Lines are aligned left, center or right
+  across the wrap width, or across the widest line when there is none.
+- **Measuring.** `tb_font_measure_text` gives the widest line, the lines'
+  height and their number, without allocating: what an interface sizes a
+  box by. The layout gives each line's left, top, baseline and width, and
+  the box of them all.
+- **Carets.** Each placed glyph records the bytes it was read from, its pen
+  and its advance, so a text field can find where a caret goes:
+  `tb_font_layout_caret` gives the place before the character at a byte
+  offset, and `tb_font_layout_hit` the caret nearest a point, by which half
+  of a character it is over.
+- **Pixel fonts.** With `pixel_size`, the font's own size in pixels (16 for
+  the VGA font, 8 for Silkscreen), text is laid out at the whole multiple of
+  it nearest the size asked for, at least once, every advance, kerning,
+  alignment, ascent and line height rounded to whole pixels, and drawn
+  aliased: each of the font's pixels becomes a square of whole pixels.
+
+### Not done
+
+Text is laid out one character to one glyph, left to right. Not done:
+shaping (ligatures, and the joining and reordering that Arabic, Devanagari
+and other complex scripts need, which is HarfBuzz's work), right-to-left and
+bidirectional text, combining marks placed on their bases, falling back to
+another font for a character this one lacks, colour emoji, hyphenation,
+justification, and line breaking by Unicode's rules (UAX #14) rather than
+at spaces.
 
 ## Damaged fonts
 
@@ -255,6 +321,15 @@ check exact coverage of known shapes, the non-zero rule, clipping, and
 degenerate and oversized outlines. The aliased VGA font and Silkscreen
 must match, pixel for pixel, the cells that `tools/font_pixel_goldens.py`,
 a separate reader in Python, samples from their outlines.
+`tests/font/font_layout_test.c` checks layout against the font's own
+measures: pens and widths from `tb_font_get_glyph_metrics` and
+`tb_font_get_kerning`, lines broken at spaces, inside long words and at
+`\n`, alignment, spacing, measuring that matches the layout, carets and
+hits, U+FFFD for bad UTF-8, empty text, and pixel fonts on whole pixels.
+`tests/render/text_d3d12_test.c` draws text on D3D12 on WARP: a string's ink
+lies in the box its layout and glyph measures give, the VGA font's pixels
+are exactly its aliased bitmap at 16 and 32 pixels, and glyphs drawn before
+the atlas clears within a frame are still drawn right.
 `tests/font/font_atlas_test.c` checks that packed glyphs never overlap with
 their padding, over thousands of random glyphs and sizes, that the atlas
 reports what changed, and that it clears and counts its generation when
