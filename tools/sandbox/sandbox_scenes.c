@@ -3,6 +3,8 @@
  * triangle and a texture reached by its bindless index; and a clear. */
 #include "sandbox.h"
 
+#include "badger/canvas.h"
+
 #include "badger/fmt.h"
 #include "badger/math.h"
 #include "badger/memory.h"
@@ -98,6 +100,124 @@ static void shapes_destroy(sandbox *box, void *state)
         tb_mesh_destroy(box->renderer, scene->meshes[shape]);
     }
     tb_mesh_destroy(box->renderer, scene->floor);
+    tb_free(scene);
+}
+
+/* ---------------------------------------------------------------------------
+ * canvas: the 2D layer: shapes, lines, images made in memory, and sprites,
+ * in logical units, over the shapes.
+ * ------------------------------------------------------------------------- */
+
+#define CANVAS_IMAGE 64u
+
+typedef struct canvas_scene
+{
+    shapes_scene *shapes;
+    tb_image *checker;
+    tb_image *gradient;
+    tb_image *noise;
+} canvas_scene;
+
+static tb_image *canvas_image(sandbox *box, int kind)
+{
+    const size_t size = (size_t)CANVAS_IMAGE * CANVAS_IMAGE * 4u;
+    uint8_t *const pixels = tb_malloc(size);
+    tb_image *image = NULL;
+
+    if (kind == 0)
+    {
+        tb_image_fill_checkerboard(pixels, size, CANVAS_IMAGE, CANVAS_IMAGE, 8,
+                                   (tb_vec4){0.95f, 0.95f, 0.95f, 1},
+                                   (tb_vec4){0.2f, 0.25f, 0.35f, 1});
+    }
+    else if (kind == 1)
+    {
+        tb_image_fill_gradient(pixels, size, CANVAS_IMAGE, CANVAS_IMAGE, TB_IMAGE_GRADIENT_RADIAL,
+                               (tb_vec4){1.0f, 0.8f, 0.2f, 1}, (tb_vec4){0.8f, 0.1f, 0.4f, 0});
+    }
+    else
+    {
+        tb_image_fill_noise(pixels, size, CANVAS_IMAGE, CANVAS_IMAGE, 8, 42);
+    }
+    image =
+        tb_image_create(box->renderer,
+                        &(tb_image_desc){.width = CANVAS_IMAGE,
+                                         .height = CANVAS_IMAGE,
+                                         .filter = kind == 0 ? TB_IMAGE_NEAREST : TB_IMAGE_LINEAR},
+                        pixels, size);
+    tb_free(pixels);
+    return image;
+}
+
+static bool canvas_create(sandbox *box, void **state)
+{
+    canvas_scene *const scene = tb_calloc(1, sizeof(*scene));
+    void *shapes = NULL;
+
+    *state = scene;
+    (void)shapes_create(box, &shapes);
+    scene->shapes = shapes;
+    scene->checker = canvas_image(box, 0);
+    scene->gradient = canvas_image(box, 1);
+    scene->noise = canvas_image(box, 2);
+    return true;
+}
+
+static void canvas_draw(sandbox *box, void *state, const sandbox_frame *frame)
+{
+    const canvas_scene *const scene = state;
+    const float t = (float)frame->seconds;
+    const tb_canvas_view view = tb_canvas_view_logical(box->renderer);
+    const tb_vec4 panel = {0.08f, 0.09f, 0.11f, 0.85f};
+    const tb_vec4 accent = {0.35f, 0.65f, 1.0f, 1};
+
+    shapes_draw(box, scene->shapes, frame);
+    tb_canvas_set_view(box->renderer, &view);
+    tb_canvas_set_layer(box->renderer, 0);
+    tb_canvas_fill_rounded_rect(box->renderer, (tb_canvas_rect){20, 20, 380, 300}, 14.0f, panel);
+    tb_canvas_stroke_rounded_rect(box->renderer, (tb_canvas_rect){20, 20, 380, 300}, 14.0f, 2.0f,
+                                  accent);
+    tb_canvas_set_layer(box->renderer, 1);
+    tb_canvas_draw_image(box->renderer, scene->checker, (tb_vec2){40, 40}, (tb_vec4){1, 1, 1, 1});
+    tb_canvas_draw_image(box->renderer, scene->gradient, (tb_vec2){120, 40}, (tb_vec4){1, 1, 1, 1});
+    tb_canvas_draw_image(box->renderer, scene->noise, (tb_vec2){200, 40}, (tb_vec4){1, 1, 1, 1});
+    tb_canvas_draw_sprite(box->renderer, &(tb_canvas_sprite){.image = scene->checker,
+                                                             .position = {320, 72},
+                                                             .size = {56, 56},
+                                                             .pivot = {0.5f, 0.5f},
+                                                             .rotation = t,
+                                                             .tint = {1, 0.85f, 0.6f, 1}});
+    for (int index = 0; index < 5; index++)
+    {
+        const float x = 50.0f + (float)index * 70.0f;
+        tb_canvas_fill_circle(box->renderer, (tb_vec2){x, 160}, 8.0f + (float)index * 4.0f,
+                              (tb_vec4){0.3f + 0.15f * (float)index, 0.8f, 0.5f, 0.9f});
+        tb_canvas_stroke_circle(box->renderer, (tb_vec2){x, 160}, 26.0f, 1.5f, accent);
+    }
+    tb_canvas_fill_rect(box->renderer, (tb_canvas_rect){40, 200, 140, 40},
+                        (tb_vec4){0.9f, 0.3f, 0.3f, 1});
+    tb_canvas_stroke_rect(box->renderer, (tb_canvas_rect){200, 200, 160, 40}, 3.0f,
+                          (tb_vec4){1, 1, 1, 1});
+    for (int index = 0; index < 12; index++)
+    {
+        const float angle = t * 0.5f + (float)index * TB_TAU / 12.0f;
+        tb_canvas_line(box->renderer, (tb_vec2){210, 285},
+                       (tb_vec2){210 + cosf(angle) * 160.0f, 285 + sinf(angle) * 24.0f},
+                       1.0f + (float)index * 0.25f, (tb_vec4){1, 1, 1, 0.6f});
+    }
+}
+
+static void canvas_destroy(sandbox *box, void *state)
+{
+    canvas_scene *const scene = state;
+
+    if (scene->shapes != NULL)
+    {
+        shapes_destroy(box, scene->shapes);
+    }
+    tb_image_destroy(box->renderer, scene->checker);
+    tb_image_destroy(box->renderer, scene->gradient);
+    tb_image_destroy(box->renderer, scene->noise);
     tb_free(scene);
 }
 
@@ -334,6 +454,12 @@ const sandbox_scene sandbox_scenes[] = {
      shapes_create,
      shapes_draw,
      shapes_destroy},
+    {"canvas",
+     "the 2D layer: shapes, lines, images and sprites over the shapes",
+     {0.10f, 0.11f, 0.13f, 1},
+     canvas_create,
+     canvas_draw,
+     canvas_destroy},
     {"triangle",
      "a triangle of three colored corners, turning, drawn through the RHI",
      {0.08f, 0.09f, 0.11f, 1},

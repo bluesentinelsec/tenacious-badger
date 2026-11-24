@@ -26,6 +26,7 @@ seconds.
 | Scene | What it shows |
 | --- | --- |
 | `shapes` | Every shape the renderer generates, lit and turning on a floor, with debug boxes, a grid, axes and an arrow |
+| `canvas` | The 2D layer over the shapes: rounded panels, circles, rectangles, lines of any thickness, images made in memory, and a turning sprite, in logical units |
 | `triangle` | A triangle of three colored corners, turning, drawn through the RHI itself inside the renderer's scene pass |
 | `textured` | A checkerboard made in memory, sampled through the texture's and sampler's bindless indices |
 | `clear` | The swap chain cleared to a plain color |
