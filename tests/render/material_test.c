@@ -67,7 +67,7 @@ TB_TEST(material_texture, a_texture_has_the_mip_chain_of_its_size)
 {
     screen opened = {0};
     size_t size = 0;
-    uint8_t *const pixels = checker_pixels(16, 6, &size);
+    uint8_t *pixels = NULL;
     tb_texture *color = NULL;
     tb_texture *data = NULL;
     tb_texture *normal = NULL;
@@ -76,6 +76,7 @@ TB_TEST(material_texture, a_texture_has_the_mip_chain_of_its_size)
     uint32_t mips = 0;
 
     open_screen(&opened, 0);
+    pixels = checker_pixels(16, 6, &size);
     color = tb_texture_create(opened.renderer, &(tb_texture_desc){.width = 16, .height = 6}, pixels,
                               size);
     data = tb_texture_create(opened.renderer,
@@ -149,7 +150,7 @@ TB_TEST(material_frame, materials_draw_on_the_null_backend)
 {
     screen opened = {0};
     size_t size = 0;
-    uint8_t *const pixels = checker_pixels(8, 8, &size);
+    uint8_t *pixels = NULL;
     tb_mesh *cube = NULL;
     tb_texture *base = NULL;
     tb_texture *normal = NULL;
@@ -160,6 +161,7 @@ TB_TEST(material_frame, materials_draw_on_the_null_backend)
     tb_camera camera = tb_camera_perspective(tb_radians(60.0f));
 
     open_screen(&opened, 4);
+    pixels = checker_pixels(8, 8, &size);
     cube = tb_mesh_create_shape(opened.renderer, TB_MESH_CUBE, 0);
     base = tb_texture_create(opened.renderer, &(tb_texture_desc){.width = 8, .height = 8}, pixels,
                              size);

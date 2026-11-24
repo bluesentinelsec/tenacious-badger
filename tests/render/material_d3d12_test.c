@@ -223,7 +223,7 @@ TB_TEST(material_frame, mip_levels_average_in_linear_light_on_d3d12)
         SIZE = 64
     };
     screen opened = {0};
-    uint8_t *const texels = tb_malloc((size_t)SIZE * SIZE * 4u);
+    uint8_t *texels = NULL;
     tb_texture *texture = NULL;
     tb_material *material = NULL;
     tb_material_desc desc = TB_MATERIAL_DESC_INIT;
@@ -234,6 +234,7 @@ TB_TEST(material_frame, mip_levels_average_in_linear_light_on_d3d12)
     uint32_t mips = 0;
 
     open_screen(&opened);
+    texels = tb_malloc((size_t)SIZE * SIZE * 4u);
     tb_image_fill_checkerboard(texels, (size_t)SIZE * SIZE * 4u, SIZE, SIZE, 1,
                                (tb_vec4){1, 1, 1, 1}, (tb_vec4){0, 0, 0, 1});
     texture = tb_texture_create(opened.renderer, &(tb_texture_desc){.width = SIZE, .height = SIZE},
