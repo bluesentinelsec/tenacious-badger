@@ -56,6 +56,10 @@ static const tb_settings_family tb_engine_families[] = {
      .title = "Engine",
      .description = "Tuning that a game ships with.",
      .for_players = false},
+    {.name = "shaders",
+     .title = "Shaders",
+     .description = "Where shaders come from: the game's shader libraries, or the compiler.",
+     .for_players = false},
     {.name = "developer",
      .title = "Developer",
      .description = "Switches for developing the game.",
@@ -469,6 +473,17 @@ static void tb_engine_add_engine(tb_settings *settings, tb_engine_settings *engi
         0.25, 0.01, 1.0);
 }
 
+static void tb_engine_add_shaders(tb_settings *settings, const tb_engine_settings_options *options,
+                                  tb_engine_settings *engine)
+{
+    engine->shaders.runtime_compile = tb_engine_boolean(
+        settings, "shaders.runtime_compile",
+        "Compile at run time the shaders that the game's shader libraries lack, where a compiler "
+        "is installed; off, the game draws with its libraries' shaders alone. On in developer "
+        "builds.",
+        options->developer);
+}
+
 static void tb_engine_add_developer(tb_settings *settings,
                                     const tb_engine_settings_options *options,
                                     tb_engine_settings *engine)
@@ -533,6 +548,7 @@ void tb_engine_settings_add(tb_settings *settings, const tb_engine_settings_opti
     tb_engine_add_accessibility(settings, engine);
     tb_engine_add_language(settings, engine);
     tb_engine_add_engine(settings, engine);
+    tb_engine_add_shaders(settings, options, engine);
     tb_engine_add_developer(settings, options, engine);
 }
 

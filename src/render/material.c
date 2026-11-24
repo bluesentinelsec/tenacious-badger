@@ -68,177 +68,6 @@ typedef struct tb_mip_constants
     uint32_t array;   /* 1 when the texture has layers, and is written as an array */
 } tb_mip_constants;
 
-/* The tangent frame of each pixel comes from the screen-space derivatives
- * of its position and texture coordinates (Schueler, "Normal Mapping Without
- * Precomputed Tangents", 2013), so a mesh needs no tangents: any caller's
- * vertices work, mirrored coordinates included, for a few instructions a
- * pixel. Its sign follows the screen's handedness, since D3D's y runs down
- * where the paper's runs up. A normal map's +Y is up in the image, toward
- * smaller v, as glTF's is. The surface is written to the G-buffer, which
- * the lighting pass lights: its base color; its normal, octahedrally
- * encoded (Cigolle et al., "A Survey of Efficient Representations for
- * Independent Unit Vectors", 2014); and its metallic, roughness, ambient
- * occlusion, and whether it is lit. */
-static const char tb_material_source[] =
-    "struct MaterialConstants\n"
-    "{\n"
-    "    float4x4 Clip; float4x4 Model; float4 Color; float4 Surface; float4 UV; uint4 Textures;\n"
-    "};\n"
-    "ConstantBuffer<MaterialConstants> Draw : register(b1);\n"
-    "struct VertexIn { float3 Position : POSITION; float3 Normal : NORMAL; float2 UV : TEXCOORD0; "
-    "};\n"
-    "struct VertexOut\n"
-    "{\n"
-    "    float4 Position : SV_Position;\n"
-    "    float3 World : TEXCOORD1;\n"
-    "    float3 Normal : NORMAL;\n"
-    "    float2 UV : TEXCOORD0;\n"
-    "};\n"
-    "struct GBuffer\n"
-    "{\n"
-    "    float4 BaseColor : SV_Target0;\n"
-    "    float2 Normal : SV_Target1;\n"
-    "    float4 Surface : SV_Target2;\n"
-    "};\n"
-    "VertexOut MainVS(VertexIn input)\n"
-    "{\n"
-    "    VertexOut output;\n"
-    "    output.Position = mul(Draw.Clip, float4(input.Position, 1));\n"
-    "    output.World = mul(Draw.Model, float4(input.Position, 1)).xyz;\n"
-    "    output.Normal = mul(Draw.Model, float4(input.Normal, 0)).xyz;\n"
-    "    output.UV = input.UV * Draw.UV.xy;\n"
-    "    return output;\n"
-    "}\n"
-    "float3 BendNormal(float3 normal, float3 position, float2 uv, float3 bent)\n"
-    "{\n"
-    "    const float3 dp1 = ddx(position);\n"
-    "    const float3 dp2 = ddy(position);\n"
-    "    const float2 duv1 = ddx(uv);\n"
-    "    const float2 duv2 = ddy(uv);\n"
-    "    const float3 dp2perp = cross(dp2, normal);\n"
-    "    const float3 dp1perp = cross(normal, dp1);\n"
-    "    const float3 tangent = dp2perp * duv1.x + dp1perp * duv2.x;\n"
-    "    const float3 bitangent = dp2perp * duv1.y + dp1perp * duv2.y;\n"
-    "    const float largest = max(dot(tangent, tangent), dot(bitangent, bitangent));\n"
-    "    const float handed = dot(cross(dp1, dp2), normal) < 0.0 ? -1.0 : 1.0;\n"
-    "    const float scale = rsqrt(max(largest, 1e-20)) * handed;\n"
-    "    const float3 bent_normal =\n"
-    "        tangent * (bent.x * scale) - bitangent * (bent.y * scale) + normal * bent.z;\n"
-    "    return normalize(bent_normal);\n"
-    "}\n"
-    "float2 EncodeNormal(float3 normal)\n"
-    "{\n"
-    "    const float2 folded = normal.xy / (abs(normal.x) + abs(normal.y) + abs(normal.z));\n"
-    "    if (normal.z >= 0.0)\n"
-    "    {\n"
-    "        return folded;\n"
-    "    }\n"
-    "    const float2 sign_of = float2(folded.x >= 0.0 ? 1.0 : -1.0, folded.y >= 0.0 ? 1.0 : "
-    "-1.0);\n"
-    "    return (1.0 - abs(folded.yx)) * sign_of;\n"
-    "}\n"
-    "GBuffer MainPS(VertexOut input)\n"
-    "{\n"
-    "    Texture2D<float4> base_map = ResourceDescriptorHeap[Draw.Textures.x];\n"
-    "    Texture2D<float4> normal_map = ResourceDescriptorHeap[Draw.Textures.y];\n"
-    "    Texture2D<float4> surface_map = ResourceDescriptorHeap[Draw.Textures.z];\n"
-    "    SamplerState filter = SamplerDescriptorHeap[Draw.Textures.w];\n"
-    "    const float4 base = base_map.Sample(filter, input.UV) * Draw.Color;\n"
-    "    float3 bent = normal_map.Sample(filter, input.UV).xyz * 2.0 - 1.0;\n"
-    "    bent.xy *= Draw.Surface.z;\n"
-    "    const float3 normal =\n"
-    "        BendNormal(normalize(input.Normal), input.World, input.UV, bent);\n"
-    "    const float4 surface = surface_map.Sample(filter, input.UV);\n"
-    "    GBuffer output;\n"
-    "    output.BaseColor = float4(saturate(base.rgb), 1);\n"
-    "    output.Normal = EncodeNormal(normal);\n"
-    "    output.Surface = float4(saturate(surface.b * Draw.Surface.y),\n"
-    "                            saturate(surface.g * Draw.Surface.x), 1, Draw.Surface.w);\n"
-    "    return output;\n"
-    "}\n";
-
-/* Each thread makes a texel of a level from the 2x2 texels of the level
- * before, clamped at its edges: colors averaged in linear light and written
- * back in sRGB, normals averaged and renormalized. Both levels are written
- * through their storage views, so the texture stays in one state. */
-static const char tb_mip_source[] =
-    "struct MipConstants\n"
-    "{\n"
-    "    uint Source; uint Dest; uint Width; uint Height;\n"
-    "    uint SourceWidth; uint SourceHeight; uint Content; uint Array;\n"
-    "};\n"
-    "ConstantBuffer<MipConstants> Mip : register(b0);\n"
-    "float3 ToLinear(float3 c)\n"
-    "{\n"
-    "    return select(c <= 0.04045, c / 12.92, pow((c + 0.055) / 1.055, 2.4));\n"
-    "}\n"
-    "float3 ToSRGB(float3 c)\n"
-    "{\n"
-    "    return select(c <= 0.0031308, c * 12.92, 1.055 * pow(c, 1.0 / 2.4) - 0.055);\n"
-    "}\n"
-    "float4 Decode(float4 texel)\n"
-    "{\n"
-    "    if (Mip.Content == 0)\n"
-    "    {\n"
-    "        return float4(ToLinear(texel.rgb), texel.a);\n"
-    "    }\n"
-    "    if (Mip.Content == 2)\n"
-    "    {\n"
-    "        return float4(texel.rgb * 2.0 - 1.0, texel.a);\n"
-    "    }\n"
-    "    return texel;\n"
-    "}\n"
-    "float4 Encode(float4 value)\n"
-    "{\n"
-    "    if (Mip.Content == 0)\n"
-    "    {\n"
-    "        return float4(ToSRGB(saturate(value.rgb)), value.a);\n"
-    "    }\n"
-    "    if (Mip.Content == 2)\n"
-    "    {\n"
-    "        const float size = length(value.rgb);\n"
-    "        const float3 normal = size > 0.0 ? value.rgb / size : float3(0, 0, 1);\n"
-    "        return float4(normal * 0.5 + 0.5, value.a);\n"
-    "    }\n"
-    "    return value;\n"
-    "}\n"
-    "float4 Load(uint2 at, uint layer)\n"
-    "{\n"
-    "    if (Mip.Array != 0)\n"
-    "    {\n"
-    "        RWTexture2DArray<float4> layers = ResourceDescriptorHeap[Mip.Source];\n"
-    "        return layers[uint3(at, layer)];\n"
-    "    }\n"
-    "    RWTexture2D<float4> level = ResourceDescriptorHeap[Mip.Source];\n"
-    "    return level[at];\n"
-    "}\n"
-    "void Store(uint2 at, uint layer, float4 value)\n"
-    "{\n"
-    "    if (Mip.Array != 0)\n"
-    "    {\n"
-    "        RWTexture2DArray<float4> layers = ResourceDescriptorHeap[Mip.Dest];\n"
-    "        layers[uint3(at, layer)] = value;\n"
-    "        return;\n"
-    "    }\n"
-    "    RWTexture2D<float4> level = ResourceDescriptorHeap[Mip.Dest];\n"
-    "    level[at] = value;\n"
-    "}\n"
-    "[numthreads(8, 8, 1)]\n"
-    "void MainCS(uint3 id : SV_DispatchThreadID)\n"
-    "{\n"
-    "    if (id.x >= Mip.Width || id.y >= Mip.Height)\n"
-    "    {\n"
-    "        return;\n"
-    "    }\n"
-    "    const uint2 last = uint2(Mip.SourceWidth - 1, Mip.SourceHeight - 1);\n"
-    "    const uint2 at = id.xy * 2;\n"
-    "    float4 sum = Decode(Load(min(at, last), id.z));\n"
-    "    sum += Decode(Load(min(at + uint2(1, 0), last), id.z));\n"
-    "    sum += Decode(Load(min(at + uint2(0, 1), last), id.z));\n"
-    "    sum += Decode(Load(min(at + uint2(1, 1), last), id.z));\n"
-    "    Store(id.xy, id.z, Encode(sum * 0.25));\n"
-    "}\n";
-
 /* ---------------------------------------------------------------------------
  * Textures.
  * ------------------------------------------------------------------------- */
@@ -587,14 +416,14 @@ static tb_rhi_result tb_material_pipelines(tb_renderer *renderer, tb_rhi_error *
     desc.color_count = TB_RENDERER_GBUFFER_TARGETS;
     desc.depth = TB_RENDERER_DEPTH_FORMAT;
     desc.name = "material";
-    result = tb_renderer_pipeline(renderer, "/Engine/Private/Material.hlsl", tb_material_source,
-                                  &desc, &renderer->material_pipeline, error);
+    result = tb_renderer_pipeline(renderer, "/Engine/Private/Material.hlsl", NULL, &desc,
+                                  &renderer->material_pipeline, error);
     if (result != TB_RHI_OK)
     {
         return result;
     }
-    result = tb_renderer_shader(renderer, "/Engine/Private/GenerateMips.hlsl", tb_mip_source,
-                                "MainCS", TB_RHI_STAGE_COMPUTE, &mip, error);
+    result = tb_renderer_shader(renderer, "/Engine/Private/GenerateMips.hlsl", NULL, "MainCS",
+                                TB_RHI_STAGE_COMPUTE, &mip, error);
     if (result == TB_RHI_OK)
     {
         result = tb_rhi_compute_pipeline_create(

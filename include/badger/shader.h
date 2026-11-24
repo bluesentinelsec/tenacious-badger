@@ -55,10 +55,13 @@ struct tb_vfs;
 /** @brief Why a compile failed. */
 typedef enum tb_shader_result
 {
-    TB_SHADER_OK,       /**< Success; the output may still hold warnings. */
-    TB_SHADER_INVALID,  /**< The request is malformed, such as a main path that is not valid. */
-    TB_SHADER_FAILED,   /**< The sources have errors, which the diagnostics describe. */
-    TB_SHADER_NO_MEMORY /**< The caller's arena could not hold the output. */
+    TB_SHADER_OK,        /**< Success; the output may still hold warnings. */
+    TB_SHADER_INVALID,   /**< The request is malformed, such as a main path that is not valid. */
+    TB_SHADER_FAILED,    /**< The sources have errors, which the diagnostics describe. */
+    TB_SHADER_NO_MEMORY, /**< The caller's arena could not hold the output. */
+    /** The shader is in no library or cache, and may not be compiled, or has
+     * no compiler for its target here (badger/shader_library.h). */
+    TB_SHADER_UNAVAILABLE
 } tb_shader_result;
 
 /** @brief How serious a diagnostic is. */
@@ -200,6 +203,19 @@ TB_API tb_shader_result tb_shader_preprocess(const tb_shader_preprocess_request 
  * @return The loader. A file over TB_SHADER_MAX_FILE_SIZE is FAILED.
  */
 TB_API tb_shader_loader tb_shader_vfs_loader(struct tb_vfs *vfs);
+
+/**
+ * @brief A loader that reads the engine's own shader files, which the engine
+ * library carries: every `.hlsl` and `.hlsli` file under `shaders/` of its
+ * source tree, the file `shaders/Engine/Private/Sky.hlsl` as the path
+ * `/Engine/Private/Sky.hlsl`.
+ *
+ * The renderer compiles its shaders from these, and `badger-shaderc` from
+ * the same files on disk, so the two give the same bytes.
+ * @return The loader. It needs no context, and its text lasts as long as
+ * the engine library is loaded.
+ */
+TB_API tb_shader_loader tb_shader_engine_loader(void);
 
 /**
  * @brief Write a diagnostic as editors read it: `path(line,column): error: message`,

@@ -7,7 +7,6 @@
 #include "badger/assert.h"
 #include "badger/memory.h"
 #include "badger/sky.h"
-#include "badger/str.h"
 
 #include <math.h>
 
@@ -51,215 +50,6 @@ typedef struct tb_tonemap_constants
     float exposure; /* what the scene's color is multiplied by first */
     uint32_t unused[2];
 } tb_tonemap_constants;
-
-/* Every full-screen pass draws one triangle that covers the view. */
-#define TB_FULL_SCREEN_VERTEX                                                                      \
-    "struct VertexOut { float4 Position : SV_Position; };\n"                                       \
-    "VertexOut MainVS(uint vertex : SV_VertexID)\n"                                                \
-    "{\n"                                                                                          \
-    "    const float2 corner = float2((vertex << 1) & 2, vertex & 2);\n"                           \
-    "    VertexOut output;\n"                                                                      \
-    "    output.Position = float4(corner * float2(2, -2) + float2(-1, 1), 0, 1);\n"                \
-    "    return output;\n"                                                                         \
-    "}\n"
-
-/* Unreal's default lit shading model: a Lambert diffuse, and a specular of
- * GGX's distribution, Smith's joint visibility (approximated), and
- * Schlick's Fresnel, with Unreal's remapping of roughness (a = roughness
- * squared). Each pixel's place in the world comes back from its depth
- * through the inverse of the frame's clip transform. Ambient light comes
- * from the sky: a cube map's lower levels, or the colors of a procedural
- * sky (or of the ambient light without one), blended toward the average of
- * the half they face as a surface roughens; reflections are scaled by
- * Karis's analytical fit of the environment BRDF. Point and spot lights
- * fall off by the inverse square of their distance, windowed to nothing at
- * their range; a spot's cone fades between its angles, squared, as
- * Unreal's do. The source is in two parts, each shorter than the longest
- * string literal C compilers must take; the pipeline joins them. */
-static const char tb_lighting_brdf_source[] =
-    "#define PI 3.14159265\n"
-    "struct GBufferIndices { uint BaseColor; uint Normal; uint Surface; uint Depth; };\n"
-    "ConstantBuffer<GBufferIndices> GBuffer : register(b0);\n"
-    "struct LightingConstants\n"
-    "{\n"
-    "    float4x4 ClipToWorld; float4 Eye; float4 Forward; float4 Clear;\n"
-    "    float4 Zenith; float4 Horizon; float4 Ground; float4 Size; uint4 Lights; uint4 Sky;\n"
-    "};\n"
-    "ConstantBuffer<LightingConstants> Lighting : register(b1);\n" TB_FULL_SCREEN_VERTEX
-    "float3 DecodeNormal(float2 encoded)\n"
-    "{\n"
-    "    float3 normal = float3(encoded.x, encoded.y, 1.0 - abs(encoded.x) - abs(encoded.y));\n"
-    "    const float fold = saturate(-normal.z);\n"
-    "    normal.x += normal.x >= 0.0 ? -fold : fold;\n"
-    "    normal.y += normal.y >= 0.0 ? -fold : fold;\n"
-    "    return normalize(normal);\n"
-    "}\n"
-    "float Pow5(float x)\n"
-    "{\n"
-    "    const float x2 = x * x;\n"
-    "    return x2 * x2 * x;\n"
-    "}\n"
-    "float DistributionGGX(float a2, float n_dot_h)\n"
-    "{\n"
-    "    const float d = (n_dot_h * a2 - n_dot_h) * n_dot_h + 1.0;\n"
-    "    return a2 / (PI * d * d);\n"
-    "}\n"
-    "float VisibilitySmithJoint(float a2, float n_dot_v, float n_dot_l)\n"
-    "{\n"
-    "    const float a = sqrt(a2);\n"
-    "    const float smith_v = n_dot_l * (n_dot_v * (1.0 - a) + a);\n"
-    "    const float smith_l = n_dot_v * (n_dot_l * (1.0 - a) + a);\n"
-    "    return 0.5 / (smith_v + smith_l);\n"
-    "}\n"
-    "float3 FresnelSchlick(float3 specular, float v_dot_h)\n"
-    "{\n"
-    "    const float fc = Pow5(1.0 - v_dot_h);\n"
-    "    return saturate(50.0 * specular.g) * fc + (1.0 - fc) * specular;\n"
-    "}\n"
-    "float3 EnvironmentBRDF(float3 specular, float roughness, float n_dot_v)\n"
-    "{\n"
-    "    const float4 c0 = float4(-1.0, -0.0275, -0.572, 0.022);\n"
-    "    const float4 c1 = float4(1.0, 0.0425, 1.04, -0.04);\n"
-    "    const float4 r = roughness * c0 + c1;\n"
-    "    const float a004 = min(r.x * r.x, exp2(-9.28 * n_dot_v)) * r.x + r.y;\n"
-    "    const float2 ab = float2(-1.04, 1.04) * a004 + r.zw;\n"
-    "    return specular * ab.x + saturate(50.0 * specular.g) * ab.y;\n"
-    "}\n"
-    "float3 SkyLight(float3 direction, float blur)\n"
-    "{\n"
-    "    if (Lighting.Sky.x != 0)\n"
-    "    {\n"
-    "        TextureCube<float4> cube = ResourceDescriptorHeap[Lighting.Sky.y];\n"
-    "        SamplerState filter = SamplerDescriptorHeap[Lighting.Sky.z];\n"
-    "        const float level = blur * (float)(Lighting.Sky.w - 1);\n"
-    "        return cube.SampleLevel(filter, direction, level).rgb;\n"
-    "    }\n"
-    "    const float up = direction.y;\n"
-    "    float3 sharp = lerp(Lighting.Horizon.rgb, Lighting.Ground.rgb, saturate(-up * 12.0));\n"
-    "    if (up >= 0.0)\n"
-    "    {\n"
-    "        sharp = lerp(Lighting.Horizon.rgb, Lighting.Zenith.rgb, sqrt(up));\n"
-    "    }\n"
-    "    const float3 above = 0.5 * (Lighting.Horizon.rgb + Lighting.Zenith.rgb);\n"
-    "    const float3 soft = lerp(Lighting.Ground.rgb, above, saturate(0.5 + 0.5 * up));\n"
-    "    return lerp(sharp, soft, blur);\n"
-    "}\n"
-    "float3 Shade(float3 diffuse, float3 specular, float a2, float3 normal, float3 view,\n"
-    "             float3 to_light, float n_dot_v)\n"
-    "{\n"
-    "    const float n_dot_l = saturate(dot(normal, to_light));\n"
-    "    if (n_dot_l <= 0.0)\n"
-    "    {\n"
-    "        return float3(0, 0, 0);\n"
-    "    }\n"
-    "    const float3 halfway = normalize(view + to_light);\n"
-    "    const float n_dot_h = saturate(dot(normal, halfway));\n"
-    "    const float v_dot_h = saturate(dot(view, halfway));\n"
-    "    const float3 lobe = DistributionGGX(a2, n_dot_h) *\n"
-    "                        VisibilitySmithJoint(a2, n_dot_v, n_dot_l) *\n"
-    "                        FresnelSchlick(specular, v_dot_h);\n"
-    "    return (diffuse / PI + lobe) * n_dot_l;\n"
-    "}\n";
-
-static const char tb_lighting_pass_source[] =
-    "float4 MainPS(VertexOut input) : SV_Target\n"
-    "{\n"
-    "    const int3 texel = int3(input.Position.xy, 0);\n"
-    "    Texture2D<float> depth_map = ResourceDescriptorHeap[GBuffer.Depth];\n"
-    "    const float depth = depth_map.Load(texel);\n"
-    "    if (depth <= 0.0)\n"
-    "    {\n"
-    "        return float4(Lighting.Clear.rgb, 1);\n"
-    "    }\n"
-    "    Texture2D<float4> base_map = ResourceDescriptorHeap[GBuffer.BaseColor];\n"
-    "    Texture2D<float2> normal_map = ResourceDescriptorHeap[GBuffer.Normal];\n"
-    "    Texture2D<float4> surface_map = ResourceDescriptorHeap[GBuffer.Surface];\n"
-    "    const float3 base = base_map.Load(texel).rgb;\n"
-    "    const float4 surface = surface_map.Load(texel);\n"
-    "    if (surface.a < 0.5)\n"
-    "    {\n"
-    "        return float4(base, 1);\n"
-    "    }\n"
-    "    const float3 normal = DecodeNormal(normal_map.Load(texel));\n"
-    "    const float2 ndc = float2(input.Position.x * Lighting.Size.z * 2.0 - 1.0,\n"
-    "                              1.0 - input.Position.y * Lighting.Size.w * 2.0);\n"
-    "    const float4 place = mul(Lighting.ClipToWorld, float4(ndc, depth, 1));\n"
-    "    const float3 world = place.xyz / place.w;\n"
-    "    float3 view = -Lighting.Forward.xyz;\n"
-    "    if (Lighting.Eye.w != 0.0)\n"
-    "    {\n"
-    "        view = normalize(Lighting.Eye.xyz - world);\n"
-    "    }\n"
-    "    const float n_dot_v = saturate(abs(dot(normal, view)) + 1e-5);\n"
-    "    const float metallic = surface.r;\n"
-    "    const float roughness = max(surface.g, 0.02);\n"
-    "    const float a = roughness * roughness;\n"
-    "    const float a2 = a * a;\n"
-    "    const float3 diffuse = base * (1.0 - metallic);\n"
-    "    const float3 specular = lerp(float3(0.04, 0.04, 0.04), base, metallic);\n"
-    "    float3 color = float3(0, 0, 0);\n"
-    "    ByteAddressBuffer lights = ResourceDescriptorHeap[Lighting.Lights.x];\n"
-    "    for (uint index = 0; index < Lighting.Lights.z; index++)\n"
-    "    {\n"
-    "        const uint at = Lighting.Lights.y + index * 64;\n"
-    "        const float4 position = lights.Load<float4>(at);\n"
-    "        const float4 direction = lights.Load<float4>(at + 16);\n"
-    "        const float4 radiance = lights.Load<float4>(at + 32);\n"
-    "        const float4 cone = lights.Load<float4>(at + 48);\n"
-    "        float3 to_light = -direction.xyz;\n"
-    "        float attenuation = 1.0;\n"
-    "        if (direction.w > 0.5)\n"
-    "        {\n"
-    "            const float3 offset = position.xyz - world;\n"
-    "            const float distance2 = max(dot(offset, offset), 1e-4);\n"
-    "            const float reach = distance2 * position.w;\n"
-    "            const float window = saturate(1.0 - reach * reach);\n"
-    "            to_light = offset * rsqrt(distance2);\n"
-    "            attenuation = window * window / distance2;\n"
-    "            if (direction.w > 1.5)\n"
-    "            {\n"
-    "                const float spot = saturate((dot(-to_light, direction.xyz) - cone.x) * "
-    "cone.y);\n"
-    "                attenuation *= spot * spot;\n"
-    "            }\n"
-    "        }\n"
-    "        color += Shade(diffuse, specular, a2, normal, view, to_light, n_dot_v) *\n"
-    "                 radiance.rgb * attenuation;\n"
-    "    }\n"
-    "    const float occlusion = surface.b;\n"
-    "    color += SkyLight(normal, 1.0) * diffuse * occlusion;\n"
-    "    if ((Lighting.Lights.w & 1) != 0)\n"
-    "    {\n"
-    "        const float3 reflected = reflect(-view, normal);\n"
-    "        color += SkyLight(reflected, roughness) * EnvironmentBRDF(specular, roughness, "
-    "n_dot_v) * occlusion;\n"
-    "    }\n"
-    "    return float4(color, 1);\n"
-    "}\n";
-
-/* The output transform: exposure, then Narkowicz's fit of the ACES filmic
- * curve to each channel, with the 0.6 he scales its input by to match
- * ACES's reference (a middle gray of 0.18 shows as about 0.41 in sRGB),
- * then sRGB's encoding, since the swap chain is UNORM and the display reads
- * it as sRGB. */
-static const char tb_tonemap_source[] =
-    "struct ToneConstants { uint Scene; float Exposure; uint2 Unused; };\n"
-    "ConstantBuffer<ToneConstants> Tone : register(b0);\n" TB_FULL_SCREEN_VERTEX
-    "float3 FilmicACES(float3 color)\n"
-    "{\n"
-    "    const float3 x = color * 0.6;\n"
-    "    return saturate(x * (2.51 * x + 0.03) / (x * (2.43 * x + 0.59) + 0.14));\n"
-    "}\n"
-    "float3 ToSRGB(float3 c)\n"
-    "{\n"
-    "    return select(c <= 0.0031308, c * 12.92, 1.055 * pow(c, 1.0 / 2.4) - 0.055);\n"
-    "}\n"
-    "float4 MainPS(VertexOut input) : SV_Target\n"
-    "{\n"
-    "    Texture2D<float4> scene = ResourceDescriptorHeap[Tone.Scene];\n"
-    "    const float3 color = max(scene.Load(int3(input.Position.xy, 0)).rgb, 0.0);\n"
-    "    return float4(ToSRGB(FilmicACES(color * Tone.Exposure)), 1);\n"
-    "}\n";
 
 /* ---------------------------------------------------------------------------
  * Lights.
@@ -575,7 +365,6 @@ void tb_renderer_tonemap_record(tb_renderer *renderer, tb_rhi_command_list *list
 tb_rhi_result tb_renderer_lighting_create(tb_renderer *renderer, tb_rhi_error *error)
 {
     tb_rhi_graphics_pipeline_desc desc = {0};
-    char *source = NULL;
     tb_rhi_result result = TB_RHI_OK;
 
     renderer->ambient_sky = (tb_vec3){TB_AMBIENT_SKY, TB_AMBIENT_SKY, TB_AMBIENT_SKY};
@@ -587,17 +376,15 @@ tb_rhi_result tb_renderer_lighting_create(tb_renderer *renderer, tb_rhi_error *e
     desc.colors[0] = TB_RENDERER_SCENE_FORMAT;
     desc.color_count = 1;
     desc.name = "lighting";
-    source = tb_str_cat(NULL, tb_lighting_brdf_source, tb_lighting_pass_source);
-    result = tb_renderer_pipeline(renderer, "/Engine/Private/DeferredLighting.hlsl", source, &desc,
+    result = tb_renderer_pipeline(renderer, "/Engine/Private/DeferredLighting.hlsl", NULL, &desc,
                                   &renderer->lighting_pipeline, error);
-    tb_str_free(NULL, source);
     if (result != TB_RHI_OK)
     {
         return result;
     }
     desc.colors[0] = TB_RENDERER_COLOR_FORMAT;
     desc.name = "tonemap";
-    return tb_renderer_pipeline(renderer, "/Engine/Private/Tonemap.hlsl", tb_tonemap_source, &desc,
+    return tb_renderer_pipeline(renderer, "/Engine/Private/Tonemap.hlsl", NULL, &desc,
                                 &renderer->tonemap_pipeline, error);
 }
 

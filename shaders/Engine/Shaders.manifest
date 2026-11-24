@@ -1,0 +1,28 @@
+# The engine's shaders, which the build compiles ahead of time into a shader
+# library for each backend that needs compiled shaders (badger-shaderc; see
+# docs/shader-cache.md). A shader the renderer compiles that is not listed
+# here is compiled at run time, where the game allows it.
+#
+# Each line is one shader: its virtual path, its stage, its entry point, and
+# any defines, as NAME or NAME=VALUE. Add a shader with one line.
+#
+# path                                  stage     entry point
+
+/Engine/Private/Canvas.hlsl              vertex    MainVS
+/Engine/Private/Canvas.hlsl              pixel     MainPS
+/Engine/Private/DebugLines.hlsl          vertex    MainVS
+/Engine/Private/DebugLines.hlsl          pixel     MainPS
+/Engine/Private/DebugLinesOutput.hlsl    vertex    MainVS
+/Engine/Private/DebugLinesOutput.hlsl    pixel     MainPS
+/Engine/Private/DeferredLighting.hlsl    vertex    MainVS
+/Engine/Private/DeferredLighting.hlsl    pixel     MainPS
+/Engine/Private/GenerateMips.hlsl        compute   MainCS
+/Engine/Private/Material.hlsl            vertex    MainVS
+/Engine/Private/Material.hlsl            pixel     MainPS
+/Engine/Private/Mesh.hlsl                vertex    MainVS
+/Engine/Private/Mesh.hlsl                pixel     MainPS
+/Engine/Private/Skinning.hlsl            compute   MainCS
+/Engine/Private/Sky.hlsl                 vertex    MainVS
+/Engine/Private/Sky.hlsl                 pixel     MainPS
+/Engine/Private/Tonemap.hlsl             vertex    MainVS
+/Engine/Private/Tonemap.hlsl             pixel     MainPS
