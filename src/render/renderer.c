@@ -762,7 +762,11 @@ static void tb_renderer_record_draws(tb_renderer_recording *recording,
             continue; /* the frame's uploads ran out */
         }
         tb_rhi_cmd_constant_buffer(pass->list, 0, frame->upload, draw->constants);
-        if (draw->skinned)
+        if (draw->skinned_on_cpu)
+        {
+            tb_rhi_cmd_vertex_buffer(pass->list, 0, frame->upload, draw->skinned_offset);
+        }
+        else if (draw->skinned)
         {
             tb_rhi_cmd_vertex_buffer(pass->list, 0, skinned, draw->skinned_offset);
         }

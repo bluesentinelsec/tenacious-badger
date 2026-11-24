@@ -1023,7 +1023,8 @@ const sandbox_scene sandbox_scenes[] = {
      text_destroy,
      NULL},
     {"skinning",
-     "a row of tentacles skinned on the GPU, blending a wave and a curl, their bones drawn over",
+     "a row of tentacles skinned on the GPU or the CPU, blending a wave and a curl, their "
+     "bones drawn over",
      {0.10f, 0.11f, 0.13f, 1},
      sandbox_skinning_create,
      sandbox_skinning_draw,

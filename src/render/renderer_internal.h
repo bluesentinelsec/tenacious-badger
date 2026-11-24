@@ -81,7 +81,8 @@ typedef struct tb_renderer_draw
     tb_mesh_shading shading;
     uint64_t constants;      /* where in the frame's uploads; UINT64_MAX when they ran out */
     bool skinned;            /* its vertices are the frame's skinned vertices, not its mesh's */
-    uint64_t skinned_offset; /* bytes into the frame's skinned vertices */
+    bool skinned_on_cpu;     /* skinned, and they are in the frame's uploads */
+    uint64_t skinned_offset; /* bytes into the frame's skinned vertices, or its uploads */
 } tb_renderer_draw;
 
 /* A skinned draw of the frame, which the skinning pass skins. */
@@ -222,11 +223,17 @@ struct tb_renderer
     tb_sky sky;                   /* behind every frame, until changed */
     tb_rhi_pipeline sky_pipeline; /* none without bindless resources */
 
-    tb_rhi_pipeline skin_pipeline; /* none without bindless resources */
-    tb_renderer_skin *skins;       /* this frame's */
+    tb_rhi_pipeline skin_pipeline; /* none where the GPU cannot skin */
+    tb_renderer_skin *skins;       /* this frame's, for the skinning pass */
     size_t skin_count;
     size_t skin_capacity;
     uint64_t skinned_bytes; /* of the frame's skinned vertices */
+    /* Why the GPU cannot skin, so that the CPU does; "" when it can. */
+    char skin_unavailable[TB_RHI_MESSAGE_CAPACITY];
+    bool skin_cpu_forced;        /* the CPU skins from the next frame on */
+    bool skin_on_cpu;            /* the CPU skins this frame */
+    tb_mesh_vertex *cpu_skinned; /* a draw's vertices, skinned on the CPU */
+    size_t cpu_skinned_capacity;
 
     tb_canvas_batch canvas;            /* this frame's 2D */
     tb_rhi_pipeline canvas_pipeline;   /* none without bindless resources */
@@ -432,7 +439,9 @@ void tb_renderer_temporal_record(tb_renderer *renderer, tb_temporal_recording *r
  * frame's to read. */
 void tb_renderer_temporal_end_frame(tb_renderer *renderer, tb_mat4 clip);
 
-/* The skinning pipeline (skinning.c). */
+/* The skinning pipeline (skinning.c), or, where it cannot be made, why the
+ * CPU skins instead; logged. A GPU that cannot skin is a capability
+ * missing, so this returns TB_RHI_OK. */
 tb_rhi_result tb_renderer_skinning_create(tb_renderer *renderer, tb_rhi_error *error);
 void tb_renderer_skinning_destroy(tb_renderer *renderer);
 

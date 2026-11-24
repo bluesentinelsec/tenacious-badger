@@ -43,7 +43,8 @@ typedef struct sandbox
     tb_font *fonts[SANDBOX_FONT_COUNT];
     tb_font_spec specs[SANDBOX_FONT_COUNT]; /* each font's role, and its size */
     float pixel_size;                       /* the pixel font's design size, in pixels to the em */
-    float ui_scale; /* the interface's zoom over the display's scale: 1 is 100% */
+    float ui_scale;    /* the interface's zoom over the display's scale: 1 is 100% */
+    bool cpu_skinning; /* skinned meshes forced onto the CPU */
 } sandbox;
 
 /* A frame of a scene. */

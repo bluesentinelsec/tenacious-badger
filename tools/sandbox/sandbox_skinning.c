@@ -1,7 +1,8 @@
 /* The skinning scene: a row of tentacles, each a tapered cylinder skinned to
  * a chain of joints, played by two clips made in code (a wave and a curl)
  * whose blend drifts over time, evaluated on the job system and skinned on
- * the GPU, with their bones drawn over them. */
+ * the GPU, or on the CPU where it cannot or is forced to, with their bones
+ * drawn over them. */
 #include "sandbox.h"
 
 #include "badger/anim.h"

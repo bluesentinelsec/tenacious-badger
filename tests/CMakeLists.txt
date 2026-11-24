@@ -324,6 +324,19 @@ if(TARGET burrow)
     tb_add_burrow_test(the_version_is_written --version 0 "^burrow ${PROJECT_VERSION}")
     tb_add_burrow_test(a_wrong_option_is_refused --nope 2
         "burrow: error: unknown option '--nope'")
+    # The game's room, world grid, player and HUD, built from its sources.
+    tb_add_tests(tb_burrow_tests
+        SOURCES burrow/burrow_grid_test.c burrow/burrow_hud_test.c burrow/burrow_player_test.c
+            burrow/burrow_room_test.c
+        LIBRARIES TenaciousBadger::badger)
+    target_sources(tb_burrow_tests PRIVATE ${TB_BURROW_SOURCES})
+    target_include_directories(tb_burrow_tests PRIVATE "${PROJECT_SOURCE_DIR}/src")
+    # The game runs for a few frames, drawing the room in a window where
+    # there is a display, and skips where there is none.
+    add_test(NAME burrow.plays_a_number_of_frames
+        COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tools/burrow_play_test.py"
+            "$<TARGET_FILE:burrow>")
+    set_tests_properties(burrow.plays_a_number_of_frames PROPERTIES SKIP_RETURN_CODE 77)
 endif()
 
 add_executable(tb_static_tests consumers/static/main.c)

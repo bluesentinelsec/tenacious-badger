@@ -350,6 +350,7 @@ the executable, then the player's file, then the command line.
 | `burrow` | Plays |
 | `--set NAME=VALUE` | Gives a setting a value for this session; may be repeated |
 | `--renderer=NAME` | The same as `--set graphics.renderer=NAME`, given after every `--set` |
+| `--frames=COUNT` | The same as `--set developer.frame_count=COUNT`, given after every `--set`: stops after that many frames |
 | `--reset-settings` | Sets the player's file aside and starts from the defaults |
 | `--settings-file FILE` | Uses another settings file in place of the player's |
 | `--mode developer` or `--mode release` | Takes a developer or a release build's defaults; each build defaults to its own |

@@ -172,8 +172,41 @@ vertex buffer like any other by the time it is drawn. The cost is a
 frame's buffer of skinned vertices, 32 bytes each, which the graph pools
 from frame to frame.
 
-A device without bindless resources skins nothing, and draws no skinned
-mesh.
+**On the CPU.** Where the GPU cannot skin, the CPU does. A device without
+bindless resources (below Shader Model 6.6 or resource binding tier 3)
+cannot read vertices and matrices by index, and a backend that cannot make
+the skinning pipeline cannot run it; there, each skinned draw's vertices are
+skinned when the draw is made, by `tb_skin_vertices()`, into the frame's
+uploads, laid out as `tb_mesh_vertex`, and the scene pass draws them from
+there, through the same mesh and material pipelines. A skinned mesh keeps
+its bound vertices in memory beside its GPU buffer for this, so either path
+can skin it. The CPU's arithmetic is the shader's: the same weighted sum of
+columns, used as the weights are, a joint past the matrices taking the
+last, and a normal the sum turns to nothing kept as it was bound; on WARP
+the two paths draw the same pixels. What it costs is the CPU's time, and 32
+bytes of the frame's 16 MiB of uploads a vertex: a draw that does not fit
+is left out, as a draw whose matrices do not fit is on the GPU.
+
+```c
+tb_skinning_info skinning = {0};
+tb_renderer_skinning_info(renderer, &skinning);   /* where, and why */
+/* "GPU: a compute pass", "CPU: the device has no bindless resources", "CPU: forced" */
+tb_renderer_force_cpu_skinning(renderer, true);   /* the CPU from the next frame on */
+```
+
+Which path skins is a capability, never a failure: the renderer logs it
+when it is made, and again whenever it changes, and
+`tb_renderer_skinning_info()` reports it with the reason, for an options
+screen or [the sandbox's inspector](sandbox.md#the-inspector).
+`tb_renderer_force_cpu_skinning()` takes the CPU path where the GPU's is
+there, from the next frame on, so that tests and the sandbox compare the
+two on the same machine.
+
+`tb_skin_vertices()` stands on its own: it reads a range of bound vertices
+and the joints' matrices and writes skinned vertices, touching nothing
+else, so a caller may skin a mesh on the CPU for itself (for picking, or
+collision against a posed mesh), and the renderer can later split a large
+mesh's vertices into ranges across [the job system](jobs.md).
 
 ## Skies
 
@@ -621,6 +654,8 @@ the same way, but no library holds it.
 - Skinned meshes in other passes (shadows, ray tracing), dual-quaternion
   skinning, more than four joints a vertex, and normals of non-uniformly
   scaled joints (transformed by the inverse transpose).
+- Skinning on the CPU across the job system's workers, rather than on the
+  thread that renders.
 - Shadows; light culling by tiles or clusters; emissive materials and
   ambient occlusion textures.
 - Prefiltered image-based lighting, clouds and atmosphere.

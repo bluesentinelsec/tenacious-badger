@@ -68,6 +68,42 @@ def copy_font_licenses(folder):
     shutil.copy2(ROOT / 'resources/fonts/README.md', folder / 'licenses/fonts/README.md')
 
 
+def shader_directory(folder, system):
+    """Where an export keeps the renderer's shader libraries: beside the
+    executable, or in a macOS bundle's Resources, where Burrow looks."""
+    if system == 'Darwin':
+        return folder / 'Burrow.app/Contents/Resources/Shaders'
+    return folder / 'Shaders'
+
+
+def copy_shader_libraries(build, folder, system):
+    """The shader libraries the build wrote (bin/Shaders/<backend>.tbsl), which
+    a Release game needs: it compiles no shaders at run time. Returns their
+    names, for the check of the export."""
+    built = build / 'bin/Shaders'
+    libraries = sorted(path.name for path in built.glob('*.tbsl')) if built.is_dir() else []
+    if libraries:
+        destination = shader_directory(folder, system)
+        destination.mkdir(parents=True, exist_ok=True)
+        for name in libraries:
+            shutil.copy2(built / name, destination / name)
+    return libraries
+
+
+def verify_shader_libraries(folder, metadata, system):
+    """Every shader library the build wrote travels with the export, whole.
+    Windows always has D3D12's, since the build compiles it there."""
+    libraries = metadata['shader_libraries']
+    if system == 'Windows':
+        require('d3d12.tbsl' in libraries, 'The build wrote no D3D12 shader library')
+    for name in libraries:
+        library = shader_directory(folder, system) / name
+        require(library.is_file(), f'Missing shader library: {name}')
+        digest = hashlib.sha256(library.read_bytes()).hexdigest()
+        require(digest == metadata['shader_library_sha256'][name],
+                f'Shader library differs from the build: {name}')
+
+
 def metadata_check(folder, metadata, system):
     version = metadata['version']
     publisher = metadata['publisher']
@@ -75,6 +111,7 @@ def metadata_check(folder, metadata, system):
     require((folder / 'LICENSE').is_file(), 'Missing Apache-2.0 license')
     require(publisher in (folder / 'NOTICE').read_text(), 'Missing personal attribution')
     verify_font_licenses(folder)
+    verify_shader_libraries(folder, metadata, system)
     if system == 'Windows':
         verify_windows_signatures(folder, publisher)
         executable = folder / 'burrow.exe'
@@ -185,10 +222,17 @@ def main():
                 shutil.copy2(ROOT / 'resources/icons' / f'burrow.{extension}', destination / f'{identifier}.{extension}')
             metadata['minimum_runtime'] = f"Linux with {platform.libc_ver()[0]} {platform.libc_ver()[1]} or newer ({architecture})"
             launch = 'Run ./burrow from a terminal. Desktop metadata is in share/ for optional desktop integration.'
+        metadata['shader_libraries'] = copy_shader_libraries(build, folder, system)
+        metadata['shader_library_sha256'] = {
+            name: hashlib.sha256((build / 'bin/Shaders' / name).read_bytes()).hexdigest()
+            for name in metadata['shader_libraries']}
+        if system == 'Darwin' and metadata['shader_libraries']:
+            # The bundle's seal covers its resources: sign it again with them.
+            run(['codesign', '--force', '--sign', '-', '--timestamp=none', folder / 'Burrow.app'])
         for document in ['LICENSE', 'NOTICE']:
             shutil.copy2(ROOT / document, folder / document)
         copy_font_licenses(folder)
-        (folder / 'README.txt').write_text(f"Tenacious Badger — under construction\n\n{launch}\n\nBurrow opens its window and runs its game loop; nothing is rendered yet. Escape quits. Run it with check to print a line that proves it starts, and with --help for its options.\nPublisher: {metadata['publisher']}\nLicense: Apache-2.0\n", encoding='utf-8')
+        (folder / 'README.txt').write_text(f"Tenacious Badger — under construction\n\n{launch}\n\nBurrow draws a graybox room to fly through: the mouse looks, WASD moves, Space and Ctrl rise and sink, and Shift sprints. Escape frees the mouse, and quits once it is free. The renderer's compiled shaders, where the platform has them, are in Shaders/ (Contents/Resources/Shaders in the macOS bundle). Run it with check to print a line that proves it starts, and with --help for its options.\nPublisher: {metadata['publisher']}\nLicense: Apache-2.0\n", encoding='utf-8')
         (folder / 'BUILD-INFO.json').write_text(json.dumps(metadata, indent=2) + '\n')
         metadata_check(folder, metadata, system)
         if system == 'Linux':
