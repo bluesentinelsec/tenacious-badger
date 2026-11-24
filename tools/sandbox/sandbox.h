@@ -38,16 +38,20 @@ typedef struct sandbox
     tb_camera camera;         /* the fly camera, which 3D scenes draw from */
     tb_font_catalog *catalog; /* holds the fonts' bytes */
     tb_font *fonts[SANDBOX_FONT_COUNT];
+    float ui_scale; /* the interface's zoom over the display's scale: 1 is 100% */
 } sandbox;
 
 /* A frame of a scene. */
 typedef struct sandbox_frame
 {
-    double seconds; /* since the scene began */
+    double seconds;       /* since the scene began */
+    double delta_seconds; /* since the last frame */
 } sandbox_frame;
 
 /* A scene: made when it is chosen, drawn each frame between the renderer's
- * begin and end, released when another is chosen. `state` is the scene's. */
+ * begin and end, released when another is chosen. `state` is the scene's.
+ * `event`, when a scene has one, sees each window event first, and returns
+ * true to take it from the sandbox's keys and fly camera. */
 typedef struct sandbox_scene
 {
     const char *name;
@@ -56,6 +60,7 @@ typedef struct sandbox_scene
     bool (*create)(sandbox *box, void **state);
     void (*draw)(sandbox *box, void *state, const sandbox_frame *frame);
     void (*destroy)(sandbox *box, void *state);
+    bool (*event)(sandbox *box, void *state, const tb_window_event *event);
 } sandbox_scene;
 
 extern const sandbox_scene sandbox_scenes[];
@@ -65,6 +70,17 @@ bool sandbox_skinning_create(sandbox *box, void **state);
 void sandbox_skinning_draw(sandbox *box, void *state, const sandbox_frame *frame);
 void sandbox_skinning_destroy(sandbox *box, void *state);
 extern const size_t sandbox_scene_count;
+
+/* The shapes, which other scenes draw under what they show. */
+bool shapes_create(sandbox *box, void **state);
+void shapes_draw(sandbox *box, void *state, const sandbox_frame *frame);
+void shapes_destroy(sandbox *box, void *state);
+
+/* The interface: every widget, in windows over the shapes (sandbox_ui.c). */
+bool ui_scene_create(sandbox *box, void **state);
+void ui_scene_draw(sandbox *box, void *state, const sandbox_frame *frame);
+void ui_scene_destroy(sandbox *box, void *state);
+bool ui_scene_event(sandbox *box, void *state, const tb_window_event *event);
 
 /* Make a shader for the device's backend from HLSL in memory: compiled to
  * DXIL through DXC for D3D12; the text itself for the null backend, which

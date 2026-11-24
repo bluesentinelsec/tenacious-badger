@@ -278,7 +278,13 @@ typedef enum tb_key
     TB_KEY_RIGHT_CONTROL,
     TB_KEY_LEFT_ALT,
     TB_KEY_RIGHT_ALT,
-    TB_KEY_COUNT /**< The number of keys; not a key. */
+    TB_KEY_HOME,
+    TB_KEY_END,
+    TB_KEY_PAGE_UP,
+    TB_KEY_PAGE_DOWN,
+    TB_KEY_INSERT,
+    TB_KEY_DELETE, /**< Delete, the key that deletes forward; Fn+Delete on a Mac laptop. */
+    TB_KEY_COUNT   /**< The number of keys; not a key. */
 } tb_key;
 
 /** @brief The modifier keys held during an event: bits of an event's

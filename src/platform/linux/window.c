@@ -106,10 +106,16 @@ static const tb_linux_key_row tb_linux_keys[] = {
     {96, TB_KEY_ENTER},
     {97, TB_KEY_RIGHT_CONTROL},
     {100, TB_KEY_RIGHT_ALT},
+    {102, TB_KEY_HOME},
     {103, TB_KEY_UP},
+    {104, TB_KEY_PAGE_UP},
     {105, TB_KEY_LEFT},
     {106, TB_KEY_RIGHT},
+    {107, TB_KEY_END},
     {108, TB_KEY_DOWN},
+    {109, TB_KEY_PAGE_DOWN},
+    {110, TB_KEY_INSERT},
+    {111, TB_KEY_DELETE},
 };
 
 tb_window_result tb_linux_confirm(tb_window *window, const char *title, const char *message,

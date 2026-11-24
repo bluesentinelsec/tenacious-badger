@@ -485,10 +485,16 @@ static const tb_win32_key tb_win32_keys[] = {
     {0xE01C, TB_KEY_ENTER},
     {0xE01D, TB_KEY_RIGHT_CONTROL},
     {0xE038, TB_KEY_RIGHT_ALT},
+    {0xE047, TB_KEY_HOME},
     {0xE048, TB_KEY_UP},
+    {0xE049, TB_KEY_PAGE_UP},
     {0xE04B, TB_KEY_LEFT},
     {0xE04D, TB_KEY_RIGHT},
+    {0xE04F, TB_KEY_END},
     {0xE050, TB_KEY_DOWN},
+    {0xE051, TB_KEY_PAGE_DOWN},
+    {0xE052, TB_KEY_INSERT},
+    {0xE053, TB_KEY_DELETE},
 };
 
 static tb_key tb_win32_key_of(uint32_t scancode)

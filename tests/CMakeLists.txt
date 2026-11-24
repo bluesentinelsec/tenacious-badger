@@ -124,6 +124,10 @@ set(TB_TEST_CASE_SOURCES
     render/skinning_test.c
     render/sky_test.c
     rhi/rhi_test.c
+    ui/ui_draw_test.c
+    ui/ui_fixture.c
+    ui/ui_test.c
+    ui/ui_text_field_test.c
     shader/shader_dxil_test.c
     shader/shader_preprocess_test.c
     vfs/vfs_test.c
@@ -210,7 +214,8 @@ set(TB_ENGINE_SOURCES ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES} ${TB_JOBS_SOURCE
     ${TB_CODEC_SOURCES} ${TB_SERIALIZE_SOURCES} ${TB_FONT_SOURCES} ${TB_FONT_DATA_OBJECTS}
     ${TB_VFS_SOURCES}
     ${TB_SETTINGS_SOURCES} ${TB_WINDOW_SOURCES} ${TB_DXC_SOURCES} ${TB_GAME_SOURCES}
-    ${TB_SHADER_SOURCES} ${TB_RHI_SOURCES} ${TB_RENDER_SOURCES} ${TB_ANIM_SOURCES})
+    ${TB_SHADER_SOURCES} ${TB_RHI_SOURCES} ${TB_RENDER_SOURCES} ${TB_ANIM_SOURCES}
+    ${TB_UI_SOURCES})
 
 # The arguments go to tb_add_tests.
 function(tb_add_internal_tests target)

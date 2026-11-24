@@ -54,6 +54,7 @@ static const char *sandbox_renderer_name = NULL;
 static const char *sandbox_scene_name = "shapes";
 static int64_t sandbox_frames = 0;
 static const char *sandbox_capture_path = NULL;
+static int64_t sandbox_ui_scale = 100;
 static bool sandbox_software = false;
 static bool sandbox_validation = false;
 static const char *sandbox_values[SANDBOX_MOST_VALUES] = {0};
@@ -274,10 +275,33 @@ static bool sandbox_choose(sandbox_run *run, tb_key key)
     return false;
 }
 
+/* Give the scene the event first; true when it takes it. A key or button
+ * that comes up is still let go of, so that nothing stays held. */
+static bool sandbox_scene_event(sandbox_run *run, const tb_window_event *event)
+{
+    const sandbox_scene *const scene = &sandbox_scenes[run->scene];
+
+    if (!run->scene_ready || scene->event == NULL || run->looking ||
+        !scene->event(&run->box, run->state, event))
+    {
+        return false;
+    }
+    if (event->type == TB_WINDOW_EVENT_KEY_UP)
+    {
+        sandbox_hold(run, event->key, false);
+    }
+    return true;
+}
+
 static bool sandbox_event(void *context, const tb_window_event *event)
 {
     sandbox_run *const run = context;
     const tb_window_event_type type = event->type;
+
+    if (sandbox_scene_event(run, event))
+    {
+        return true;
+    }
 
     if (type == TB_WINDOW_EVENT_KEY_DOWN || type == TB_WINDOW_EVENT_KEY_UP)
     {
@@ -420,6 +444,7 @@ static void sandbox_frame_callback(void *context, const tb_game_time *time)
     if (run->scene_ready)
     {
         frame.seconds = run->clock - run->scene_started;
+        frame.delta_seconds = time->frame_seconds;
         sandbox_scenes[run->scene].draw(&run->box, run->state, &frame);
     }
     sandbox_draw_status(run);
@@ -632,6 +657,7 @@ static int sandbox_main(const tb_cli_outcome *outcome, void *context)
     }
     if (status == EXIT_SUCCESS)
     {
+        run.box.ui_scale = (float)sandbox_ui_scale / 100.0f;
         run.speed = SANDBOX_MOVE_SPEED;
         run.box.camera = tb_camera_perspective(
             tb_radians((float)tb_setting_number(run.engine.graphics.field_of_view)));
@@ -683,6 +709,13 @@ static const tb_cli_option sandbox_options[] = {
      .name = "FILE",
      .text = &sandbox_capture_path,
      .help = "With --frames, save the last frame as this .bmp file."},
+    {.long_name = "ui-scale",
+     .name = "PERCENT",
+     .integer = &sandbox_ui_scale,
+     .minimum = 50,
+     .maximum = 400,
+     .help = "Draw the interface at this share of the display's scale: 150 is half as large "
+             "again. The default is 100."},
     {.long_name = "software",
      .flag = &sandbox_software,
      .help = "Draw on the system's GPU on the CPU (WARP on Windows), which draws the same "
