@@ -1,10 +1,11 @@
-/* Shader libraries: reading one whole and checked, finding a key in it, and
- * writing one. The format is docs/shader-cache.md's; shader_bytes.h reads
- * and writes its numbers. */
+/* Shader libraries: reading one whole and checked, finding a key in it,
+ * finding a shader in a library or a cache or compiling it, and writing one. The format is
+ * docs/shader-cache.md's; shader_bytes.h reads and writes its numbers. */
 #include "shader_bytes.h"
 
 #include "badger/arena.h"
 #include "badger/checksum.h"
+#include "badger/dxc.h"
 #include "badger/memory.h"
 #include "badger/shader_cache.h"
 #include "badger/shader_library.h"
@@ -291,6 +292,91 @@ const char *tb_shader_library_result_name(tb_shader_library_result result)
         return "another version";
     }
     return "unknown result";
+}
+
+/* -------------------------------------------------------------------------
+ * Finding a shader, or compiling it.
+ * ------------------------------------------------------------------------- */
+
+/* An output that holds code found, and nothing else. */
+static void give_code(const void *code, size_t size, tb_shader_compiled *output)
+{
+    output->code = code;
+    output->code_size = size;
+}
+
+/* An output that says why a shader is unavailable, its message in `arena`. */
+static void give_reason(tb_arena *arena, const char *message, tb_shader_compiled *output)
+{
+    tb_shader_diagnostic *const diagnostic =
+        tb_arena_calloc(arena, 1, sizeof(*diagnostic), _Alignof(tb_shader_diagnostic));
+    const size_t length = tb_str_length(message);
+    char *const copy = tb_arena_alloc(arena, length + 1, 1);
+    memcpy(copy, message, length + 1);
+    diagnostic->severity = TB_SHADER_ERROR;
+    diagnostic->path = "";
+    diagnostic->message = copy;
+    output->diagnostics = diagnostic;
+    output->diagnostic_count = 1;
+}
+
+tb_shader_result tb_shader_compile_cached(const tb_shader_compile_request *request,
+                                          const tb_shader_lookup *lookup, tb_arena *arena,
+                                          tb_shader_compiled *output, tb_shader_key *key,
+                                          tb_shader_origin *origin)
+{
+    const tb_shader_compiled empty = {0};
+    const tb_shader_key no_key = {0};
+    const void *code = NULL;
+    size_t size = 0;
+    *output = empty;
+    *key = no_key;
+    *origin = TB_SHADER_ORIGIN_COMPILE;
+    if (request->target == TB_SHADER_TARGET_NONE)
+    {
+        /* The reflection alone needs no compiler, and nothing to keep. */
+        return tb_shader_compile(request, arena, output);
+    }
+    if (tb_shader_key_make(request, key) != TB_SHADER_OK)
+    {
+        /* Reading the source fails: a compile for its reflection says why,
+         * which needs no compiler. */
+        tb_shader_compile_request reflect = *request;
+        reflect.target = TB_SHADER_TARGET_NONE;
+        return tb_shader_compile(&reflect, arena, output);
+    }
+    if (lookup->library != NULL && tb_shader_library_find(lookup->library, key, &code, &size))
+    {
+        *origin = TB_SHADER_ORIGIN_LIBRARY;
+        give_code(code, size, output);
+        return TB_SHADER_OK;
+    }
+    if (lookup->library_only)
+    {
+        give_reason(arena, "the shader is in no library, and compiling at run time is off", output);
+        return TB_SHADER_UNAVAILABLE;
+    }
+    if (request->dxc == NULL)
+    {
+        give_reason(arena, "the shader is in no library, and there is no compiler for its target",
+                    output);
+        return TB_SHADER_UNAVAILABLE;
+    }
+    tb_shader_key entry = {0};
+    tb_shader_cache_key(key, tb_dxc_version(request->dxc), &entry);
+    if (lookup->cache != NULL &&
+        tb_shader_cache_get(lookup->cache, &entry, arena, &code, &size) == TB_SHADER_CACHE_OK)
+    {
+        *origin = TB_SHADER_ORIGIN_CACHE;
+        give_code(code, size, output);
+        return TB_SHADER_OK;
+    }
+    const tb_shader_result result = tb_shader_compile(request, arena, output);
+    if (result == TB_SHADER_OK && lookup->cache != NULL)
+    {
+        (void)tb_shader_cache_put(lookup->cache, &entry, output->code, output->code_size);
+    }
+    return result;
 }
 
 /* -------------------------------------------------------------------------

@@ -49,6 +49,7 @@
 #include "badger/arena.h"
 #include "badger/shader.h"
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -138,6 +139,18 @@ typedef struct tb_shader_cache tb_shader_cache;
  * @par Errors Running out of memory ends the process, as allocation does.
  */
 TB_API tb_shader_cache_result tb_shader_cache_open(const char *directory, tb_shader_cache **cache);
+
+/**
+ * @brief The cache every program of the engine shares by default, as
+ * Unreal's editors share their local derived data cache:
+ * `TenaciousBadger/ShaderCache` in the user's cache directory, such as
+ * `%LOCALAPPDATA%` on Windows and `~/.cache` on Linux. Keys hold everything
+ * that makes two compiles differ, so games and builds share it safely.
+ * @param buffer Where to write the path, NUL-terminated; NULL only at size zero.
+ * @param size Bytes of `buffer`.
+ * @return Whether the system has a cache directory and the path fits.
+ */
+TB_API bool tb_shader_cache_default_directory(char *buffer, size_t size);
 
 /**
  * @brief Close a cache. Its entries stay on disk.

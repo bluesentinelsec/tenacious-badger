@@ -1,5 +1,8 @@
 # The shader compiler: HLSL written once, for every backend.
+include("${PROJECT_SOURCE_DIR}/cmake/EmbedShaders.cmake")
+tb_embed_engine_shaders(TB_ENGINE_SHADER_SOURCE)
 set(TB_SHADER_SOURCES
+    "${TB_ENGINE_SHADER_SOURCE}"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_cache.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_check.c"
@@ -11,6 +14,7 @@ set(TB_SHADER_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_compile.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_condition.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_dxil.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shader_engine.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_form.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_form_extract.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_form_print.c"
@@ -20,6 +24,7 @@ set(TB_SHADER_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_library.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_lower.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_lower_expression.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shader_manifest.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_methods.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_parse.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_parse_declaration.c"

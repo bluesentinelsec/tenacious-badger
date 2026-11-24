@@ -50,59 +50,6 @@ typedef struct tb_skin_constants
     uint32_t unused;
 } tb_skin_constants;
 
-/* Each thread skins a vertex: its position and normal transformed by the
- * sum of its joints' matrices, weighed, which is a sum of each column. A
- * joint past the draw's matrices takes the last, so no vertex reads another
- * draw's. Normals are transformed as directions by the same matrix, which
- * is right for rotations and uniform scales. */
-static const char tb_skin_source[] =
-    "struct SkinConstants\n"
-    "{\n"
-    "    uint Source; uint Joints; uint JointOffset; uint JointCount;\n"
-    "    uint Dest; uint DestOffset; uint VertexCount; uint Unused;\n"
-    "};\n"
-    "ConstantBuffer<SkinConstants> Skin : register(b0);\n"
-    "float4 Column(ByteAddressBuffer joints, uint4 index, float4 weights, uint column)\n"
-    "{\n"
-    "    const uint last = Skin.JointCount - 1;\n"
-    "    const uint at = Skin.JointOffset + column * 16;\n"
-    "    float4 sum = joints.Load<float4>(at + min(index.x, last) * 64) * weights.x;\n"
-    "    sum += joints.Load<float4>(at + min(index.y, last) * 64) * weights.y;\n"
-    "    sum += joints.Load<float4>(at + min(index.z, last) * 64) * weights.z;\n"
-    "    sum += joints.Load<float4>(at + min(index.w, last) * 64) * weights.w;\n"
-    "    return sum;\n"
-    "}\n"
-    "[numthreads(64, 1, 1)]\n"
-    "void MainCS(uint3 id : SV_DispatchThreadID)\n"
-    "{\n"
-    "    if (id.x >= Skin.VertexCount)\n"
-    "    {\n"
-    "        return;\n"
-    "    }\n"
-    "    ByteAddressBuffer source = ResourceDescriptorHeap[Skin.Source];\n"
-    "    ByteAddressBuffer joints = ResourceDescriptorHeap[Skin.Joints];\n"
-    "    RWByteAddressBuffer dest = ResourceDescriptorHeap[Skin.Dest];\n"
-    "    const uint from = id.x * 56;\n"
-    "    const float3 position = source.Load<float3>(from);\n"
-    "    const float3 normal = source.Load<float3>(from + 12);\n"
-    "    const float2 uv = source.Load<float2>(from + 24);\n"
-    "    const uint2 packed = source.Load<uint2>(from + 32);\n"
-    "    const float4 weights = source.Load<float4>(from + 40);\n"
-    "    const uint4 index =\n"
-    "        uint4(packed.x & 0xFFFF, packed.x >> 16, packed.y & 0xFFFF, packed.y >> 16);\n"
-    "    const float4 x = Column(joints, index, weights, 0);\n"
-    "    const float4 y = Column(joints, index, weights, 1);\n"
-    "    const float4 z = Column(joints, index, weights, 2);\n"
-    "    const float4 w = Column(joints, index, weights, 3);\n"
-    "    const float3 skinned = (x * position.x + y * position.y + z * position.z + w).xyz;\n"
-    "    const float3 turned = (x * normal.x + y * normal.y + z * normal.z).xyz;\n"
-    "    const float size = dot(turned, turned);\n"
-    "    const uint to = Skin.DestOffset + id.x * 32;\n"
-    "    dest.Store<float3>(to, skinned);\n"
-    "    dest.Store<float3>(to + 12, size > 0.0 ? turned * rsqrt(size) : normal);\n"
-    "    dest.Store<float2>(to + 24, uv);\n"
-    "}\n";
-
 /* ---------------------------------------------------------------------------
  * Meshes.
  * ------------------------------------------------------------------------- */
@@ -331,7 +278,7 @@ tb_rhi_result tb_renderer_skinning_create(tb_renderer *renderer, tb_rhi_error *e
          * skinned meshes are not drawn. */
         return TB_RHI_OK;
     }
-    result = tb_renderer_shader(renderer, "/Engine/Private/Skinning.hlsl", tb_skin_source, "MainCS",
+    result = tb_renderer_shader(renderer, "/Engine/Private/Skinning.hlsl", NULL, "MainCS",
                                 TB_RHI_STAGE_COMPUTE, &shader, error);
     if (result == TB_RHI_OK)
     {
