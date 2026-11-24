@@ -156,6 +156,70 @@ void tb_ui_text_wrapped(tb_ui *ui, const char *text)
     tb_ui_set_last(ui, 0, item, tb_ui_mouse_over(ui, item));
 }
 
+void tb_ui_text_mono(tb_ui *ui, const char *text)
+{
+    TB_ASSERT(ui != NULL);
+    TB_ASSERT(text != NULL);
+    tb_ui_text_item(ui, TB_UI_FONT_MONO, tb_text_from_cstr(text),
+                    tb_ui_color_of(ui, TB_UI_COLOR_TEXT));
+}
+
+/* The least and greatest of some values. */
+static void tb_ui_extent(const float *values, size_t count, float *min, float *max)
+{
+    *min = values[0];
+    *max = values[0];
+    for (size_t index = 1; index < count; index++)
+    {
+        *min = fminf(*min, values[index]);
+        *max = fmaxf(*max, values[index]);
+    }
+}
+
+void tb_ui_plot(tb_ui *ui, const char *label, const float *values, size_t count, float min,
+                float max, float height)
+{
+    tb_canvas_rect item = {0};
+    const tb_vec2 padding = {ui->theme.frame_padding.y, ui->theme.frame_padding.y};
+
+    TB_ASSERT(ui != NULL);
+    TB_ASSERT(values != NULL || count == 0);
+    item = tb_ui_next_item(ui, 0.0f, height > 0.0f ? height : 3.0f * ui->frame_height, true);
+    tb_ui_fill(ui, item, ui->theme.frame_rounding, tb_ui_color_of(ui, TB_UI_COLOR_FRAME), 0);
+    tb_ui_outline(ui, item, ui->theme.frame_rounding, ui->theme.border,
+                  tb_ui_color_of(ui, TB_UI_COLOR_BUTTON), 0);
+    if (count >= 2)
+    {
+        if (!(max > min))
+        {
+            tb_ui_extent(values, count, &min, &max);
+        }
+        const float range = max > min ? max - min : 1.0f;
+        const tb_canvas_rect inside = tb_ui_rect_inset(item, padding.x, padding.y);
+        const float step = inside.width / (float)(count - 1);
+        tb_vec2 last = {0};
+        for (size_t index = 0; index < count; index++)
+        {
+            const float along = fminf(fmaxf((values[index] - min) / range, 0.0f), 1.0f);
+            const tb_vec2 point = {inside.x + step * (float)index,
+                                   inside.y + inside.height * (1.0f - along)};
+            if (index > 0)
+            {
+                tb_ui_line(ui, last, point, 1.5f, tb_ui_color_of(ui, TB_UI_COLOR_ACCENT_HOT), 0);
+            }
+            last = point;
+        }
+    }
+    if (label != NULL)
+    {
+        tb_ui_draw_text(ui, TB_UI_FONT_REGULAR, tb_text_from_cstr(label),
+                        (tb_vec2){item.x + ui->theme.frame_padding.x, item.y + padding.y},
+                        tb_ui_color_of(ui, TB_UI_COLOR_TEXT_DIM), 0.0f,
+                        tb_ui_rect_intersect(tb_ui_clip(ui), item), 0);
+    }
+    tb_ui_set_last(ui, 0, item, tb_ui_mouse_over(ui, item));
+}
+
 void tb_ui_value(tb_ui *ui, const char *label, const char *value)
 {
     tb_canvas_rect field = {0};

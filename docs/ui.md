@@ -147,6 +147,8 @@ wide as their text.
 | --- | --- | --- |
 | `tb_ui_text`, `tb_ui_textf`, `tb_ui_text_colored`, `tb_ui_heading` | a line of text, as tall as a field so that it lines up with one | |
 | `tb_ui_text_wrapped` | a paragraph wrapped at the window's width | |
+| `tb_ui_text_mono` | a line of text in the monospace font: a log, or columns of text | |
+| `tb_ui_plot` | values joined by lines in a box: frame times, say | |
 | `tb_ui_value` | a label and a value read, not changed | |
 | `tb_ui_button` | a button | when clicked |
 | `tb_ui_checkbox` | a box checked or not | when toggled |
