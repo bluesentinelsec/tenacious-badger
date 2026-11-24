@@ -36,6 +36,9 @@ void ui_fixture_open(ui_fixture *fixture, float scale, uint32_t forget_frames)
     *fixture = (ui_fixture){0};
     fixture->font = open_roboto();
     theme.fonts[TB_UI_FONT_REGULAR] = fixture->font;
+    /* A size of the cases' own, so they do not follow the UI role's size,
+     * which the author tunes. */
+    theme.font_size = UI_FONT_SIZE;
     fixture->ui = tb_ui_create(&(tb_ui_options){.theme = &theme, .forget_frames = forget_frames});
     fixture->input.scale = scale;
     fixture->input.size = (tb_vec2){800.0f * scale, 600.0f * scale};

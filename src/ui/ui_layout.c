@@ -192,7 +192,7 @@ static void tb_ui_window_chrome(tb_ui *ui, const tb_ui_container *container,
                       ui->fonts[TB_UI_FONT_REGULAR].cap_height * 0.8f, state->open, text, id);
         left = rect.x + title_height;
     }
-    tb_ui_text_in(ui, TB_UI_FONT_BOLD, tb_ui_label_text(title),
+    tb_ui_text_in(ui, TB_UI_FONT_HEADING, tb_ui_label_text(title),
                   (tb_canvas_rect){left, rect.y, rect.x + rect.width - left, title_height}, false,
                   text, id);
 }
@@ -667,7 +667,7 @@ void tb_ui_begin_table(tb_ui *ui, const char *name, size_t columns, const char *
     for (size_t column = 0; column < columns; column++)
     {
         TB_ASSERT(headers[column] != NULL);
-        tb_ui_text_in(ui, TB_UI_FONT_BOLD, tb_text_from_cstr(headers[column]),
+        tb_ui_text_in(ui, TB_UI_FONT_HEADING, tb_text_from_cstr(headers[column]),
                       (tb_canvas_rect){container->column_x[column], bar.y,
                                        container->column_width[column], bar.height},
                       false, tb_ui_color_of(ui, TB_UI_COLOR_TEXT), 0);

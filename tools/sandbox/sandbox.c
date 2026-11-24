@@ -566,40 +566,35 @@ static size_t sandbox_find_scene(const char *name)
     return sandbox_scene_count;
 }
 
-/* Open a font of the catalog; NULL when it is not found. */
-static tb_font *sandbox_open_font(const tb_font_catalog *catalog, bool found, size_t index)
-{
-    const void *bytes = NULL;
-    size_t length = 0;
-    tb_font *font = NULL;
-
-    if (!found)
-    {
-        return NULL;
-    }
-    tb_font_catalog_get_bytes(catalog, index, &bytes, &length);
-    if (tb_font_open(bytes, length, NULL, &font, NULL) != TB_FONT_OK)
-    {
-        return NULL;
-    }
-    return font;
-}
-
-/* Open the fonts every scene may draw with, from the engine's catalog: the
- * UI and pixel roles, and Silkscreen. A build that carries none of them
- * draws no text. */
+/* Open the fonts every scene may draw with: the engine catalog's roles, at
+ * their own sizes. A build that carries none of them draws no text. */
 static void sandbox_open_fonts(sandbox *box)
 {
-    size_t index = 0;
-    bool found = false;
+    static const tb_font_role roles[SANDBOX_FONT_COUNT] = {
+        [SANDBOX_FONT_UI] = TB_FONT_ROLE_UI,
+        [SANDBOX_FONT_BODY] = TB_FONT_ROLE_BODY,
+        [SANDBOX_FONT_HEADING] = TB_FONT_ROLE_HEADING,
+        [SANDBOX_FONT_MONOSPACE] = TB_FONT_ROLE_MONOSPACE,
+        [SANDBOX_FONT_PIXEL] = TB_FONT_ROLE_PIXEL,
+    };
 
     box->catalog = tb_font_catalog_create(NULL);
-    found = tb_font_catalog_find_role(box->catalog, TB_FONT_ROLE_UI, &index);
-    box->fonts[SANDBOX_FONT_UI] = sandbox_open_font(box->catalog, found, index);
-    found = tb_font_catalog_find_role(box->catalog, TB_FONT_ROLE_PIXEL, &index);
-    box->fonts[SANDBOX_FONT_VGA] = sandbox_open_font(box->catalog, found, index);
-    found = tb_font_catalog_find(box->catalog, "Silkscreen", TB_FONT_WEIGHT_REGULAR, false, &index);
-    box->fonts[SANDBOX_FONT_SILKSCREEN] = sandbox_open_font(box->catalog, found, index);
+    for (size_t font = 0; font < SANDBOX_FONT_COUNT; font++)
+    {
+        size_t index = 0;
+        tb_font_info info = {0};
+        box->specs[font] = tb_font_spec_of_role(box->catalog, roles[font]);
+        if (!tb_font_catalog_find_spec(box->catalog, box->specs[font], &index) ||
+            !tb_font_catalog_open(box->catalog, index, NULL, &box->fonts[font]))
+        {
+            continue;
+        }
+        tb_font_catalog_get_info(box->catalog, index, &info);
+        if (font == SANDBOX_FONT_PIXEL)
+        {
+            box->pixel_size = (float)info.pixel_size;
+        }
+    }
     if (box->fonts[SANDBOX_FONT_UI] == NULL)
     {
         (void)tb_fmt_print("badger-sandbox: this build of the engine carries no UI font; text "

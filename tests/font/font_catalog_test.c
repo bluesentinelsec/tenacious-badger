@@ -26,8 +26,10 @@
 
 /* Every file of resources/fonts/. */
 #define PACK_FILE_COUNT ((size_t)60)
-/* The files of the families of the default roles: Inter, JetBrains Mono, and Px437. */
-#define DEFAULT_FILE_COUNT ((size_t)13)
+/* The files of the families of the default roles, every weight and slant
+ * of each: Source Serif 4 (6), Source Sans 3 (6), JetBrains Mono (6), and
+ * Px437 IBM VGA 8x16 (1). */
+#define DEFAULT_FILE_COUNT ((size_t)19)
 
 #define FONT_BUFFER ((size_t)65536)
 /* Room for a name in UTF-16. */
@@ -242,21 +244,18 @@ TB_TEST(font_catalog, an_embedded_font_is_decompressed_once)
     TB_TEST_EXPECT_POINTER(first, ==, second);
 }
 
-TB_TEST(font_catalog, the_default_roles_are_the_provisional_choices)
+TB_TEST(font_catalog, the_default_roles_are_the_authors_choices)
 {
-    /* Provisional, until the author chooses: docs/fonts.md lists them. */
+    /* The author's families (docs/fonts.md lists them). The sizes are the
+     * author's to tune, so they are only checked to be sizes. */
     const struct
     {
         tb_font_role role;
         const char *family;
-        uint16_t weight;
     } expected[] = {
-        {TB_FONT_ROLE_UI, "Inter", TB_FONT_WEIGHT_REGULAR},
-        {TB_FONT_ROLE_UI_BOLD, "Inter", TB_FONT_WEIGHT_SEMI_BOLD},
-        {TB_FONT_ROLE_BODY, "Inter", TB_FONT_WEIGHT_REGULAR},
-        {TB_FONT_ROLE_HEADING, "Inter", TB_FONT_WEIGHT_BOLD},
-        {TB_FONT_ROLE_MONOSPACE, "JetBrains Mono", TB_FONT_WEIGHT_REGULAR},
-        {TB_FONT_ROLE_PIXEL, "Px437 IBM VGA 8x16", TB_FONT_WEIGHT_REGULAR},
+        {TB_FONT_ROLE_UI, "Source Sans 3"},         {TB_FONT_ROLE_BODY, "Source Serif 4"},
+        {TB_FONT_ROLE_HEADING, "Source Sans 3"},    {TB_FONT_ROLE_MONOSPACE, "JetBrains Mono"},
+        {TB_FONT_ROLE_PIXEL, "Px437 IBM VGA 8x16"},
     };
     TB_TEST_REQUIRE_UINT(TB_TEST_COUNT_OF(expected), ==, TB_FONT_ROLE_COUNT);
     for (size_t index = 0; index < TB_TEST_COUNT_OF(expected); index++)
@@ -264,9 +263,29 @@ TB_TEST(font_catalog, the_default_roles_are_the_provisional_choices)
         tb_font_role_choice choice = tb_font_default_role(expected[index].role);
         TB_TEST_CONTEXT("%s", tb_font_role_name(expected[index].role));
         TB_TEST_EXPECT_STRING(choice.family, ==, expected[index].family);
-        TB_TEST_EXPECT_UINT(choice.weight, ==, expected[index].weight);
+        /* Nothing is bold or italic unless a caller asks for it. */
+        TB_TEST_EXPECT_UINT(choice.weight, ==, TB_FONT_WEIGHT_REGULAR);
         TB_TEST_EXPECT(!choice.italic);
+        TB_TEST_EXPECT_FLOAT(choice.size, >=, 8.0f);
+        TB_TEST_EXPECT_FLOAT(choice.size, <=, 96.0f);
     }
+}
+
+TB_TEST(font_catalog, the_pixel_role_is_drawn_at_its_fonts_design_size)
+{
+    /* One pixel of the font is one pixel of a display at 100%. */
+    tb_font_catalog *catalog = tb_font_catalog_create(NULL);
+    size_t index = SIZE_MAX;
+    tb_font_info info = {0};
+    if (!tb_font_catalog_find_role(catalog, TB_FONT_ROLE_PIXEL, &index))
+    {
+        tb_font_catalog_destroy(catalog);
+        TB_TEST_SKIP("this build embeds no font");
+    }
+    tb_font_catalog_get_info(catalog, index, &info);
+    TB_TEST_EXPECT_UINT(info.pixel_size, ==, 16);
+    TB_TEST_EXPECT_FLOAT(tb_font_default_role(TB_FONT_ROLE_PIXEL).size, ==, (float)info.pixel_size);
+    tb_font_catalog_destroy(catalog);
 }
 
 TB_TEST(font_catalog, every_role_finds_its_own_font_when_fonts_are_embedded)
@@ -292,6 +311,28 @@ TB_TEST(font_catalog, every_role_finds_its_own_font_when_fonts_are_embedded)
         TB_TEST_EXPECT(info.italic == choice.italic);
         TB_TEST_EXPECT(info.embedded);
     }
+    tb_font_catalog_destroy(catalog);
+}
+
+TB_TEST(font_catalog, the_defaults_keep_every_weight_and_slant_of_their_families)
+{
+    /* A caller who asks for the body text in bold italic gets it, from any
+     * build that embeds fonts: the defaults keep whole families. */
+    tb_font_catalog *catalog = tb_font_catalog_create(NULL);
+    const tb_font_spec body = tb_font_spec_of_role(catalog, TB_FONT_ROLE_BODY);
+    size_t index = SIZE_MAX;
+    tb_font_info info = {0};
+    if (tb_font_embedded_count() == 0)
+    {
+        tb_font_catalog_destroy(catalog);
+        TB_TEST_SKIP("this build embeds no font");
+    }
+    TB_TEST_REQUIRE(
+        tb_font_catalog_find_spec(catalog, tb_font_spec_italic(tb_font_spec_bold(body)), &index));
+    tb_font_catalog_get_info(catalog, index, &info);
+    TB_TEST_EXPECT_STRING(info.family, ==, "Source Serif 4");
+    TB_TEST_EXPECT_UINT(info.weight, ==, TB_FONT_WEIGHT_BOLD);
+    TB_TEST_EXPECT(info.italic);
     tb_font_catalog_destroy(catalog);
 }
 
@@ -403,15 +444,15 @@ TB_TEST(font_catalog, families_match_in_any_case_and_only_whole)
 
 TB_TEST(font_catalog, a_font_a_game_adds_replaces_an_embedded_one)
 {
-    /* A game that adds its own "Inter Regular" gets it for the UI role. */
+    /* A game that adds its own "Source Sans 3 Regular" gets it for the UI role. */
     tb_font_catalog *catalog = tb_font_catalog_create(NULL);
-    size_t added = add_font(catalog, "Inter", "Regular", 400, false);
+    size_t added = add_font(catalog, "Source Sans 3", "Regular", 400, false);
     size_t index = SIZE_MAX;
     TB_TEST_EXPECT_UINT(added, ==, tb_font_embedded_count());
     TB_TEST_REQUIRE(tb_font_catalog_find_role(catalog, TB_FONT_ROLE_UI, &index));
     TB_TEST_EXPECT_UINT(index, ==, added);
-    size_t again = add_font(catalog, "Inter", "Regular", 400, false);
-    TB_TEST_REQUIRE(tb_font_catalog_find(catalog, "Inter", 400, false, &index));
+    size_t again = add_font(catalog, "Source Sans 3", "Regular", 400, false);
+    TB_TEST_REQUIRE(tb_font_catalog_find(catalog, "Source Sans 3", 400, false, &index));
     TB_TEST_EXPECT_UINT(index, ==, again);
     tb_font_catalog_destroy(catalog);
 }
@@ -489,7 +530,7 @@ TB_TEST(font_catalog, a_game_can_change_a_role_at_run_time)
 {
     tb_font_catalog *catalog = tb_font_catalog_create(NULL);
     char family[] = "Badger Pixel";
-    tb_font_role_choice choice = {family, TB_FONT_WEIGHT_BOLD, false};
+    tb_font_role_choice choice = {family, TB_FONT_WEIGHT_BOLD, false, 0.0f};
     size_t index = SIZE_MAX;
 
     /* A role may name a family the catalog does not hold yet. */
@@ -507,12 +548,118 @@ TB_TEST(font_catalog, a_game_can_change_a_role_at_run_time)
     TB_TEST_EXPECT(!kept.italic);
 
     /* Setting it again replaces it; the other roles keep their defaults. */
-    tb_font_role_choice italic = {"Badger Pixel", TB_FONT_WEIGHT_REGULAR, true};
+    tb_font_role_choice italic = {"Badger Pixel", TB_FONT_WEIGHT_REGULAR, true, 0.0f};
     tb_font_catalog_set_role(catalog, TB_FONT_ROLE_PIXEL, &italic);
     kept = tb_font_catalog_get_role(catalog, TB_FONT_ROLE_PIXEL);
     TB_TEST_EXPECT(kept.italic);
     TB_TEST_EXPECT_STRING(tb_font_catalog_get_role(catalog, TB_FONT_ROLE_UI).family, ==,
                           tb_font_default_role(TB_FONT_ROLE_UI).family);
+    tb_font_catalog_destroy(catalog);
+}
+
+TB_TEST(font_catalog, a_role_carries_a_size_that_a_game_can_change)
+{
+    tb_font_catalog *catalog = tb_font_catalog_create(NULL);
+
+    /* A catalog starts with the default sizes. */
+    for (size_t role = 0; role < TB_FONT_ROLE_COUNT; role++)
+    {
+        TB_TEST_CONTEXT("%s", tb_font_role_name((tb_font_role)role));
+        TB_TEST_EXPECT_FLOAT(tb_font_catalog_get_role(catalog, (tb_font_role)role).size, ==,
+                             tb_font_default_role((tb_font_role)role).size);
+    }
+    /* A size set with the role is kept... */
+    tb_font_catalog_set_role(
+        catalog, TB_FONT_ROLE_BODY,
+        &(tb_font_role_choice){"Badger Body", TB_FONT_WEIGHT_REGULAR, false, 21.0f});
+    TB_TEST_EXPECT_FLOAT(tb_font_catalog_get_role(catalog, TB_FONT_ROLE_BODY).size, ==, 21.0f);
+    TB_TEST_EXPECT_FLOAT(tb_font_spec_of_role(catalog, TB_FONT_ROLE_BODY).size, ==, 21.0f);
+    /* ...and a size of 0 is the role's default. */
+    tb_font_catalog_set_role(
+        catalog, TB_FONT_ROLE_BODY,
+        &(tb_font_role_choice){"Badger Body", TB_FONT_WEIGHT_REGULAR, false, 0.0f});
+    TB_TEST_EXPECT_FLOAT(tb_font_catalog_get_role(catalog, TB_FONT_ROLE_BODY).size, ==,
+                         tb_font_default_role(TB_FONT_ROLE_BODY).size);
+    tb_font_catalog_destroy(catalog);
+}
+
+/* --- font specs ------------------------------------------------------------------ */
+
+TB_TEST(font_catalog, a_spec_starts_from_its_role_and_changes_by_helpers)
+{
+    tb_font_catalog *catalog = tb_font_catalog_create(NULL);
+    tb_font_catalog_set_role(
+        catalog, TB_FONT_ROLE_HEADING,
+        &(tb_font_role_choice){"Badger Spec", TB_FONT_WEIGHT_SEMI_BOLD, true, 30.0f});
+    const tb_font_spec heading = tb_font_spec_of_role(catalog, TB_FONT_ROLE_HEADING);
+    TB_TEST_EXPECT_UINT(heading.role, ==, TB_FONT_ROLE_HEADING);
+    TB_TEST_EXPECT_UINT(heading.weight, ==, TB_FONT_WEIGHT_SEMI_BOLD);
+    TB_TEST_EXPECT(heading.italic);
+    TB_TEST_EXPECT_FLOAT(heading.size, ==, 30.0f);
+
+    /* Each helper changes one thing, and leaves the spec it was given. */
+    const tb_font_spec body = tb_font_spec_of_role(catalog, TB_FONT_ROLE_BODY);
+    const tb_font_spec bold = tb_font_spec_bold(body);
+    const tb_font_spec italic = tb_font_spec_italic(body);
+    const tb_font_spec sized = tb_font_spec_sized(body, 40.0f);
+    TB_TEST_EXPECT_UINT(body.weight, ==, TB_FONT_WEIGHT_REGULAR);
+    TB_TEST_EXPECT(!body.italic);
+    TB_TEST_EXPECT_UINT(bold.weight, ==, TB_FONT_WEIGHT_BOLD);
+    TB_TEST_EXPECT(!bold.italic);
+    TB_TEST_EXPECT_FLOAT(bold.size, ==, body.size);
+    TB_TEST_EXPECT(italic.italic);
+    TB_TEST_EXPECT_UINT(italic.weight, ==, TB_FONT_WEIGHT_REGULAR);
+    TB_TEST_EXPECT_FLOAT(sized.size, ==, 40.0f);
+    TB_TEST_EXPECT_UINT(sized.role, ==, TB_FONT_ROLE_BODY);
+    TB_TEST_EXPECT_UINT(sized.weight, ==, body.weight);
+    tb_font_catalog_destroy(catalog);
+}
+
+TB_TEST(font_catalog, a_spec_finds_its_roles_family_at_its_own_weight_and_slant)
+{
+    tb_font_catalog *catalog = tb_font_catalog_create(NULL);
+    const size_t regular = add_font(catalog, "Badger Spec", "Regular", 400, false);
+    const size_t bold = add_font(catalog, "Badger Spec", "Bold", 700, false);
+    const size_t italic = add_font(catalog, "Badger Spec", "Italic", 400, true);
+    size_t index = SIZE_MAX;
+    tb_font_spec spec = {0};
+
+    tb_font_catalog_set_role(
+        catalog, TB_FONT_ROLE_UI,
+        &(tb_font_role_choice){"Badger Spec", TB_FONT_WEIGHT_REGULAR, false, 0.0f});
+    spec = tb_font_spec_of_role(catalog, TB_FONT_ROLE_UI);
+    TB_TEST_REQUIRE(tb_font_catalog_find_spec(catalog, spec, &index));
+    TB_TEST_EXPECT_UINT(index, ==, regular);
+    TB_TEST_REQUIRE(tb_font_catalog_find_spec(catalog, tb_font_spec_bold(spec), &index));
+    TB_TEST_EXPECT_UINT(index, ==, bold);
+    TB_TEST_REQUIRE(tb_font_catalog_find_spec(catalog, tb_font_spec_italic(spec), &index));
+    TB_TEST_EXPECT_UINT(index, ==, italic);
+    /* No bold italic: the italic comes first, at the nearest weight. */
+    TB_TEST_REQUIRE(
+        tb_font_catalog_find_spec(catalog, tb_font_spec_italic(tb_font_spec_bold(spec)), &index));
+    TB_TEST_EXPECT_UINT(index, ==, italic);
+
+    /* A spec names the role, not the family: it follows the role. */
+    tb_font_catalog_set_role(
+        catalog, TB_FONT_ROLE_UI,
+        &(tb_font_role_choice){"Badger Missing", TB_FONT_WEIGHT_REGULAR, false, 0.0f});
+    index = SIZE_MAX;
+    TB_TEST_EXPECT(!tb_font_catalog_find_spec(catalog, spec, &index));
+    TB_TEST_EXPECT_UINT(index, ==, SIZE_MAX);
+    tb_font_catalog_destroy(catalog);
+}
+
+TB_TEST(font_catalog, a_font_of_a_catalog_opens_from_its_index)
+{
+    tb_font_catalog *catalog = tb_font_catalog_create(NULL);
+    const size_t added = add_font(catalog, "Badger Open", "Bold", 700, false);
+    tb_font *font = NULL;
+    tb_font_style style = {0};
+
+    TB_TEST_REQUIRE(tb_font_catalog_open(catalog, added, NULL, &font));
+    tb_font_get_style(font, &style);
+    TB_TEST_EXPECT_UINT(style.weight, ==, 700);
+    tb_font_close(font);
     tb_font_catalog_destroy(catalog);
 }
 
@@ -529,7 +676,6 @@ TB_TEST(font_catalog, names_categories_licenses_and_roles)
     TB_TEST_EXPECT_STRING(tb_font_license_name(TB_FONT_LICENSE_GAME), ==, "game");
     TB_TEST_EXPECT_STRING(tb_font_license_name((tb_font_license)99), ==, "unknown");
     TB_TEST_EXPECT_STRING(tb_font_role_name(TB_FONT_ROLE_UI), ==, "ui");
-    TB_TEST_EXPECT_STRING(tb_font_role_name(TB_FONT_ROLE_UI_BOLD), ==, "ui-bold");
     TB_TEST_EXPECT_STRING(tb_font_role_name(TB_FONT_ROLE_BODY), ==, "body");
     TB_TEST_EXPECT_STRING(tb_font_role_name(TB_FONT_ROLE_HEADING), ==, "heading");
     TB_TEST_EXPECT_STRING(tb_font_role_name(TB_FONT_ROLE_MONOSPACE), ==, "monospace");
@@ -562,6 +708,20 @@ static void get_no_role(void *context)
     (void)tb_font_catalog_get_role(context, TB_FONT_ROLE_COUNT);
 }
 
+static void set_a_negative_size(void *context)
+{
+    tb_font_catalog_set_role(
+        context, TB_FONT_ROLE_UI,
+        &(tb_font_role_choice){"Badger", TB_FONT_WEIGHT_REGULAR, false, -1.0f});
+}
+
+static void size_a_spec_at_zero(void *context)
+{
+    (void)context;
+    (void)tb_font_spec_sized((tb_font_spec){TB_FONT_ROLE_UI, TB_FONT_WEIGHT_REGULAR, false, 16.0f},
+                             0.0f);
+}
+
 TB_TEST(font_catalog, indexes_and_roles_out_of_range_are_contract_violations)
 {
     if (!tb_assert_library_enabled())
@@ -573,5 +733,7 @@ TB_TEST(font_catalog, indexes_and_roles_out_of_range_are_contract_violations)
     TB_TEST_EXPECT_TRAP(get_embedded_bytes_past_the_end, NULL, "tb_font_embedded_count");
     TB_TEST_EXPECT_TRAP(get_default_of_no_role, NULL, "a role");
     TB_TEST_EXPECT_TRAP(get_no_role, catalog, "a role");
+    TB_TEST_EXPECT_TRAP(set_a_negative_size, catalog, "a finite size");
+    TB_TEST_EXPECT_TRAP(size_a_spec_at_zero, NULL, "a spec of a finite size");
     tb_font_catalog_destroy(catalog);
 }
