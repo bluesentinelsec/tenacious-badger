@@ -50,7 +50,7 @@ typedef struct shapes_scene
     tb_mesh *floor;
 } shapes_scene;
 
-static bool shapes_create(sandbox *box, void **state)
+bool shapes_create(sandbox *box, void **state)
 {
     shapes_scene *const scene = tb_calloc(1, sizeof(*scene));
 
@@ -63,7 +63,7 @@ static bool shapes_create(sandbox *box, void **state)
     return true;
 }
 
-static void shapes_draw(sandbox *box, void *state, const sandbox_frame *frame)
+void shapes_draw(sandbox *box, void *state, const sandbox_frame *frame)
 {
     static const tb_vec4 colors[SHAPE_COUNT] = {{0.90f, 0.35f, 0.30f, 1}, {0.85f, 0.85f, 0.85f, 1},
                                                 {0.30f, 0.70f, 0.95f, 1}, {0.95f, 0.75f, 0.25f, 1},
@@ -94,7 +94,7 @@ static void shapes_draw(sandbox *box, void *state, const sandbox_frame *frame)
                    (tb_vec4){1, 1, 0.3f, 1}, 0);
 }
 
-static void shapes_destroy(sandbox *box, void *state)
+void shapes_destroy(sandbox *box, void *state)
 {
     shapes_scene *const scene = state;
 
@@ -957,55 +957,71 @@ const sandbox_scene sandbox_scenes[] = {
      {0.10f, 0.11f, 0.13f, 1},
      shapes_create,
      shapes_draw,
-     shapes_destroy},
+     shapes_destroy,
+     NULL},
     {"canvas",
      "the 2D layer: shapes, lines, images and sprites over the shapes",
      {0.10f, 0.11f, 0.13f, 1},
      canvas_create,
      canvas_draw,
-     canvas_destroy},
+     canvas_destroy,
+     NULL},
     {"materials",
      "the shapes with textures, normal maps and metal, mipmapped, on a checkered floor",
      {0.10f, 0.11f, 0.13f, 1},
      materials_create,
      materials_draw,
-     materials_destroy},
+     materials_destroy,
+     NULL},
     {"sky",
      "the shapes under a procedural sky: a gradient, a ground, and a circling sun",
      {0.10f, 0.11f, 0.13f, 1},
      sky_create,
      sky_draw,
-     sky_destroy},
+     sky_destroy,
+     NULL},
     {"sky_cube",
      "the shapes under a cube-map sky made in memory: a dusk with lines of latitude and longitude",
      {0.10f, 0.11f, 0.13f, 1},
      sky_cube_create,
      sky_draw,
-     sky_destroy},
+     sky_destroy,
+     NULL},
     {"text",
      "text: sizes, wrapping paragraphs, alignment, pixel fonts, and labels in the world",
      {0.10f, 0.11f, 0.13f, 1},
      text_create,
      text_draw,
-     text_destroy},
+     text_destroy,
+     NULL},
+    {"ui",
+     "the interface: windows of every widget over the shapes; the camera flies outside them",
+     {0.10f, 0.11f, 0.13f, 1},
+     ui_scene_create,
+     ui_scene_draw,
+     ui_scene_destroy,
+     ui_scene_event},
     {"triangle",
      "a triangle of three colored corners, turning, drawn through the RHI",
      {0.08f, 0.09f, 0.11f, 1},
      triangle_create,
      triangle_draw,
-     triangle_destroy},
+     triangle_destroy,
+     NULL},
     {"textured",
      "a checkerboard made in memory, sampled by bindless index",
      {0.08f, 0.09f, 0.11f, 1},
      textured_create,
      textured_draw,
-     textured_destroy},
+     textured_destroy,
+     NULL},
     {"clear",
      "the swap chain cleared to a plain color",
      {0.20f, 0.35f, 0.55f, 1},
      clear_create,
      clear_draw,
-     clear_destroy},
+     clear_destroy,
+     NULL},
 };
 
 const size_t sandbox_scene_count = sizeof(sandbox_scenes) / sizeof(sandbox_scenes[0]);
