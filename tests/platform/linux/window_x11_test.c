@@ -5,7 +5,6 @@
  * checked without a person at the mouse; relative motion, which the server
  * makes only from a device, is made by XTest where the server has it. A
  * machine without an X server skips the cases. */
-#include "badger/crash.h"
 #include "badger/library.h"
 #include "badger/platform.h"
 #include "badger/window.h"
@@ -340,7 +339,6 @@ TB_TEST(platform_x11_window, relative_mouse_mode_reports_raw_motion)
     tb_library *xtest = NULL;
     tb_library_function fake_motion = NULL;
 
-    tb_crash_catch();
     TB_TEST_REQUIRE_UINT(tb_window_set_relative_mouse(made.window, true, &error), ==, TB_WINDOW_OK);
     if (tb_library_open("libXtst.so.6", TB_LIBRARY_SEARCH_SYSTEM, &xtest, NULL) == TB_LIBRARY_OK &&
         tb_library_find_function(xtest, "XTestFakeRelativeMotionEvent", &fake_motion, NULL) ==
@@ -360,7 +358,9 @@ TB_TEST(platform_x11_window, relative_mouse_mode_reports_raw_motion)
         }
         TB_TEST_EXPECT(moved);
     }
-    tb_library_close(xtest);
     TB_TEST_EXPECT_UINT(tb_window_set_relative_mouse(made.window, false, NULL), ==, TB_WINDOW_OK);
     close_window(&made);
+    /* XTest hooks the closing of the display it was used on, so it stays
+     * loaded until the display is closed. */
+    tb_library_close(xtest);
 }
