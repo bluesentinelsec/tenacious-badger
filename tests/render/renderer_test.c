@@ -176,13 +176,6 @@ static void draw_frame(tb_renderer *renderer, tb_mesh *cube)
     TB_TEST_REQUIRE_UINT(tb_renderer_end_frame(renderer), ==, TB_RHI_OK);
 }
 
-static uint32_t pixel_at(const uint8_t *pixels, uint32_t width, uint32_t x, uint32_t y)
-{
-    const uint8_t *const bgra = &pixels[((size_t)y * width + x) * 4u];
-    return (uint32_t)bgra[0] | (uint32_t)bgra[1] << 8 | (uint32_t)bgra[2] << 16 |
-           (uint32_t)bgra[3] << 24;
-}
-
 static void count_custom(const tb_renderer_draw_context *draw)
 {
     int *const calls = draw->context;
