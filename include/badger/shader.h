@@ -6,9 +6,9 @@
  * run time by the engine, with the same result. See docs/shaders.md.
  *
  * This header reads a shader's sources (tb_shader_preprocess()), and
- * compiles an entry point into its reflection (tb_shader_compile()): what
- * the stage takes, gives and binds, which a pipeline is built from. Writing
- * each backend's output comes next.
+ * compiles an entry point (tb_shader_compile()) into its reflection, what
+ * the stage takes, gives and binds, which a pipeline is built from, and into
+ * what a backend runs: DXIL for D3D12, through DXC, so far.
  *
  * **Virtual shader paths.** Every shader file is named by an absolute
  * virtual path, as in Unreal: `/Engine/Private/DeferredLighting.hlsl`,
@@ -38,7 +38,7 @@
  * @par Threading
  * tb_shader_preprocess() and tb_shader_compile() are thread-safe when each
  * call has its own arena and the loader is thread-safe, as the VFS loader
- * is. Every other function is thread-safe.
+ * is; compiles may share one DXC. Every other function is thread-safe.
  */
 #ifndef TB_SHADER_H
 #define TB_SHADER_H
@@ -49,6 +49,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+struct tb_dxc;
 struct tb_vfs;
 
 /** @brief Why a compile failed. */
@@ -439,12 +440,44 @@ typedef struct tb_shader_reflection
     unsigned features; /**< A combination of tb_shader_feature. */
 } tb_shader_reflection;
 
-/** @brief What to compile: a source, and the function a stage runs from it. */
+/** @brief What a compile writes for a GPU, beside the reflection it always gives. */
+typedef enum tb_shader_target
+{
+    TB_SHADER_TARGET_NONE, /**< Nothing: the reflection only. */
+    /** DXIL for D3D12, compiled by DXC (badger/dxc.h): a signed DXBC
+     * container, which a pipeline state takes as it is. */
+    TB_SHADER_TARGET_DXIL
+} tb_shader_target;
+
+/** @brief A shader model, as its major and minor versions: `TB_SHADER_MODEL(6, 6)`. */
+#define TB_SHADER_MODEL(major, minor) (((unsigned)(major) << 8) | (unsigned)(minor))
+
+/** @brief The shader model a compile targets when it names none: 6.6, the
+ * D3D12 baseline, with bindless resources. */
+#define TB_SHADER_MODEL_DEFAULT TB_SHADER_MODEL(6, 6)
+
+/** @brief Compile for debugging: without optimizing, and with the debug
+ * information PIX reads embedded in the output. */
+#define TB_SHADER_COMPILE_DEBUG 1u
+
+/** @brief What to compile: a source, the function a stage runs from it, and
+ * what to write for a GPU. Zero-initialize, then fill in what is needed: a
+ * request left at zero past `stage` gives the reflection only. */
 typedef struct tb_shader_compile_request
 {
     tb_shader_preprocess_request source; /**< What to read, as tb_shader_preprocess() reads it. */
     const char *entry_point;             /**< Required; the function's name, NUL-terminated. */
     tb_shader_stage stage;
+    tb_shader_target target; /**< What to write; TB_SHADER_TARGET_NONE for the reflection only. */
+    /** The shader model to write for, from TB_SHADER_MODEL(); 0 for
+     * TB_SHADER_MODEL_DEFAULT. DXIL takes 6.0 and later, as far as the DXC
+     * loaded knows; a stage needs the model that brought it (6.5 for a
+     * mesh shader, 6.3 for ray tracing), and DXC reports one too old. */
+    unsigned shader_model;
+    unsigned flags; /**< A combination of TB_SHADER_COMPILE_DEBUG. */
+    /** DXC, for TB_SHADER_TARGET_DXIL, where it is required; borrowed for
+     * the call. Ignored for any other target. */
+    struct tb_dxc *dxc;
 } tb_shader_compile_request;
 
 /** @brief A compiled shader. Everything in it lives in the caller's arena. */
@@ -453,6 +486,10 @@ typedef struct tb_shader_compiled
     tb_shader_reflection reflection;         /**< Filled in on OK. */
     const tb_shader_diagnostic *diagnostics; /**< Errors and warnings, in the order found. */
     size_t diagnostic_count;                 /**< Entries of `diagnostics`. */
+    /** What the target runs, on OK: for DXIL, the DXBC container, aligned to
+     * 4 bytes. NULL for TB_SHADER_TARGET_NONE, and on failure. */
+    const void *code;
+    size_t code_size; /**< Bytes of `code`. */
 } tb_shader_compiled;
 
 /**
@@ -461,13 +498,22 @@ typedef struct tb_shader_compiled
  *
  * Reads the source as tb_shader_preprocess() does, checks it as DXC does,
  * and lowers it into the compiler's own form, of which the entry point keeps
- * only what it reaches. Writing each backend's output comes later; for now
- * the result is the reflection.
+ * only what it reaches, which the reflection describes.
+ *
+ * Then it writes what the request's target runs. For DXIL, DXC compiles
+ * the preprocessed text, as HLSL 2021, for the stage's profile in the shader
+ * model (`ps_6_6`; a ray-tracing stage's is a library's, `lib_6_6`), and
+ * signs it. DXC's errors and warnings join the diagnostics, located in the
+ * shader's own files as the compiler's are. (Writing HLSL from the
+ * compiler's own form, as the other backends' output is written, comes
+ * later.)
  * @param request Required.
  * @param arena Where the output lives, until the arena is reset or destroyed.
  * @param[out] output Required. On OK, filled in; on FAILED and INVALID, the
  * diagnostics say why; on NO_MEMORY, zero.
- * @return OK, INVALID, FAILED or NO_MEMORY.
+ * @return OK, INVALID (a request with no entry point, no stage, an unknown
+ * target, DXIL without DXC, or a shader model before 6.0), FAILED (errors in
+ * the source, DXC's included) or NO_MEMORY.
  * @par Errors Running out of memory for the compile's own work ends the
  * process, as allocation does. Only the output's arena reports NO_MEMORY.
  */

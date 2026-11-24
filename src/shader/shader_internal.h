@@ -4,6 +4,7 @@
 #define TB_SHADER_INTERNAL_H
 
 #include "badger/arena.h"
+#include "badger/array.h"
 #include "badger/shader.h"
 
 #include <stdbool.h>
@@ -101,5 +102,13 @@ typedef struct tb_shader_unit
  * ends the process. */
 tb_shader_result tb_shader_preprocess_unit(const tb_shader_preprocess_request *request,
                                            tb_arena *arena, tb_shader_unit *unit);
+
+/* Lay out a unit's tokens as text, appended to `text` (of char), each on the
+ * line it came from where that can be kept, as tb_shader_preprocess() writes
+ * it; with `line_markers`, a jump to another file or line is a `#line`.
+ * `offsets` (of size_t), when not NULL, receives where each token starts in
+ * the text, in the unit's order, which is the text's. */
+void tb_shader_render(const tb_shader_unit *unit, bool line_markers, tb_array *text,
+                      tb_array *offsets);
 
 #endif

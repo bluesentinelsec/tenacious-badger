@@ -8,6 +8,7 @@
  * headers for the functions, so a function that is added to a platform
  * interface without a case here fails the test. */
 #include "badger/crash.h"
+#include "badger/dxc.h"
 #include "badger/library.h"
 #include "badger/platform.h"
 #include "badger/process.h"
@@ -47,6 +48,33 @@ TB_TEST(platform_default, tb_crash_report_abort)
 TB_TEST(platform_default, tb_crash_write_dumps)
 {
     (void)tb_crash_write_dumps(NULL);
+}
+
+TB_TEST(platform_default, tb_dxc_open)
+{
+    tb_dxc *dxc = NULL;
+
+    (void)tb_dxc_open(&dxc, NULL);
+}
+
+TB_TEST(platform_default, tb_dxc_close)
+{
+    tb_dxc_close(NULL);
+}
+
+TB_TEST(platform_default, tb_dxc_compile)
+{
+    const tb_dxc_request request = {0};
+    tb_dxc_output output = {0};
+
+    (void)tb_dxc_compile(NULL, &request, &output, NULL);
+}
+
+TB_TEST(platform_default, tb_dxc_release)
+{
+    tb_dxc_output output = {0};
+
+    tb_dxc_release(&output);
 }
 
 TB_TEST(platform_default, tb_library_open)
