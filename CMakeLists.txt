@@ -46,6 +46,9 @@ option(TB_ENABLE_STATIC_ANALYSIS
     "Analyze every project-owned target with the compiler's static analyzer" OFF)
 option(TB_ENABLE_COVERAGE
     "Record which lines of the engine the tests run, with the compiler's instrumentation" OFF)
+set(TB_EMBED_FONTS "all" CACHE STRING
+    "Which fonts of resources/fonts the engine library carries: all, defaults, or none")
+set_property(CACHE TB_EMBED_FONTS PROPERTY STRINGS all defaults none)
 
 include(cmake/WindowsSigning.cmake)
 # tb_add_package_key, for the engine's tests and for games that build it in their tree.
@@ -54,6 +57,7 @@ include(cmake/StaticAnalysis.cmake)
 include(cmake/Coverage.cmake)
 include(cmake/CompilerWarnings.cmake)
 include(cmake/Sanitizers.cmake)
+include(cmake/EmbedFonts.cmake)
 configure_file(cmake/version.h.in generated/badger/version.h @ONLY)
 add_subdirectory(src)
 include(cmake/InstallSDK.cmake)

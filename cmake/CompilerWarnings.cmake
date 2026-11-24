@@ -1,6 +1,18 @@
 function(tb_configure_target target)
     tb_sign_windows_target(${target})
     tb_cover_target(${target})
+    tb_configure_compiler(${target})
+endfunction()
+
+# A program that the build runs, such as badger-fontpack, is signed and
+# warned about as every other target is, but its lines are not counted as
+# covered: what it runs while building is not what the tests ran.
+function(tb_configure_build_tool target)
+    tb_sign_windows_target(${target})
+    tb_configure_compiler(${target})
+endfunction()
+
+function(tb_configure_compiler target)
     set_target_properties(${target} PROPERTIES
         C_STANDARD 17 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
     if(MSVC)

@@ -21,7 +21,7 @@ BYTE_ORDER_MARKS = {
 }
 
 # Files that are not text, by their last suffix.
-BINARY_SUFFIXES = {'.png', '.ico', '.icns', '.bmp', '.zip', '.gz', '.bin'}
+BINARY_SUFFIXES = {'.png', '.ico', '.icns', '.bmp', '.zip', '.gz', '.bin', '.ttf'}
 
 # Directories whose files are data, kept byte for byte.
 DATA_DIRECTORIES = ('tests/data/',)

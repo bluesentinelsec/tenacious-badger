@@ -2,8 +2,10 @@
 
 The `font` module reads TrueType fonts (`.ttf`). Its code lives in
 `src/font/`, and its header is `badger/font.h`. Everything is the engine's
-own C; no font library is used. It reads; drawing glyphs into pixels, and
-the fonts the engine carries, come later.
+own C; no font library is used. It reads fonts, and it carries fonts of
+its own, so that every program that links the engine has text to draw
+([Embedded fonts](#embedded-fonts)); drawing glyphs into pixels comes
+later.
 
 ## Opening a font
 
@@ -87,6 +89,201 @@ Each failure is `TB_FONT_MALFORMED`, `TB_FONT_TRUNCATED` (a table runs past
 the end of the bytes), `TB_FONT_UNSUPPORTED`, or `TB_FONT_TOO_LARGE`, with
 the table and a reason in `tb_font_error`.
 
+## Embedded fonts
+
+The engine library carries the font pack of `resources/fonts/`: 15
+families and 60 files, serif, sans, mono, and retro, compressed into the
+library's own data. Nothing has to be installed or shipped beside a game
+for it to have fonts. The header is `badger/font_catalog.h`.
+
+| Category | Families |
+| --- | --- |
+| Serif | EB Garamond, Source Serif 4, Libre Baskerville |
+| Sans | Inter, Roboto, Source Sans 3 |
+| Mono | JetBrains Mono, Fira Code, IBM Plex Mono |
+| Retro | Press Start 2P, VT323, Silkscreen, Px437 IBM VGA 8x16, Monocraft |
+
+Each family has 400, 600, and 700 weights and true italics, except Fira
+Code (no italics), IBM Plex Mono (400 and 700), Silkscreen (400 and 700),
+and Press Start 2P, VT323, and Px437 (400 only). `resources/fonts/README.md`
+names each family's authors and upstream source.
+
+```c
+for (size_t index = 0; index < tb_font_embedded_count(); index++)
+{
+    tb_font_info info = {0};
+    tb_font_embedded_get_info(index, &info); /* "Inter", "Bold Italic", 700, italic, ... */
+}
+
+const void *bytes = NULL;
+size_t length = 0;
+tb_font_embedded_get_bytes(index, &bytes, &length); /* ready for tb_font_open */
+```
+
+A font is stored compressed, and decompressed the first time its bytes
+are asked for, once for the process: threads that ask for the same font
+at the same moment wait for the one that decompresses it. The bytes are
+in pages the engine keeps until the process ends, so they are borrowed for
+the life of the process and never change. Fonts that nobody asks for are
+never decompressed.
+
+### How much to embed
+
+The CMake option `TB_EMBED_FONTS` chooses which fonts a build carries:
+
+| `TB_EMBED_FONTS` | Fonts | Compressed data | Growth of `badger.dll` (Release, MSVC) |
+| --- | --- | --- | --- |
+| `all` (the default) | all 60 | 7.03 MB (16.36 MB as `.ttf`) | +7.04 MB |
+| `defaults` | 13: Inter, JetBrains Mono, Px437 IBM VGA 8x16 | 1.35 MB | +1.37 MB |
+| `none` | none | none | +13 KB, the catalog's code |
+
+`defaults` keeps the families that the default roles name, listed in
+`TB_FONT_DEFAULT_FAMILIES` in `cmake/EmbedFonts.cmake`. With `none`, the
+catalog holds only the fonts a game adds. `tb_font_embedded_count` says
+what a build holds, and the catalog lists only what is there.
+
+Decompressing every font of the pack takes about 100 ms on one core of a
+desktop (Release, MSVC, about 160 MB/s of output); Inter Regular takes
+about 2.3 ms, JetBrains Mono Regular 0.8 ms, and the largest font, Source
+Serif 4, about 4 ms. A second request costs a load of an atomic pointer.
+
+### How the build embeds them
+
+`cmake/EmbedFonts.cmake` compresses each `.ttf` file it keeps with
+`badger-fontpack` (`tools/fontpack/`), a small program built from the
+engine's own DEFLATE sources (`src/codec/deflate.c`, `inflate.c`,
+`checksum.c`) and the few engine functions they call. It writes the font
+as a zlib stream at the best level into a C source of its own, after
+decompressing the stream again and comparing it with the file, so a fault
+in the compressor fails the build and never reaches a game. An index names
+every file of the pack, with its data or none. The sources compile once,
+into the object library `badger_font_data`, which both `badger` and
+`badger_static` take.
+
+Compressing at build time keeps the repository to one copy of each font,
+the `.ttf` the author supplied, which is also the file people update. The
+cost is small: building `badger-fontpack` and compressing all 60 fonts
+take a few seconds, and in parallel, and a font is compressed again only
+when its file changes. The generated sources are under the build
+directory, not `src/`, so the coverage check does not count them.
+
+Cross-compiling, the build cannot run a program built for the target.
+CMake runs `badger-fontpack` through `CMAKE_CROSSCOMPILING_EMULATOR` when
+there is one; otherwise build the target `badger-fontpack` natively and
+give its path with `-DTB_FONT_PACKER=<path>`, or configure
+`-DTB_EMBED_FONTS=none`. Configuration stops with that advice rather than
+fail later.
+
+## The catalog
+
+A catalog lists the embedded fonts, and any a game adds, and finds the
+best font for a family, a weight, and a slant:
+
+```c
+tb_font_catalog *catalog = tb_font_catalog_create(NULL);
+size_t index = 0;
+if (tb_font_catalog_find(catalog, "Inter", TB_FONT_WEIGHT_SEMI_BOLD, false, &index))
+{
+    const void *bytes = NULL;
+    size_t length = 0;
+    tb_font_catalog_get_bytes(catalog, index, &bytes, &length);
+    tb_font *font = NULL;
+    tb_font_open(bytes, length, NULL, &font, NULL);
+}
+tb_font_catalog_destroy(catalog);
+```
+
+Finding follows CSS. Families match without regard to the case of ASCII
+letters. A font of the slant asked for comes before one of the other
+slant. Among those, asked for a weight from 400 to 500, the weights from it
+up to 500 come first, nearest first, then lighter ones, then heavier ones;
+asked for less than 400, lighter ones first; asked for more than 500,
+heavier ones first. Nothing is synthesized: a family without italics gives
+its upright font as it is, and a game that wants a slanted or emboldened
+version draws one. `tb_font_catalog_find` is false only when the catalog
+holds no font of the family.
+
+A catalog's queries are thread-safe with one another. Adding a font,
+setting a role, and destroying the catalog are externally synchronized.
+
+### Fonts of a game's own
+
+A game has two ways to use a font of its own:
+
+- **Open it directly.** Read the `.ttf` file, through the VFS or from
+  anywhere, and pass its bytes to `tb_font_open`. Nothing else is needed;
+  the bytes must outlive the font.
+- **Add it to a catalog**, so that it is found by name and can fill a role:
+
+  ```c
+  tb_font_result result = tb_font_catalog_add(catalog, bytes, length,
+                                              TB_FONT_CATEGORY_OTHER, &index, &error);
+  ```
+
+  The catalog opens the font to read its family, style, weight, and slant,
+  and keeps a copy of the bytes until it is destroyed, so the caller's
+  buffer may be released at once. A font that does not open, or names no
+  family, is refused with the reason. Of two fonts of the same family,
+  weight, and slant, the one added last is found, so a game's font takes
+  the place of an embedded one of the same name.
+
+### Roles
+
+A role says which font a use of text wants: `TB_FONT_ROLE_UI`,
+`TB_FONT_ROLE_UI_BOLD`, `TB_FONT_ROLE_BODY`, `TB_FONT_ROLE_HEADING`,
+`TB_FONT_ROLE_MONOSPACE`, and `TB_FONT_ROLE_PIXEL`. Each names a family,
+a weight, and a slant, which the catalog finds as above;
+`tb_font_catalog_find_role` gives the font.
+
+**The defaults are provisional**, until the author chooses the engine's
+font preferences:
+
+| Role | Default | Why |
+| --- | --- | --- |
+| UI | Inter Regular (400) | The open stand-in for the system UI faces of iOS and macOS, drawn for screens |
+| UI bold | Inter SemiBold (600) | The weight interfaces use for emphasis; Bold is for headings |
+| Body | Inter Regular (400) | Text in games is read on screens and often small, where a sans holds up better than Source Serif 4, without hinting; it also keeps `defaults` to three families |
+| Heading | Inter Bold (700) | |
+| Monospace | JetBrains Mono Regular (400) | Drawn for code, with clear 0/O and 1/l/I, for the console and logs |
+| Pixel | Px437 IBM VGA 8x16 (400) | The DOS VGA font; one pixel of it is one pixel of the screen at exactly 16 px to the em (`tb_font_info.pixel_size`) |
+
+The table is `tb_font_default_roles` in `src/font/font_catalog.c`, one
+line a role; `tb_font_default_role` reads it. A family that leaves it
+must leave `TB_FONT_DEFAULT_FAMILIES` too, and a test checks that every
+default role finds its own font in a build of `TB_EMBED_FONTS=defaults`.
+
+A game changes a role at run time, for its own catalog:
+
+```c
+tb_font_catalog_set_role(catalog, TB_FONT_ROLE_BODY,
+                         &(tb_font_role_choice){"Source Serif 4", TB_FONT_WEIGHT_REGULAR, false});
+```
+
+A role may name a family the catalog does not hold yet; it finds it once
+the font is added.
+
+### Pixel fonts
+
+Pixel fonts are drawn on a grid, and are sharp only at whole multiples of
+the size at which a pixel of the font is a pixel of the screen.
+`tb_font_info.pixel_size` gives that size for the upright pixel fonts: 16
+for Px437 IBM VGA 8x16, 8 for Press Start 2P and Silkscreen, and 9 for
+Monocraft. It is 0 for fonts that scale freely, for VT323, whose outlines
+are not on a grid, and for Monocraft's italics, which are slanted off it.
+
+### Licenses
+
+Fourteen families are under the SIL Open Font License 1.1, and Px437 IBM
+VGA 8x16 under CC BY-SA 4.0 (`tb_font_info.license`). Both allow the fonts
+to be embedded and redistributed with the engine and with games, free or
+sold, so long as the license texts travel with them; CC BY-SA also needs
+the attribution, which `NOTICE` and `resources/fonts/README.md` give. The
+license texts are in `resources/fonts/licenses/`, and are installed with
+the SDK and copied into every desktop export, under `licenses/fonts/`
+beside `NOTICE`; the packaging checks fail without them. A game that ships
+the engine ships them as they are. A modified OFL font may not keep a
+Reserved Font Name that its license reserves.
+
 ## Tests
 
 `tests/font/font_test.c` reads three fonts of the font pack, in
@@ -104,3 +301,13 @@ cuts the three fonts short at every length up to 512 bytes
 and at hundreds more, and corrupts them at thousands of places, each time
 in memory of exactly the font's length, so that the sanitizer build reports
 any read past the end.
+
+`tests/font/font_catalog_test.c` opens every embedded font and checks that
+its own tables name the family, style, weight, and slant the catalog
+claims, checks that the build holds what `TB_EMBED_FONTS` chose and that
+every default role finds its own font, and runs finding, adding, and roles
+on fonts made in memory, so that they hold in a build of every
+`TB_EMBED_FONTS`. `tests/font/font_embedded_cache_test.c` sets eight
+threads at once on a font's first use, on a cache of its own, and
+`tests/core/thread_safety_test.c` has every thread ask for every embedded
+font. CI builds `TB_EMBED_FONTS=defaults` in the default-adapter job.

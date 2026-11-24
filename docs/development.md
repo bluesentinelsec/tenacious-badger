@@ -52,6 +52,7 @@ The foundation layer so far, one public header per module under
 | `vfs.h` | [The virtual file system](vfs.md): directories, archive files, and archives in memory, mounted into one namespace |
 | `json.h` | [JSON](serialization.md): a reader of events, documents in arenas, and a writer |
 | `font.h` | [Fonts](fonts.md): TrueType fonts read from bytes: glyphs, outlines of lines and curves, advances, kerning, metrics, and names |
+| `font_catalog.h` | [Embedded fonts](fonts.md#embedded-fonts): the fonts the engine carries, a catalog that finds fonts by family, weight, and slant, and the default roles |
 | `stream.h` | [Streams](streams.md): one interface for reading and writing bytes, over memory, files, and ranges of other streams |
 | `window.h` | [Windows and displays](windows.md): windowed, borderless and fullscreen windows, displays and their scale, and window events |
 | `shader.h` | [Shaders](shaders.md): HLSL written once for every backend; virtual shader paths, includes and the preprocessor |
