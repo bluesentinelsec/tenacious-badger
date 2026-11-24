@@ -20,6 +20,7 @@
 #include "badger/process.h"
 #include "badger/settings.h"
 #include "badger/shader.h"
+#include "badger/skinning.h"
 #include "badger/str.h"
 #include "badger/version.h"
 
@@ -57,6 +58,7 @@ static const char *sandbox_capture_path = NULL;
 static int64_t sandbox_ui_scale = 100;
 static bool sandbox_show_inspector = false;
 static bool sandbox_software = false;
+static bool sandbox_cpu_skinning = false;
 static bool sandbox_validation = false;
 static const char *sandbox_values[SANDBOX_MOST_VALUES] = {0};
 static size_t sandbox_value_count = 0;
@@ -630,6 +632,8 @@ static int sandbox_open_renderer(sandbox_run *run, tb_window_system *system)
         return EXIT_FAILURE;
     }
     run->box.device = tb_renderer_device(run->box.renderer);
+    run->box.cpu_skinning = sandbox_cpu_skinning;
+    tb_renderer_force_cpu_skinning(run->box.renderer, sandbox_cpu_skinning);
     sandbox_open_fonts(&run->box);
     tb_rhi_device_info_of(run->box.device, &run->box.info);
     if (run->box.info.backend == TB_RHI_BACKEND_D3D12 &&
@@ -768,6 +772,10 @@ static const tb_cli_option sandbox_options[] = {
      .flag = &sandbox_software,
      .help = "Draw on the system's GPU on the CPU (WARP on Windows), which draws the same "
              "pixels on every machine."},
+    {.long_name = "cpu-skinning",
+     .flag = &sandbox_cpu_skinning,
+     .help = "Skin meshes on the CPU, as a device that cannot skin on the GPU does; the "
+             "inspector switches between the two."},
     {.long_name = "validation",
      .flag = &sandbox_validation,
      .help = "Turn on the graphics API's validation, such as the D3D12 debug layer."},

@@ -9,6 +9,7 @@
 #include "badger/fmt.h"
 #include "badger/memory.h"
 #include "badger/render_graph.h"
+#include "badger/skinning.h"
 #include "badger/str.h"
 #include "badger/ui.h"
 
@@ -403,6 +404,22 @@ static void inspector_dump(const sandbox_inspector *inspector, tb_ui *ui)
     }
 }
 
+/* Where the renderer skins, and why; and a switch to force the CPU. */
+static void inspector_skinning(sandbox *box, tb_ui *ui)
+{
+    tb_skinning_info skinning = {0};
+    char line[TB_RHI_MESSAGE_CAPACITY + 16] = {0};
+
+    tb_renderer_skinning_info(box->renderer, &skinning);
+    (void)tb_fmt_buffer(line, sizeof(line), "%s: %s", tb_skinning_path_name(skinning.path),
+                        skinning.reason);
+    tb_ui_value(ui, "Skinning", line);
+    if (tb_ui_checkbox(ui, "Skin on the CPU", &box->cpu_skinning))
+    {
+        tb_renderer_force_cpu_skinning(box->renderer, box->cpu_skinning);
+    }
+}
+
 static void inspector_frame(sandbox_inspector *inspector, sandbox *box, tb_ui *ui,
                             const char *scene, float width)
 {
@@ -429,6 +446,7 @@ static void inspector_frame(sandbox_inspector *inspector, sandbox *box, tb_ui *u
     tb_ui_value(ui, "Scene", scene);
     tb_ui_value(ui, "Backend", tb_rhi_backend_name(box->info.backend));
     tb_ui_value(ui, "Adapter", box->info.adapter);
+    inspector_skinning(box, ui);
     if (tb_ui_header(ui, "Canvas", true))
     {
         tb_ui_textf(ui, "%zu quads in %u draws, %zu of them glyphs, %zu dropped",

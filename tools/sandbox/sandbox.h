@@ -39,7 +39,8 @@ typedef struct sandbox
     tb_camera camera;         /* the fly camera, which 3D scenes draw from */
     tb_font_catalog *catalog; /* holds the fonts' bytes */
     tb_font *fonts[SANDBOX_FONT_COUNT];
-    float ui_scale; /* the interface's zoom over the display's scale: 1 is 100% */
+    float ui_scale;    /* the interface's zoom over the display's scale: 1 is 100% */
+    bool cpu_skinning; /* skinned meshes forced onto the CPU */
 } sandbox;
 
 /* A frame of a scene. */

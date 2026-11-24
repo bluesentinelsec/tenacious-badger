@@ -613,7 +613,11 @@ static void tb_renderer_record_scene(const tb_render_graph_pass_context *pass)
             bound = pipeline;
         }
         tb_rhi_cmd_constant_buffer(pass->list, 0, frame->upload, draw->constants);
-        if (draw->skinned)
+        if (draw->skinned_on_cpu)
+        {
+            tb_rhi_cmd_vertex_buffer(pass->list, 0, frame->upload, draw->skinned_offset);
+        }
+        else if (draw->skinned)
         {
             tb_rhi_cmd_vertex_buffer(pass->list, 0, skinned, draw->skinned_offset);
         }
