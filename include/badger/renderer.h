@@ -31,6 +31,15 @@
  * is drawn with a transform and a color, lit or flat, or with a material of
  * textures (badger/material.h).
  *
+ * **Resolution and quality.** The scene renders at a share of the output's
+ * resolution, the render scale, and temporal anti-aliasing upsamples it to
+ * the output's, as Unreal's TAAU does; the canvas and the debug lines are
+ * drawn at the output's. A tb_renderer_quality holds what the quality
+ * settings set (tb_renderer_quality_from_settings()). On a software
+ * adapter, or a device without what the full path needs, the renderer
+ * takes a low profile: a lower render scale and the costly features off
+ * (tb_renderer_capabilities_of()).
+ *
  * **Lighting.** On a device with bindless resources, frames are drawn in
  * the raster lighting mode: meshes into a G-buffer, lit by the scene's
  * lights (badger/light.h) and its sky (badger/sky.h) with Unreal's default
@@ -68,6 +77,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+struct tb_engine_settings;
 struct tb_font;
 struct tb_log;
 struct tb_window;
@@ -79,6 +89,26 @@ typedef struct tb_renderer tb_renderer;
 /** @brief A mesh. Made by tb_mesh_create() or tb_mesh_create_shape(); owned
  * by the caller; destroyed by tb_mesh_destroy() before its renderer. */
 typedef struct tb_mesh tb_mesh;
+
+/** @brief How much a renderer spends on its frames: what it may draw, as
+ * the profile allows. */
+typedef enum tb_renderer_profile
+{
+    /** Full, unless the device runs on the CPU (a software adapter such as
+     * WARP) or lacks the bindless resources the raster lighting mode needs:
+     * then low. */
+    TB_RENDERER_PROFILE_AUTOMATIC,
+    TB_RENDERER_PROFILE_FULL, /**< Whatever the quality asks. */
+    /** At most #TB_RENDERER_LOW_RENDER_SCALE of the output's resolution, and
+     * no temporal anti-aliasing, reflections, or more than
+     * #TB_RENDERER_LOW_LIGHTS lights: for GPUs that run on the CPU. */
+    TB_RENDERER_PROFILE_LOW
+} tb_renderer_profile;
+
+/** @brief The render scale of the low profile at most. */
+#define TB_RENDERER_LOW_RENDER_SCALE 0.5f
+/** @brief The lights the low profile shades at most. */
+#define TB_RENDERER_LOW_LIGHTS 16u
 
 /** @brief How a renderer is made. Zero-initialize, then set what differs. */
 typedef struct tb_renderer_options
@@ -96,7 +126,50 @@ typedef struct tb_renderer_options
     /** Pixels a side of the glyph atlas, the texture the canvas draws text
      * from: from 16 to the device's largest texture; 0 for 1024. */
     uint32_t glyph_atlas_size;
+    /** What it may spend: automatic, the default, takes the low profile on
+     * a software adapter. Tests of the full path on WARP ask for full. */
+    tb_renderer_profile profile;
 } tb_renderer_options;
+
+/** @brief What a renderer's frames are made with: the renderer's values of
+ * the quality settings. Start from #TB_RENDERER_QUALITY_INIT. */
+typedef struct tb_renderer_quality
+{
+    /** The scene's resolution over the output's, each way: from 0.25 to 2.
+     * Below 1, temporal anti-aliasing upsamples it, or, without, a bilinear
+     * filter. The canvas is drawn at the output's. */
+    float render_scale;
+    /** Temporal anti-aliasing: each frame's projection jittered within a
+     * pixel, and blended with the frames before. */
+    bool temporal_aa;
+    /** The lights shaded a frame at most, from 1: the directional lights
+     * first, then the nearest to the camera. */
+    uint32_t max_lights;
+    /** Smooth surfaces reflect the sky. */
+    bool reflections;
+} tb_renderer_quality;
+
+/** @brief The full quality: the output's resolution, temporal
+ * anti-aliasing, 256 lights, and reflections. */
+#define TB_RENDERER_QUALITY_INIT                                                                   \
+    {.render_scale = 1.0f, .temporal_aa = true, .max_lights = 256u, .reflections = true}
+
+/** @brief What a renderer can draw, and why not, as its profile decides. */
+typedef struct tb_renderer_capabilities
+{
+    tb_renderer_profile profile; /**< Full or low; never automatic. */
+    /** The raster lighting mode: deferred lights, the sky's light, tone
+     * mapping, and temporal anti-aliasing. Without bindless resources, a
+     * mesh is lit by one light. */
+    bool raster_lighting;
+    float max_render_scale; /**< The render scale at most. */
+    bool temporal_aa;       /**< Temporal anti-aliasing can run. */
+    uint32_t max_lights;    /**< The lights shaded a frame at most. */
+    bool reflections;       /**< Reflections of the sky can run. */
+    /** Why the profile is low, in UTF-8, for the console and an options
+     * menu; empty for full. */
+    char reason[128];
+} tb_renderer_capabilities;
 
 /** @brief How a camera projects. */
 typedef enum tb_camera_projection
@@ -186,6 +259,62 @@ TB_API const struct tb_render_graph *tb_renderer_graph(const tb_renderer *render
 
 /** @brief Wait for the display's refresh from the next frame on, or not. */
 TB_API void tb_renderer_set_vsync(tb_renderer *renderer, bool vsync);
+
+/**
+ * @brief Ask for a quality from the next frame on. The renderer takes what
+ * its profile allows of it (tb_renderer_quality_of()); a change of the
+ * render scale or of temporal anti-aliasing starts its history again.
+ * @param quality Required; copied. A render scale from 0.25 to 2, and at
+ * least one light.
+ */
+TB_API void tb_renderer_set_quality(tb_renderer *renderer, const tb_renderer_quality *quality);
+
+/**
+ * @brief The quality the renderer draws with: what was asked, within what
+ * its profile allows.
+ * @param quality Required; receives it.
+ */
+TB_API void tb_renderer_quality_of(const tb_renderer *renderer, tb_renderer_quality *quality);
+
+/**
+ * @brief What the renderer can draw: its profile, what the profile allows,
+ * and why it is low, which the renderer also logs when it is made.
+ * @param capabilities Required; receives them.
+ */
+TB_API void tb_renderer_capabilities_of(const tb_renderer *renderer,
+                                        tb_renderer_capabilities *capabilities);
+
+/**
+ * @brief The size the scene renders at, in pixels: the output's times the
+ * render scale in effect, at least 1. As of the last tb_renderer_begin_frame()
+ * that drew, or the renderer's creation.
+ * @param width Required; receives the pixels across.
+ * @param height Required; receives the pixels down.
+ */
+TB_API void tb_renderer_render_size(const tb_renderer *renderer, uint32_t *width, uint32_t *height);
+
+/**
+ * @brief Say that the next frame does not follow from the last: a cut to
+ * another camera, or a teleport. Temporal anti-aliasing then forgets its
+ * history, which would otherwise ghost. A change of the output's size, of
+ * the render scale or of the camera's projection forgets it by itself.
+ */
+TB_API void tb_renderer_camera_cut(tb_renderer *renderer);
+
+/**
+ * @brief The quality the engine's settings describe, as Unreal's
+ * scalability groups set renderer values: the render scale from
+ * `graphics.upscaler_mode` (native 1, quality 2/3, balanced 0.58,
+ * performance 1/2, ultra_performance 1/3, custom `graphics.render_scale`);
+ * temporal anti-aliasing when it upsamples or `graphics.anti_aliasing` is
+ * taa; lights from `graphics.light_quality` (16, 64, 256, 1024); and
+ * reflections unless `graphics.reflection_quality` is low.
+ * @param engine Required; the engine's settings.
+ * @param quality Required; receives the quality.
+ * @par Threading Thread-safe, as reading settings is.
+ */
+TB_API void tb_renderer_quality_from_settings(const struct tb_engine_settings *engine,
+                                              tb_renderer_quality *quality);
 
 /**
  * @brief Begin a frame seen through a camera.

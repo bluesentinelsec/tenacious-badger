@@ -189,21 +189,21 @@ window falls back to borderless and says so.
 | Setting | Type | Default | Honored by |
 | --- | --- | --- | --- |
 | `graphics.renderer` | `auto`, `d3d12`, `d3d11`, `vulkan`, `opengl`, `metal`, `software`, `null` | `auto` | [the RHI](rhi.md#choosing-a-backend), through `tb_engine_settings_device_options()` |
-| `graphics.render_scale` | number, 0.25 to 2 | `1.0` | the renderer, to come |
+| `graphics.render_scale` | number, 0.25 to 2 | `1.0` | the renderer, when the upscaler's mode is `custom` (`tb_renderer_quality_from_settings()`) |
 | `graphics.dynamic_resolution` | integer, 0 to 1000 frames a second | `0`, a fixed resolution | the renderer, to come |
-| `graphics.upscaler` | `native`, `dlss`, `fsr`, `xess`, `metalfx` | `native` | the renderer, to come |
-| `graphics.upscaler_mode` | `native`, `quality`, `balanced`, `performance`, `ultra_performance`, `custom` | `quality` | the renderer, to come |
+| `graphics.upscaler` | `native`, `dlss`, `fsr`, `xess`, `metalfx` | `native` | the renderer: `native`, its temporal anti-aliasing, stands in for every one until vendors' plugins come |
+| `graphics.upscaler_mode` | `native`, `quality`, `balanced`, `performance`, `ultra_performance`, `custom` | `quality` | [the renderer's render scale](renderer.md#quality-and-profiles) |
 | `graphics.sharpening` | number, 0 to 1 | `0.5` | the renderer, to come |
 | `graphics.frame_generation` | boolean | `false` | the renderer, to come |
 | `graphics.low_latency` | `off`, `on`, `boost` | `off` | the renderer, to come |
 | `graphics.lighting` | `raster`, `hybrid`, `path_tracing` | `raster` | the renderer, to come |
-| `graphics.anti_aliasing` | `off`, `fxaa`, `taa` | `taa` | the renderer, to come |
+| `graphics.anti_aliasing` | `off`, `fxaa`, `taa` | `taa` | [the renderer](renderer.md#quality-and-profiles): `taa`; `fxaa` is not yet, and is off |
 | `graphics.texture_quality` | `low`, `medium`, `high`, `ultra` | `high` | the renderer, to come |
 | `graphics.geometry_quality` | `low`, `medium`, `high`, `ultra` | `high` | the renderer, to come |
 | `graphics.shading_quality` | `low`, `medium`, `high`, `ultra` | `high` | the renderer, to come |
 | `graphics.shadow_quality` | `low`, `medium`, `high`, `ultra` | `high` | the renderer, to come |
-| `graphics.reflection_quality` | `low`, `medium`, `high`, `ultra` | `high` | the renderer, to come |
-| `graphics.light_quality` | `low`, `medium`, `high`, `ultra` | `high` | the renderer, to come |
+| `graphics.reflection_quality` | `low`, `medium`, `high`, `ultra` | `high` | [the renderer](renderer.md#quality-and-profiles): reflections of the sky unless `low` |
+| `graphics.light_quality` | `low`, `medium`, `high`, `ultra` | `high` | [the renderer](renderer.md#quality-and-profiles): 16, 64, 256 or 1024 lights a frame |
 | `graphics.directional_occlusion_quality` | `low`, `medium`, `high`, `ultra` | `high` | the renderer, to come |
 | `graphics.particle_quality` | `low`, `medium`, `high`, `ultra` | `high` | the renderer, to come |
 | `graphics.decal_quality` | `low`, `medium`, `high`, `ultra` | `high` | the renderer, to come |

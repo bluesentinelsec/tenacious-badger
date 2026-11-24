@@ -439,6 +439,7 @@ static void sandbox_save_capture(sandbox_run *run)
 static void sandbox_apply_settings(sandbox_run *run)
 {
     const uint64_t vsync = tb_setting_version(run->engine.display.vsync);
+    tb_renderer_quality quality = TB_RENDERER_QUALITY_INIT;
 
     if (vsync != run->vsync_version)
     {
@@ -447,6 +448,10 @@ static void sandbox_apply_settings(sandbox_run *run)
     }
     run->box.camera.vertical_fov =
         tb_radians((float)tb_setting_number(run->engine.graphics.field_of_view));
+    /* The render scale, anti-aliasing, lights and reflections, within what
+     * the renderer's profile allows. */
+    tb_renderer_quality_from_settings(&run->engine, &quality);
+    tb_renderer_set_quality(run->box.renderer, &quality);
 }
 
 static void sandbox_frame_callback(void *context, const tb_game_time *time)

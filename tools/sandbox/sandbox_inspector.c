@@ -21,7 +21,7 @@
 /* Room left at the bottom for the frame time the sandbox draws there. */
 #define INSPECTOR_STATUS_ROOM 48.0f
 #define INSPECTOR_FRAME_WIDTH 420.0f
-#define INSPECTOR_FRAME_HEIGHT 560.0f
+#define INSPECTOR_FRAME_HEIGHT 700.0f
 /* Its canvas layer: over the scenes' interfaces' windows. */
 #define INSPECTOR_LAYER 400
 /* Frame times kept for the graph, and how often the slow text is read again. */
@@ -403,6 +403,33 @@ static void inspector_dump(const sandbox_inspector *inspector, tb_ui *ui)
     }
 }
 
+/* The renderer's profile and the quality it draws with, which the graphics
+ * settings set within what the profile allows. */
+static void inspector_renderer(sandbox *box, tb_ui *ui)
+{
+    tb_renderer_capabilities capabilities = {0};
+    tb_renderer_quality quality = {0};
+    uint32_t width = 0;
+    uint32_t height = 0;
+    char line[160] = {0};
+
+    tb_renderer_capabilities_of(box->renderer, &capabilities);
+    tb_renderer_quality_of(box->renderer, &quality);
+    tb_renderer_render_size(box->renderer, &width, &height);
+    tb_ui_value(ui, "Profile", capabilities.profile == TB_RENDERER_PROFILE_LOW ? "low" : "full");
+    if (capabilities.reason[0] != '\0')
+    {
+        tb_ui_text_wrapped(ui, capabilities.reason);
+    }
+    (void)tb_fmt_buffer(line, sizeof(line), "%ux%u (%.0f%%)", width, height,
+                        (double)quality.render_scale * 100.0);
+    tb_ui_value(ui, "Render size", line);
+    tb_ui_value(ui, "Temporal AA", quality.temporal_aa ? "on" : "off");
+    (void)tb_fmt_buffer(line, sizeof(line), "%u", quality.max_lights);
+    tb_ui_value(ui, "Lights at most", line);
+    tb_ui_value(ui, "Reflections", quality.reflections ? "on" : "off");
+}
+
 static void inspector_frame(sandbox_inspector *inspector, sandbox *box, tb_ui *ui,
                             const char *scene, float width)
 {
@@ -429,6 +456,10 @@ static void inspector_frame(sandbox_inspector *inspector, sandbox *box, tb_ui *u
     tb_ui_value(ui, "Scene", scene);
     tb_ui_value(ui, "Backend", tb_rhi_backend_name(box->info.backend));
     tb_ui_value(ui, "Adapter", box->info.adapter);
+    if (tb_ui_header(ui, "Renderer", true))
+    {
+        inspector_renderer(box, ui);
+    }
     if (tb_ui_header(ui, "Canvas", true))
     {
         tb_ui_textf(ui, "%zu quads in %u draws, %zu of them glyphs, %zu dropped",

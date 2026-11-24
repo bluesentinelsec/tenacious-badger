@@ -100,8 +100,9 @@ static void open_window(screen *opened)
     }
 }
 
-/* A window and a renderer on it, or a skipped case where there is none. */
-static void open_screen(screen *opened)
+/* A window and a renderer on it of a profile, or a skipped case where
+ * there is none. */
+static void open_screen_with(screen *opened, tb_renderer_profile profile)
 {
     tb_rhi_error error = TB_RHI_ERROR_INIT;
     tb_renderer_options options = {0};
@@ -123,6 +124,7 @@ static void open_screen(screen *opened)
     options.log = opened->log;
     options.device = (tb_rhi_device_options){
         .backend = TB_RHI_BACKEND_D3D12, .adapter = TB_RHI_ADAPTER_SOFTWARE, .validation = true};
+    options.profile = profile;
     if (tb_renderer_create(&options, &opened->renderer, &error) != TB_RHI_OK)
     {
         (void)tb_log_destroy(opened->log);
@@ -130,6 +132,10 @@ static void open_screen(screen *opened)
         tb_window_system_close(opened->system);
         TB_TEST_SKIP("no renderer: %s", error.message);
     }
+    tb_renderer_set_quality(opened->renderer, &(tb_renderer_quality){.render_scale = 1.0f,
+                                                                     .temporal_aa = false,
+                                                                     .max_lights = 256,
+                                                                     .reflections = true});
     tb_rhi_device_info_of(tb_renderer_device(opened->renderer), &info);
     if ((info.features & TB_RHI_FEATURE_BINDLESS) == 0)
     {
@@ -140,6 +146,23 @@ static void open_screen(screen *opened)
         TB_TEST_SKIP("no bindless resources on this device, so no raster lighting mode");
     }
     opened->quad = make_quad(opened->renderer);
+}
+
+/* The full path at the output's resolution, without temporal
+ * anti-aliasing, so that each pixel is the scene where the camera puts it:
+ * WARP would take the low profile by itself. */
+static void open_screen(screen *opened)
+{
+    open_screen_with(opened, TB_RENDERER_PROFILE_FULL);
+}
+
+/* Ask for temporal anti-aliasing at a render scale. */
+static void ask_temporal(screen *opened, float render_scale)
+{
+    tb_renderer_quality quality = TB_RENDERER_QUALITY_INIT;
+
+    quality.render_scale = render_scale;
+    tb_renderer_set_quality(opened->renderer, &quality);
 }
 
 static void close_screen(screen *opened)
@@ -497,5 +520,157 @@ TB_TEST(lighting_frame, a_lit_scene_matches_its_golden_image_on_d3d12)
     TB_TEST_REQUIRE(pixels != NULL);
     expect_golden("lighting", pixels, width, height);
     golden_scene_destroy(&opened, &scene);
+    close_screen(&opened);
+}
+
+/* Draw the golden scene for some frames, the camera still, and give the
+ * last. */
+static const uint8_t *golden_frames(screen *opened, const golden_scene *scene, int frames,
+                                    uint32_t *width, uint32_t *height)
+{
+    const uint8_t *pixels = NULL;
+
+    for (int frame = 0; frame < frames; frame++)
+    {
+        if (frame == frames - 1)
+        {
+            tb_renderer_capture_next_frame(opened->renderer);
+        }
+        golden_scene_draw(opened, scene);
+    }
+    pixels = tb_renderer_captured(opened->renderer, width, height);
+    TB_TEST_REQUIRE(pixels != NULL);
+    return pixels;
+}
+
+/* Temporal anti-aliasing, a cycle of its jitter blended: the edges smooth,
+ * the rest as without it. */
+TB_TEST(lighting_frame, temporal_anti_aliasing_matches_its_golden_image_on_d3d12)
+{
+    screen opened = {0};
+    golden_scene scene = {0};
+    const uint8_t *pixels = NULL;
+    uint32_t width = 0;
+    uint32_t height = 0;
+
+    open_screen(&opened);
+    ask_temporal(&opened, 1.0f);
+    golden_scene_create(&opened, &scene);
+    pixels = golden_frames(&opened, &scene, 16, &width, &height);
+    expect_golden("lighting_taa", pixels, width, height);
+    golden_scene_destroy(&opened, &scene);
+    close_screen(&opened);
+}
+
+/* At half the output's resolution, temporal anti-aliasing upsamples the
+ * scene to the output's: the frame is the output's size, and the
+ * accumulated jitter gives back detail a bilinear filter would not. */
+TB_TEST(lighting_frame, temporal_anti_aliasing_upsamples_half_resolution_on_d3d12)
+{
+    screen opened = {0};
+    golden_scene scene = {0};
+    const uint8_t *pixels = NULL;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    uint32_t render_width = 0;
+    uint32_t render_height = 0;
+
+    open_screen(&opened);
+    ask_temporal(&opened, 0.5f);
+    golden_scene_create(&opened, &scene);
+    pixels = golden_frames(&opened, &scene, 16, &width, &height);
+    tb_renderer_render_size(opened.renderer, &render_width, &render_height);
+    TB_TEST_EXPECT_UINT(render_width, ==, GOLDEN_WIDTH / 2u);
+    TB_TEST_EXPECT_UINT(render_height, ==, GOLDEN_HEIGHT / 2u);
+    TB_TEST_EXPECT_UINT(width, ==, GOLDEN_WIDTH);
+    expect_golden("lighting_taa_half", pixels, width, height);
+    golden_scene_destroy(&opened, &scene);
+    close_screen(&opened);
+}
+
+/* WARP runs on the CPU, so a renderer left to choose takes the low profile:
+ * half the output's resolution, filtered up, with neither temporal
+ * anti-aliasing nor reflections, and says why. The frame is still the
+ * output's size. */
+TB_TEST(lighting_frame, warp_takes_the_low_profile_by_itself_on_d3d12)
+{
+    screen opened = {0};
+    golden_scene scene = {0};
+    tb_renderer_capabilities capabilities = {0};
+    const uint8_t *pixels = NULL;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    uint32_t render_width = 0;
+    uint32_t render_height = 0;
+
+    open_screen_with(&opened, TB_RENDERER_PROFILE_AUTOMATIC);
+    tb_renderer_capabilities_of(opened.renderer, &capabilities);
+    TB_TEST_EXPECT_UINT(capabilities.profile, ==, TB_RENDERER_PROFILE_LOW);
+    TB_TEST_EXPECT(!capabilities.temporal_aa);
+    TB_TEST_EXPECT(capabilities.reason[0] != '\0');
+    ask_temporal(&opened, 1.0f);
+    golden_scene_create(&opened, &scene);
+    pixels = golden_frames(&opened, &scene, 1, &width, &height);
+    tb_renderer_render_size(opened.renderer, &render_width, &render_height);
+    TB_TEST_EXPECT_UINT(render_width, ==, GOLDEN_WIDTH / 2u);
+    TB_TEST_EXPECT_UINT(width, ==, GOLDEN_WIDTH);
+    TB_TEST_EXPECT_UINT(height, ==, GOLDEN_HEIGHT);
+    expect_golden("lighting_low", pixels, width, height);
+    golden_scene_destroy(&opened, &scene);
+    close_screen(&opened);
+}
+
+/* Pixels of a row neither the quad's nor the background's: those an edge
+ * covers in part. */
+static uint32_t partial_pixels(screen *opened, int frames)
+{
+    const tb_camera camera = tb_camera_orthographic(4.0f);
+    const tb_mat4 turned =
+        tb_mat4_rotation(tb_quat_from_axis_angle((tb_vec3){0, 0, 1}, tb_radians(10.0f)));
+    const uint8_t *pixels = NULL;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    uint32_t partial = 0;
+
+    for (int frame = 0; frame < frames; frame++)
+    {
+        if (frame == frames - 1)
+        {
+            tb_renderer_capture_next_frame(opened->renderer);
+        }
+        TB_TEST_REQUIRE(tb_renderer_begin_frame(opened->renderer, &camera, (tb_vec4){0, 0, 0, 1}));
+        tb_renderer_draw_mesh_shaded(opened->renderer, opened->quad, turned, (tb_vec4){1, 1, 1, 1},
+                                     TB_MESH_FLAT);
+        TB_TEST_REQUIRE_UINT(tb_renderer_end_frame(opened->renderer), ==, TB_RHI_OK);
+    }
+    pixels = tb_renderer_captured(opened->renderer, &width, &height);
+    TB_TEST_REQUIRE(pixels != NULL);
+    for (uint32_t y = 0; y < height; y++)
+    {
+        for (uint32_t x = 0; x < width; x++)
+        {
+            const uint8_t green = pixels[((size_t)y * width + x) * 4u + 1u];
+            partial += green > 16 && green < display_channel(1.0f) - 16 ? 1u : 0u;
+        }
+    }
+    return partial;
+}
+
+/* The edges of a turned quad are steps of whole pixels without temporal
+ * anti-aliasing; with it, after two cycles of its jitter, the pixels the
+ * edges cross take shares of both sides, as many as the edges are long. */
+TB_TEST(lighting_frame, temporal_anti_aliasing_smooths_edges_on_d3d12)
+{
+    screen opened = {0};
+    uint32_t stepped = 0;
+    uint32_t smoothed = 0;
+
+    open_screen(&opened);
+    stepped = partial_pixels(&opened, 1);
+    ask_temporal(&opened, 1.0f);
+    smoothed = partial_pixels(&opened, 16);
+    TB_TEST_CONTEXT("partly covered: %u without, %u with", stepped, smoothed);
+    TB_TEST_EXPECT_UINT(stepped, ==, 0);
+    TB_TEST_EXPECT_UINT(smoothed, >, GOLDEN_HEIGHT);
     close_screen(&opened);
 }

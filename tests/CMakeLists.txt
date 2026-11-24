@@ -119,6 +119,7 @@ set(TB_TEST_CASE_SOURCES
     render/canvas_test.c
     render/light_test.c
     render/material_test.c
+    render/quality_test.c
     render/text_test.c
     render/render_graph_test.c
     render/renderer_test.c
@@ -201,6 +202,7 @@ set(TB_INTERNAL_TEST_CASE_SOURCES
     jobs/deque_test.c
     render/canvas_batch_test.c
     render/light_pack_test.c
+    render/temporal_test.c
     rhi/rhi_choice_test.c
     rhi/rhi_device_test.c
     shader/shader_check_test.c
