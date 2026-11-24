@@ -105,6 +105,7 @@ set(TB_TEST_CASE_SOURCES
     settings/settings_test.c
     shader/shader_compile_test.c
     ${TB_SHADER_REFLECTION_SOURCE}
+    render/render_graph_test.c
     rhi/rhi_test.c
     shader/shader_dxil_test.c
     shader/shader_preprocess_test.c
@@ -186,8 +187,7 @@ endif()
 set(TB_ENGINE_SOURCES ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES} ${TB_JOBS_SOURCES}
     ${TB_CODEC_SOURCES} ${TB_SERIALIZE_SOURCES} ${TB_FONT_SOURCES} ${TB_VFS_SOURCES}
     ${TB_SETTINGS_SOURCES} ${TB_WINDOW_SOURCES} ${TB_DXC_SOURCES} ${TB_GAME_SOURCES}
-    ${TB_SHADER_SOURCES}
-    ${TB_RHI_SOURCES})
+    ${TB_SHADER_SOURCES} ${TB_RHI_SOURCES} ${TB_RENDER_SOURCES})
 
 # The arguments go to tb_add_tests.
 function(tb_add_internal_tests target)
