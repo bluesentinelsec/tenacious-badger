@@ -290,6 +290,11 @@ tb_rhi_result tb_renderer_create(const tb_renderer_options *options, tb_renderer
     {
         goto failed;
     }
+    result = tb_renderer_skinning_create(renderer, error);
+    if (result != TB_RHI_OK)
+    {
+        goto failed;
+    }
     renderer->graph = tb_render_graph_create(renderer->device);
     *made = renderer;
     return TB_RHI_OK;
@@ -309,6 +314,7 @@ void tb_renderer_destroy(tb_renderer *renderer)
     {
         (void)tb_rhi_wait_idle(renderer->device);
         tb_render_graph_destroy(renderer->graph);
+        tb_renderer_skinning_destroy(renderer);
         tb_renderer_sky_destroy(renderer);
         tb_renderer_materials_destroy(renderer);
         tb_renderer_canvas_destroy(renderer);
@@ -404,6 +410,7 @@ bool tb_renderer_begin_frame(tb_renderer *renderer, const tb_camera *camera, tb_
     (void)tb_rhi_wait(renderer->device, frame->submission);
     frame->used = 0;
     tb_renderer_materials_begin_frame(renderer);
+    tb_renderer_skinning_begin_frame(renderer);
     renderer->camera = *camera;
     renderer->clear = clear;
     renderer->draw_count = 0;
@@ -509,6 +516,7 @@ typedef struct tb_renderer_recording
     tb_mat4 clip;
     uint64_t sky; /* the sky's constants in the frame's uploads; UINT64_MAX for none */
     uint64_t lines_offset[2];
+    tb_render_graph_buffer skinned; /* the frame's skinned vertices; none when none */
 } tb_renderer_recording;
 
 static void tb_renderer_upload_frame(tb_renderer *renderer, tb_renderer_recording *recording)
@@ -578,7 +586,9 @@ static void tb_renderer_record_scene(const tb_render_graph_pass_context *pass)
     tb_renderer_recording *const recording = pass->context;
     tb_renderer *const renderer = recording->renderer;
     const tb_renderer_frame *const frame = &renderer->frames[renderer->slot];
-
+    const tb_rhi_buffer skinned = recording->skinned.id != 0
+                                      ? tb_render_graph_rhi_buffer(pass->graph, recording->skinned)
+                                      : (tb_rhi_buffer){0};
     tb_rhi_pipeline bound = {0};
 
     for (size_t index = 0; index < renderer->draw_count; index++)
@@ -597,7 +607,14 @@ static void tb_renderer_record_scene(const tb_render_graph_pass_context *pass)
             bound = pipeline;
         }
         tb_rhi_cmd_constant_buffer(pass->list, 0, frame->upload, draw->constants);
-        tb_rhi_cmd_vertex_buffer(pass->list, 0, draw->mesh->vertices, 0);
+        if (draw->skinned)
+        {
+            tb_rhi_cmd_vertex_buffer(pass->list, 0, skinned, draw->skinned_offset);
+        }
+        else
+        {
+            tb_rhi_cmd_vertex_buffer(pass->list, 0, draw->mesh->vertices, 0);
+        }
         tb_rhi_cmd_index_buffer(pass->list, draw->mesh->indices, 0, TB_RHI_FORMAT_R32_UINT);
         tb_rhi_cmd_draw_indexed(pass->list, draw->mesh->index_count, 1, 0, 0, 0);
     }
@@ -671,6 +688,7 @@ tb_rhi_result tb_renderer_end_frame(tb_renderer *renderer)
 {
     tb_renderer_recording recording = {0};
     tb_renderer_capturing capturing = {0};
+    tb_skinning_recording skinning = {0};
     tb_canvas_recording canvas = {0};
     tb_render_graph_texture image = {0};
     tb_render_graph_pass pass = {0};
@@ -687,8 +705,16 @@ tb_rhi_result tb_renderer_end_frame(tb_renderer *renderer)
     image =
         tb_render_graph_import_texture(renderer->graph, tb_rhi_swap_chain_current(renderer->chain),
                                        TB_RHI_STATE_PRESENT, TB_RHI_STATE_PRESENT, "back buffer");
+    tb_renderer_skinning_record(renderer, &skinning);
+    recording.skinned = skinning.vertices;
     pass = (tb_render_graph_pass){
         .name = "scene", .execute = tb_renderer_record_scene, .context = &recording};
+    if (skinning.vertices.id != 0)
+    {
+        pass.accesses[0] = (tb_render_graph_access){.buffer = skinning.vertices,
+                                                    .state = TB_RHI_STATE_VERTEX_INDEX};
+        pass.access_count = 1;
+    }
     pass.colors[0] = (tb_render_graph_color){.texture = image, .load = TB_RHI_LOAD_CLEAR};
     memcpy(pass.colors[0].clear, &renderer->clear, sizeof(pass.colors[0].clear));
     pass.color_count = 1;

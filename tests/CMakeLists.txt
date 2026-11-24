@@ -110,6 +110,7 @@ set(TB_TEST_CASE_SOURCES
     serialize/json_writer_test.c
     game/game_loop_test.c
     jobs/loop_test.c
+    anim/anim_test.c
     platform/window_test.c
     settings/engine_settings_test.c
     settings/settings_test.c
@@ -120,6 +121,7 @@ set(TB_TEST_CASE_SOURCES
     render/text_test.c
     render/render_graph_test.c
     render/renderer_test.c
+    render/skinning_test.c
     render/sky_test.c
     rhi/rhi_test.c
     shader/shader_dxil_test.c
@@ -159,7 +161,7 @@ if(WIN32)
     tb_embed_test_data(TB_RHI_SHADER_SOURCE tb_rhi_shader_files rhi "*.dxil")
     list(APPEND TB_TEST_CASE_SOURCES rhi/rhi_d3d12_test.c ${TB_RHI_SHADER_SOURCE}
         render/canvas_d3d12_test.c render/material_d3d12_test.c
-        render/renderer_d3d12_test.c render/sky_d3d12_test.c
+        render/renderer_d3d12_test.c render/skinning_d3d12_test.c render/sky_d3d12_test.c
         render/text_d3d12_test.c)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     list(APPEND TB_TEST_CASE_SOURCES platform/linux/window_x11_test.c)
@@ -208,7 +210,7 @@ set(TB_ENGINE_SOURCES ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES} ${TB_JOBS_SOURCE
     ${TB_CODEC_SOURCES} ${TB_SERIALIZE_SOURCES} ${TB_FONT_SOURCES} ${TB_FONT_DATA_OBJECTS}
     ${TB_VFS_SOURCES}
     ${TB_SETTINGS_SOURCES} ${TB_WINDOW_SOURCES} ${TB_DXC_SOURCES} ${TB_GAME_SOURCES}
-    ${TB_SHADER_SOURCES} ${TB_RHI_SOURCES} ${TB_RENDER_SOURCES})
+    ${TB_SHADER_SOURCES} ${TB_RHI_SOURCES} ${TB_RENDER_SOURCES} ${TB_ANIM_SOURCES})
 
 # The arguments go to tb_add_tests.
 function(tb_add_internal_tests target)

@@ -1,7 +1,8 @@
 # The renderer
 
 `badger/renderer.h` draws frames to a window from a camera: meshes, plain or
-with [materials](#materials), under a [sky](#skies), and debug lines, through
+with [materials](#materials), [skinned](#skinned-meshes) or not, under a
+[sky](#skies), and debug lines, through
 [the render graph](render-graph.md) and [the RHI](rhi.md). It is the layer
 games and tools draw through, in 3D and in [2D](#2d-the-canvas); what it
 draws grows from here (text, the lighting modes).
@@ -125,6 +126,57 @@ draws a material in its base color factor.
 `B8G8R8A8_UNORM` swap chain, as every draw is until the output transform
 comes: so sRGB textures, read as linear, look darker than they were
 authored.
+
+## Skinned meshes
+
+`badger/skinning.h` draws meshes whose vertices follow the joints of a
+skeleton, posed by the skinning matrices of [the animation module](animation.md).
+
+```c
+tb_skinned_mesh *const arm = tb_skinned_mesh_create(renderer, vertices, vertex_count,
+                                                    indices, index_count);
+
+/* each frame */
+tb_anim_evaluate(&instance);   /* fills instance.skinning */
+tb_renderer_draw_skinned(renderer, &(tb_skinned_draw){.mesh = arm,
+                                                      .transform = transform,
+                                                      .joints = instance.skinning,
+                                                      .joint_count = joint_count,
+                                                      .material = sleeve});
+```
+
+**Vertices** (`tb_skinned_vertex`, 56 bytes) are a mesh vertex's position,
+normal and texture coordinates, with four 16-bit joint indices and four
+weights, as glTF's are. The weights ought to sum to 1, and are used as they
+are; a joint index past a draw's matrices takes the last.
+
+**A draw** gives its skinning matrices, which are copied into the frame's
+upload buffer at once (so they need last only for the call), and a color
+and shading, or a material: a skinned mesh is drawn by the same pipelines,
+lit and textured, as any mesh.
+
+**How it draws.** At the end of the frame, before the scene pass, a compute
+pass, `skinning`, skins every skinned draw of the frame: a thread a vertex
+reads the mesh's bound vertices (a `ByteAddressBuffer` of GPU memory) and
+its draw's matrices (in the frame's uploads), both by bindless index, sums
+the four matrices' columns by weight, and writes the position, the normal
+(transformed by the same matrix, normalized) and the texture coordinates,
+laid out as a `tb_mesh_vertex`, into a buffer the frame's render graph
+makes, each draw at its own offset. The graph moves that buffer from
+storage to vertex state before the scene pass, which draws each skinned
+mesh from its part of it, with its own index buffer.
+
+**Why a compute pass**, not skinning in the vertex shader: the skinned
+vertices are made once a frame however many passes draw them (shadow
+maps, a depth prepass, the ray-tracing structures of the hybrid and path
+tracing modes, which need the skinned positions in a buffer), and the
+mesh and material pipelines need no skinned variant: a skinned mesh is a
+vertex buffer like any other by the time it is drawn. The cost is a
+frame's buffer of skinned vertices, 32 bytes each, which the graph pools
+from frame to frame.
+
+A device without bindless resources skins nothing, and draws no skinned
+mesh.
 
 ## Skies
 
@@ -359,6 +411,9 @@ the engine's compiler, through DXC to DXIL for D3D12. They move to
 ## Not yet
 
 - Instanced draws, transparency.
+- Skinned meshes in other passes (shadows, ray tracing), dual-quaternion
+  skinning, more than four joints a vertex, and normals of non-uniformly
+  scaled joints (transformed by the inverse transpose).
 - A sky that lights the scene (ambient light from the sky, image-based lighting), clouds and atmosphere.
 - The output transform: writing the frame in sRGB, and tone mapping.
 - Precomputed tangents, texture compression, and streaming of mip levels.

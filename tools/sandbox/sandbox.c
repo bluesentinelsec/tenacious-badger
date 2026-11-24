@@ -578,11 +578,13 @@ static int sandbox_open_renderer(sandbox_run *run, tb_window_system *system)
                                  dxc_error.message);
         return EXIT_FAILURE;
     }
+    /* Keys 1 to 9 choose the first nine scenes; Tab reaches the rest. */
+    const size_t keyed = sandbox_scene_count < 9u ? sandbox_scene_count : 9u;
+
     (void)tb_fmt_print("badger-sandbox: %s on %s; keys 1 to %zu choose a scene, Tab the next; "
                        "hold the right mouse button to fly (WASD, Q/E, Shift, wheel); Escape "
                        "quits\n",
-                       tb_rhi_backend_name(run->box.info.backend), run->box.info.adapter,
-                       sandbox_scene_count);
+                       tb_rhi_backend_name(run->box.info.backend), run->box.info.adapter, keyed);
     return EXIT_SUCCESS;
 }
 

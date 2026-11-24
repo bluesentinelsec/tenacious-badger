@@ -32,6 +32,7 @@ set_target_properties(badger PROPERTIES
 add_subdirectory(core)
 add_subdirectory(platform)
 add_subdirectory(jobs)
+add_subdirectory(anim)
 add_subdirectory(codec)
 add_subdirectory(serialize)
 add_subdirectory(font)
