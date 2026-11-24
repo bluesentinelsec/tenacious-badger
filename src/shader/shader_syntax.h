@@ -252,6 +252,10 @@ struct tb_shader_node
     tb_shader_name name;
     tb_shader_type_syntax *type;
     uint64_t modifiers; /* TB_SHADER_MODIFIER_* */
+    /* VARIABLE: how a matrix it holds is laid out when it says neither
+     * row_major nor column_major, as the `#pragma pack_matrix` before it
+     * says: TB_SHADER_MODIFIER_ROW_MAJOR or _COLUMN_MAJOR, or zero. */
+    uint64_t pack_matrix;
     tb_shader_attribute *attributes;
     tb_shader_annotation *annotations;
     /* STRUCT and FUNCTION declared with `template<...>`: TEMPLATE_PARAMETER
