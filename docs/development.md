@@ -58,6 +58,7 @@ The foundation layer so far, one public header per module under
 | `stream.h` | [Streams](streams.md): one interface for reading and writing bytes, over memory, files, and ranges of other streams |
 | `window.h` | [Windows and displays](windows.md): windowed, borderless and fullscreen windows, displays and their scale, and window events |
 | `shader.h` | [Shaders](shaders.md): HLSL written once for every backend; virtual shader paths, includes and the preprocessor |
+| `shader_cache.h`, `shader_library.h` | [The shader cache and shader libraries](shader-cache.md): keys of what a compile writes, compiled shaders kept on disk, and the libraries a game ships |
 | `rhi.h` | [The render hardware interface](rhi.md): one interface to every graphics API, with bindless resources, command lists and submissions |
 | `renderer.h` | [The renderer](renderer.md): frames from a camera, meshes and generated shapes, and debug drawing |
 | `ui.h` | [The interface](ui.md): an immediate-mode GUI of windows, layout, and widgets, drawn through the canvas |
@@ -70,6 +71,8 @@ What these headers do the same way, such as how a function reports failure,
 is in [the conventions of the public API](conventions.md).
 
 [`badger-sandbox`](sandbox.md) draws the engine's test scenes in a window, to look at by eye.
+[`badger-shaderc`](shader-cache.md#badger-shaderc) compiles shaders ahead of
+time into shader libraries; the build runs it on the engine's own shaders.
 
 [`burrow`](burrow.md) loads its [settings](settings.md#burrow), opens its
 [window](windows.md), and runs [the game loop](game-loop.md#burrow), drawing a

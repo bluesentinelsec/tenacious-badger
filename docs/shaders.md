@@ -33,7 +33,8 @@ ahead of time, from CMake and when cooking. The engine calls it at run time:
 for hot reload in development, for shaders a game makes while it runs, and for
 whatever a game's shader libraries lack, where the game allows it. Both
 produce the same bytes, and share one cache keyed on the sources, the defines,
-the compiler's version and the target.
+the entry point, the target and the compiler's version (see
+[The shader cache and shader libraries](shader-cache.md)).
 
 **What each backend gets.** The compiler reads HLSL into a form of its own,
 and writes each backend's input from that:
@@ -53,9 +54,18 @@ each new shader model as Microsoft ships it (see
 written by our compiler, so compiling at run time works on Linux, the Steam
 Deck and macOS with no SDK installed.
 
+**`badger-shaderc`** (`tools/shaderc/`) compiles the shaders a manifest lists
+into a library for each backend, in parallel, through the same shader module
+and cache as the engine; the build runs it on the engine's own shaders (see
+[badger-shaderc](shader-cache.md#badger-shaderc)). The engine's shaders are
+the files under `shaders/` of its source tree, which the engine library
+carries, so the renderer and the build compile the same text.
+
 **Shipping.** A packaged game carries a shader library for each backend its
 platform builds, as Unreal's packaged games do, so switching backends loads
-shaders instead of compiling them.
+shaders instead of compiling them. A library finds a shader by a key of its
+sources, made without a compiler, so a shipped game needs none for the shaders
+its libraries hold ([Shader libraries](shader-cache.md#shader-libraries)).
 
 **Feature levels.** Each shader records what it needs: the portable core
 (raster, compute, wave operations and bindless resources), inline ray

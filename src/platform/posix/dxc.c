@@ -41,6 +41,14 @@ tb_dxc_result tb_dxc_compile(tb_dxc *dxc, const tb_dxc_request *request, tb_dxc_
     /* coverage-on */
 }
 
+const char *tb_dxc_version(const tb_dxc *dxc)
+{
+    /* coverage-off: tb_dxc_open() opens no DXC here, so nothing can call this */
+    (void)dxc;
+    return "";
+    /* coverage-on */
+}
+
 void tb_dxc_release(tb_dxc_output *output)
 {
     const tb_dxc_output empty = {0};

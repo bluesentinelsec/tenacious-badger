@@ -14,14 +14,17 @@
 #include "badger/dxc.h"
 #include "badger/engine_settings.h"
 #include "badger/fmt.h"
+#include "badger/fs.h"
 #include "badger/game_loop.h"
 #include "badger/material.h"
 #include "badger/memory.h"
 #include "badger/process.h"
 #include "badger/settings.h"
 #include "badger/shader.h"
+#include "badger/shader_cache.h"
 #include "badger/str.h"
 #include "badger/version.h"
+#include "badger/vfs.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -29,6 +32,8 @@
 
 #define SANDBOX_TITLE "badger-sandbox"
 #define SANDBOX_MOST_VALUES 32
+/* Bytes of a path the sandbox makes. */
+#define SANDBOX_PATH_CAPACITY ((size_t)4096)
 /* Seconds between the frame times the sandbox prints. */
 #define SANDBOX_REPORT_SECONDS 2.0
 /* Seconds between changes of the frame time drawn on screen, and how much
@@ -80,6 +85,7 @@ typedef struct sandbox_run
     sandbox box;
     tb_settings *settings;
     tb_engine_settings engine;
+    tb_shader_cache *shader_cache; /* the user's, which badger-shaderc shares */
     tb_game_loop *loop;
     sandbox_inspector *inspector;
     uint64_t vsync_version; /* of display.vsync, when the renderer last took it */
@@ -601,6 +607,27 @@ static void sandbox_open_fonts(sandbox *box)
     }
 }
 
+/* Where the renderer finds its shaders: the libraries the build writes
+ * beside the executable (bin/Shaders/d3d12.tbsl), in a VFS for the caller to
+ * destroy; and the user's shader cache, which badger-shaderc shares. */
+static tb_vfs *sandbox_shader_sources(sandbox_run *run)
+{
+    char directory[SANDBOX_PATH_CAPACITY] = {0};
+    char cache[SANDBOX_PATH_CAPACITY] = {0};
+    size_t required = 0;
+    tb_vfs *const vfs = tb_vfs_create(NULL);
+
+    if (tb_fs_get_location(TB_FS_EXECUTABLE, directory, sizeof(directory), &required) == TB_FS_OK)
+    {
+        (void)tb_vfs_mount_directory(vfs, "", 0, directory, 0);
+    }
+    if (tb_shader_cache_default_directory(cache, sizeof(cache)))
+    {
+        (void)tb_shader_cache_open(cache, &run->shader_cache);
+    }
+    return vfs;
+}
+
 static int sandbox_open_renderer(sandbox_run *run, tb_window_system *system)
 {
     tb_rhi_error error = TB_RHI_ERROR_INIT;
@@ -622,7 +649,13 @@ static int sandbox_open_renderer(sandbox_run *run, tb_window_system *system)
     renderer.device.validation = sandbox_validation;
     renderer.anisotropy = tb_engine_settings_anisotropy(&run->engine);
     tb_engine_settings_device_options(&run->engine, &renderer.device);
-    if (tb_renderer_create(&renderer, &run->box.renderer, &error) != TB_RHI_OK)
+    tb_vfs *const shaders = sandbox_shader_sources(run);
+    renderer.shader_vfs = shaders;
+    renderer.shader_cache = run->shader_cache;
+    renderer.shader_library_only = !tb_setting_boolean(run->engine.shaders.runtime_compile);
+    const tb_rhi_result made = tb_renderer_create(&renderer, &run->box.renderer, &error);
+    tb_vfs_destroy(shaders);
+    if (made != TB_RHI_OK)
     {
         (void)tb_fmt_print_error("badger-sandbox: error: no renderer: %s; --renderer=null runs "
                                  "without one\n",
@@ -658,6 +691,7 @@ static void sandbox_close(sandbox_run *run, tb_window_system *system)
         sandbox_inspector_destroy(run->inspector, &run->box);
     }
     tb_renderer_destroy(run->box.renderer);
+    tb_shader_cache_close(run->shader_cache);
     for (int font = 0; font < SANDBOX_FONT_COUNT; font++)
     {
         tb_font_close(run->box.fonts[font]);
