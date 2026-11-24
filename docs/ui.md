@@ -10,7 +10,7 @@ inspector now, and the editor later.
 ```c
 /* once */
 tb_ui_fonts fonts = {0};
-tb_ui_fonts_open(catalog, &fonts);
+tb_ui_fonts_open(catalog, NULL, &fonts);
 tb_ui_theme theme = tb_ui_theme_dark();
 tb_ui_theme_set_fonts(&theme, &fonts);
 tb_ui *ui = tb_ui_create(&(tb_ui_options){.theme = &theme});
@@ -63,8 +63,17 @@ size on every display; a larger scale zooms it. Its input is in pixels of
 the frame, as window events give them. Edges are drawn on whole pixels,
 and text at the display's own pixels, where the canvas places each glyph on
 a whole pixel and each baseline on a whole row, so it is crisp at any scale.
-Text is centered in its line by its capitals, so labels and the text in
-fields beside them share one baseline.
+Text is also measured at the display's pixels, and its measures turned back
+into units, so a line is as long in units as the glyphs the display draws
+for it. Text is centered in its line by its capitals, so labels and the text
+in fields beside them share one baseline.
+
+The scale is the input's, so a game sets it every frame from
+`tb_canvas_view_logical`, which reads the window's content scale when it is
+called. When the window moves to a display of another scale, the window
+reports the new scale (`TB_WINDOW_EVENT_SCALE_CHANGED`) as its events are
+pumped, and the next frame lays the interface out, and draws its text, at
+the new scale.
 
 ## Identifiers and state
 
@@ -182,11 +191,28 @@ selects its text, so that typing replaces it.
 `tb_ui_theme` holds the colors, the fonts, the text's size, and the
 spacing, padding, rounding, and widths of everything, in units.
 `tb_ui_theme_dark` is the default: dark grays and a blue accent after
-Unreal's editor, text at 14 units. Its fonts are the catalog's roles
-([fonts](fonts.md#roles)), opened by `tb_ui_fonts_open`: the UI role for
-text, UI bold for titles, headings, and headers, and monospace for what a
-caller wants in columns. A build of the engine that carries no fonts
-(`TB_EMBED_FONTS=none`) gives an interface a font of its own.
+Unreal's editor, text at the UI role's default size (16 units).
+
+A theme has three fonts, all drawn at its size: `TB_UI_FONT_REGULAR` for
+text, `TB_UI_FONT_HEADING` for titles, headings, and headers, and
+`TB_UI_FONT_MONO` for what a caller wants in columns. `tb_ui_fonts_open`
+opens them from a catalog ([fonts](fonts.md#roles)), and
+`tb_ui_theme_set_fonts` gives them to a theme with their size. Given no
+specs, it opens the UI, heading, and monospace roles, and the theme takes
+the UI role's size. No role is bold, so neither is the interface, unless
+its caller asks: given specs, it opens the font of each.
+
+```c
+const tb_font_spec heading = tb_font_spec_of_role(catalog, TB_FONT_ROLE_HEADING);
+const tb_font_spec specs[TB_UI_FONT_COUNT] = {
+    [TB_UI_FONT_REGULAR] = tb_font_spec_of_role(catalog, TB_FONT_ROLE_UI),
+    [TB_UI_FONT_HEADING] = tb_font_spec_bold(heading), /* bold titles, asked for */
+    [TB_UI_FONT_MONO] = tb_font_spec_of_role(catalog, TB_FONT_ROLE_MONOSPACE)};
+tb_ui_fonts_open(catalog, specs, &fonts);
+```
+
+A build of the engine that carries no fonts (`TB_EMBED_FONTS=none`) gives
+an interface a font of its own.
 
 ## Not done yet
 
@@ -211,6 +237,8 @@ proportion, checkboxes and radio buttons, text fields edited by keys, text,
 the mouse, and the clipboard, Tab's focus, combos that open and choose,
 windows that move, resize, collapse, and come in front, the wheel and the
 scroll bar, what the interface wants of the mouse and keyboard, ids told
-apart by ids pushed, state forgotten, and tooltips. `ui_draw_test.c` draws
-a frame on the null backend's canvas. The sandbox's `ui` scene shows every
+apart by ids pushed, state forgotten, and tooltips; and that text is
+measured at the display's pixels at scales of 1.5 and 2, and that a change
+of scale between frames is laid out at the new scale. `ui_draw_test.c`
+draws a frame on the null backend's canvas. The sandbox's `ui` scene shows every
 widget by eye ([sandbox](sandbox.md)).

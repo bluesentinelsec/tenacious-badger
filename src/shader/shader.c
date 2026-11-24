@@ -351,6 +351,8 @@ const char *tb_shader_result_name(tb_shader_result result)
         return "failed";
     case TB_SHADER_NO_MEMORY:
         return "no memory";
+    case TB_SHADER_UNAVAILABLE:
+        return "unavailable";
     }
     return "unknown result";
 }

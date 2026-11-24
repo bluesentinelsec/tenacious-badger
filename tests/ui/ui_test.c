@@ -8,6 +8,7 @@
 #include "tb_test.h"
 #include "ui_fixture.h"
 
+#include <math.h>
 #include <string.h>
 
 static const uint32_t left_button = 1u << TB_MOUSE_BUTTON_LEFT;
@@ -81,6 +82,56 @@ TB_TEST(ui_button, input_in_pixels_is_scaled_to_units)
     ui_frame(&fixture);
     ui_click(&fixture, ui_middle(rect));
     TB_TEST_EXPECT(fixture.returned[0]);
+    ui_fixture_close(&fixture);
+}
+
+/* Whether a coordinate in units is on a whole pixel at a scale. */
+static bool on_whole_pixel(float units, float scale)
+{
+    const float pixels = units * scale;
+    return fabsf(pixels - roundf(pixels)) < 0.001f;
+}
+
+/* What a frame at a scale drew of the button: its edges on whole pixels of
+ * the display, and its label measured at the display's pixels, in units. */
+static void expect_button_at_scale(const ui_fixture *fixture, float scale)
+{
+    const tb_canvas_rect rect = ui_rect_of(fixture, fixture->ids[0]);
+    const tb_ui_command *const label = ui_text_command(fixture, "Press me");
+    tb_font_text_size pixels = {0};
+
+    TB_TEST_CONTEXT("at %.0f%%", (double)(scale * 100.0f));
+    TB_TEST_EXPECT(on_whole_pixel(rect.x, scale));
+    TB_TEST_EXPECT(on_whole_pixel(rect.y, scale));
+    TB_TEST_EXPECT(on_whole_pixel(rect.x + rect.width, scale));
+    TB_TEST_EXPECT(on_whole_pixel(rect.y + rect.height, scale));
+    TB_TEST_REQUIRE_POINTER(label, !=, NULL);
+    tb_font_measure_text(fixture->font, TB_TEXT("Press me"), UI_FONT_SIZE * scale, NULL, &pixels);
+    TB_TEST_EXPECT_FLOAT_NEAR(label->rect.width * scale, pixels.width, 0.001f);
+    TB_TEST_EXPECT_FLOAT_NEAR(label->rect.height * scale, pixels.height, 0.001f);
+    /* Drawn at the theme's size in units, which the canvas lays out at the
+     * view's scale: the display's pixels. */
+    TB_TEST_EXPECT_FLOAT(label->font_size, ==, UI_FONT_SIZE);
+}
+
+/* At 150% and 200%, the interface measures its text at the display's
+ * pixels and puts its edges on them; and when the scale changes between
+ * frames, as when its window moves to another monitor, the next frame is
+ * laid out at the new scale. */
+TB_TEST(ui_button, the_interface_is_laid_out_at_the_display_scale_of_each_frame)
+{
+    static const float scales[] = {1.5f, 2.0f, 1.25f, 1.0f};
+    ui_fixture fixture = {0};
+
+    ui_fixture_open(&fixture, scales[0], 0);
+    fixture.scene = button_scene;
+    for (size_t index = 0; index < TB_TEST_COUNT_OF(scales); index++)
+    {
+        fixture.input.scale = scales[index];
+        fixture.input.size = (tb_vec2){800.0f * scales[index], 600.0f * scales[index]};
+        ui_frame(&fixture);
+        expect_button_at_scale(&fixture, scales[index]);
+    }
     ui_fixture_close(&fixture);
 }
 
@@ -1200,18 +1251,68 @@ TB_TEST(ui_theme, fonts_come_from_the_catalogs_roles)
     size_t index = 0;
     const bool carried = tb_font_catalog_find_role(catalog, TB_FONT_ROLE_UI, &index);
 
-    TB_TEST_EXPECT(tb_ui_fonts_open(catalog, &fonts) == carried);
+    TB_TEST_EXPECT(tb_ui_fonts_open(catalog, NULL, &fonts) == carried);
+    TB_TEST_EXPECT_FLOAT(fonts.size, ==, tb_font_catalog_get_role(catalog, TB_FONT_ROLE_UI).size);
+    theme.font_size = 1.0f;
     tb_ui_theme_set_fonts(&theme, &fonts);
     TB_TEST_EXPECT_POINTER(theme.fonts[TB_UI_FONT_REGULAR], ==, fonts.fonts[TB_UI_FONT_REGULAR]);
+    TB_TEST_EXPECT_FLOAT(theme.font_size, ==, fonts.size);
     ui = tb_ui_create(NULL);
-    TB_TEST_EXPECT_INT((int)tb_ui_get_theme(ui)->font_size, ==, 14);
+    TB_TEST_EXPECT_FLOAT(tb_ui_get_theme(ui)->font_size, ==,
+                         tb_font_default_role(TB_FONT_ROLE_UI).size);
     tb_ui_set_theme(ui, &theme);
-    TB_TEST_EXPECT_POINTER(tb_ui_get_theme(ui)->fonts[TB_UI_FONT_BOLD], ==,
-                           fonts.fonts[TB_UI_FONT_BOLD]);
+    TB_TEST_EXPECT_POINTER(tb_ui_get_theme(ui)->fonts[TB_UI_FONT_HEADING], ==,
+                           fonts.fonts[TB_UI_FONT_HEADING]);
     tb_ui_destroy(ui);
     tb_ui_destroy(NULL);
     tb_ui_fonts_close(&fonts);
     TB_TEST_EXPECT_POINTER(fonts.fonts[TB_UI_FONT_REGULAR], ==, NULL);
     tb_ui_fonts_close(NULL);
+    tb_font_catalog_destroy(catalog);
+}
+
+/* The weight of a font that tb_ui_fonts_open() opened. */
+static uint16_t weight_of(const tb_font *font)
+{
+    tb_font_style style = {0};
+
+    TB_TEST_REQUIRE_POINTER(font, !=, NULL);
+    tb_font_get_style(font, &style);
+    return style.weight;
+}
+
+/* The theme's fonts are not bold unless the caller asks: by default its
+ * headings are the heading role's plain face, and given specs, it opens
+ * the bold face asked for, and takes the regular font's size. */
+TB_TEST(ui_theme, fonts_are_bold_only_when_the_caller_asks)
+{
+    tb_font_catalog *const catalog = tb_font_catalog_create(NULL);
+    tb_ui_fonts fonts = {0};
+    size_t index = 0;
+
+    if (!tb_font_catalog_find_role(catalog, TB_FONT_ROLE_HEADING, &index))
+    {
+        tb_font_catalog_destroy(catalog);
+        TB_TEST_SKIP("this build of the engine carries no fonts");
+    }
+    TB_TEST_REQUIRE(tb_ui_fonts_open(catalog, NULL, &fonts));
+    for (size_t font = 0; font < TB_UI_FONT_COUNT; font++)
+    {
+        TB_TEST_CONTEXT("font %u", (unsigned)font);
+        TB_TEST_EXPECT_UINT(weight_of(fonts.fonts[font]), ==, TB_FONT_WEIGHT_REGULAR);
+    }
+    tb_ui_fonts_close(&fonts);
+
+    const tb_font_spec heading = tb_font_spec_of_role(catalog, TB_FONT_ROLE_HEADING);
+    const tb_font_spec specs[TB_UI_FONT_COUNT] = {
+        [TB_UI_FONT_REGULAR] =
+            tb_font_spec_sized(tb_font_spec_of_role(catalog, TB_FONT_ROLE_UI), 13.0f),
+        [TB_UI_FONT_HEADING] = tb_font_spec_bold(heading),
+        [TB_UI_FONT_MONO] = tb_font_spec_of_role(catalog, TB_FONT_ROLE_MONOSPACE)};
+    TB_TEST_REQUIRE(tb_ui_fonts_open(catalog, specs, &fonts));
+    TB_TEST_EXPECT_UINT(weight_of(fonts.fonts[TB_UI_FONT_HEADING]), ==, TB_FONT_WEIGHT_BOLD);
+    TB_TEST_EXPECT_UINT(weight_of(fonts.fonts[TB_UI_FONT_REGULAR]), ==, TB_FONT_WEIGHT_REGULAR);
+    TB_TEST_EXPECT_FLOAT(fonts.size, ==, 13.0f);
+    tb_ui_fonts_close(&fonts);
     tb_font_catalog_destroy(catalog);
 }

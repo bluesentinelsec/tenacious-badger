@@ -439,9 +439,33 @@ statistics say so.
 
 ## Shaders
 
-The renderer's shaders are HLSL in its sources, compiled when it is made by
-the engine's compiler, through DXC to DXIL for D3D12. They move to
-`/Engine/Private/` files and ahead-of-time shader libraries with #230.
+The renderer's shaders are the engine's own files, `shaders/Engine/Private/*.hlsl`
+in the source tree, which the engine library carries
+(`tb_shader_engine_loader()`). The build compiles each one that
+`shaders/Engine/Shaders.manifest` lists ahead of time, into the shader library
+of each backend that needs compiled shaders: `bin/Shaders/d3d12.tbsl` on
+Windows (see [badger-shaderc](shader-cache.md#badger-shaderc)). The renderer
+finds each shader as `tb_shader_compile_cached()` does:
+
+1. in the library of its device's backend, `Shaders/<backend>.tbsl` in the
+   VFS that `tb_renderer_options::shader_vfs` names, by the key of its
+   sources: a shipped game needs no compiler for these;
+2. in the shader cache that `shader_cache` names, by the key of its sources
+   and of the DXC loaded;
+3. else it compiles it, through DXC to DXIL for D3D12, and keeps it in the
+   cache, unless `shader_library_only` is set, as `shaders.runtime_compile`
+   off asks of a shipped game: then a shader the library lacks makes
+   `tb_renderer_create()` fail, saying which.
+
+Without DXC, D3D12 draws with the library alone; with neither, the renderer
+is unavailable, and says why. The null backend runs no shader, and only checks
+each one.
+
+**Adding a shader** is a file under `shaders/Engine/Private/`, a line of the
+manifest for each of its entry points, and a call of `tb_renderer_shader()` or
+`tb_renderer_pipeline()` that names its path with no source. A call that
+passes its source as text, as a game's own shaders may, compiles at run time
+the same way, but no library holds it.
 
 ## Not yet
 

@@ -10,6 +10,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* The size of the tests' text, in units to the em. */
+#define UI_FONT_SIZE 14.0f
+
 /* Where the tests' windows begin, in units. */
 #define UI_WINDOW_RECT ((tb_canvas_rect){40.0f, 40.0f, 360.0f, 300.0f})
 

@@ -17,14 +17,16 @@
 
 struct tb_dxc;
 
-/* The fonts every scene may draw text in, from the engine's catalog. A
- * font this build of the engine does not carry is NULL, and what would be
- * drawn in it is not. */
+/* The fonts every scene may draw text in: the engine catalog's roles, each
+ * at its own size (sandbox.specs). A font this build of the engine does not
+ * carry is NULL, and what would be drawn in it is not. */
 typedef enum sandbox_font
 {
-    SANDBOX_FONT_UI,         /* the catalog's UI role: smooth text */
-    SANDBOX_FONT_VGA,        /* its pixel role, Px437 IBM VGA 8x16: 16 pixels to the em */
-    SANDBOX_FONT_SILKSCREEN, /* Silkscreen: a pixel font of 8 pixels to the em */
+    SANDBOX_FONT_UI,        /* the UI role */
+    SANDBOX_FONT_BODY,      /* the body role: paragraphs */
+    SANDBOX_FONT_HEADING,   /* the heading role */
+    SANDBOX_FONT_MONOSPACE, /* the monospace role */
+    SANDBOX_FONT_PIXEL,     /* the pixel role, drawn at whole multiples of pixel_size */
     SANDBOX_FONT_COUNT
 } sandbox_font;
 
@@ -39,6 +41,8 @@ typedef struct sandbox
     tb_camera camera;         /* the fly camera, which 3D scenes draw from */
     tb_font_catalog *catalog; /* holds the fonts' bytes */
     tb_font *fonts[SANDBOX_FONT_COUNT];
+    tb_font_spec specs[SANDBOX_FONT_COUNT]; /* each font's role, and its size */
+    float pixel_size;                       /* the pixel font's design size, in pixels to the em */
     float ui_scale;    /* the interface's zoom over the display's scale: 1 is 100% */
     bool cpu_skinning; /* skinned meshes forced onto the CPU */
 } sandbox;
