@@ -245,10 +245,21 @@ typedef enum tb_shader_form_expression_kind
     TB_SHADER_FORM_INTRINSIC,      /* intrinsic, operand list: a pure intrinsic's value. */
     TB_SHADER_FORM_CALL_RESULT,    /* What the CALL statement that gives it returned. */
     TB_SHADER_FORM_STRING_LITERAL, /* index: into the form's strings. */
-    TB_SHADER_FORM_TEXEL /* operands[0]: a resource's handle; operands[1]: an integer location;
-                            index: 1 when operands[2] is a mip level, 2 when it is a sample.
-                            A pointer, in ELEMENT, to what the resource holds there. */
+    TB_SHADER_FORM_TEXEL, /* operands[0]: a resource's handle; operands[1]: an integer location;
+                             index: 1 when operands[2] is a mip level, 2 when it is a sample.
+                             A pointer, in ELEMENT, to what the resource holds there. */
+    TB_SHADER_FORM_HEAP   /* operands[0]: a uint scalar; index: a tb_shader_form_heap. The
+                             resource or sampler at that index of the descriptor heap: a handle
+                             of its type, or for a constant or texture buffer, the struct it
+                             holds, as a buffer's global is. */
 } tb_shader_form_expression_kind;
+
+/* The descriptor heaps of Shader Model 6.6, which HEAP takes from. */
+typedef enum tb_shader_form_heap
+{
+    TB_SHADER_FORM_HEAP_RESOURCE, /* `ResourceDescriptorHeap` */
+    TB_SHADER_FORM_HEAP_SAMPLER   /* `SamplerDescriptorHeap` */
+} tb_shader_form_heap;
 
 typedef enum tb_shader_form_op
 {
@@ -291,7 +302,7 @@ typedef struct tb_shader_form_expression
     uint32_t operands[3];
     uint32_t first_operand; /* COMPOSE, INTRINSIC: into the function's operand list. */
     uint32_t operand_count;
-    uint32_t index;     /* ARGUMENT, LOCAL, GLOBAL, ACCESS_INDEX, TEXEL */
+    uint32_t index;     /* ARGUMENT, LOCAL, GLOBAL, ACCESS_INDEX, TEXEL, HEAP */
     uint32_t intrinsic; /* INTRINSIC: a tb_shader_intrinsic, or 0 for a method. */
     uint32_t method;    /* INTRINSIC: a tb_shader_method, whose object is the first operand. */
     uint8_t swizzle[TB_SHADER_FORM_MAX_SWIZZLE];
