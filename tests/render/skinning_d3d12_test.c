@@ -1,6 +1,8 @@
 /* Skinning on D3D12, on WARP, where Windows builds it: a cylinder of two
  * bones, bent at its middle by the compute pass, is drawn where the same
- * vertices skinned on the CPU project, in a color and with a material. */
+ * vertices skinned on the CPU project, in a color and with a material; and
+ * the renderer forced to skin on the CPU draws the same pixels as the GPU's
+ * pass, within a tolerance. */
 #include "badger/anim.h"
 #include "badger/material.h"
 #include "badger/memory.h"
@@ -10,6 +12,7 @@
 #include "tb_test.h"
 
 #include <math.h>
+#include <string.h>
 
 /* Rings along the cylinder, and segments around it. */
 #define RINGS 9u
@@ -206,6 +209,103 @@ TB_TEST(skinning_frame, a_bent_cylinder_lands_where_the_cpu_skins_it_on_d3d12)
         TB_TEST_EXPECT_HEX(pixel_at(pixels, width, x, y), ==, 0xFF000000u);
     }
     tb_material_destroy(opened.renderer, green);
+    tb_skinned_mesh_destroy(opened.renderer, cylinder);
+    close_screen(&opened);
+}
+
+/* A channel's difference past which two pictures differ at a pixel: the
+ * GPU's arithmetic rounds otherwise than the CPU's. */
+#define CHANNEL_TOLERANCE 4
+/* Pixels in a thousand that may differ, along the edges, where a vertex
+ * that moved by a rounding error takes a pixel's center in or out. */
+#define DIFFERING_PER_MILLE 5u
+
+/* Draw the bent cylinder lit, in a color beside the same with a lit
+ * material, and keep the frame's pixels. */
+static uint8_t *draw_bent(screen *opened, const tb_skinned_mesh *cylinder,
+                          const tb_material *material, const tb_mat4 skinning[2],
+                          const tb_camera *camera, uint32_t *width, uint32_t *height)
+{
+    const uint8_t *pixels = NULL;
+    uint8_t *kept = NULL;
+
+    tb_renderer_capture_next_frame(opened->renderer);
+    TB_TEST_REQUIRE(tb_renderer_begin_frame(opened->renderer, camera, (tb_vec4){0, 0, 0, 1}));
+    tb_renderer_draw_skinned(opened->renderer, &(tb_skinned_draw){.mesh = cylinder,
+                                                                  .transform = tb_mat4_identity(),
+                                                                  .joints = skinning,
+                                                                  .joint_count = 2,
+                                                                  .color = {1, 0.5f, 0.25f, 1}});
+    tb_renderer_draw_skinned(
+        opened->renderer, &(tb_skinned_draw){.mesh = cylinder,
+                                             .transform = tb_mat4_translation((tb_vec3){-1, 0, 0}),
+                                             .joints = skinning,
+                                             .joint_count = 2,
+                                             .material = material});
+    TB_TEST_REQUIRE_UINT(tb_renderer_end_frame(opened->renderer), ==, TB_RHI_OK);
+    pixels = tb_renderer_captured(opened->renderer, width, height);
+    TB_TEST_REQUIRE(pixels != NULL);
+    kept = tb_calloc((size_t)*width * *height, 4u);
+    memcpy(kept, pixels, (size_t)*width * *height * 4u);
+    return kept;
+}
+
+/* The same bent cylinders, lit, in a color and with a material, skinned by
+ * the GPU's pass and then by the CPU, draw the same pixels but for a few
+ * along their edges; and enough of them that the comparison means
+ * something. */
+TB_TEST(skinning_frame, the_cpu_path_draws_what_the_gpu_path_draws_on_d3d12)
+{
+    screen opened = {0};
+    tb_skinned_mesh *cylinder = NULL;
+    tb_material *material = NULL;
+    tb_material_desc desc = TB_MATERIAL_DESC_INIT;
+    tb_mat4 skinning[2] = {0};
+    tb_camera camera = tb_camera_perspective(tb_radians(60.0f));
+    tb_skinning_info info = {0};
+    uint8_t *on_gpu = NULL;
+    uint8_t *on_cpu = NULL;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    uint32_t cpu_width = 0;
+    uint32_t cpu_height = 0;
+    size_t drawn = 0;
+    size_t differing = 0;
+
+    open_screen(&opened);
+    tb_renderer_skinning_info(opened.renderer, &info);
+    TB_TEST_REQUIRE_UINT(info.path, ==, TB_SKINNING_GPU);
+    cylinder = make_cylinder(opened.renderer);
+    desc.base_color_factor = (tb_vec4){0.25f, 0.5f, 1, 1};
+    material = tb_material_create(opened.renderer, &desc);
+    bend(skinning);
+    TB_TEST_REQUIRE(tb_camera_look_at(&camera, (tb_vec3){0, 1, 4}, (tb_vec3){0, 1, 0}));
+    on_gpu = draw_bent(&opened, cylinder, material, skinning, &camera, &width, &height);
+    tb_renderer_force_cpu_skinning(opened.renderer, true);
+    on_cpu = draw_bent(&opened, cylinder, material, skinning, &camera, &cpu_width, &cpu_height);
+    tb_renderer_skinning_info(opened.renderer, &info);
+    TB_TEST_EXPECT_UINT(info.path, ==, TB_SKINNING_CPU);
+    TB_TEST_REQUIRE_UINT(cpu_width, ==, width);
+    TB_TEST_REQUIRE_UINT(cpu_height, ==, height);
+    for (size_t pixel = 0; pixel < (size_t)width * height; pixel++)
+    {
+        const uint8_t *const gpu = &on_gpu[pixel * 4u];
+        const uint8_t *const cpu = &on_cpu[pixel * 4u];
+        bool differs = false;
+        for (size_t channel = 0; channel < 3; channel++)
+        {
+            const int difference = (int)gpu[channel] - (int)cpu[channel];
+            differs = differs || difference > CHANNEL_TOLERANCE || difference < -CHANNEL_TOLERANCE;
+        }
+        drawn += gpu[0] != 0 || gpu[1] != 0 || gpu[2] != 0 ? 1u : 0u;
+        differing += differs ? 1u : 0u;
+    }
+    TB_TEST_CONTEXT("%zu of %zu drawn pixels differ", differing, drawn);
+    TB_TEST_EXPECT_UINT(drawn, >, (size_t)width * height / 50u);
+    TB_TEST_EXPECT_UINT(differing * 1000u, <=, (size_t)width * height * DIFFERING_PER_MILLE);
+    tb_free(on_cpu);
+    tb_free(on_gpu);
+    tb_material_destroy(opened.renderer, material);
     tb_skinned_mesh_destroy(opened.renderer, cylinder);
     close_screen(&opened);
 }

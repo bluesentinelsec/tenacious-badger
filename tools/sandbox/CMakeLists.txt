@@ -55,6 +55,14 @@ if(TB_BUILD_TESTS)
                 --frames 3 --capture "${CMAKE_CURRENT_BINARY_DIR}/sandbox_skinning.bmp")
         set_tests_properties(sandbox.draws_skinning_on_d3d12 PROPERTIES
             PASS_REGULAR_EXPRESSION "saved")
+        # The same skinned on the CPU, from the frame's uploads, with the
+        # inspector saying so.
+        add_test(NAME sandbox.draws_skinning_on_the_cpu_on_d3d12
+            COMMAND badger-sandbox --renderer d3d12 --software --validation --scene skinning
+                --cpu-skinning --inspector --frames 3
+                --capture "${CMAKE_CURRENT_BINARY_DIR}/sandbox_skinning_cpu.bmp")
+        set_tests_properties(sandbox.draws_skinning_on_the_cpu_on_d3d12 PROPERTIES
+            PASS_REGULAR_EXPRESSION "saved")
         # The inspector: every setting, and the frame's statistics.
         add_test(NAME sandbox.shows_the_inspector_on_d3d12
             COMMAND badger-sandbox --renderer d3d12 --software --validation --scene shapes

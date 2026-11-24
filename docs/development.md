@@ -62,7 +62,7 @@ The foundation layer so far, one public header per module under
 | `rhi.h` | [The render hardware interface](rhi.md): one interface to every graphics API, with bindless resources, command lists and submissions |
 | `renderer.h` | [The renderer](renderer.md): frames from a camera, meshes and generated shapes, and debug drawing |
 | `ui.h` | [The interface](ui.md): an immediate-mode GUI of windows, layout, and widgets, drawn through the canvas |
-| `skinning.h` | [Skinned meshes](renderer.md#skinned-meshes): meshes posed by a skeleton's joints, skinned on the GPU by a compute pass |
+| `skinning.h` | [Skinned meshes](renderer.md#skinned-meshes): meshes posed by a skeleton's joints, skinned on the GPU by a compute pass, or on the CPU where it cannot |
 | `render_graph.h` | [The render graph](render-graph.md): a frame's passes, culled, ordered, with their barriers and transient memory worked out |
 | `game_loop.h` | [The game loop](game-loop.md): fixed ticks, frames between them, frame pacing, pausing, settings applied as they change, and quitting |
 | `settings.h`, `engine_settings.h` | [Settings](settings.md): the options players and developers choose, in layers from defaults to run time, and the engine's catalog of them |

@@ -17,6 +17,7 @@ badger-sandbox --renderer null       # no GPU at all
 badger-sandbox --frames 120 --capture shapes.bmp   # stop after 120 frames, saving the last
 badger-sandbox --scene ui --ui-scale 150             # the interface half as large again
 badger-sandbox --inspector                           # start with the inspector shown
+badger-sandbox --scene skinning --cpu-skinning       # skin on the CPU, as a weaker device does
 ```
 
 While it runs, keys 1 to 9 choose the first nine scenes, Tab moves to the
@@ -33,7 +34,7 @@ bottom left corner of every scene, and printed every two seconds.
 | `sky` | The shapes under a procedural sky: a gradient from the horizon to the zenith, a ground, and a sun that circles once a minute |
 | `sky_cube` | The shapes under a cube-map sky made in memory: a dusk, with lines every 15 degrees of latitude and longitude to show its seams and orientation |
 | `text` | Text over the shapes in the font roles at their own sizes: a heading, a line of monospace, the UI font at sizes from 10 to 48, a paragraph of body text wrapping in three panels (left, centered and right) whose width changes over time, the pixel font at its size and twice it, and labels in the world naming the shapes |
-| `skinning` | A row of tentacles, each a tapered cylinder skinned to a chain of seven joints, played by two clips made in code, a wave that runs up the tentacle and a curl toward the viewer, blended by a weight that drifts at each tentacle's own phase (labeled under it); evaluated on the job system, skinned by the GPU's compute pass, the middle one with a checkered material, and their bones drawn over them |
+| `skinning` | A row of tentacles, each a tapered cylinder skinned to a chain of seven joints, played by two clips made in code, a wave that runs up the tentacle and a curl toward the viewer, blended by a weight that drifts at each tentacle's own phase (labeled under it); evaluated on the job system, skinned by the GPU's compute pass (or on the CPU, with `--cpu-skinning` or the inspector's switch), the middle one with a checkered material, and their bones drawn over them |
 | `ui` | [The interface](ui.md) over the shapes: an inspector of every widget (headers, checkboxes, combos, sliders, dragged numbers, a color, text fields, radio buttons, a swatch, a progress bar, buttons with tooltips, and a tree) and a window of statistics (a heading, wrapped text, a table, and a panel that scrolls) |
 | `triangle` | A triangle of three colored corners, turning, drawn through the RHI itself inside the renderer's scene pass |
 | `textured` | A checkerboard made in memory, sampled through the texture's and sampler's bindless indices |
@@ -74,7 +75,9 @@ start. A setting's description is its tooltip.
 
 Its **Frame** window shows the frame times of the last 120 frames as a
 graph, their average and worst, the frames a second, the scene, the
-backend and adapter, what the canvas drew in the last frame, and the
+backend and adapter, where skinned meshes are skinned and why (the GPU's
+compute pass, or the CPU), with a switch that forces the CPU to compare the
+two, what the canvas drew in the last frame, and the
 render graph's description of its passes and barriers
 (`tb_render_graph_dump()`), read again every half second. GPU timings wait
 for timestamp queries in the RHI.
