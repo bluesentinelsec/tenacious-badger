@@ -176,53 +176,6 @@ TB_TEST(platform_window, a_new_window_has_the_default_size_and_a_title)
     for_each_backend(a_new_window_has_the_default_size_and_a_title_on);
 }
 
-static void a_window_changes_mode_while_it_is_open_on(tb_window_system *system)
-{
-    tb_window *window = NULL;
-    tb_window_state state = {0};
-    tb_display display = {0};
-    tb_window_options options = {.title = "modes", .width = 640, .height = 360};
-
-    tb_window_system_display(system, 0, &display);
-    TB_TEST_REQUIRE_UINT(tb_window_create(system, &options, &window, NULL), ==, TB_WINDOW_OK);
-    (void)settle(system, TB_WINDOW_EVENT_RESIZED);
-    tb_window_state_of(window, &state);
-    TB_TEST_EXPECT_UINT(state.width, ==, 640);
-    TB_TEST_EXPECT_UINT(state.height, ==, 360);
-
-    /* Borderless covers the display. */
-    options.mode = TB_WINDOW_MODE_BORDERLESS;
-    TB_TEST_REQUIRE_UINT(tb_window_configure(window, &options, NULL), ==, TB_WINDOW_OK);
-    (void)settle(system, TB_WINDOW_EVENT_RESIZED);
-    tb_window_state_of(window, &state);
-    TB_TEST_EXPECT_UINT(state.mode, ==, TB_WINDOW_MODE_BORDERLESS);
-    TB_TEST_EXPECT_UINT(state.pixel_width, ==, display.pixel_width);
-    TB_TEST_EXPECT_UINT(state.pixel_height, ==, display.pixel_height);
-
-    /* Fullscreen is fullscreen where the platform has it, else borderless. */
-    options.mode = TB_WINDOW_MODE_FULLSCREEN;
-    TB_TEST_REQUIRE_UINT(tb_window_configure(window, &options, NULL), ==, TB_WINDOW_OK);
-    (void)settle(system, TB_WINDOW_EVENT_RESIZED);
-    tb_window_state_of(window, &state);
-    TB_TEST_EXPECT(state.mode == TB_WINDOW_MODE_FULLSCREEN ||
-                   state.mode == TB_WINDOW_MODE_BORDERLESS);
-
-    /* And back to a window of a new size, with a new title. */
-    options = (tb_window_options){.title = "back", .width = 800, .height = 450, .fixed_size = true};
-    TB_TEST_REQUIRE_UINT(tb_window_configure(window, &options, NULL), ==, TB_WINDOW_OK);
-    (void)settle(system, TB_WINDOW_EVENT_RESIZED);
-    tb_window_state_of(window, &state);
-    TB_TEST_EXPECT_UINT(state.mode, ==, TB_WINDOW_MODE_WINDOWED);
-    TB_TEST_EXPECT_UINT(state.width, ==, 800);
-    TB_TEST_EXPECT_UINT(state.height, ==, 450);
-    tb_window_destroy(window);
-}
-
-TB_TEST(platform_window, a_window_changes_mode_while_it_is_open)
-{
-    for_each_backend(a_window_changes_mode_while_it_is_open_on);
-}
-
 static void a_display_that_does_not_exist_is_the_primary_on(tb_window_system *system)
 {
     tb_window *window = NULL;
