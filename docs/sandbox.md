@@ -33,7 +33,7 @@ bottom left corner of every scene, and printed every two seconds.
 | `lighting` | [The raster lighting mode](renderer.md#lighting): a row of plastic spheres and a row of gold ones, from smooth to rough, and textured shapes, on a checkered floor, lit by a sun, three colored point lights that circle them and a spot light that sweeps across them, under a procedural sky; a window turns each light, their movement and the sky on and off |
 | `sky` | The shapes under a procedural sky: a gradient from the horizon to the zenith, a ground, and a sun that circles once a minute |
 | `sky_cube` | The shapes under a cube-map sky made in memory: a dusk, with lines every 15 degrees of latitude and longitude to show its seams and orientation |
-| `text` | Text over the shapes: the UI font at sizes from 10 to 48, a paragraph wrapping in three panels (left, centered and right) whose width changes over time, the VGA font and Silkscreen at whole multiples of their sizes, and labels in the world naming the shapes |
+| `text` | Text over the shapes in the font roles at their own sizes: a heading, a line of monospace, the UI font at sizes from 10 to 48, a paragraph of body text wrapping in three panels (left, centered and right) whose width changes over time, the pixel font at its size and twice it, and labels in the world naming the shapes |
 | `skinning` | A row of tentacles, each a tapered cylinder skinned to a chain of seven joints, played by two clips made in code, a wave that runs up the tentacle and a curl toward the viewer, blended by a weight that drifts at each tentacle's own phase (labeled under it); evaluated on the job system, skinned by the GPU's compute pass, the middle one with a checkered material, and their bones drawn over them |
 | `ui` | [The interface](ui.md) over the shapes: an inspector of every widget (headers, checkboxes, combos, sliders, dragged numbers, a color, text fields, radio buttons, a swatch, a progress bar, buttons with tooltips, and a tree) and a window of statistics (a heading, wrapped text, a table, and a panel that scrolls) |
 | `triangle` | A triangle of three colored corners, turning, drawn through the RHI itself inside the renderer's scene pass |
@@ -43,8 +43,9 @@ bottom left corner of every scene, and printed every two seconds.
 The sandbox draws through [the renderer](renderer.md); the `triangle` and
 `textured` scenes record their own RHI commands into its scene pass with
 `tb_renderer_draw_custom()`. It draws text in the engine's own fonts, from
-the font catalog: the UI role's (Inter), the pixel role's (Px437 IBM VGA
-8x16), and Silkscreen; a build that carries none of them draws no text.
+the font catalog: each role's font, at the role's size
+([fonts](fonts.md#roles)); a build that carries none of them draws no
+text.
 Labels are drawn in the renderer's default debug font, the UI role's.
 
 Shaders are HLSL in the sandbox's sources, compiled when a scene starts by

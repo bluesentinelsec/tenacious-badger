@@ -1,13 +1,29 @@
 /** @file font_catalog.h
  * @brief The fonts the engine carries, a catalog to find fonts in by family,
- * weight, and slant, and the roles that name the font for each use: UI,
- * body text, headings, code, and pixel art.
+ * weight, and slant, the roles that name the font and size for each use (UI,
+ * body text, headings, code, and pixel art), and font specs, which ask for
+ * a role's font at a weight, a slant, and a size.
+ *
+ * @code
+ * tb_font_catalog *catalog = tb_font_catalog_create(NULL);
+ * const tb_font_spec body = tb_font_spec_of_role(catalog, TB_FONT_ROLE_BODY);
+ * const tb_font_spec title = tb_font_spec_sized(tb_font_spec_bold(body), 32.0f);
+ * size_t index = 0;
+ * tb_font *font = NULL;
+ * if (tb_font_catalog_find_spec(catalog, title, &index) &&
+ *     tb_font_catalog_open(catalog, index, NULL, &font))
+ * {
+ *     // each frame, in a logical view
+ *     tb_canvas_draw_text(renderer, font, TB_TEXT("Chapter One"), title.size, at, white, NULL);
+ * }
+ * @endcode
  *
  * **Embedded fonts.** The engine library holds the fonts of
  * `resources/fonts/` in its own data, compressed with DEFLATE, so every
  * program that links it has fonts without a file beside it. Which of them a
- * build holds is the CMake option `TB_EMBED_FONTS`: `all` (the default), the
- * families of the default roles alone (`defaults`), or `none`. A font is
+ * build holds is the CMake option `TB_EMBED_FONTS`: the families of the
+ * default roles (`defaults`, the default), every font of the pack (`all`),
+ * or `none`. A font is
  * decompressed the first time its bytes are asked for, once for the process,
  * into memory the engine keeps until the process ends; the bytes are ready
  * for tb_font_open(). tb_font_embedded_count() says how many fonts this build
@@ -16,9 +32,18 @@
  * **A catalog** lists the embedded fonts and any that a game adds from bytes
  * of its own, such as a file read through the VFS, and finds the best font
  * for a family, weight, and slant. It also holds the role table: the font
- * that each #tb_font_role names, which starts as the engine's defaults and
- * which a game may change. A game that wants none of this opens its own
- * bytes with tb_font_open() and never makes a catalog.
+ * that each #tb_font_role names, and the size it is drawn at, which starts
+ * as the engine's defaults and which a game may change. A game that wants
+ * none of this opens its own bytes with tb_font_open() and never makes a
+ * catalog.
+ *
+ * **Font specs.** A #tb_font_spec is what a caller asks for when it draws
+ * text, as Unreal's `FSlateFontInfo` is: a role, whose family the catalog
+ * names, and a weight, a slant, and a size of the caller's.
+ * tb_font_spec_of_role() starts one from the role's own, and
+ * tb_font_spec_bold(), tb_font_spec_italic(), and tb_font_spec_sized()
+ * change it. Nothing is bold or italic unless the caller asks: every default
+ * role is upright and of regular weight.
  *
  * **Finding a font.** Families are compared without regard to the case of
  * ASCII letters. Within the family, a font of the slant asked for is
@@ -73,11 +98,10 @@ typedef enum tb_font_license
     TB_FONT_LICENSE_GAME          /**< A font a game added; its license is the game's affair. */
 } tb_font_license;
 
-/** @brief What a font is for: each role names one family, weight, and slant. */
+/** @brief What a font is for: each role names one family, weight, slant, and size. */
 typedef enum tb_font_role
 {
     TB_FONT_ROLE_UI,        /**< Labels, buttons, and menus. */
-    TB_FONT_ROLE_UI_BOLD,   /**< Emphasis in an interface: a selected item, a title bar. */
     TB_FONT_ROLE_BODY,      /**< Paragraphs: dialogue, descriptions, help. */
     TB_FONT_ROLE_HEADING,   /**< Headings and titles. */
     TB_FONT_ROLE_MONOSPACE, /**< The console, code, logs, and numbers in columns. */
@@ -88,9 +112,9 @@ typedef enum tb_font_role
 /** @brief What a font of a catalog, or of the embedded fonts, is. */
 typedef struct tb_font_info
 {
-    /** The family, such as "Inter", as tb_font_get_style() reports it. For
-     * an embedded font, static; for an added one, the catalog's, valid
-     * until it is destroyed. */
+    /** The family, such as "Source Sans 3", as tb_font_get_style() reports
+     * it. For an embedded font, static; for an added one, the catalog's,
+     * valid until it is destroyed. */
     const char *family;
     /** The style within the family, such as "SemiBold Italic"; as `family`. */
     const char *style;
@@ -99,7 +123,7 @@ typedef struct tb_font_info
     tb_font_category category; /**< What kind of letters it draws. */
     tb_font_license license;   /**< The license it is under. */
     /** For an embedded font, its file under `resources/fonts/`, such as
-     * "sans/Inter-Regular.ttf"; static. "" for a font a game added. */
+     * "sans/SourceSans3-Regular.ttf"; static. "" for a font a game added. */
     const char *file;
     bool embedded; /**< Whether the engine carries the font, rather than a game adding it. */
     /** For a pixel font, the size in pixels to the em at which one of its
@@ -109,16 +133,39 @@ typedef struct tb_font_info
     size_t length; /**< Bytes of the font's `.ttf` file, decompressed. */
 } tb_font_info;
 
-/** @brief The font a role names, which a catalog finds as tb_font_catalog_find() does. */
+/** @brief The font a role names, which a catalog finds as tb_font_catalog_find()
+ * does, and the size it is drawn at. */
 typedef struct tb_font_role_choice
 {
     /** The family. Borrowed by tb_font_catalog_set_role(), which copies it;
      * from tb_font_catalog_get_role(), the catalog's, valid until the role
      * is set again or the catalog is destroyed. */
     const char *family;
-    uint16_t weight; /**< The weight, such as #TB_FONT_WEIGHT_BOLD. */
+    uint16_t weight; /**< The weight, such as #TB_FONT_WEIGHT_REGULAR. */
     bool italic;     /**< Whether an italic is wanted. */
+    /** The size text of the role is drawn at, in logical pixels to the em
+     * (the size tb_canvas_draw_text() takes in a logical view), such as 16.
+     * Given to tb_font_catalog_set_role(), 0 is the role's default size. */
+    float size;
 } tb_font_role_choice;
+
+/**
+ * @brief A font as a caller asks for it: a role's family, at a weight, a
+ * slant, and a size of the caller's.
+ *
+ * A value, made by tb_font_spec_of_role() and changed by the helpers below
+ * or by setting its members. tb_font_catalog_find_spec() finds its font:
+ * the role's family as the catalog names it when asked, at the spec's
+ * weight and slant, as tb_font_catalog_find() finds them.
+ */
+typedef struct tb_font_spec
+{
+    tb_font_role role; /**< Whose family; any role but #TB_FONT_ROLE_COUNT. */
+    uint16_t weight;   /**< Such as #TB_FONT_WEIGHT_REGULAR. */
+    bool italic;       /**< Whether an italic is wanted. */
+    /** In logical pixels to the em, as tb_canvas_draw_text() takes it. */
+    float size;
+} tb_font_spec;
 
 /**
  * @brief How many fonts this build of the engine holds.
@@ -155,14 +202,15 @@ TB_API void tb_font_embedded_get_info(size_t index, tb_font_info *info);
 TB_API void tb_font_embedded_get_bytes(size_t index, const void **bytes, size_t *length);
 
 /**
- * @brief Learn which font the engine's default role table names for a role.
+ * @brief Learn which font, and which size, the engine's default role table
+ * names for a role.
  *
- * The defaults are provisional: the table, in src/font/font_catalog.c, is
- * one line a role, and the CMake list `TB_FONT_DEFAULT_FAMILIES` names the
- * families that `TB_EMBED_FONTS=defaults` keeps for it.
+ * The defaults are easy to change: the table, in src/font/font_catalog.c,
+ * is one line a role, and the CMake list `TB_FONT_DEFAULT_FAMILIES` names
+ * the families that `TB_EMBED_FONTS=defaults` keeps for it.
  *
  * @param role Any role but #TB_FONT_ROLE_COUNT.
- * @return The family, weight, and slant; the family is static.
+ * @return The family, weight, slant, and size; the family is static.
  * @par Threading Thread-safe.
  */
 TB_API tb_font_role_choice tb_font_default_role(tb_font_role role);
@@ -222,7 +270,7 @@ TB_API void tb_font_catalog_get_bytes(const tb_font_catalog *catalog, size_t ind
 /**
  * @brief Find the font of a family that best matches a weight and a slant.
  * @param catalog Required.
- * @param family Required; a family, such as "Inter", in any case of ASCII letters.
+ * @param family Required; a family, such as "Source Sans 3", in any case of ASCII letters.
  * @param weight The weight wanted, such as #TB_FONT_WEIGHT_SEMI_BOLD.
  * @param italic Whether an italic is wanted.
  * @param[out] index Required; the font's index on true, unchanged on false.
@@ -256,14 +304,15 @@ TB_API tb_font_result tb_font_catalog_add(tb_font_catalog *catalog, const void *
                                           tb_font_error *error);
 
 /**
- * @brief Say which font a role names.
+ * @brief Say which font a role names, and its size.
  *
  * A role names a family, weight, and slant, not a font, so it may name a
  * font the catalog does not hold yet, and finds it once it is added.
  *
  * @param catalog Required.
  * @param role Any role but #TB_FONT_ROLE_COUNT.
- * @param choice Required; its family is required, and is copied.
+ * @param choice Required; its family is required, and is copied. Its size
+ * is 0, for the role's default size, or more than 0.
  * @par Errors Running out of memory ends the process.
  * @par Threading Externally synchronized.
  */
@@ -289,13 +338,66 @@ TB_API tb_font_role_choice tb_font_catalog_get_role(const tb_font_catalog *catal
 TB_API bool tb_font_catalog_find_role(const tb_font_catalog *catalog, tb_font_role role,
                                       size_t *index);
 
+/**
+ * @brief Open a font of a catalog: tb_font_catalog_get_bytes(), then tb_font_open().
+ * @param catalog Required; outlives the font, whose bytes it holds.
+ * @param index Less than tb_font_catalog_count().
+ * @param allocator Where the font lives; NULL for the heap.
+ * @param[out] font Required; the font on true, for tb_font_close(); NULL on false.
+ * @return Whether the font opened: every font of a catalog opened when it
+ * was added, or when the engine was built, so false is not expected.
+ * @par Errors As tb_font_embedded_get_bytes().
+ * @par Threading Thread-safe with the catalog's other readers; the font is the caller's.
+ */
+TB_API bool tb_font_catalog_open(const tb_font_catalog *catalog, size_t index,
+                                 const tb_allocator *allocator, tb_font **font);
+
+/**
+ * @brief Start a spec from a role of a catalog: the role's weight, slant,
+ * and size, as the catalog has them.
+ * @param catalog Required.
+ * @param role Any role but #TB_FONT_ROLE_COUNT.
+ */
+TB_API tb_font_spec tb_font_spec_of_role(const tb_font_catalog *catalog, tb_font_role role);
+
+/**
+ * @brief The spec at bold weight (#TB_FONT_WEIGHT_BOLD): the family's
+ * nearest heavier weight when it has no bold.
+ * @par Threading Thread-safe.
+ */
+TB_API tb_font_spec tb_font_spec_bold(tb_font_spec spec);
+
+/**
+ * @brief The spec in italics: a family without them gives its upright font.
+ * @par Threading Thread-safe.
+ */
+TB_API tb_font_spec tb_font_spec_italic(tb_font_spec spec);
+
+/**
+ * @brief The spec at another size.
+ * @param size In logical pixels to the em; more than 0.
+ * @par Threading Thread-safe.
+ */
+TB_API tb_font_spec tb_font_spec_sized(tb_font_spec spec, float size);
+
+/**
+ * @brief Find the font of a spec: its role's family, as the catalog names
+ * it, at the spec's weight and slant, as tb_font_catalog_find() would.
+ * @param catalog Required.
+ * @param spec Its role any but #TB_FONT_ROLE_COUNT.
+ * @param[out] index Required; the font's index on true, unchanged on false.
+ * @return true when the catalog holds a font of the role's family.
+ */
+TB_API bool tb_font_catalog_find_spec(const tb_font_catalog *catalog, tb_font_spec spec,
+                                      size_t *index);
+
 /** @brief Name a category: "serif", "sans", "mono", "retro", "other"; else "unknown". */
 TB_API const char *tb_font_category_name(tb_font_category category);
 
 /** @brief Name a license: "OFL-1.1", "CC-BY-SA-4.0", "game"; else "unknown". SPDX where it can. */
 TB_API const char *tb_font_license_name(tb_font_license license);
 
-/** @brief Name a role: "ui", "ui-bold", "body", "heading", "monospace", "pixel"; else "unknown". */
+/** @brief Name a role: "ui", "body", "heading", "monospace", "pixel"; else "unknown". */
 TB_API const char *tb_font_role_name(tb_font_role role);
 
 #endif

@@ -80,6 +80,8 @@
 struct tb_engine_settings;
 struct tb_font;
 struct tb_log;
+struct tb_shader_cache;
+struct tb_vfs;
 struct tb_window;
 
 /** @brief A renderer. Created by tb_renderer_create(); owned by the caller;
@@ -129,6 +131,20 @@ typedef struct tb_renderer_options
     /** What it may spend: automatic, the default, takes the low profile on
      * a software adapter. Tests of the full path on WARP ask for full. */
     tb_renderer_profile profile;
+    /** Where the renderer finds the shader library of its device's backend,
+     * `Shaders/<backend>.tbsl` (`Shaders/d3d12.tbsl`), which `badger-shaderc`
+     * writes (badger/shader_library.h). Its shaders are found first, and
+     * need no compiler. NULL, or a VFS without the library, finds none
+     * there. Borrowed for the call. */
+    struct tb_vfs *shader_vfs;
+    /** The shader cache (badger/shader_cache.h), searched for the shaders
+     * the library lacks, and given those compiled; NULL for none. Borrowed
+     * until the renderer is destroyed. */
+    struct tb_shader_cache *shader_cache;
+    /** Use the library's shaders only, compiling none at run time, as
+     * `shaders.runtime_compile` off asks of a shipped game: a shader the
+     * library lacks makes tb_renderer_create() fail. */
+    bool shader_library_only;
 } tb_renderer_options;
 
 /** @brief What a renderer's frames are made with: the renderer's values of

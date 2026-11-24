@@ -12,9 +12,10 @@
 # the engine's sources, all take. TB_FONT_DATA_OBJECTS names them.
 #
 # TB_EMBED_FONTS chooses the files:
-#   all       every font of the pack: about 7 MB of compressed data.
-#   defaults  the families the default roles name (TB_FONT_DEFAULT_FAMILIES):
-#             about 1.4 MB.
+#   defaults  the default: the families the default roles name
+#             (TB_FONT_DEFAULT_FAMILIES), every weight and slant of each:
+#             about 2.5 MB of compressed data.
+#   all       every font of the pack, an opt-in: about 7 MB.
 #   none      no font; the catalog is empty until a game adds fonts.
 #
 # badger-fontpack runs on the machine that builds. Cross-compiling, it runs
@@ -28,7 +29,8 @@ set(TB_FONT_DIRECTORY "${PROJECT_SOURCE_DIR}/resources/fonts")
 # src/font/font_catalog.c. Change the two together; the tests check that
 # every role finds its own font in a build with TB_EMBED_FONTS=defaults.
 set(TB_FONT_DEFAULT_FAMILIES
-    "sans/Inter-*.ttf"
+    "serif/SourceSerif4-*.ttf"
+    "sans/SourceSans3-*.ttf"
     "mono/JetBrainsMono-*.ttf"
     "retro/Px437_IBM_VGA_8x16.ttf")
 

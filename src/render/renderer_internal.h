@@ -19,6 +19,8 @@
 #include <stdint.h>
 
 struct tb_dxc;
+struct tb_shader_cache;
+struct tb_shader_library;
 
 /* Frames the CPU prepares while the GPU draws the ones before. */
 #define TB_RENDERER_FRAMES 2u
@@ -145,7 +147,10 @@ struct tb_renderer
     tb_rhi_device *device;
     tb_rhi_device_info info;
     tb_rhi_swap_chain *chain;
-    struct tb_dxc *dxc;
+    struct tb_dxc *dxc;                       /* NULL where shaders come from the library only */
+    struct tb_shader_library *shader_library; /* of the device's backend; NULL for none */
+    struct tb_shader_cache *shader_cache;     /* borrowed; NULL for none */
+    bool shader_library_only;
     struct tb_window *window;
     struct tb_log *log;
     tb_render_graph *graph;
@@ -274,7 +279,8 @@ typedef struct tb_canvas_recording
 } tb_canvas_recording;
 
 /* Make a pipeline of a shader of the renderer's own, with entry points
- * MainVS and MainPS, compiled for the device's backend. */
+ * MainVS and MainPS, for the device's backend, as tb_renderer_shader()
+ * finds or compiles each. */
 tb_rhi_result tb_renderer_pipeline(tb_renderer *renderer, const char *path, const char *source,
                                    tb_rhi_graphics_pipeline_desc *desc, tb_rhi_pipeline *pipeline,
                                    tb_rhi_error *error);
@@ -290,7 +296,11 @@ uint64_t tb_renderer_upload_room(const tb_renderer *renderer, uint64_t alignment
 /* Add a draw of a mesh to the frame. */
 void tb_renderer_add_draw(tb_renderer *renderer, const tb_renderer_draw *draw);
 
-/* Compile a shader of the renderer's own for the device's backend. */
+/* A shader of the renderer's own, for the device's backend: found in the
+ * shader library, else in the shader cache, else compiled where the renderer
+ * may. `source` is its text, or NULL for the engine's own file at `path`
+ * (tb_shader_engine_loader()), which the build compiles ahead of time when
+ * shaders/Engine/Shaders.manifest lists it. */
 tb_rhi_result tb_renderer_shader(tb_renderer *renderer, const char *path, const char *source,
                                  const char *entry, tb_rhi_stage stage, tb_rhi_shader *shader,
                                  tb_rhi_error *error);

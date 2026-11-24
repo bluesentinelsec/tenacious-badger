@@ -80,7 +80,7 @@ sandbox_inspector *sandbox_inspector_create(sandbox *box, tb_settings *settings,
         }
     }
     inspector->dump = tb_calloc(INSPECTOR_DUMP_CAPACITY, 1);
-    if (!tb_ui_fonts_open(box->catalog, &inspector->fonts))
+    if (!tb_ui_fonts_open(box->catalog, NULL, &inspector->fonts))
     {
         return inspector; /* a build that carries no fonts shows no inspector */
     }

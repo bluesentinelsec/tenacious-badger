@@ -114,6 +114,7 @@ set(TB_TEST_CASE_SOURCES
     platform/window_test.c
     settings/engine_settings_test.c
     settings/settings_test.c
+    shader/shader_cache_test.c
     shader/shader_compile_test.c
     ${TB_SHADER_REFLECTION_SOURCE}
     render/canvas_test.c
@@ -131,6 +132,8 @@ set(TB_TEST_CASE_SOURCES
     ui/ui_test.c
     ui/ui_text_field_test.c
     shader/shader_dxil_test.c
+    shader/shader_library_test.c
+    shader/shader_manifest_test.c
     shader/shader_preprocess_test.c
     vfs/vfs_test.c
     framework/selftest/checks_test.c
@@ -171,7 +174,7 @@ if(WIN32)
         render/canvas_d3d12_test.c render/lighting_d3d12_test.c ${TB_GOLDEN_SOURCE}
         render/material_d3d12_test.c
         render/renderer_d3d12_test.c render/skinning_d3d12_test.c render/sky_d3d12_test.c
-        render/text_d3d12_test.c)
+        render/text_d3d12_test.c shader/shader_library_d3d12_test.c)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     list(APPEND TB_TEST_CASE_SOURCES platform/linux/window_x11_test.c)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
@@ -179,6 +182,14 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
 endif()
 
 tb_add_tests(tb_tests SOURCES ${TB_TEST_CASE_SOURCES} LIBRARIES TenaciousBadger::badger)
+# The engine's shaders: the manifest, and the libraries the build compiles
+# from it beside the executables (tools/shaderc), which the cases on D3D12
+# compare with what they compile at run time.
+set_source_files_properties(shader/shader_library_d3d12_test.c PROPERTIES COMPILE_DEFINITIONS
+    "TB_TEST_SHADER_MANIFEST=\"${PROJECT_SOURCE_DIR}/shaders/Engine/Shaders.manifest\";TB_TEST_SHADER_DIRECTORY=\"${PROJECT_BINARY_DIR}/bin\"")
+if(TB_BUILD_SHADERS)
+    add_dependencies(tb_tests badger_shaders)
+endif()
 
 # Repeat the allocation contracts with the checking functions installed.
 tb_add_tests(tb_memory_checked_tests SUFFIX ".checked"
@@ -201,6 +212,9 @@ set(TB_INTERNAL_TEST_CASE_SOURCES
     font/font_embedded_cache_test.c
     jobs/deque_test.c
     render/canvas_batch_test.c
+    # A window's scale changed as its adapter changes it, with Roboto of the test data.
+    render/canvas_scale_test.c
+    ${TB_FONT_DATA_SOURCE}
     render/light_pack_test.c
     render/temporal_test.c
     rhi/rhi_choice_test.c

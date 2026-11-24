@@ -71,7 +71,7 @@ static void lighting_open_ui(lighting_scene *scene, sandbox *box)
 {
     tb_ui_theme theme = tb_ui_theme_dark();
 
-    if (!tb_ui_fonts_open(box->catalog, &scene->fonts))
+    if (!tb_ui_fonts_open(box->catalog, NULL, &scene->fonts))
     {
         (void)tb_fmt_print("badger-sandbox: lighting: this build of the engine carries no UI "
                            "font; the switches are not drawn\n");

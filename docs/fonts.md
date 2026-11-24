@@ -296,10 +296,13 @@ the table and a reason in `tb_font_error`.
 
 ## Embedded fonts
 
-The engine library carries the font pack of `resources/fonts/`: 15
-families and 60 files, serif, sans, mono, and retro, compressed into the
-library's own data. Nothing has to be installed or shipped beside a game
-for it to have fonts. The header is `badger/font_catalog.h`.
+The engine library carries fonts of the font pack in `resources/fonts/`,
+compressed into the library's own data: by default the families of the
+[default roles](#roles), every weight and slant of each, and, when a build
+asks for them, all 15 families and 60 files of the pack, serif, sans, mono,
+and retro ([How much to embed](#how-much-to-embed)). Nothing has to be
+installed or shipped beside a game for it to have fonts. The header is
+`badger/font_catalog.h`.
 
 | Category | Families |
 | --- | --- |
@@ -317,7 +320,7 @@ names each family's authors and upstream source.
 for (size_t index = 0; index < tb_font_embedded_count(); index++)
 {
     tb_font_info info = {0};
-    tb_font_embedded_get_info(index, &info); /* "Inter", "Bold Italic", 700, italic, ... */
+    tb_font_embedded_get_info(index, &info); /* "Source Serif 4", "Bold Italic", 700, ... */
 }
 
 const void *bytes = NULL;
@@ -334,18 +337,25 @@ never decompressed.
 
 ### How much to embed
 
-The CMake option `TB_EMBED_FONTS` chooses which fonts a build carries:
+The CMake option `TB_EMBED_FONTS` chooses which fonts a build carries.
+Every font a build carries is stored compressed:
 
 | `TB_EMBED_FONTS` | Fonts | Compressed data | Growth of `badger.dll` (Release, MSVC) |
 | --- | --- | --- | --- |
-| `all` (the default) | all 60 | 7.03 MB (16.36 MB as `.ttf`) | +7.04 MB |
-| `defaults` | 13: Inter, JetBrains Mono, Px437 IBM VGA 8x16 | 1.35 MB | +1.37 MB |
+| `defaults` (the default) | 19: Source Serif 4, Source Sans 3, JetBrains Mono, Px437 IBM VGA 8x16 | 2.47 MB (6.11 MB as `.ttf`) | +2.48 MB |
+| `all` | all 60 | 7.03 MB (16.36 MB as `.ttf`) | +7.04 MB |
 | `none` | none | none | +13 KB, the catalog's code |
 
-`defaults` keeps the families that the default roles name, listed in
-`TB_FONT_DEFAULT_FAMILIES` in `cmake/EmbedFonts.cmake`. With `none`, the
-catalog holds only the fonts a game adds. `tb_font_embedded_count` says
-what a build holds, and the catalog lists only what is there.
+`defaults` keeps the families that the default roles name, every weight
+and slant of each, so that a caller who asks for the body text in bold
+italic gets it; they are listed in `TB_FONT_DEFAULT_FAMILIES` in
+`cmake/EmbedFonts.cmake`. The other OFL families of the pack (EB Garamond,
+Libre Baskerville, Inter, Roboto, Fira Code, IBM Plex Mono, Press Start
+2P, VT323, Silkscreen, and Monocraft) are embedded only by `all`, which a
+game opts into, or opens from files of its own
+([Fonts of a game's own](#fonts-of-a-games-own)). With `none`, the catalog
+holds only the fonts a game adds. `tb_font_embedded_count` says what a
+build holds, and the catalog lists only what is there.
 
 Decompressing every font of the pack takes about 100 ms on one core of a
 desktop (Release, MSVC, about 160 MB/s of output); Inter Regular takes
@@ -387,7 +397,7 @@ best font for a family, a weight, and a slant:
 ```c
 tb_font_catalog *catalog = tb_font_catalog_create(NULL);
 size_t index = 0;
-if (tb_font_catalog_find(catalog, "Inter", TB_FONT_WEIGHT_SEMI_BOLD, false, &index))
+if (tb_font_catalog_find(catalog, "Source Sans 3", TB_FONT_WEIGHT_SEMI_BOLD, false, &index))
 {
     const void *bytes = NULL;
     size_t length = 0;
@@ -435,37 +445,72 @@ A game has two ways to use a font of its own:
 ### Roles
 
 A role says which font a use of text wants: `TB_FONT_ROLE_UI`,
-`TB_FONT_ROLE_UI_BOLD`, `TB_FONT_ROLE_BODY`, `TB_FONT_ROLE_HEADING`,
-`TB_FONT_ROLE_MONOSPACE`, and `TB_FONT_ROLE_PIXEL`. Each names a family,
-a weight, and a slant, which the catalog finds as above;
-`tb_font_catalog_find_role` gives the font.
+`TB_FONT_ROLE_BODY`, `TB_FONT_ROLE_HEADING`, `TB_FONT_ROLE_MONOSPACE`, and
+`TB_FONT_ROLE_PIXEL`. Each names a family, a weight, and a slant, which
+the catalog finds as above, and the size text of the role is drawn at, in
+logical pixels to the em: the size `tb_canvas_draw_text` takes in a
+logical view, which is that many pixels at 100% and 1.5 times as many at
+150%. `tb_font_catalog_find_role` gives the font.
 
-**The defaults are provisional**, until the author chooses the engine's
-font preferences:
+The defaults are the author's choices:
 
-| Role | Default | Why |
-| --- | --- | --- |
-| UI | Inter Regular (400) | The open stand-in for the system UI faces of iOS and macOS, drawn for screens |
-| UI bold | Inter SemiBold (600) | The weight interfaces use for emphasis; Bold is for headings |
-| Body | Inter Regular (400) | Text in games is read on screens and often small, where a sans holds up better than Source Serif 4, without hinting; it also keeps `defaults` to three families |
-| Heading | Inter Bold (700) | |
-| Monospace | JetBrains Mono Regular (400) | Drawn for code, with clear 0/O and 1/l/I, for the console and logs |
-| Pixel | Px437 IBM VGA 8x16 (400) | The DOS VGA font; one pixel of it is one pixel of the screen at exactly 16 px to the em (`tb_font_info.pixel_size`) |
+| Role | Default | Size | Why |
+| --- | --- | --- | --- |
+| UI | Source Sans 3 Regular (400) | 16 | Matches the headings; drawn for interfaces, and clear at small sizes |
+| Body | Source Serif 4 Regular (400) | 18 | A serif drawn for reading at length on screens, with optical sizes for text |
+| Heading | Source Sans 3 Regular (400) | 28 | Source Serif's companion sans, set apart from the body by its letters and size, not by weight |
+| Monospace | JetBrains Mono Regular (400) | 15 | Drawn for code, with clear 0/O and 1/l/I, for the console and logs |
+| Pixel | Px437 IBM VGA 8x16 (400) | 16 | The DOS VGA font; 16 is its design size, at which one pixel of it is one pixel of a display at 100% (`tb_font_info.pixel_size`) |
+
+**Nothing is bold unless a caller asks for it.** No default role is bold
+or italic. The UI module's headings are the heading role's plain face, and
+a caller who wants bold asks for it with a [font spec](#font-specs).
 
 The table is `tb_font_default_roles` in `src/font/font_catalog.c`, one
-line a role; `tb_font_default_role` reads it. A family that leaves it
-must leave `TB_FONT_DEFAULT_FAMILIES` too, and a test checks that every
-default role finds its own font in a build of `TB_EMBED_FONTS=defaults`.
+line a role, its sizes beside its fonts, so that they are easy to tune;
+`tb_font_default_role` reads it. A family that leaves it must leave
+`TB_FONT_DEFAULT_FAMILIES` too, and a test checks that every default role
+finds its own font in a build of `TB_EMBED_FONTS=defaults`.
 
-A game changes a role at run time, for its own catalog:
+A game changes a role at run time, for its own catalog, with its size or
+with 0 for the role's default size:
 
 ```c
 tb_font_catalog_set_role(catalog, TB_FONT_ROLE_BODY,
-                         &(tb_font_role_choice){"Source Serif 4", TB_FONT_WEIGHT_REGULAR, false});
+                         &(tb_font_role_choice){"EB Garamond", TB_FONT_WEIGHT_REGULAR, false, 20.0f});
 ```
 
 A role may name a family the catalog does not hold yet; it finds it once
 the font is added.
+
+### Font specs
+
+A font spec (`tb_font_spec`) is what a caller asks for when it draws
+text, as Unreal's `FSlateFontInfo` names a typeface, a style, and a size:
+a role, whose family the catalog names, and a weight, a slant, and a size
+of the caller's. `tb_font_spec_of_role` starts one from the role's own
+weight, slant, and size; `tb_font_spec_bold`, `tb_font_spec_italic`, and
+`tb_font_spec_sized` change one thing each; `tb_font_catalog_find_spec`
+finds its font, the role's family at the spec's weight and slant, nearest
+first, as `tb_font_catalog_find` finds; and `tb_font_catalog_open` opens a
+font of the catalog.
+
+```c
+const tb_font_spec body = tb_font_spec_of_role(catalog, TB_FONT_ROLE_BODY);
+const tb_font_spec emphasis = tb_font_spec_italic(body);           /* Source Serif 4 Italic, 18 */
+const tb_font_spec title = tb_font_spec_sized(tb_font_spec_bold(body), 32.0f);
+size_t index = 0;
+tb_font *font = NULL;
+if (tb_font_catalog_find_spec(catalog, title, &index) &&
+    tb_font_catalog_open(catalog, index, NULL, &font))
+{
+    tb_canvas_draw_text(renderer, font, TB_TEXT("Chapter One"), title.size, at, white, NULL);
+}
+```
+
+A spec names its role, not the role's family, so it follows a role that a
+game changes. The UI module opens its fonts from specs too
+([UI](ui.md#themes)).
 
 ### Pixel fonts
 
@@ -475,6 +520,24 @@ the size at which a pixel of the font is a pixel of the screen.
 for Px437 IBM VGA 8x16, 8 for Press Start 2P and Silkscreen, and 9 for
 Monocraft. It is 0 for fonts that scale freely, for VT323, whose outlines
 are not on a grid, and for Monocraft's italics, which are slanted off it.
+
+Given as the layout's `pixel_size`, it makes the layout round the size in
+pixels to the **nearest whole multiple** of it, halves up, and **at least
+once**, and place every glyph on a whole pixel, drawn aliased. The canvas
+rounds the size in the display's pixels, after the view's scale, so the
+pixel role at 16 units is:
+
+| Display scale | Size in pixels asked for | Drawn at |
+| --- | --- | --- |
+| 100% | 16 | 16 (1×) |
+| 125% | 20 | 16 (1×) |
+| 150% | 24 | 32 (2×) |
+| 200% | 32 | 32 (2×) |
+| 250% | 40 | 48 (3×) |
+
+A pixel font is therefore never smoothed or stretched by a fraction, at
+the cost of being smaller or larger than its size asks for at scales that
+are not whole; `tb_canvas_measure_text` gives the size it is drawn at.
 
 ### Licenses
 
@@ -525,7 +588,17 @@ hits, U+FFFD for bad UTF-8, empty text, and pixel fonts on whole pixels.
 `tests/render/text_d3d12_test.c` draws text on D3D12 on WARP: a string's ink
 lies in the box its layout and glyph measures give, the VGA font's pixels
 are exactly its aliased bitmap at 16 and 32 pixels, and glyphs drawn before
-the atlas clears within a frame are still drawn right.
+the atlas clears within a frame are still drawn right. For displays of high
+density, it checks that text in logical units at 150% and 200% is, pixel
+for pixel, the text drawn at 1.5 and 2 times its size in pixels (so it is
+rasterized at the display's pixels, never scaled up), with ink 1.5 and 2
+times as large as at 100%; that text placed at a fraction of a pixel is the
+same image as text on the whole row its baseline rounds to; and that the
+pixel font at 125%, 150%, and 200% is exactly its aliased bitmap at 16, 32,
+and 32 pixels, and measures what it draws. `tests/render/canvas_scale_test.c`
+changes a window's scale as its adapter does when it moves to another
+monitor, and checks that the next frame's logical view, size, and text are
+at the new scale.
 `tests/font/font_atlas_test.c` checks that packed glyphs never overlap with
 their padding, over thousands of random glyphs and sizes, that the atlas
 reports what changed, and that it clears and counts its generation when
@@ -533,10 +606,13 @@ full.
 
 `tests/font/font_catalog_test.c` opens every embedded font and checks that
 its own tables name the family, style, weight, and slant the catalog
-claims, checks that the build holds what `TB_EMBED_FONTS` chose and that
-every default role finds its own font, and runs finding, adding, and roles
-on fonts made in memory, so that they hold in a build of every
-`TB_EMBED_FONTS`. `tests/font/font_embedded_cache_test.c` sets eight
+claims, checks that the build holds what `TB_EMBED_FONTS` chose, that
+every default role finds its own font, that no default role is bold, and
+that the defaults keep every weight and slant of their families; and runs
+finding, adding, roles, their sizes, and font specs on fonts made in
+memory, so that they hold in a build of every `TB_EMBED_FONTS`. `tests/font/font_embedded_cache_test.c` sets eight
 threads at once on a font's first use, on a cache of its own, and
 `tests/core/thread_safety_test.c` has every thread ask for every embedded
-font. CI builds `TB_EMBED_FONTS=defaults` in the default-adapter job.
+font. CI tests the default, `TB_EMBED_FONTS=defaults`, on every platform,
+tests `all` in the coverage jobs of Linux and macOS, and builds `none` in
+the default-adapter job.

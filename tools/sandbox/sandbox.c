@@ -14,14 +14,17 @@
 #include "badger/dxc.h"
 #include "badger/engine_settings.h"
 #include "badger/fmt.h"
+#include "badger/fs.h"
 #include "badger/game_loop.h"
 #include "badger/material.h"
 #include "badger/memory.h"
 #include "badger/process.h"
 #include "badger/settings.h"
 #include "badger/shader.h"
+#include "badger/shader_cache.h"
 #include "badger/str.h"
 #include "badger/version.h"
+#include "badger/vfs.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -29,6 +32,8 @@
 
 #define SANDBOX_TITLE "badger-sandbox"
 #define SANDBOX_MOST_VALUES 32
+/* Bytes of a path the sandbox makes. */
+#define SANDBOX_PATH_CAPACITY ((size_t)4096)
 /* Seconds between the frame times the sandbox prints. */
 #define SANDBOX_REPORT_SECONDS 2.0
 /* Seconds between changes of the frame time drawn on screen, and how much
@@ -80,6 +85,7 @@ typedef struct sandbox_run
     sandbox box;
     tb_settings *settings;
     tb_engine_settings engine;
+    tb_shader_cache *shader_cache; /* the user's, which badger-shaderc shares */
     tb_game_loop *loop;
     sandbox_inspector *inspector;
     uint64_t vsync_version; /* of display.vsync, when the renderer last took it */
@@ -565,45 +571,61 @@ static size_t sandbox_find_scene(const char *name)
     return sandbox_scene_count;
 }
 
-/* Open a font of the catalog; NULL when it is not found. */
-static tb_font *sandbox_open_font(const tb_font_catalog *catalog, bool found, size_t index)
-{
-    const void *bytes = NULL;
-    size_t length = 0;
-    tb_font *font = NULL;
-
-    if (!found)
-    {
-        return NULL;
-    }
-    tb_font_catalog_get_bytes(catalog, index, &bytes, &length);
-    if (tb_font_open(bytes, length, NULL, &font, NULL) != TB_FONT_OK)
-    {
-        return NULL;
-    }
-    return font;
-}
-
-/* Open the fonts every scene may draw with, from the engine's catalog: the
- * UI and pixel roles, and Silkscreen. A build that carries none of them
- * draws no text. */
+/* Open the fonts every scene may draw with: the engine catalog's roles, at
+ * their own sizes. A build that carries none of them draws no text. */
 static void sandbox_open_fonts(sandbox *box)
 {
-    size_t index = 0;
-    bool found = false;
+    static const tb_font_role roles[SANDBOX_FONT_COUNT] = {
+        [SANDBOX_FONT_UI] = TB_FONT_ROLE_UI,
+        [SANDBOX_FONT_BODY] = TB_FONT_ROLE_BODY,
+        [SANDBOX_FONT_HEADING] = TB_FONT_ROLE_HEADING,
+        [SANDBOX_FONT_MONOSPACE] = TB_FONT_ROLE_MONOSPACE,
+        [SANDBOX_FONT_PIXEL] = TB_FONT_ROLE_PIXEL,
+    };
 
     box->catalog = tb_font_catalog_create(NULL);
-    found = tb_font_catalog_find_role(box->catalog, TB_FONT_ROLE_UI, &index);
-    box->fonts[SANDBOX_FONT_UI] = sandbox_open_font(box->catalog, found, index);
-    found = tb_font_catalog_find_role(box->catalog, TB_FONT_ROLE_PIXEL, &index);
-    box->fonts[SANDBOX_FONT_VGA] = sandbox_open_font(box->catalog, found, index);
-    found = tb_font_catalog_find(box->catalog, "Silkscreen", TB_FONT_WEIGHT_REGULAR, false, &index);
-    box->fonts[SANDBOX_FONT_SILKSCREEN] = sandbox_open_font(box->catalog, found, index);
+    for (size_t font = 0; font < SANDBOX_FONT_COUNT; font++)
+    {
+        size_t index = 0;
+        tb_font_info info = {0};
+        box->specs[font] = tb_font_spec_of_role(box->catalog, roles[font]);
+        if (!tb_font_catalog_find_spec(box->catalog, box->specs[font], &index) ||
+            !tb_font_catalog_open(box->catalog, index, NULL, &box->fonts[font]))
+        {
+            continue;
+        }
+        tb_font_catalog_get_info(box->catalog, index, &info);
+        if (font == SANDBOX_FONT_PIXEL)
+        {
+            box->pixel_size = (float)info.pixel_size;
+        }
+    }
     if (box->fonts[SANDBOX_FONT_UI] == NULL)
     {
         (void)tb_fmt_print("badger-sandbox: this build of the engine carries no UI font; text "
                            "is not drawn\n");
     }
+}
+
+/* Where the renderer finds its shaders: the libraries the build writes
+ * beside the executable (bin/Shaders/d3d12.tbsl), in a VFS for the caller to
+ * destroy; and the user's shader cache, which badger-shaderc shares. */
+static tb_vfs *sandbox_shader_sources(sandbox_run *run)
+{
+    char directory[SANDBOX_PATH_CAPACITY] = {0};
+    char cache[SANDBOX_PATH_CAPACITY] = {0};
+    size_t required = 0;
+    tb_vfs *const vfs = tb_vfs_create(NULL);
+
+    if (tb_fs_get_location(TB_FS_EXECUTABLE, directory, sizeof(directory), &required) == TB_FS_OK)
+    {
+        (void)tb_vfs_mount_directory(vfs, "", 0, directory, 0);
+    }
+    if (tb_shader_cache_default_directory(cache, sizeof(cache)))
+    {
+        (void)tb_shader_cache_open(cache, &run->shader_cache);
+    }
+    return vfs;
 }
 
 static int sandbox_open_renderer(sandbox_run *run, tb_window_system *system)
@@ -627,7 +649,13 @@ static int sandbox_open_renderer(sandbox_run *run, tb_window_system *system)
     renderer.device.validation = sandbox_validation;
     renderer.anisotropy = tb_engine_settings_anisotropy(&run->engine);
     tb_engine_settings_device_options(&run->engine, &renderer.device);
-    if (tb_renderer_create(&renderer, &run->box.renderer, &error) != TB_RHI_OK)
+    tb_vfs *const shaders = sandbox_shader_sources(run);
+    renderer.shader_vfs = shaders;
+    renderer.shader_cache = run->shader_cache;
+    renderer.shader_library_only = !tb_setting_boolean(run->engine.shaders.runtime_compile);
+    const tb_rhi_result made = tb_renderer_create(&renderer, &run->box.renderer, &error);
+    tb_vfs_destroy(shaders);
+    if (made != TB_RHI_OK)
     {
         (void)tb_fmt_print_error("badger-sandbox: error: no renderer: %s; --renderer=null runs "
                                  "without one\n",
@@ -663,6 +691,7 @@ static void sandbox_close(sandbox_run *run, tb_window_system *system)
         sandbox_inspector_destroy(run->inspector, &run->box);
     }
     tb_renderer_destroy(run->box.renderer);
+    tb_shader_cache_close(run->shader_cache);
     for (int font = 0; font < SANDBOX_FONT_COUNT; font++)
     {
         tb_font_close(run->box.fonts[font]);

@@ -6,23 +6,26 @@
 #include "badger/font.h"
 #include "badger/str.h"
 
+#include <float.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 
-/* The fonts the roles name until a game says otherwise. PROVISIONAL: the
- * author chooses the defaults later. Change a line here to change a default;
- * a family that is not in TB_FONT_DEFAULT_FAMILIES (cmake/EmbedFonts.cmake)
- * is then missing from builds with TB_EMBED_FONTS=defaults, so change that
- * list too. */
+/* The fonts the roles name until a game says otherwise, and their sizes in
+ * logical pixels to the em: the author's choices, and easy to change.
+ * Change a line here to change a default; a family that is not in
+ * TB_FONT_DEFAULT_FAMILIES (cmake/EmbedFonts.cmake) is then missing from
+ * builds with TB_EMBED_FONTS=defaults, so change that list too. No role is
+ * bold: a caller that wants bold asks for it (tb_font_spec_bold()). The
+ * pixel role's size is its font's design size, at which one pixel of the
+ * font is one pixel of a display at 100%. */
 static const tb_font_role_choice tb_font_default_roles[TB_FONT_ROLE_COUNT] = {
-    [TB_FONT_ROLE_UI] = {"Inter", TB_FONT_WEIGHT_REGULAR, false},
-    [TB_FONT_ROLE_UI_BOLD] = {"Inter", TB_FONT_WEIGHT_SEMI_BOLD, false},
-    [TB_FONT_ROLE_BODY] = {"Inter", TB_FONT_WEIGHT_REGULAR, false},
-    [TB_FONT_ROLE_HEADING] = {"Inter", TB_FONT_WEIGHT_BOLD, false},
-    [TB_FONT_ROLE_MONOSPACE] = {"JetBrains Mono", TB_FONT_WEIGHT_REGULAR, false},
-    [TB_FONT_ROLE_PIXEL] = {"Px437 IBM VGA 8x16", TB_FONT_WEIGHT_REGULAR, false},
+    [TB_FONT_ROLE_UI] = {"Source Sans 3", TB_FONT_WEIGHT_REGULAR, false, 16.0f},
+    [TB_FONT_ROLE_BODY] = {"Source Serif 4", TB_FONT_WEIGHT_REGULAR, false, 18.0f},
+    [TB_FONT_ROLE_HEADING] = {"Source Sans 3", TB_FONT_WEIGHT_REGULAR, false, 28.0f},
+    [TB_FONT_ROLE_MONOSPACE] = {"JetBrains Mono", TB_FONT_WEIGHT_REGULAR, false, 15.0f},
+    [TB_FONT_ROLE_PIXEL] = {"Px437 IBM VGA 8x16", TB_FONT_WEIGHT_REGULAR, false, 16.0f},
 };
 
 /* Ranks of a weight against the weight asked for: lower is better. */
@@ -329,11 +332,15 @@ void tb_font_catalog_set_role(tb_font_catalog *catalog, tb_font_role role,
     TB_ASSERT_MSG((size_t)role < TB_FONT_ROLE_COUNT, "a role");
     TB_ASSERT(choice != NULL);
     TB_ASSERT(choice->family != NULL);
+    TB_ASSERT_MSG(choice->size >= 0.0f && choice->size <= FLT_MAX,
+                  "a role's size is 0, for its default, or a finite size");
     family = tb_font_catalog_copy_text(&catalog->allocator, choice->family,
                                        tb_str_length(choice->family));
     tb_font_catalog_free_text(&catalog->allocator, catalog->role_families[role]);
     catalog->role_families[role] = family;
-    catalog->roles[role] = (tb_font_role_choice){family, choice->weight, choice->italic};
+    catalog->roles[role] = (tb_font_role_choice){
+        family, choice->weight, choice->italic,
+        choice->size > 0.0f ? choice->size : tb_font_default_roles[role].size};
 }
 
 tb_font_role_choice tb_font_catalog_get_role(const tb_font_catalog *catalog, tb_font_role role)
@@ -349,14 +356,61 @@ bool tb_font_catalog_find_role(const tb_font_catalog *catalog, tb_font_role role
     return tb_font_catalog_find(catalog, choice.family, choice.weight, choice.italic, index);
 }
 
+bool tb_font_catalog_open(const tb_font_catalog *catalog, size_t index,
+                          const tb_allocator *allocator, tb_font **font)
+{
+    const void *bytes = NULL;
+    size_t length = 0;
+
+    TB_ASSERT(font != NULL);
+    tb_font_catalog_get_bytes(catalog, index, &bytes, &length);
+    if (tb_font_open(bytes, length, allocator, font, NULL) != TB_FONT_OK)
+    {
+        /* coverage-off: every font of a catalog opened once before */
+        *font = NULL;
+        return false;
+        /* coverage-on */
+    }
+    return true;
+}
+
+tb_font_spec tb_font_spec_of_role(const tb_font_catalog *catalog, tb_font_role role)
+{
+    const tb_font_role_choice choice = tb_font_catalog_get_role(catalog, role);
+    return (tb_font_spec){role, choice.weight, choice.italic, choice.size};
+}
+
+tb_font_spec tb_font_spec_bold(tb_font_spec spec)
+{
+    spec.weight = TB_FONT_WEIGHT_BOLD;
+    return spec;
+}
+
+tb_font_spec tb_font_spec_italic(tb_font_spec spec)
+{
+    spec.italic = true;
+    return spec;
+}
+
+tb_font_spec tb_font_spec_sized(tb_font_spec spec, float size)
+{
+    TB_ASSERT_MSG(size > 0.0f && size <= FLT_MAX, "a spec of a finite size");
+    spec.size = size;
+    return spec;
+}
+
+bool tb_font_catalog_find_spec(const tb_font_catalog *catalog, tb_font_spec spec, size_t *index)
+{
+    const tb_font_role_choice choice = tb_font_catalog_get_role(catalog, spec.role);
+    return tb_font_catalog_find(catalog, choice.family, spec.weight, spec.italic, index);
+}
+
 const char *tb_font_role_name(tb_font_role role)
 {
     switch (role)
     {
     case TB_FONT_ROLE_UI:
         return "ui";
-    case TB_FONT_ROLE_UI_BOLD:
-        return "ui-bold";
     case TB_FONT_ROLE_BODY:
         return "body";
     case TB_FONT_ROLE_HEADING:

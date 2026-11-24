@@ -33,3 +33,9 @@ void tb_dxc_release(tb_dxc_output *output)
     (void)output;
     tb_default_not_implemented("platform.dxc", "tb_dxc_release");
 }
+
+const char *tb_dxc_version(const tb_dxc *dxc)
+{
+    (void)dxc;
+    tb_default_not_implemented("platform.dxc", "tb_dxc_version");
+}

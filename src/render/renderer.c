@@ -13,6 +13,8 @@
 #include "badger/log.h"
 #include "badger/memory.h"
 #include "badger/shader.h"
+#include "badger/shader_cache.h"
+#include "badger/shader_library.h"
 #include "badger/str.h"
 #include "badger/window.h"
 
@@ -23,75 +25,6 @@
 #define TB_RENDERER_UPLOAD_BYTES ((uint64_t)16 * 1024 * 1024)
 /* Bytes of one draw's constants, at the alignment constant buffers need. */
 #define TB_RENDERER_DRAW_BYTES 256u
-
-static const char tb_renderer_mesh_source[] =
-    "struct DrawConstants { float4x4 Clip; float4x4 Model; float4 Color; float4 Light; };\n"
-    "ConstantBuffer<DrawConstants> Draw : register(b1);\n"
-    "struct VertexIn { float3 Position : POSITION; float3 Normal : NORMAL; float2 UV : TEXCOORD0; "
-    "};\n"
-    "struct VertexOut { float4 Position : SV_Position; float3 Normal : NORMAL; float2 UV : "
-    "TEXCOORD0; };\n"
-    "VertexOut MainVS(VertexIn input)\n"
-    "{\n"
-    "    VertexOut output;\n"
-    "    output.Position = mul(Draw.Clip, float4(input.Position, 1));\n"
-    "    output.Normal = mul(Draw.Model, float4(input.Normal, 0)).xyz;\n"
-    "    output.UV = input.UV;\n"
-    "    return output;\n"
-    "}\n"
-    "float4 MainPS(VertexOut input) : SV_Target\n"
-    "{\n"
-    "    const float3 normal = normalize(input.Normal);\n"
-    "    const float facing = saturate(dot(normal, -Draw.Light.xyz));\n"
-    "    const float shade = lerp(1.0, 0.25 + 0.75 * facing, Draw.Light.w);\n"
-    "    return float4(Draw.Color.rgb * shade, Draw.Color.a);\n"
-    "}\n";
-
-/* Debug lines on a device without bindless resources, tested against the
- * scene's depth by the pass's own. */
-static const char tb_renderer_line_source[] =
-    "struct LineConstants { float4x4 Clip; };\n"
-    "ConstantBuffer<LineConstants> Lines : register(b0);\n"
-    "struct VertexIn { float3 Position : POSITION; float4 Color : COLOR0; };\n"
-    "struct VertexOut { float4 Position : SV_Position; float4 Color : COLOR0; };\n"
-    "VertexOut MainVS(VertexIn input)\n"
-    "{\n"
-    "    VertexOut output;\n"
-    "    output.Position = mul(Lines.Clip, float4(input.Position, 1));\n"
-    "    output.Color = input.Color;\n"
-    "    return output;\n"
-    "}\n"
-    "float4 MainPS(VertexOut input) : SV_Target { return input.Color; }\n";
-
-/* Debug lines in the raster lighting mode, drawn over the tone-mapped
- * output so that their colors are as given: a line tested against depth
- * reads the scene's depth at its pixel and is hidden where the scene is
- * nearer (depth is reversed); one on top is not tested. */
-static const char tb_renderer_output_line_source[] =
-    "struct LineConstants { float4x4 Clip; uint Depth; uint Test; float2 Scale; };\n"
-    "ConstantBuffer<LineConstants> Lines : register(b0);\n"
-    "struct VertexIn { float3 Position : POSITION; float4 Color : COLOR0; };\n"
-    "struct VertexOut { float4 Position : SV_Position; float4 Color : COLOR0; };\n"
-    "VertexOut MainVS(VertexIn input)\n"
-    "{\n"
-    "    VertexOut output;\n"
-    "    output.Position = mul(Lines.Clip, float4(input.Position, 1));\n"
-    "    output.Color = input.Color;\n"
-    "    return output;\n"
-    "}\n"
-    "float4 MainPS(VertexOut input) : SV_Target\n"
-    "{\n"
-    "    if (Lines.Test != 0)\n"
-    "    {\n"
-    "        Texture2D<float> depth = ResourceDescriptorHeap[Lines.Depth];\n"
-    "        const int2 texel = int2(input.Position.xy * Lines.Scale);\n"
-    "        if (input.Position.z < depth.Load(int3(texel, 0)))\n"
-    "        {\n"
-    "            discard;\n"
-    "        }\n"
-    "    }\n"
-    "    return input.Color;\n"
-    "}\n";
 
 /* What a line pipeline reads, as the line shaders' LineConstants lay it
  * out: the frame's clip transform and, with bindless resources, how to test
@@ -137,39 +70,60 @@ static tb_shader_stage tb_renderer_stage(tb_rhi_stage stage)
     return TB_SHADER_STAGE_COMPUTE;
 }
 
-/* A shader of the renderer's own, compiled for the device's backend: DXIL
- * through DXC for D3D12; the checked source itself for the null backend,
- * which runs nothing. */
+/* A shader of the renderer's own, for the device's backend: DXIL for
+ * D3D12, from the library, the cache, or DXC; for the null backend, which
+ * runs nothing, the checked source itself. */
 tb_rhi_result tb_renderer_shader(tb_renderer *renderer, const char *path, const char *source,
                                  const char *entry, tb_rhi_stage stage, tb_rhi_shader *shader,
                                  tb_rhi_error *error)
 {
-    const tb_shader_file file = {path, source, tb_str_length(source)};
+    const tb_shader_loader engine = tb_shader_engine_loader();
+    tb_shader_file file = {path, source, 0};
     tb_shader_compile_request request = {0};
     tb_shader_compiled compiled = {0};
+    tb_shader_lookup lookup = {0};
+    tb_shader_key key = {0};
+    tb_shader_origin origin = TB_SHADER_ORIGIN_COMPILE;
     tb_arena *const arena = tb_arena_create(0);
     tb_rhi_shader_desc desc = {.stage = stage, .entry = entry, .name = path};
     tb_rhi_result result = TB_RHI_OK;
 
     request.source.path = path;
-    request.source.files = &file;
-    request.source.file_count = 1;
+    request.source.loader = &engine;
+    if (source != NULL)
+    {
+        file.length = tb_str_length(source);
+        request.source.files = &file;
+        request.source.file_count = 1;
+    }
     request.entry_point = entry;
     request.stage = tb_renderer_stage(stage);
-    request.target = renderer->dxc != NULL ? TB_SHADER_TARGET_DXIL : TB_SHADER_TARGET_NONE;
+    request.target = renderer->info.backend == TB_RHI_BACKEND_D3D12 ? TB_SHADER_TARGET_DXIL
+                                                                    : TB_SHADER_TARGET_NONE;
     request.dxc = renderer->dxc;
-    if (tb_shader_compile(&request, arena, &compiled) != TB_SHADER_OK)
+    lookup.library = renderer->shader_library;
+    lookup.cache = renderer->shader_cache;
+    lookup.library_only = renderer->shader_library_only;
+    if (tb_shader_compile_cached(&request, &lookup, arena, &compiled, &key, &origin) !=
+        TB_SHADER_OK)
     {
         char line[TB_RHI_MESSAGE_CAPACITY] = {0};
         if (compiled.diagnostic_count > 0)
         {
             (void)tb_shader_diagnostic_format(&compiled.diagnostics[0], line, sizeof(line));
         }
-        result = tb_renderer_fail(error, TB_RHI_SYSTEM_ERROR, "renderer: %s", line);
+        result =
+            tb_renderer_fail(error, TB_RHI_SYSTEM_ERROR, "renderer: %s %s: %s", path, entry, line);
         goto done;
     }
-    desc.code = compiled.code != NULL ? compiled.code : (const void *)source;
-    desc.size = compiled.code != NULL ? compiled.code_size : file.length;
+    desc.code = compiled.code;
+    desc.size = compiled.code_size;
+    if (compiled.code == NULL)
+    {
+        /* The null backend keeps the source, which it runs no more than code. */
+        desc.code = source != NULL ? source : path;
+        desc.size = tb_str_length(desc.code);
+    }
     result = tb_rhi_shader_create(renderer->device, &desc, shader, error);
 done:
     tb_arena_destroy(arena);
@@ -224,8 +178,8 @@ static tb_rhi_result tb_renderer_forward_pipelines(tb_renderer *renderer, tb_rhi
     desc.color_count = 1;
     desc.depth = TB_RENDERER_DEPTH_FORMAT;
     desc.name = "mesh";
-    result = tb_renderer_pipeline(renderer, "/Engine/Private/Mesh.hlsl", tb_renderer_mesh_source,
-                                  &desc, &renderer->mesh_pipeline, error);
+    result = tb_renderer_pipeline(renderer, "/Engine/Private/Mesh.hlsl", NULL, &desc,
+                                  &renderer->mesh_pipeline, error);
     if (result != TB_RHI_OK)
     {
         return result;
@@ -242,8 +196,8 @@ static tb_rhi_result tb_renderer_forward_pipelines(tb_renderer *renderer, tb_rhi
     desc.color_count = 1;
     desc.depth = TB_RENDERER_DEPTH_FORMAT;
     desc.name = "debug lines";
-    result = tb_renderer_pipeline(renderer, "/Engine/Private/DebugLines.hlsl",
-                                  tb_renderer_line_source, &desc, &renderer->line_pipeline, error);
+    result = tb_renderer_pipeline(renderer, "/Engine/Private/DebugLines.hlsl", NULL, &desc,
+                                  &renderer->line_pipeline, error);
     if (result != TB_RHI_OK)
     {
         return result;
@@ -251,9 +205,8 @@ static tb_rhi_result tb_renderer_forward_pipelines(tb_renderer *renderer, tb_rhi
     desc.depth_test = false;
     desc.depth = TB_RHI_FORMAT_UNKNOWN;
     desc.name = "debug lines on top";
-    return tb_renderer_pipeline(renderer, "/Engine/Private/DebugLines.hlsl",
-                                tb_renderer_line_source, &desc, &renderer->line_top_pipeline,
-                                error);
+    return tb_renderer_pipeline(renderer, "/Engine/Private/DebugLines.hlsl", NULL, &desc,
+                                &renderer->line_top_pipeline, error);
 }
 
 /* The line pipeline of the raster lighting mode: lines over the output,
@@ -270,9 +223,8 @@ static tb_rhi_result tb_renderer_output_line_pipeline(tb_renderer *renderer, tb_
     desc.colors[0] = TB_RENDERER_COLOR_FORMAT;
     desc.color_count = 1;
     desc.name = "debug lines";
-    return tb_renderer_pipeline(renderer, "/Engine/Private/DebugLinesOutput.hlsl",
-                                tb_renderer_output_line_source, &desc, &renderer->line_pipeline,
-                                error);
+    return tb_renderer_pipeline(renderer, "/Engine/Private/DebugLinesOutput.hlsl", NULL, &desc,
+                                &renderer->line_pipeline, error);
 }
 
 static tb_rhi_result tb_renderer_pipelines(tb_renderer *renderer, tb_rhi_error *error)
@@ -306,6 +258,49 @@ static void tb_renderer_report_profile(const tb_renderer *renderer)
                         capabilities->reflections ? "with" : "no");
 }
 
+/* Where the device's shaders come from: its backend's library, the cache,
+ * and DXC for D3D12. Without DXC, D3D12 draws only with what the library
+ * holds; with no library either, it cannot draw, which is said at once. */
+static tb_rhi_result tb_renderer_shader_sources(tb_renderer *renderer,
+                                                const tb_renderer_options *options,
+                                                tb_rhi_error *error)
+{
+    char name[64] = {0};
+    tb_dxc_error dxc_error = TB_DXC_ERROR_INIT;
+
+    renderer->shader_cache = options->shader_cache;
+    renderer->shader_library_only = options->shader_library_only;
+    if (renderer->info.backend != TB_RHI_BACKEND_D3D12)
+    {
+        return TB_RHI_OK;
+    }
+    if (options->shader_vfs != NULL)
+    {
+        const size_t length = tb_fmt_buffer(name, sizeof(name), "Shaders/%s.tbsl",
+                                            tb_rhi_backend_name(renderer->info.backend));
+        const tb_shader_library_result loaded =
+            tb_shader_library_load(options->shader_vfs, name, length, &renderer->shader_library);
+        if (loaded != TB_SHADER_LIBRARY_OK && loaded != TB_SHADER_LIBRARY_NOT_FOUND &&
+            renderer->log != NULL)
+        {
+            (void)tb_log_printf(renderer->log, TB_LOG_WARNING, "renderer",
+                                "the shader library %s is %s; compiling its shaders instead", name,
+                                tb_shader_library_result_name(loaded));
+        }
+    }
+    if (renderer->shader_library_only)
+    {
+        return TB_RHI_OK;
+    }
+    if (tb_dxc_open(&renderer->dxc, &dxc_error) != TB_DXC_OK && renderer->shader_library == NULL)
+    {
+        return tb_renderer_fail(error, TB_RHI_UNAVAILABLE,
+                                "renderer: no shader library, and no shader compiler: %s",
+                                dxc_error.message);
+    }
+    return TB_RHI_OK;
+}
+
 tb_rhi_result tb_renderer_create(const tb_renderer_options *options, tb_renderer **made,
                                  tb_rhi_error *error)
 {
@@ -332,15 +327,10 @@ tb_rhi_result tb_renderer_create(const tb_renderer_options *options, tb_renderer
     renderer->capabilities = tb_renderer_capabilities_for(&renderer->info, options->profile);
     renderer->quality_asked = (tb_renderer_quality)TB_RENDERER_QUALITY_INIT;
     tb_renderer_report_profile(renderer);
-    if (renderer->info.backend == TB_RHI_BACKEND_D3D12)
+    result = tb_renderer_shader_sources(renderer, options, error);
+    if (result != TB_RHI_OK)
     {
-        tb_dxc_error dxc_error = TB_DXC_ERROR_INIT;
-        if (tb_dxc_open(&renderer->dxc, &dxc_error) != TB_DXC_OK)
-        {
-            result = tb_renderer_fail(error, TB_RHI_UNAVAILABLE, "renderer: no shader compiler: %s",
-                                      dxc_error.message);
-            goto failed;
-        }
+        goto failed;
     }
     result = tb_rhi_swap_chain_create(
         renderer->device, renderer->window,
@@ -445,6 +435,7 @@ void tb_renderer_destroy(tb_renderer *renderer)
     tb_rhi_swap_chain_destroy(renderer->chain);
     tb_rhi_device_destroy(renderer->device);
     tb_dxc_close(renderer->dxc);
+    tb_shader_library_close(renderer->shader_library);
     tb_free(renderer->draws);
     tb_free(renderer->customs);
     tb_free(renderer->lines[0].vertices);

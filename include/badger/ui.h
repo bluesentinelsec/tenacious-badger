@@ -5,7 +5,7 @@
  * @code
  * // once
  * tb_ui_fonts fonts = {0};
- * tb_ui_fonts_open(catalog, &fonts);
+ * tb_ui_fonts_open(catalog, NULL, &fonts);
  * tb_ui_theme theme = tb_ui_theme_dark();
  * tb_ui_theme_set_fonts(&theme, &fonts);
  * tb_ui *const ui = tb_ui_create(&(tb_ui_options){.theme = &theme});
@@ -50,8 +50,16 @@
  * `tb_ui_input::scale` pixels a unit: the display's scale, from
  * tb_canvas_view_logical(), so it keeps its size on every display; or more,
  * to zoom it. Its input is in pixels of the frame, as window events give
- * them. Edges are drawn on whole pixels, and text at the display's own
- * pixels, so it stays crisp at any scale.
+ * them. Edges are drawn on whole pixels, and text is measured and drawn at
+ * the display's own pixels, so it stays crisp at any scale. Setting the
+ * scale every frame, from tb_canvas_view_logical(), follows a window to a
+ * display of another scale in the frame after it moves.
+ *
+ * **Fonts.** A theme has a font for text, one for titles and headings, and
+ * one for monospaced text, all at the theme's size. tb_ui_fonts_open()
+ * opens them from a catalog's roles: UI, heading, and monospace, none of
+ * them bold. The interface draws in bold only when its caller gives it a
+ * bold font, such as one of a spec made with tb_font_spec_bold().
  *
  * **Identifiers.** Each widget is known from frame to frame by an id: a
  * hash of its label and of the ids pushed with tb_ui_push_id() around it.
@@ -135,7 +143,7 @@ typedef uint32_t tb_ui_id;
 typedef enum tb_ui_font
 {
     TB_UI_FONT_REGULAR, /**< Labels, values, and text fields: the catalog's UI role. */
-    TB_UI_FONT_BOLD,    /**< Titles and headers: its UI bold role. */
+    TB_UI_FONT_HEADING, /**< Titles, headers, and headings: its heading role. */
     TB_UI_FONT_MONO,    /**< Text the caller asks for in columns: its monospace role. */
     TB_UI_FONT_COUNT    /**< How many there are; not a font. */
 } tb_ui_font;
@@ -176,10 +184,10 @@ typedef struct tb_ui_theme
 {
     tb_vec4 colors[TB_UI_COLOR_COUNT]; /**< RGBA, straight alpha, from 0 to 1. */
     /** The fonts, borrowed: open until the context is destroyed or given
-     * another theme. The regular font is required to begin a frame; a bold
-     * or mono font left NULL is the regular. */
+     * another theme. The regular font is required to begin a frame; a
+     * heading or mono font left NULL is the regular. */
     const tb_font *fonts[TB_UI_FONT_COUNT];
-    float font_size;        /**< Text's size, in units to the em. */
+    float font_size;        /**< Every font's size, in units to the em. */
     tb_vec2 window_padding; /**< Between a window's edges and its contents. */
     tb_vec2 frame_padding;  /**< Between a field's or button's edges and its text. */
     tb_vec2 item_spacing;   /**< Between widgets: across, and down. */
@@ -196,7 +204,8 @@ typedef struct tb_ui_theme
 
 /**
  * @brief The default theme: dark grays with a blue accent, after Unreal's
- * editor, Inter at 14 units, and no fonts (tb_ui_theme_set_fonts()).
+ * editor, text at the UI role's default size (tb_font_default_role()), and
+ * no fonts (tb_ui_theme_set_fonts()).
  * @par Threading Thread-safe.
  */
 TB_API tb_ui_theme tb_ui_theme_dark(void);
@@ -205,26 +214,46 @@ TB_API tb_ui_theme tb_ui_theme_dark(void);
 typedef struct tb_ui_fonts
 {
     tb_font *fonts[TB_UI_FONT_COUNT]; /**< Each NULL when the catalog has none for it. */
+    /** The size of the regular font's spec, which tb_ui_theme_set_fonts()
+     * gives the theme; 0 keeps the theme's. */
+    float size;
 } tb_ui_fonts;
 
 /**
- * @brief Open the fonts of a catalog's roles for a theme: UI, UI bold, and
- * monospace.
+ * @brief Open fonts of a catalog for a theme.
+ *
+ * Without specs, the fonts are the catalog's UI, heading, and monospace
+ * roles, as the catalog names them, none of them bold; the size is the UI
+ * role's. A caller that wants bold titles asks for them:
+ *
+ * @code
+ * const tb_font_spec heading = tb_font_spec_of_role(catalog, TB_FONT_ROLE_HEADING);
+ * const tb_font_spec specs[TB_UI_FONT_COUNT] = {
+ *     [TB_UI_FONT_REGULAR] = tb_font_spec_of_role(catalog, TB_FONT_ROLE_UI),
+ *     [TB_UI_FONT_HEADING] = tb_font_spec_bold(heading),
+ *     [TB_UI_FONT_MONO] = tb_font_spec_of_role(catalog, TB_FONT_ROLE_MONOSPACE)};
+ * tb_ui_fonts_open(catalog, specs, &fonts);
+ * @endcode
+ *
  * @param catalog Required; its fonts' bytes outlive the fonts.
- * @param[out] fonts Required; each font opened, or NULL.
- * @return Whether the UI role's font was found and opened: false in a build
+ * @param specs Optional: #TB_UI_FONT_COUNT specs, in the order of
+ * #tb_ui_font, of which the theme takes the regular font's size; NULL for
+ * the roles above.
+ * @param[out] fonts Required; each font opened, or NULL, and the size.
+ * @return Whether the regular font was found and opened: false in a build
  * of the engine that carries no fonts, whose interface needs a font of the
  * game's own.
  * @par Threading Thread-safe with other readers of the catalog.
  */
-TB_API bool tb_ui_fonts_open(const tb_font_catalog *catalog, tb_ui_fonts *fonts);
+TB_API bool tb_ui_fonts_open(const tb_font_catalog *catalog, const tb_font_spec *specs,
+                             tb_ui_fonts *fonts);
 
 /** @brief Close fonts that tb_ui_fonts_open() opened, and set them to NULL.
  * @param fonts Optional; NULL does nothing.
  * @par Threading Externally synchronized: nothing uses the fonts. */
 TB_API void tb_ui_fonts_close(tb_ui_fonts *fonts);
 
-/** @brief Give a theme the fonts opened.
+/** @brief Give a theme the fonts opened, and their size when they have one.
  * @param theme Required. @param fonts Required; borrowed by the theme.
  * @par Threading Thread-safe. */
 TB_API void tb_ui_theme_set_fonts(tb_ui_theme *theme, const tb_ui_fonts *fonts);
@@ -555,7 +584,7 @@ TB_API void tb_ui_text_colored(tb_ui *ui, tb_vec4 color, const char *text);
  * @param text Required. */
 TB_API void tb_ui_text_wrapped(tb_ui *ui, const char *text);
 
-/** @brief Text in the bold font: a heading. @param text Required. */
+/** @brief Text in the heading font: a heading. @param text Required. */
 TB_API void tb_ui_heading(tb_ui *ui, const char *text);
 
 /** @brief Text in the monospace font, a line of its own height: a log's
