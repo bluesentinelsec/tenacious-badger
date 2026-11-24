@@ -2,12 +2,15 @@
  * where its layout and glyph measures say, pixel fonts draw the exact
  * pixels the CPU rasterizes, colors multiply coverage, glyphs drawn before
  * the atlas clears partway through a frame are drawn right, and labels sit
- * on their points. */
+ * on their points. On displays of high density: text in logical units is
+ * drawn at the display's own pixels, on whole rows, and pixel fonts at
+ * whole multiples of their size. */
 #include "badger/arena.h"
 #include "badger/canvas.h"
 #include "badger/font.h"
 #include "badger/font_layout.h"
 #include "badger/font_raster.h"
+#include "badger/memory.h"
 #include "badger/str.h"
 #include "badger/window.h"
 
@@ -16,6 +19,7 @@
 
 #include <math.h>
 #include <stdlib.h>
+#include <string.h>
 
 extern const tb_test_file tb_font_files[];
 extern const size_t tb_font_files_count;
@@ -341,5 +345,182 @@ TB_TEST(canvas_text_frame, labels_are_centered_on_their_points_on_d3d12)
      * in the line's box, and as far left as right. */
     TB_TEST_EXPECT_INT(abs((int32_t)(ink.left + ink.right) - (int32_t)width), <=, 2);
     TB_TEST_EXPECT_INT(abs((int32_t)(ink.top + ink.bottom) - (int32_t)height), <=, 8);
+    close_screen(&opened);
+}
+
+/* ---------------------------------------------------------------------------
+ * Displays of high density.
+ * ------------------------------------------------------------------------- */
+
+/* Draw a string in white in a view, in a captured frame of its own, and give
+ * a copy of the frame's pixels, which the next capture would replace. The
+ * caller frees the copy. */
+static uint8_t *draw_captured(screen *opened, const tb_font *font, tb_text text, float size,
+                              tb_canvas_view view, tb_vec2 position,
+                              const tb_font_layout_options *options, uint32_t *width,
+                              uint32_t *height)
+{
+    const uint8_t *pixels = NULL;
+    uint8_t *copy = NULL;
+    size_t bytes = 0;
+
+    tb_renderer_capture_next_frame(opened->renderer);
+    begin(opened);
+    tb_canvas_set_view(opened->renderer, &view);
+    tb_canvas_draw_text(opened->renderer, font, text, size, position, (tb_vec4){1, 1, 1, 1},
+                        options);
+    pixels = end_captured(opened, width, height);
+    bytes = (size_t)*width * *height * 4u;
+    copy = tb_malloc(bytes);
+    memcpy(copy, pixels, bytes);
+    return copy;
+}
+
+/* How many bytes of two captures of one size differ. */
+static size_t count_differences(const uint8_t *first, const uint8_t *second, uint32_t width,
+                                uint32_t height)
+{
+    const size_t bytes = (size_t)width * height * 4u;
+    size_t different = 0;
+
+    for (size_t index = 0; index < bytes; index++)
+    {
+        different += first[index] != second[index] ? 1u : 0u;
+    }
+    return different;
+}
+
+/* Text in logical units at a display scale of 150% or 200% is laid out and
+ * rasterized at the display's own pixels: it is, pixel for pixel, the text
+ * at 1.5 or 2 times its size in a view of pixels, and not a bitmap of the
+ * size at 100% scaled up. Its ink is 1.5 or 2 times as large as at 100%,
+ * within the pixel that each edge may round by, and some of it is fully
+ * inked, as crisp text is. */
+TB_TEST(canvas_text_frame, logical_text_is_rasterized_at_the_displays_pixels_on_d3d12)
+{
+    static const float scales[] = {1.5f, 2.0f};
+    const tb_canvas_view pixels_view = {.scale = 1.0f};
+    const tb_vec2 position = {10.0f, 8.0f};
+    const tb_text text = TB_TEXT("Hg");
+    screen opened = {0};
+    uint32_t width = 0;
+    uint32_t height = 0;
+    uint8_t *at_100 = NULL;
+    ink_box small = {0};
+
+    open_screen(&opened, 0);
+    at_100 = draw_captured(&opened, opened.roboto, text, 16.0f, pixels_view, position, NULL, &width,
+                           &height);
+    small = find_ink(at_100, width, height);
+    TB_TEST_REQUIRE_UINT(small.right, >, small.left);
+    for (size_t index = 0; index < TB_TEST_COUNT_OF(scales); index++)
+    {
+        const float scale = scales[index];
+        const tb_canvas_view logical = {.scale = scale};
+        const tb_vec2 in_pixels = {position.x * scale, position.y * scale};
+        uint8_t *const scaled = draw_captured(&opened, opened.roboto, text, 16.0f, logical,
+                                              position, NULL, &width, &height);
+        uint8_t *const native = draw_captured(&opened, opened.roboto, text, 16.0f * scale,
+                                              pixels_view, in_pixels, NULL, &width, &height);
+        const ink_box large = find_ink(scaled, width, height);
+
+        TB_TEST_CONTEXT("at %.0f%%", (double)(scale * 100.0f));
+        TB_TEST_EXPECT_UINT(count_differences(scaled, native, width, height), ==, 0);
+        TB_TEST_EXPECT_FLOAT_NEAR((float)(large.right - large.left),
+                                  (float)(small.right - small.left) * scale, 2.0f);
+        TB_TEST_EXPECT_FLOAT_NEAR((float)(large.bottom - large.top),
+                                  (float)(small.bottom - small.top) * scale, 2.0f);
+        TB_TEST_EXPECT_INT(large.brightest, ==, 255);
+        tb_free(scaled);
+        tb_free(native);
+    }
+    tb_free(at_100);
+    close_screen(&opened);
+}
+
+/* Text placed at a fraction of a pixel at 150% has its baseline on the
+ * nearest whole row of the display: it is the same image as the text placed
+ * on a whole pixel whose baseline is that row, not one blurred across two
+ * rows. */
+TB_TEST(canvas_text_frame, text_at_a_fraction_of_a_pixel_is_drawn_on_whole_rows_on_d3d12)
+{
+    const float scale = 1.5f;
+    /* 15 and 15.45 pixels. */
+    const tb_vec2 position = {10.0f, 10.3f};
+    screen opened = {0};
+    tb_arena *arena = NULL;
+    tb_font_layout layout = {0};
+    uint32_t width = 0;
+    uint32_t height = 0;
+    float baseline = 0.0f;
+    float row = 0.0f;
+    uint8_t *fractional = NULL;
+    uint8_t *whole = NULL;
+
+    open_screen(&opened, 0);
+    arena = tb_arena_create(0);
+    tb_font_layout_text(opened.roboto, TB_TEXT("Hg"), 16.0f * scale, NULL, arena, &layout);
+    baseline = layout.lines[0].baseline;
+    row = roundf(position.y * scale + baseline);
+    fractional = draw_captured(&opened, opened.roboto, TB_TEXT("Hg"), 16.0f,
+                               (tb_canvas_view){.scale = scale}, position, NULL, &width, &height);
+    whole = draw_captured(
+        &opened, opened.roboto, TB_TEXT("Hg"), 16.0f * scale, (tb_canvas_view){.scale = 1.0f},
+        (tb_vec2){position.x * scale, row - roundf(baseline)}, NULL, &width, &height);
+    TB_TEST_EXPECT_UINT(count_differences(fractional, whole, width, height), ==, 0);
+    tb_free(fractional);
+    tb_free(whole);
+    tb_arena_destroy(arena);
+    close_screen(&opened);
+}
+
+/* The pixel font, at 16 logical pixels to the em on displays at 125%,
+ * 150%, and 200%, is drawn at the whole multiple of its design size nearest
+ * the size in the display's pixels (20, 24, and 32), halves up and at
+ * least once: 16, 32, and 32 pixels. Placed at a fraction of a pixel, it
+ * lands on the nearest whole pixel, and is exactly its aliased bitmap; and
+ * it measures, in units, what it draws. */
+TB_TEST(canvas_text_frame, the_pixel_font_lands_on_whole_multiples_at_any_scale_on_d3d12)
+{
+    static const struct
+    {
+        float scale;
+        float drawn;
+    } cases[] = {{1.25f, 16.0f}, {1.5f, 32.0f}, {2.0f, 32.0f}};
+    static const int white[3] = {255, 255, 255};
+    const tb_font_layout_options pixel = {.pixel_size = 16.0f};
+    const tb_vec2 position = {10.3f, 10.3f};
+    screen opened = {0};
+    tb_arena *arena = NULL;
+
+    open_screen(&opened, 0);
+    arena = tb_arena_create(0);
+    for (size_t index = 0; index < TB_TEST_COUNT_OF(cases); index++)
+    {
+        const float scale = cases[index].scale;
+        const tb_canvas_view view = {.scale = scale};
+        tb_font_layout layout = {0};
+        tb_vec2 measured = {0};
+        const uint8_t *pixels = NULL;
+        uint32_t width = 0;
+        uint32_t height = 0;
+
+        TB_TEST_CONTEXT("at %.0f%%", (double)(scale * 100.0f));
+        tb_font_layout_text(opened.vga, TB_TEXT("A"), cases[index].drawn, &pixel, arena, &layout);
+        tb_renderer_capture_next_frame(opened.renderer);
+        begin(&opened);
+        tb_canvas_set_view(opened.renderer, &view);
+        measured = tb_canvas_measure_text(opened.renderer, opened.vga, TB_TEXT("A"), 16.0f, &pixel);
+        tb_canvas_draw_text(opened.renderer, opened.vga, TB_TEXT("A"), 16.0f, position,
+                            (tb_vec4){1, 1, 1, 1}, &pixel);
+        pixels = end_captured(&opened, &width, &height);
+        TB_TEST_EXPECT_FLOAT_NEAR(measured.x * scale, layout.width, 0.001f);
+        TB_TEST_EXPECT_FLOAT_NEAR(measured.y * scale, layout.height, 0.001f);
+        expect_exact_glyph(pixels, width, opened.vga, 'A', cases[index].drawn,
+                           (int32_t)roundf(position.x * scale),
+                           (int32_t)roundf(position.y * scale + layout.lines[0].baseline), white);
+        tb_arena_reset(arena);
+    }
+    tb_arena_destroy(arena);
     close_screen(&opened);
 }

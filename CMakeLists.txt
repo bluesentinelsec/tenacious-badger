@@ -46,8 +46,8 @@ option(TB_ENABLE_STATIC_ANALYSIS
     "Analyze every project-owned target with the compiler's static analyzer" OFF)
 option(TB_ENABLE_COVERAGE
     "Record which lines of the engine the tests run, with the compiler's instrumentation" OFF)
-set(TB_EMBED_FONTS "all" CACHE STRING
-    "Which fonts of resources/fonts the engine library carries: all, defaults, or none")
+set(TB_EMBED_FONTS "defaults" CACHE STRING
+    "Which fonts of resources/fonts the engine library carries: defaults (the families of the default font roles), all, or none")
 set_property(CACHE TB_EMBED_FONTS PROPERTY STRINGS all defaults none)
 
 include(cmake/WindowsSigning.cmake)

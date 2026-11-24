@@ -1,9 +1,12 @@
 # Fonts
 
-The fonts the engine library carries (docs/fonts.md): 15 families, 60
+The fonts the engine library can carry (docs/fonts.md): 15 families, 60
 TrueType files, in roman and, where the family has one, true italic. The
-build compresses them into the library; `TB_EMBED_FONTS` chooses all of
-them, the families of the default roles, or none.
+build compresses the fonts it keeps into the library; `TB_EMBED_FONTS`
+chooses them. By default (`defaults`) it keeps the families of the default
+roles, every weight and slant of each: Source Serif 4 for body text,
+Source Sans 3 for headings and interfaces, JetBrains Mono, and Px437 IBM
+VGA 8x16. `all`, an opt-in, keeps every file here, and `none` none.
 
 The files are kept byte for byte as the author's font pack had them. They
 may be redistributed and embedded: 14 families are under the SIL Open Font
