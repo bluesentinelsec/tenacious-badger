@@ -33,10 +33,10 @@
  * texture, times factors). Each texture is optional. A material borrows its
  * textures: they outlive it.
  *
- * **Lighting.** A material is lit, for now, as every mesh is: a light from
- * above and behind the camera with ambient light, its normal map bending
- * the light, and its roughness and metallic shaping a highlight. The raster
- * lighting mode replaces it.
+ * **Lighting.** A material is lit by the scene's lights (badger/light.h)
+ * and its sky, with Unreal's default lit model: its normal map bends the
+ * surface, and its roughness and metallic shape its diffuse and specular
+ * light.
  *
  * **Filtering.** Materials are sampled trilinearly, repeating, and
  * anisotropically as the renderer's options and tb_renderer_set_anisotropy()

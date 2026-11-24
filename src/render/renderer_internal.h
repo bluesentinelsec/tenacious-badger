@@ -7,6 +7,7 @@
 #include "badger/arena.h"
 #include "badger/font_catalog.h"
 #include "badger/font_raster.h"
+#include "badger/light.h"
 #include "badger/material.h"
 #include "badger/render_graph.h"
 #include "badger/renderer.h"
@@ -23,6 +24,14 @@ struct tb_dxc;
 #define TB_RENDERER_FRAMES 2u
 #define TB_RENDERER_COLOR_FORMAT TB_RHI_FORMAT_B8G8R8A8_UNORM
 #define TB_RENDERER_DEPTH_FORMAT TB_RHI_FORMAT_D32_FLOAT
+/* The raster lighting mode's targets: the scene's light, in linear HDR,
+ * and the G-buffer's base color, octahedral normal, and surface (metallic,
+ * roughness, ambient occlusion, and 1 for lit or 0 for unlit). */
+#define TB_RENDERER_SCENE_FORMAT TB_RHI_FORMAT_R16G16B16A16_FLOAT
+#define TB_RENDERER_BASE_COLOR_FORMAT TB_RHI_FORMAT_R8G8B8A8_SRGB
+#define TB_RENDERER_NORMAL_FORMAT TB_RHI_FORMAT_R16G16_FLOAT
+#define TB_RENDERER_SURFACE_FORMAT TB_RHI_FORMAT_R8G8B8A8_UNORM
+#define TB_RENDERER_GBUFFER_TARGETS 3u
 
 struct tb_mesh
 {
@@ -40,12 +49,23 @@ typedef struct tb_renderer_draw_constants
     tb_vec4 light; /* the light's direction, and 1 to light the mesh or 0 */
 } tb_renderer_draw_constants;
 
-/* The light every lit draw is lit by this frame. */
-typedef struct tb_renderer_lighting
+/* A light as the lighting shader reads it, 64 bytes in the frame's
+ * uploads. */
+typedef struct tb_packed_light
 {
-    tb_vec3 direction; /* the way the light goes */
-    tb_vec3 eye;       /* the camera's position */
-} tb_renderer_lighting;
+    tb_vec4 position;  /* in the world; w: 1 / range squared, 0 for none */
+    tb_vec4 direction; /* the way its light goes, of unit length; w: its tb_light_kind */
+    tb_vec4 radiance;  /* color * intensity * pi, which a Lambert surface divides by pi */
+    tb_vec4 cone;      /* a spot's cosine of its outer angle, and 1 / (cos inner - cos outer) */
+} tb_packed_light;
+
+/* A light of the scene, and the generation of the handles that name it. */
+typedef struct tb_light_slot
+{
+    tb_light light;
+    uint32_t generation; /* of 16 bits, never 0 */
+    bool used;
+} tb_light_slot;
 
 typedef struct tb_renderer_draw
 {
@@ -132,9 +152,21 @@ struct tb_renderer
     bool vsync_wanted;
     bool vsync_changed;
 
-    tb_rhi_pipeline mesh_pipeline;
-    tb_rhi_pipeline line_pipeline;
-    tb_rhi_pipeline line_top_pipeline;
+    /* The raster lighting mode, on a device with bindless resources: a
+     * G-buffer lit by a full-screen pass, tone mapped into the swap chain.
+     * Without, meshes are drawn lit by one light straight into it. */
+    bool deferred;
+    tb_rhi_pipeline mesh_pipeline;     /* without bindless resources */
+    tb_rhi_pipeline line_pipeline;     /* lines tested against depth */
+    tb_rhi_pipeline line_top_pipeline; /* lines on top */
+    tb_rhi_pipeline lighting_pipeline; /* with bindless resources */
+    tb_rhi_pipeline tonemap_pipeline;  /* with bindless resources */
+    tb_light_slot *lights;             /* the scene's, by slot */
+    size_t light_slots;                /* in use or freed */
+    size_t light_capacity;
+    size_t light_count;
+    tb_vec3 ambient_sky; /* without a sky */
+    tb_vec3 ambient_ground;
 
     tb_renderer_frame frames[TB_RENDERER_FRAMES];
     uint32_t slot;
@@ -150,7 +182,7 @@ struct tb_renderer
     tb_mutex lines_lock; /* guards lines, which any thread may add to */
     tb_renderer_lines lines[2];
 
-    tb_rhi_pipeline material_pipeline; /* none without bindless resources */
+    tb_rhi_pipeline material_pipeline; /* into the G-buffer; none without bindless */
     tb_rhi_pipeline mip_pipeline;      /* none without bindless resources */
     tb_rhi_sampler material_sampler;   /* trilinear, repeating, anisotropic */
     uint32_t anisotropy;               /* of material_sampler */
@@ -252,10 +284,11 @@ void tb_renderer_materials_begin_frame(tb_renderer *renderer);
 tb_renderer_draw tb_renderer_material_draw(const tb_mesh *mesh, tb_mat4 transform,
                                            const tb_material *material);
 
-/* Write a material draw's constants to the frame's uploads: their offset, or
- * UINT64_MAX when the uploads are full. */
+/* Write a draw's constants for the G-buffer to the frame's uploads, of its
+ * material or, for a draw of a color, of a plain material of that color:
+ * their offset, or UINT64_MAX when the uploads are full. */
 uint64_t tb_renderer_material_upload(tb_renderer *renderer, const tb_renderer_draw *draw,
-                                     tb_mat4 clip, const tb_renderer_lighting *lighting);
+                                     tb_mat4 clip);
 
 /* A texture's bindless index, and whether it is a cube map. */
 uint32_t tb_texture_bindless_index(const tb_texture *texture);
@@ -272,6 +305,39 @@ uint64_t tb_renderer_sky_upload(tb_renderer *renderer, float aspect);
 
 /* Draw the sky behind what the scene pass drew so far. */
 void tb_renderer_sky_record(tb_renderer *renderer, tb_rhi_command_list *list, uint64_t constants);
+
+/* Pack a light as the lighting shader reads it (light.c). */
+tb_packed_light tb_light_pack(const tb_light *light);
+
+/* The light of a frame without lights: toward the sun of a procedural sky
+ * with one, else from above and a little behind the camera. */
+tb_light tb_renderer_default_light(const tb_renderer *renderer);
+
+/* The lighting mode's pipelines (light.c). */
+tb_rhi_result tb_renderer_lighting_create(tb_renderer *renderer, tb_rhi_error *error);
+void tb_renderer_lighting_destroy(tb_renderer *renderer);
+
+/* What the lighting pass reads, by bindless index. */
+typedef struct tb_renderer_gbuffer_indices
+{
+    uint32_t base_color;
+    uint32_t normal;
+    uint32_t surface;
+    uint32_t depth;
+} tb_renderer_gbuffer_indices;
+
+/* Write the lighting pass's constants, and the frame's lights, to its
+ * uploads, for the frame's camera seen through `clip`: their offset, or
+ * UINT64_MAX when there is no room. */
+uint64_t tb_renderer_lighting_upload(tb_renderer *renderer, tb_mat4 clip);
+
+/* Light the G-buffer into the scene's color, inside the lighting pass. */
+void tb_renderer_lighting_record(tb_renderer *renderer, tb_rhi_command_list *list,
+                                 uint64_t constants, const tb_renderer_gbuffer_indices *gbuffer);
+
+/* Tone map the scene's color, by its bindless index, into the output,
+ * inside the tonemap pass. */
+void tb_renderer_tonemap_record(tb_renderer *renderer, tb_rhi_command_list *list, uint32_t scene);
 
 /* The skinning pipeline (skinning.c). */
 tb_rhi_result tb_renderer_skinning_create(tb_renderer *renderer, tb_rhi_error *error);

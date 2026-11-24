@@ -1,11 +1,12 @@
 # The renderer
 
 `badger/renderer.h` draws frames to a window from a camera: meshes, plain or
-with [materials](#materials), [skinned](#skinned-meshes) or not, under a
-[sky](#skies), and debug lines, through
-[the render graph](render-graph.md) and [the RHI](rhi.md). It is the layer
-games and tools draw through, in 3D and in [2D](#2d-the-canvas); what it
-draws grows from here (text, the lighting modes).
+with [materials](#materials), [skinned](#skinned-meshes) or not,
+[lit](#lighting) by lights and under a [sky](#skies), and debug lines,
+through [the render graph](render-graph.md) and [the RHI](rhi.md). It is
+the layer games and tools draw through, in 3D and in [2D](#2d-the-canvas);
+what it draws grows from here (the hybrid and path-traced lighting
+modes).
 
 ```c
 tb_renderer *renderer = NULL;
@@ -59,7 +60,7 @@ a caller gives (`tb_mesh_create`) or as generated shapes
 (`tb_mesh_create_shape`): cube, plane, sphere, cylinder, cone, torus and
 capsule, each in a unit box, facing outward. `tb_mesh_generate()` gives a
 shape's triangles to a caller that keeps its own. A mesh is drawn with a
-transform and a color, lit (a light from above, with ambient) or flat.
+transform and a color, lit by the scene's [lights](#lighting) or flat.
 
 ## Materials
 
@@ -118,16 +119,10 @@ and texture coordinates (Schüler's cotangent frame). That keeps
 coordinates included, and costs a few instructions a pixel; precomputed
 tangents can come with model loading if profiles ask for them.
 
-**Lighting.** Materials are lit as every mesh is, by one light from above
-and behind the camera with ambient light, with a highlight that roughness
-and metallic shape: the hooks the raster lighting mode (#220) replaces.
-`unlit` draws the base color alone. A device without bindless resources
-draws a material in its base color factor.
-
-**Color.** The frame is written as the shaders compute it, linear, into a
-`B8G8R8A8_UNORM` swap chain, as every draw is until the output transform
-comes: so sRGB textures, read as linear, look darker than they were
-authored.
+**Lighting.** Materials are lit by the scene's [lights](#lighting), their
+roughness and metallic shaping Unreal's default lit model. `unlit` draws
+the base color alone, through the same output transform. A device without
+bindless resources draws a material in its base color factor.
 
 ## Skinned meshes
 
@@ -224,6 +219,109 @@ Each pixel's direction is the camera's forward plus its place in the view
 times the view's edges, so it needs no matrix inverse, which a projection
 with no far plane does not have. A device without bindless resources draws
 no sky.
+
+## Lighting
+
+`badger/light.h` lights the scene: the raster lighting mode, deferred
+physically based shading after Unreal's, on every device with bindless
+resources.
+
+```c
+tb_light sun = TB_LIGHT_INIT;
+sun.kind = TB_LIGHT_DIRECTIONAL;
+sun.direction = (tb_vec3){-0.3f, -1.0f, -0.4f};
+sun.intensity = 3.0f;
+const tb_light_id sun_id = tb_renderer_add_light(renderer, &sun);
+
+tb_light lamp = TB_LIGHT_INIT; /* a point light */
+lamp.position = (tb_vec3){0, 2, 0};
+lamp.color = (tb_vec3){1.0f, 0.8f, 0.6f};
+const tb_light_id lamp_id = tb_renderer_add_light(renderer, &lamp);
+
+/* later */
+lamp.position.x += 1.0f;
+tb_renderer_set_light(renderer, lamp_id, &lamp);
+tb_renderer_remove_light(renderer, sun_id);
+```
+
+**Lights** are directional, point or spot, and last from the frame after
+they are added until they are removed, as a level's lights do, named by
+handles that a removed light's never matches again (a slot and a
+generation). The scene holds `TB_RENDERER_MAX_LIGHTS` (1024). Colors are
+linear; a light of intensity 1 lights a white, matte surface that faces it
+to 1: a directional light anywhere, a point or spot light at a meter.
+Point and spot lights fall off with the square of the distance, windowed
+smoothly to nothing at their range, `saturate(1 - (d²/r²)²)² / d²`, and a
+spot's cone fades between its inner and outer angles, squared, as Unreal's
+do. A frame without lights is lit by a default light, so that a scene
+without any still shows: toward the procedural sky's sun when there is one,
+else from above and a little behind the camera.
+
+**Ambient light** comes from the sky. Each surface takes the sky's light
+above it and the ground's below, blended by the way it faces: a procedural
+sky's zenith, horizon and ground colors, or a cube map's last level. A
+surface's reflection is the sky toward its mirror direction, from the cube
+map's level that matches its roughness, or blended from the gradient toward
+the average of the half it faces, scaled by Karis's analytical fit of the
+environment BRDF. Without a sky, `tb_renderer_set_ambient(renderer, sky,
+ground)` sets the colors of the gradient (0.25 and 0.08 gray by default).
+This is image-based lighting at its cheapest: a prefiltered cube map,
+spherical harmonics and occlusion come with the hybrid mode's needs.
+
+**Shading** is Unreal's default lit model: a Lambert diffuse, and a GGX
+specular with Smith's joint visibility (approximated) and Schlick's
+Fresnel, roughness remapped as Unreal's (α = roughness²). Dielectrics
+reflect 4% at normal incidence; metals reflect their base color and have no
+diffuse.
+
+**Output.** The scene's light is in linear HDR. The output transform
+multiplies it by an exposure (1), maps each channel through Narkowicz's fit
+of the ACES filmic curve, its input scaled by 0.6 as he gives it (a middle
+gray of 0.18 shows as about 0.41), and encodes it in sRGB into the
+`B8G8R8A8_UNORM` swap chain. So a color of 1 shows as 214 of 255, and
+a surface lit to 2 as 236: colors given to the renderer are light, not
+pixels. The canvas and debug lines draw after it, and their colors are
+written as given.
+
+### How it draws
+
+| Pass | Writes | Reads |
+| --- | --- | --- |
+| `skinning` | the frame's skinned vertices | skinned meshes, joint matrices |
+| `gbuffer` | base color (`R8G8B8A8_SRGB`), normal (`R16G16_FLOAT`, octahedral), surface (`R8G8B8A8_UNORM`: metallic, roughness, occlusion, lit), depth | meshes, materials' textures |
+| `lighting` | the scene's light (`R16G16B16A16_FLOAT`) | the G-buffer and depth; lights and constants from the frame's uploads |
+| `forward` | the scene's light, and depth | custom draws, then the sky |
+| `tonemap` | the swap chain's image | the scene's light |
+| `debug lines` | the swap chain's image | depth |
+| `canvas` | the swap chain's image | the frame's quads |
+
+- **The G-buffer.** Every mesh, plain or with a material, skinned or not,
+  is drawn by one pipeline: a mesh of a color is drawn as a material of
+  that color with no textures would be (rough, not metal). Unlit meshes
+  and materials (`TB_MESH_FLAT`, `unlit`) write their base color and a
+  surface the lighting pass passes through. The normal is octahedrally
+  encoded in two halves (Cigolle et al. 2014), which keeps it to 4 bytes.
+  The color targets are not cleared: the lighting pass reads them only
+  where depth says something was drawn.
+- **The lighting pass** is one triangle over the view. Each pixel loads
+  its depth, and where nothing was drawn writes the frame's clear color;
+  elsewhere it rebuilds its place in the world through the inverse of the
+  frame's clip transform, loops over the frame's lights (64 bytes each in
+  the frame's uploads, read as a `ByteAddressBuffer` by bindless index),
+  and adds the ambient light. A frame's lights are all shaded at every
+  pixel: tiled or clustered culling comes when scenes have enough lights
+  to need it.
+- **After lighting**, what is not lit is drawn into the scene's light, as
+  Unreal's translucency and sky are: the custom draws, with the scene's
+  depth, and the sky behind everything.
+- **Debug lines** are drawn over the tone-mapped image, so that their
+  colors are as given and they are not blurred by what comes between. A
+  line tested against depth loads the scene's depth at its pixel and is
+  discarded where the scene is nearer.
+- **Without bindless resources**, there is no raster lighting mode: meshes
+  are drawn in one pass straight into the swap chain, lit by the default
+  light with a constant ambient, as before it, materials in their base
+  color factor, with no sky and no output transform.
 
 ## Debug drawing
 
@@ -408,7 +506,11 @@ statistics say so.
 
 The renderer's shaders are HLSL in its sources, compiled when it is made by
 the engine's compiler, through DXC to DXIL for D3D12. They move to
-`/Engine/Private/` files and ahead-of-time shader libraries with #230.
+`/Engine/Private/` files and ahead-of-time shader libraries with #230:
+`Mesh.hlsl` and `DebugLines.hlsl` (without bindless resources),
+`Material.hlsl` (the G-buffer), `DeferredLighting.hlsl`, `Tonemap.hlsl`,
+`DebugLinesOutput.hlsl`, `Sky.hlsl`, `GenerateMips.hlsl`, `Skinning.hlsl`
+and the canvas's.
 
 ## Not yet
 
@@ -416,8 +518,10 @@ the engine's compiler, through DXC to DXIL for D3D12. They move to
 - Skinned meshes in other passes (shadows, ray tracing), dual-quaternion
   skinning, more than four joints a vertex, and normals of non-uniformly
   scaled joints (transformed by the inverse transpose).
-- A sky that lights the scene (ambient light from the sky, image-based lighting), clouds and atmosphere.
-- The output transform: writing the frame in sRGB, and tone mapping.
+- Shadows; light culling by tiles or clusters; emissive materials and
+  ambient occlusion textures.
+- Prefiltered image-based lighting, clouds and atmosphere.
+- Automatic exposure, `display.brightness`, and HDR output.
 - Precomputed tangents, texture compression, and streaming of mip levels.
 - Debug drawing that lasts more than one frame.
 - Images with rounded or smoothed edges, gradients and polygons in 2D;

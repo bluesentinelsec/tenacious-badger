@@ -229,6 +229,21 @@ and `tb_json_suite_files_count`; list the variable it sets among the test
 sources. A test declares the array with `extern`. Each file's bytes end in a
 zero its length does not count, so text can be read as a C string.
 
+### Golden images
+
+A test of what the renderer draws compares the frame it captures with a
+golden image: a frame drawn with D3D12 on WARP, looked at by eye, and kept
+in `tests/data/golden/` (Windows only, as WARP is). A frame matches when
+at most 1% of its pixels differ by more than 16 in a channel, since WARP's
+results move a little between versions of Windows. A frame that does not
+match, or has no golden image, is written beside the tests as
+`<name>.actual.bmp`, to look at, and to copy into `tests/data/golden/` as
+`<name>.bmp` when it is right. Golden images are 240 by 180 pixels, a size
+whole window sizes reach at display scales of 100%, 125%, 150%, 200% and
+250%; the test skips at other scales. Tests that check numbers, such as
+the units of a light, read single pixels instead, through
+`tests/render/display_color.h`, which repeats the output transform.
+
 ### How cases are found
 
 When a test executable builds, a CMake script scans its `SOURCES` for

@@ -30,6 +30,7 @@ bottom left corner of every scene, and printed every two seconds.
 | `shapes` | Every shape the renderer generates, lit and turning on a floor, with debug boxes, a grid, axes and an arrow |
 | `canvas` | The 2D layer over the shapes: rounded panels, circles, rectangles, lines of any thickness, images made in memory, and a turning sprite, in logical units |
 | `materials` | The shapes with materials of textures made in memory (a checkerboard, a gradient, noise), mipmapped on the GPU, on a checkered floor that shows the filtering toward the horizon; behind them, the same with a normal map of beveled tiles, every other one metal |
+| `lighting` | [The raster lighting mode](renderer.md#lighting): a row of plastic spheres and a row of gold ones, from smooth to rough, and textured shapes, on a checkered floor, lit by a sun, three colored point lights that circle them and a spot light that sweeps across them, under a procedural sky; a window turns each light, their movement and the sky on and off |
 | `sky` | The shapes under a procedural sky: a gradient from the horizon to the zenith, a ground, and a sun that circles once a minute |
 | `sky_cube` | The shapes under a cube-map sky made in memory: a dusk, with lines every 15 degrees of latitude and longitude to show its seams and orientation |
 | `text` | Text over the shapes: the UI font at sizes from 10 to 48, a paragraph wrapping in three panels (left, centered and right) whose width changes over time, the VGA font and Silkscreen at whole multiples of their sizes, and labels in the world naming the shapes |

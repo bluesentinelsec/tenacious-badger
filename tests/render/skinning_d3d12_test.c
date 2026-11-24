@@ -7,6 +7,7 @@
 #include "badger/skinning.h"
 #include "badger/window.h"
 
+#include "display_color.h"
 #include "tb_test.h"
 
 #include <math.h>
@@ -201,7 +202,8 @@ TB_TEST(skinning_frame, a_bent_cylinder_lands_where_the_cpu_skins_it_on_d3d12)
         TB_TEST_REQUIRE(pixels != NULL);
         project(&camera, width, height, skinned, &x, &y);
         TB_TEST_CONTEXT("tip at (%u, %u), %s", x, y, material ? "material" : "color");
-        TB_TEST_EXPECT_HEX(pixel_at(pixels, width, x, y), ==, material ? 0xFF00FF00u : 0xFFFF0000u);
+        TB_TEST_EXPECT_HEX(pixel_at(pixels, width, x, y), ==,
+                           0xFF000000u | (material ? display_rgb(0, 1, 0) : display_rgb(1, 0, 0)));
         project(&camera, width, height, near_tip, &x, &y);
         TB_TEST_EXPECT_HEX(pixel_at(pixels, width, x, y), ==, 0xFF000000u);
     }

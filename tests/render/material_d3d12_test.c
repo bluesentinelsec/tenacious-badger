@@ -7,6 +7,7 @@
 #include "badger/memory.h"
 #include "badger/window.h"
 
+#include "display_color.h"
 #include "tb_test.h"
 
 #include <stdlib.h>
@@ -155,6 +156,9 @@ TB_TEST(material_frame, texels_land_where_they_should_on_d3d12)
     uint32_t height = 0;
     uint32_t left = 0;
     uint32_t texel = 0;
+    /* Each channel of 255 in sRGB is 1 in linear light, which the output
+     * transform shows a little darker. */
+    const int white = display_channel(1.0f);
 
     open_screen(&opened);
     tb_image_fill_checkerboard(texels, sizeof(texels), 4, 4, 1, (tb_vec4){1, 1, 1, 1},
@@ -184,19 +188,19 @@ TB_TEST(material_frame, texels_land_where_they_should_on_d3d12)
         {
             const uint32_t x = left + texel * column + texel / 2u;
             const uint32_t y = texel * row + texel / 2u;
-            const int expected = (row + column) % 2u == 0 ? 255 : 0;
+            const int expected = (row + column) % 2u == 0 ? white : 0;
             TB_TEST_CONTEXT("texel %u, %u", column, row);
             if (row == 0 && column == 0)
             {
-                TB_TEST_EXPECT(pixel_near(pixels, width, x, y, 255, 0, 0, 8));
+                TB_TEST_EXPECT(pixel_near(pixels, width, x, y, white, 0, 0, 8));
             }
             else if (row == 0 && column == 3)
             {
-                TB_TEST_EXPECT(pixel_near(pixels, width, x, y, 0, 255, 0, 8));
+                TB_TEST_EXPECT(pixel_near(pixels, width, x, y, 0, white, 0, 8));
             }
             else if (row == 3 && column == 0)
             {
-                TB_TEST_EXPECT(pixel_near(pixels, width, x, y, 0, 0, 255, 8));
+                TB_TEST_EXPECT(pixel_near(pixels, width, x, y, 0, 0, white, 8));
             }
             else
             {
@@ -214,8 +218,8 @@ TB_TEST(material_frame, texels_land_where_they_should_on_d3d12)
 /* A checkerboard of single black and white texels, tiled so that many
  * texels fall in each pixel, is sampled from its smaller levels: an even
  * gray. The levels average in linear light, so the gray is half of white
- * in linear (128 in the frame, which is written linear); averaged in sRGB
- * it would be 55. */
+ * in linear (177 once the output transform shows it); averaged in sRGB it
+ * would be about a fifth of white in linear (117). */
 TB_TEST(material_frame, mip_levels_average_in_linear_light_on_d3d12)
 {
     enum
@@ -251,7 +255,8 @@ TB_TEST(material_frame, mip_levels_average_in_linear_light_on_d3d12)
     {
         const uint32_t x = width / 2u - height / 4u + y / 2u;
         TB_TEST_CONTEXT("pixel %u, %u", x, y);
-        TB_TEST_EXPECT(pixel_near(pixels, width, x, y, 128, 128, 128, 12));
+        const int gray = display_channel(0.5f);
+        TB_TEST_EXPECT(pixel_near(pixels, width, x, y, gray, gray, gray, 12));
     }
     tb_material_destroy(opened.renderer, material);
     tb_texture_destroy(opened.renderer, texture);
