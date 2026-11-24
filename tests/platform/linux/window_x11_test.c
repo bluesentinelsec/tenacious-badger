@@ -5,6 +5,7 @@
  * checked without a person at the mouse; relative motion, which the server
  * makes only from a device, is made by XTest where the server has it. A
  * machine without an X server skips the cases. */
+#include "badger/crash.h"
 #include "badger/library.h"
 #include "badger/platform.h"
 #include "badger/window.h"
@@ -314,6 +315,11 @@ TB_TEST(platform_x11_window, relative_mouse_mode_follows_the_keyboard)
     x_event focus = {0};
 
     TB_TEST_REQUIRE_UINT(tb_window_set_relative_mouse(made.window, true, NULL), ==, TB_WINDOW_OK);
+    /* Without a window manager, nothing gives the window the keyboard
+     * first. */
+    focus.focus = (x_focus_event){.type = FOCUS_IN};
+    send(&made, &focus);
+    TB_TEST_EXPECT(wait_for(&made, TB_WINDOW_EVENT_FOCUS_GAINED, 0.0, &event));
     focus.focus = (x_focus_event){.type = FOCUS_OUT};
     send(&made, &focus);
     TB_TEST_EXPECT(wait_for(&made, TB_WINDOW_EVENT_FOCUS_LOST, 0.0, &event));
@@ -334,6 +340,7 @@ TB_TEST(platform_x11_window, relative_mouse_mode_reports_raw_motion)
     tb_library *xtest = NULL;
     tb_library_function fake_motion = NULL;
 
+    tb_crash_catch();
     TB_TEST_REQUIRE_UINT(tb_window_set_relative_mouse(made.window, true, &error), ==, TB_WINDOW_OK);
     if (tb_library_open("libXtst.so.6", TB_LIBRARY_SEARCH_SYSTEM, &xtest, NULL) == TB_LIBRARY_OK &&
         tb_library_find_function(xtest, "XTestFakeRelativeMotionEvent", &fake_motion, NULL) ==
