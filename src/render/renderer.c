@@ -131,9 +131,9 @@ done:
     return result;
 }
 
-static tb_rhi_result tb_renderer_pipeline(tb_renderer *renderer, const char *path,
-                                          const char *source, tb_rhi_graphics_pipeline_desc *desc,
-                                          tb_rhi_pipeline *pipeline, tb_rhi_error *error)
+tb_rhi_result tb_renderer_pipeline(tb_renderer *renderer, const char *path, const char *source,
+                                   tb_rhi_graphics_pipeline_desc *desc, tb_rhi_pipeline *pipeline,
+                                   tb_rhi_error *error)
 {
     tb_rhi_result result = tb_renderer_shader(renderer, path, source, "MainVS", TB_RHI_STAGE_VERTEX,
                                               &desc->vertex, error);
@@ -262,17 +262,23 @@ tb_rhi_result tb_renderer_create(const tb_renderer_options *options, tb_renderer
     }
     for (uint32_t slot = 0; slot < TB_RENDERER_FRAMES; slot++)
     {
-        result = tb_rhi_buffer_create(
-            renderer->device,
-            &(tb_rhi_buffer_desc){.size = TB_RENDERER_UPLOAD_BYTES,
-                                  .usage = TB_RHI_BUFFER_CONSTANT | TB_RHI_BUFFER_VERTEX,
-                                  .memory = TB_RHI_MEMORY_UPLOAD,
-                                  .name = "frame uploads"},
-            &renderer->frames[slot].upload, error);
+        result = tb_rhi_buffer_create(renderer->device,
+                                      &(tb_rhi_buffer_desc){.size = TB_RENDERER_UPLOAD_BYTES,
+                                                            .usage = TB_RHI_BUFFER_CONSTANT |
+                                                                     TB_RHI_BUFFER_VERTEX |
+                                                                     TB_RHI_BUFFER_SHADER_READ,
+                                                            .memory = TB_RHI_MEMORY_UPLOAD,
+                                                            .name = "frame uploads"},
+                                      &renderer->frames[slot].upload, error);
         if (result != TB_RHI_OK)
         {
             goto failed;
         }
+    }
+    result = tb_renderer_canvas_create(renderer, error);
+    if (result != TB_RHI_OK)
+    {
+        goto failed;
     }
     renderer->graph = tb_render_graph_create(renderer->device);
     *made = renderer;
@@ -293,6 +299,7 @@ void tb_renderer_destroy(tb_renderer *renderer)
     {
         (void)tb_rhi_wait_idle(renderer->device);
         tb_render_graph_destroy(renderer->graph);
+        tb_renderer_canvas_destroy(renderer);
         for (uint32_t slot = 0; slot < TB_RENDERER_FRAMES; slot++)
         {
             tb_rhi_buffer_destroy(renderer->device, renderer->frames[slot].upload);
@@ -316,6 +323,13 @@ tb_rhi_device *tb_renderer_device(tb_renderer *renderer)
 {
     TB_ASSERT(renderer != NULL);
     return renderer->device;
+}
+
+void tb_renderer_size(const tb_renderer *renderer, uint32_t *width, uint32_t *height)
+{
+    TB_ASSERT(renderer != NULL && width != NULL && height != NULL);
+    *width = renderer->width;
+    *height = renderer->height;
 }
 
 void tb_renderer_set_vsync(tb_renderer *renderer, bool vsync)
@@ -379,6 +393,7 @@ bool tb_renderer_begin_frame(tb_renderer *renderer, const tb_camera *camera, tb_
     renderer->camera = *camera;
     renderer->clear = clear;
     renderer->draw_count = 0;
+    tb_canvas_batch_begin(&renderer->canvas, renderer->width, renderer->height);
     tb_mutex_lock(&renderer->lines_lock);
     renderer->lines[0].count = 0;
     renderer->lines[1].count = 0;
@@ -387,10 +402,16 @@ bool tb_renderer_begin_frame(tb_renderer *renderer, const tb_camera *camera, tb_
     return true;
 }
 
-/* Bytes of this frame's upload buffer, at an alignment; UINT64_MAX when it
- * is full. */
-static uint64_t tb_renderer_upload(tb_renderer *renderer, const void *data, size_t size,
-                                   uint64_t alignment)
+uint64_t tb_renderer_upload_room(const tb_renderer *renderer, uint64_t alignment)
+{
+    const tb_renderer_frame *const frame = &renderer->frames[renderer->slot];
+    const uint64_t offset = (frame->used + alignment - 1) / alignment * alignment;
+
+    return offset >= TB_RENDERER_UPLOAD_BYTES ? 0 : TB_RENDERER_UPLOAD_BYTES - offset;
+}
+
+uint64_t tb_renderer_upload(tb_renderer *renderer, const void *data, size_t size,
+                            uint64_t alignment)
 {
     tb_renderer_frame *const frame = &renderer->frames[renderer->slot];
     const uint64_t offset = (frame->used + alignment - 1) / alignment * alignment;
@@ -561,6 +582,7 @@ tb_rhi_result tb_renderer_end_frame(tb_renderer *renderer)
 {
     tb_renderer_recording recording = {0};
     tb_renderer_capturing capturing = {0};
+    tb_canvas_recording canvas = {0};
     tb_render_graph_texture image = {0};
     tb_render_graph_pass pass = {0};
     uint64_t submission = 0;
@@ -597,6 +619,7 @@ tb_rhi_result tb_renderer_end_frame(tb_renderer *renderer)
         pass.color_count = 1;
         tb_render_graph_add_pass(renderer->graph, &pass);
     }
+    tb_renderer_canvas_record(renderer, &canvas, image);
     if (renderer->capture_next)
     {
         capturing = (tb_renderer_capturing){renderer, image, (renderer->width * 4u + 255u) & ~255u};

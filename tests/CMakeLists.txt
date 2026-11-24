@@ -98,6 +98,7 @@ set(TB_TEST_CASE_SOURCES
     settings/settings_test.c
     shader/shader_compile_test.c
     ${TB_SHADER_REFLECTION_SOURCE}
+    render/canvas_test.c
     render/render_graph_test.c
     render/renderer_test.c
     rhi/rhi_test.c
@@ -160,6 +161,7 @@ set(TB_INTERNAL_TEST_CASE_SOURCES
     core/reserved_arena_failure_test.c
     codec/crc32_table_test.c
     jobs/deque_test.c
+    render/canvas_batch_test.c
     rhi/rhi_device_test.c
     shader/shader_check_test.c
     shader/shader_dxc_test.c
