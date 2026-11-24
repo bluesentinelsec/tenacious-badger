@@ -7,7 +7,7 @@
  * A font is opened once from the bytes of its file, which it borrows, and is
  * then only read. Everything below works in the font's own units, of which
  * there are `units_per_em` to the em, with y up from the baseline; scaling to
- * pixels, and rasterizing, are for the caller.
+ * pixels, and rasterizing, are in badger/font_raster.h.
  *
  * **What is read.** The tables `head`, `hhea`, `maxp`, `hmtx`, `loca`, `glyf`,
  * and `cmap` are required. Characters map through a Unicode `cmap` subtable
