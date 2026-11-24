@@ -83,7 +83,8 @@ static tb_font *tb_ui_open_role(const tb_font_catalog *catalog, tb_font_role rol
     tb_font_catalog_get_bytes(catalog, index, &bytes, &length);
     if (tb_font_open(bytes, length, NULL, &font, NULL) != TB_FONT_OK)
     {
-        return NULL; /* coverage-off: the engine's embedded fonts all open */
+        /* coverage-off: the engine's embedded fonts all open */
+        return NULL;
         /* coverage-on */
     }
     return font;

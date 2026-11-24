@@ -106,6 +106,8 @@ static void values_scene(ui_fixture *fixture)
         fixture->ids[4] = tb_ui_last_id(fixture->ui);
         fixture->returned[5] = tb_ui_slider_int(fixture->ui, "Count", &fixture->number, 0, 10);
         fixture->ids[5] = tb_ui_last_id(fixture->ui);
+        fixture->returned[6] = tb_ui_drag_int(fixture->ui, "Whole", &fixture->choice, 0.1f, -5, 5);
+        fixture->ids[6] = tb_ui_last_id(fixture->ui);
         tb_ui_end_window(fixture->ui);
     }
 }
@@ -222,6 +224,44 @@ TB_TEST(ui_drag, the_value_follows_the_mouse_at_its_speed)
     fixture.input.modifiers = 0;
     ui_release(&fixture);
     ui_frame(&fixture);
+    ui_fixture_close(&fixture);
+}
+
+/* A whole number dragged rounds what the mouse has moved, and keeps within
+ * its limits; Left and Right step it by one once Tab focuses it. */
+TB_TEST(ui_drag, a_whole_number_rounds_and_steps)
+{
+    ui_fixture fixture = {0};
+
+    ui_fixture_open(&fixture, 1.0f, 0);
+    fixture.scene = values_scene;
+    ui_frame(&fixture);
+    const tb_vec2 start = ui_middle(ui_rect_of(&fixture, fixture.ids[6]));
+    ui_move(&fixture, start.x, start.y);
+    ui_press(&fixture);
+    ui_frame(&fixture);
+    ui_move(&fixture, start.x + 26.0f, start.y);
+    ui_frame(&fixture);
+    TB_TEST_EXPECT(fixture.returned[6]);
+    TB_TEST_EXPECT_INT(fixture.choice, ==, 3);
+    ui_move(&fixture, start.x + 300.0f, start.y);
+    ui_frame(&fixture);
+    TB_TEST_EXPECT_INT(fixture.choice, ==, 5);
+    ui_release(&fixture);
+    ui_frame(&fixture);
+
+    /* Shift+Tab from no focus is the last widget: this one. */
+    ui_click(&fixture, (tb_vec2){700.0f, 550.0f});
+    ui_key(&fixture, TB_KEY_TAB, TB_MODIFIER_SHIFT);
+    ui_frame(&fixture);
+    TB_TEST_EXPECT_UINT(ui_stats(&fixture).focus, ==, fixture.ids[6]);
+    ui_key(&fixture, TB_KEY_LEFT, 0);
+    ui_key(&fixture, TB_KEY_LEFT, 0);
+    ui_frame(&fixture);
+    TB_TEST_EXPECT_INT(fixture.choice, ==, 3);
+    ui_key(&fixture, TB_KEY_RIGHT, 0);
+    ui_frame(&fixture);
+    TB_TEST_EXPECT_INT(fixture.choice, ==, 4);
     ui_fixture_close(&fixture);
 }
 
@@ -586,6 +626,73 @@ TB_TEST(ui_window, the_mouse_is_wanted_over_windows)
     fixture.input.mouse_outside = true;
     ui_frame(&fixture);
     TB_TEST_EXPECT(!tb_ui_wants_mouse(fixture.ui));
+    ui_fixture_close(&fixture);
+}
+
+static void plain_scene(ui_fixture *fixture)
+{
+    static const char *const items[] = {"Low", "Medium", "High", "Ultra"};
+
+    if (tb_ui_begin_window(fixture->ui, "Plain", (tb_canvas_rect){40, 480, 300, 100},
+                           TB_UI_WINDOW_NO_TITLE | TB_UI_WINDOW_NO_RESIZE |
+                               TB_UI_WINDOW_NO_SCROLLBAR))
+    {
+        fixture->rect = tb_ui_window_rect(fixture->ui);
+        fixture->returned[0] = tb_ui_combo(fixture->ui, "Low down", &fixture->selected, items, 4);
+        fixture->ids[0] = tb_ui_last_id(fixture->ui);
+        for (int line = 0; line < 10; line++)
+        {
+            tb_ui_text(fixture->ui, "Cut off");
+        }
+        tb_ui_end_window(fixture->ui);
+    }
+    fixture->open = tb_ui_begin_window(fixture->ui, "Pinned", (tb_canvas_rect){400, 40, 300, 200},
+                                       TB_UI_WINDOW_NO_MOVE);
+    if (fixture->open)
+    {
+        fixture->other = tb_ui_window_rect(fixture->ui).x;
+        tb_ui_end_window(fixture->ui);
+    }
+}
+
+/* A window without a title neither moves nor collapses, nor resizes or
+ * scrolls when asked not to; a window that does not move keeps its place;
+ * and a combo low on the frame opens its list above it. */
+TB_TEST(ui_window, flags_leave_out_what_a_window_does)
+{
+    ui_fixture fixture = {0};
+
+    ui_fixture_open(&fixture, 1.0f, 0);
+    fixture.scene = plain_scene;
+    ui_frame(&fixture);
+    ui_move(&fixture, 60.0f, 482.0f);
+    ui_frame(&fixture);
+    TB_TEST_EXPECT(tb_ui_wants_mouse(fixture.ui));
+    ui_move(&fixture, 338.0f, 578.0f);
+    ui_frame(&fixture);
+    TB_TEST_EXPECT_UINT(tb_ui_cursor(fixture.ui), ==, TB_CURSOR_ARROW);
+    ui_press(&fixture);
+    ui_frame(&fixture);
+    ui_move(&fixture, 380.0f, 590.0f);
+    ui_frame(&fixture);
+    ui_release(&fixture);
+    ui_frame(&fixture);
+    TB_TEST_EXPECT_FLOAT(fixture.rect.width, ==, 300.0f);
+
+    ui_move(&fixture, 500.0f, 48.0f);
+    ui_press(&fixture);
+    ui_frame(&fixture);
+    ui_move(&fixture, 560.0f, 148.0f);
+    ui_frame(&fixture);
+    ui_release(&fixture);
+    ui_frame(&fixture);
+    TB_TEST_EXPECT_FLOAT(fixture.other, ==, 400.0f);
+
+    const tb_canvas_rect combo = ui_rect_of(&fixture, fixture.ids[0]);
+    ui_click(&fixture, ui_middle(combo));
+    const tb_ui_command *const ultra = ui_text_command(&fixture, "Ultra");
+    TB_TEST_REQUIRE_POINTER(ultra, !=, NULL);
+    TB_TEST_EXPECT(ultra->rect.y < combo.y);
     ui_fixture_close(&fixture);
 }
 

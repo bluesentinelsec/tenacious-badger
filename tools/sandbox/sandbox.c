@@ -607,7 +607,7 @@ static int sandbox_open_renderer(sandbox_run *run, tb_window_system *system)
                        "hold the right mouse button to fly (WASD, Q/E, Shift, wheel); Escape "
                        "quits\n",
                        tb_rhi_backend_name(run->box.info.backend), run->box.info.adapter,
-                       sandbox_scene_count);
+                       sandbox_scene_count < 9 ? sandbox_scene_count : (size_t)9);
     return EXIT_SUCCESS;
 }
 
