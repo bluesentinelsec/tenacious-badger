@@ -481,16 +481,24 @@ void tb_material_destroy(tb_renderer *renderer, tb_material *material)
     tb_free(material);
 }
 
+tb_renderer_draw tb_renderer_material_draw(const tb_mesh *mesh, tb_mat4 transform,
+                                           const tb_material *material)
+{
+    return (tb_renderer_draw){.mesh = mesh,
+                              .material = material,
+                              .transform = transform,
+                              .color = material->base_color_factor,
+                              .shading = material->unlit ? TB_MESH_FLAT : TB_MESH_LIT};
+}
+
 void tb_renderer_draw_mesh_material(tb_renderer *renderer, const tb_mesh *mesh, tb_mat4 transform,
                                     const tb_material *material)
 {
+    tb_renderer_draw draw = {0};
+
     TB_ASSERT(renderer != NULL && mesh != NULL && material != NULL);
-    tb_renderer_add_draw(
-        renderer, &(tb_renderer_draw){.mesh = mesh,
-                                      .material = material,
-                                      .transform = transform,
-                                      .color = material->base_color_factor,
-                                      .shading = material->unlit ? TB_MESH_FLAT : TB_MESH_LIT});
+    draw = tb_renderer_material_draw(mesh, transform, material);
+    tb_renderer_add_draw(renderer, &draw);
 }
 
 uint64_t tb_renderer_material_upload(tb_renderer *renderer, const tb_renderer_draw *draw,

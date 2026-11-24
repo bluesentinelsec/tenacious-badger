@@ -54,8 +54,20 @@ typedef struct tb_renderer_draw
     tb_mat4 transform;
     tb_vec4 color;
     tb_mesh_shading shading;
-    uint64_t constants; /* where in the frame's uploads; UINT64_MAX when they ran out */
+    uint64_t constants;      /* where in the frame's uploads; UINT64_MAX when they ran out */
+    bool skinned;            /* its vertices are the frame's skinned vertices, not its mesh's */
+    uint64_t skinned_offset; /* bytes into the frame's skinned vertices */
 } tb_renderer_draw;
+
+/* A skinned draw of the frame, which the skinning pass skins. */
+typedef struct tb_renderer_skin
+{
+    uint32_t source;       /* the bindless index of the mesh's vertices */
+    uint32_t vertex_count; /* of the mesh */
+    uint64_t joints;       /* its joint matrices' offset in the frame's uploads */
+    uint32_t joint_count;
+    uint64_t output; /* bytes into the frame's skinned vertices */
+} tb_renderer_skin;
 
 typedef struct tb_renderer_custom
 {
@@ -149,6 +161,12 @@ struct tb_renderer
     tb_sky sky;                   /* behind every frame, until changed */
     tb_rhi_pipeline sky_pipeline; /* none without bindless resources */
 
+    tb_rhi_pipeline skin_pipeline; /* none without bindless resources */
+    tb_renderer_skin *skins;       /* this frame's */
+    size_t skin_count;
+    size_t skin_capacity;
+    uint64_t skinned_bytes; /* of the frame's skinned vertices */
+
     tb_canvas_batch canvas;            /* this frame's 2D */
     tb_rhi_pipeline canvas_pipeline;   /* none without bindless resources */
     tb_rhi_sampler canvas_samplers[2]; /* linear, nearest */
@@ -183,6 +201,13 @@ struct tb_renderer
     uint32_t captured_width;
     uint32_t captured_height;
 };
+
+/* The skinning pass of a frame being recorded. */
+typedef struct tb_skinning_recording
+{
+    tb_renderer *renderer;
+    tb_render_graph_buffer vertices; /* what it writes; none when nothing is skinned */
+} tb_skinning_recording;
 
 /* The canvas's draw in a frame being recorded. */
 typedef struct tb_canvas_recording
@@ -222,6 +247,11 @@ void tb_renderer_materials_destroy(tb_renderer *renderer);
 /* Take the anisotropy asked for, at the start of a frame. */
 void tb_renderer_materials_begin_frame(tb_renderer *renderer);
 
+/* A draw of a mesh with a material, as tb_renderer_draw_mesh_material()
+ * adds it. */
+tb_renderer_draw tb_renderer_material_draw(const tb_mesh *mesh, tb_mat4 transform,
+                                           const tb_material *material);
+
 /* Write a material draw's constants to the frame's uploads: their offset, or
  * UINT64_MAX when the uploads are full. */
 uint64_t tb_renderer_material_upload(tb_renderer *renderer, const tb_renderer_draw *draw,
@@ -242,6 +272,18 @@ uint64_t tb_renderer_sky_upload(tb_renderer *renderer, float aspect);
 
 /* Draw the sky behind what the scene pass drew so far. */
 void tb_renderer_sky_record(tb_renderer *renderer, tb_rhi_command_list *list, uint64_t constants);
+
+/* The skinning pipeline (skinning.c). */
+tb_rhi_result tb_renderer_skinning_create(tb_renderer *renderer, tb_rhi_error *error);
+void tb_renderer_skinning_destroy(tb_renderer *renderer);
+
+/* Forget the last frame's skinned draws. */
+void tb_renderer_skinning_begin_frame(tb_renderer *renderer);
+
+/* Add the pass that skins the frame's skinned draws, before the scene
+ * pass, which reads `recording->vertices`. `recording` lives until the
+ * graph is executed. */
+void tb_renderer_skinning_record(tb_renderer *renderer, tb_skinning_recording *recording);
 
 /* The canvas's samplers, image and pipeline (canvas.c). */
 tb_rhi_result tb_renderer_canvas_create(tb_renderer *renderer, uint32_t glyph_atlas_size,

@@ -64,6 +64,11 @@ typedef struct sandbox_scene
 } sandbox_scene;
 
 extern const sandbox_scene sandbox_scenes[];
+
+/* The skinning scene (sandbox_skinning.c). */
+bool sandbox_skinning_create(sandbox *box, void **state);
+void sandbox_skinning_draw(sandbox *box, void *state, const sandbox_frame *frame);
+void sandbox_skinning_destroy(sandbox *box, void *state);
 extern const size_t sandbox_scene_count;
 
 /* The shapes, which other scenes draw under what they show. */
