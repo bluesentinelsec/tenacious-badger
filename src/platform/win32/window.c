@@ -7,6 +7,7 @@
  * the libraries the toolchain links by default; shcore, for a monitor's
  * scale, is loaded through the library interface. */
 #include "../shared/window.h"
+#include "window_input.h"
 
 #include "badger/assert.h"
 #include "badger/fmt.h"
@@ -52,7 +53,15 @@ typedef struct tb_win32_window
     /* The monitor whose mode a fullscreen window changed, and that it gives
      * back; empty when the mode is the monitor's own. */
     wchar_t changed_device[CCHDEVICENAME];
-    bool applying; /* Inside tb_win32_apply(): size messages are expected. */
+    bool applying;           /* Inside tb_win32_apply(): size messages are expected. */
+    bool tracking_leave;     /* TrackMouseEvent() will say when the mouse leaves. */
+    uint32_t buttons_down;   /* A bit for each tb_mouse_button held: the window has the mouse. */
+    uint16_t high_surrogate; /* The first half of a character WM_CHAR sends in two. */
+    /* The last position of a mouse that reports where it is, not how far it
+     * moved, as a remote desktop's does. */
+    bool raw_position_known;
+    LONG raw_x;
+    LONG raw_y;
 } tb_win32_window;
 
 static tb_win32_system *tb_win32_of(const tb_window_system *system)
@@ -494,13 +503,316 @@ static tb_key tb_win32_key_of(uint32_t scancode)
     return TB_KEY_UNKNOWN;
 }
 
+static bool tb_win32_held(int virtual_key)
+{
+    return GetKeyState(virtual_key) < 0;
+}
+
+/* The modifiers held, as the keyboard's state says for the message being
+ * handled. */
+static uint32_t tb_win32_modifiers(void)
+{
+    uint32_t modifiers = 0;
+
+    if (tb_win32_held(VK_SHIFT))
+    {
+        modifiers |= TB_MODIFIER_SHIFT;
+    }
+    if (tb_win32_held(VK_CONTROL))
+    {
+        modifiers |= TB_MODIFIER_CONTROL;
+    }
+    if (tb_win32_held(VK_MENU))
+    {
+        modifiers |= TB_MODIFIER_ALT;
+    }
+    if (tb_win32_held(VK_LWIN) || tb_win32_held(VK_RWIN))
+    {
+        modifiers |= TB_MODIFIER_SUPER;
+    }
+    return modifiers;
+}
+
+/* The modifiers of a mouse message, which carries Shift and Control in its
+ * wParam. */
+static uint32_t tb_win32_mouse_modifiers(WPARAM word)
+{
+    uint32_t modifiers = tb_win32_modifiers() & (TB_MODIFIER_ALT | TB_MODIFIER_SUPER);
+
+    if ((word & MK_SHIFT) != 0)
+    {
+        modifiers |= TB_MODIFIER_SHIFT;
+    }
+    if ((word & MK_CONTROL) != 0)
+    {
+        modifiers |= TB_MODIFIER_CONTROL;
+    }
+    return modifiers;
+}
+
 static void tb_win32_on_key(tb_window *window, LPARAM parameter, bool down)
 {
     const uint32_t flags = (uint32_t)((uintptr_t)parameter >> 16);
     const uint32_t scancode = (flags & 0xFFu) | ((flags & KF_EXTENDED) != 0 ? 0xE000u : 0u);
     const bool repeat = (flags & KF_REPEAT) != 0;
 
-    tb_window_key(window, tb_win32_key_of(scancode), scancode, down, repeat);
+    tb_window_key(window, tb_win32_key_of(scancode), scancode, down, repeat, tb_win32_modifiers());
+}
+
+/* A character typed: one UTF-16 unit, or half of a pair. */
+static void tb_win32_on_char(tb_window *window, WPARAM word)
+{
+    tb_win32_window *const native = tb_win32_window_of(window);
+    const uint16_t unit = (uint16_t)word;
+    uint16_t units[2] = {unit, 0};
+    size_t count = 1;
+    char text[8] = {0};
+    size_t written = 0;
+
+    if (unit >= 0xD800u && unit <= 0xDBFFu)
+    {
+        native->high_surrogate = unit;
+        return;
+    }
+    if (unit >= 0xDC00u && unit <= 0xDFFFu)
+    {
+        if (native->high_surrogate == 0)
+        {
+            return;
+        }
+        units[0] = native->high_surrogate;
+        units[1] = unit;
+        count = 2;
+    }
+    native->high_surrogate = 0;
+    if (tb_utf8_from_utf16(units, count, text, sizeof(text), &written))
+    {
+        tb_window_text(window, text, written);
+    }
+}
+
+/* ---------------------------------------------------------------------------
+ * The mouse.
+ * ------------------------------------------------------------------------- */
+
+/* The system's cursors of each shape, as the wide resource names they are. */
+static const WORD tb_win32_cursors[TB_CURSOR_COUNT] = {
+    [TB_CURSOR_ARROW] = 32512,                /* IDC_ARROW */
+    [TB_CURSOR_TEXT] = 32513,                 /* IDC_IBEAM */
+    [TB_CURSOR_HAND] = 32649,                 /* IDC_HAND */
+    [TB_CURSOR_CROSSHAIR] = 32515,            /* IDC_CROSS */
+    [TB_CURSOR_NOT_ALLOWED] = 32648,          /* IDC_NO */
+    [TB_CURSOR_RESIZE_HORIZONTAL] = 32644,    /* IDC_SIZEWE */
+    [TB_CURSOR_RESIZE_VERTICAL] = 32645,      /* IDC_SIZENS */
+    [TB_CURSOR_RESIZE_DIAGONAL_DOWN] = 32642, /* IDC_SIZENWSE */
+    [TB_CURSOR_RESIZE_DIAGONAL_UP] = 32643,   /* IDC_SIZENESW */
+    [TB_CURSOR_RESIZE_ALL] = 32646,           /* IDC_SIZEALL */
+};
+
+/* Set the cursor the window asks for, which is none when it is hidden. */
+static void tb_win32_set_cursor_shape(const tb_window *window)
+{
+    if (window->cursor_hidden || window->state.relative_mouse)
+    {
+        (void)SetCursor(NULL);
+        return;
+    }
+    (void)SetCursor(LoadCursorW(NULL, MAKEINTRESOURCEW(tb_win32_cursors[window->cursor])));
+}
+
+/* Windows asks for the cursor each time the mouse moves; a change between
+ * moves is shown at once when the mouse is over the window. */
+static void tb_win32_update_cursor(tb_window *window)
+{
+    if (window->mouse_inside)
+    {
+        tb_win32_set_cursor_shape(window);
+    }
+}
+
+/* Hold the cursor in the client area, or let it go. */
+static void tb_win32_confine(const tb_window *window, bool confined)
+{
+    RECT client = {0};
+
+    if (!confined)
+    {
+        (void)ClipCursor(NULL);
+        return;
+    }
+    (void)GetClientRect(tb_win32_window_of(window)->handle, &client);
+    (void)MapWindowPoints(tb_win32_window_of(window)->handle, NULL, (POINT *)&client, 2);
+    (void)ClipCursor(&client);
+}
+
+/* A window in relative mouse mode holds the cursor while it has the
+ * keyboard. */
+static void tb_win32_update_confinement(const tb_window *window)
+{
+    if (window->state.relative_mouse)
+    {
+        tb_win32_confine(window, window->state.focused);
+    }
+}
+
+static tb_window_result tb_win32_set_relative_mouse(tb_window *window, bool relative,
+                                                    tb_window_error *error)
+{
+    tb_win32_window *const native = tb_win32_window_of(window);
+    /* The generic desktop page's mouse. */
+    const RAWINPUTDEVICE device = {.usUsagePage = 0x01,
+                                   .usUsage = 0x02,
+                                   .dwFlags = relative ? 0u : (DWORD)RIDEV_REMOVE,
+                                   .hwndTarget = relative ? native->handle : NULL};
+
+    if (!RegisterRawInputDevices(&device, 1, sizeof(device)) && relative)
+    {
+        /* coverage-off: Raw Input refuses a mouse only to a window of another thread */
+        return tb_win32_fail(error, "Raw Input refused the mouse");
+        /* coverage-on */
+    }
+    native->raw_position_known = false;
+    tb_win32_confine(window, relative && window->state.focused);
+    return TB_WINDOW_OK;
+}
+
+void tb_win32_raw_mouse(tb_window *window, const RAWMOUSE *mouse)
+{
+    tb_win32_window *const native = tb_win32_window_of(window);
+    double delta_x = (double)mouse->lLastX;
+    double delta_y = (double)mouse->lLastY;
+
+    if ((mouse->usFlags & MOUSE_MOVE_ABSOLUTE) != 0)
+    {
+        /* A position over the desktop from 0 to 65535: its motion is the
+         * change, in pixels of the desktop. */
+        const bool virtual_desktop = (mouse->usFlags & MOUSE_VIRTUAL_DESKTOP) != 0;
+        const int width = GetSystemMetrics(virtual_desktop ? SM_CXVIRTUALSCREEN : SM_CXSCREEN);
+        const int height = GetSystemMetrics(virtual_desktop ? SM_CYVIRTUALSCREEN : SM_CYSCREEN);
+        const bool known = native->raw_position_known;
+        delta_x = (double)(mouse->lLastX - native->raw_x) * (double)width / 65535.0;
+        delta_y = (double)(mouse->lLastY - native->raw_y) * (double)height / 65535.0;
+        native->raw_x = mouse->lLastX;
+        native->raw_y = mouse->lLastY;
+        native->raw_position_known = true;
+        if (!known)
+        {
+            return;
+        }
+    }
+    if (delta_x != 0.0 || delta_y != 0.0)
+    {
+        tb_window_mouse_relative(window, delta_x, delta_y);
+    }
+}
+
+static void tb_win32_on_raw_input(tb_window *window, LPARAM parameter)
+{
+    RAWINPUT input = {0};
+    UINT size = sizeof(input);
+
+    if (GetRawInputData((HRAWINPUT)parameter, RID_INPUT, &input, &size, sizeof(RAWINPUTHEADER)) ==
+            (UINT)-1 ||
+        input.header.dwType != RIM_TYPEMOUSE)
+    {
+        return;
+    }
+    /* coverage-off: Raw Input reaches only the window in front, which a test cannot rely on */
+    tb_win32_raw_mouse(window, &input.data.mouse);
+    /* coverage-on */
+}
+
+/* A mouse message's position in the client area, in pixels. */
+static double tb_win32_x_of(LPARAM parameter)
+{
+    return (double)(short)LOWORD(parameter);
+}
+
+static double tb_win32_y_of(LPARAM parameter)
+{
+    return (double)(short)HIWORD(parameter);
+}
+
+static tb_mouse_button tb_win32_button_of(UINT message, WPARAM word)
+{
+    switch (message)
+    {
+    case WM_LBUTTONDOWN:
+    case WM_LBUTTONUP:
+        return TB_MOUSE_BUTTON_LEFT;
+    case WM_RBUTTONDOWN:
+    case WM_RBUTTONUP:
+        return TB_MOUSE_BUTTON_RIGHT;
+    case WM_MBUTTONDOWN:
+    case WM_MBUTTONUP:
+        return TB_MOUSE_BUTTON_MIDDLE;
+    default:
+        return HIWORD(word) == XBUTTON1 ? TB_MOUSE_BUTTON_X1 : TB_MOUSE_BUTTON_X2;
+    }
+}
+
+/* A button went down or up. The window holds the mouse while any is down,
+ * so that a drag out of it still reports. */
+static void tb_win32_on_button(tb_window *window, UINT message, WPARAM word, LPARAM parameter,
+                               bool down)
+{
+    tb_win32_window *const native = tb_win32_window_of(window);
+    const tb_mouse_button button = tb_win32_button_of(message, word);
+    const uint32_t bit = 1u << (unsigned)button;
+
+    if (down)
+    {
+        if (native->buttons_down == 0)
+        {
+            (void)SetCapture(native->handle);
+        }
+        native->buttons_down |= bit;
+    }
+    else
+    {
+        native->buttons_down &= ~bit;
+        if (native->buttons_down == 0)
+        {
+            (void)ReleaseCapture();
+        }
+    }
+    tb_window_mouse_button(window, button, down, tb_win32_x_of(parameter), tb_win32_y_of(parameter),
+                           tb_win32_mouse_modifiers(word));
+}
+
+static void tb_win32_on_mouse_move(tb_window *window, WPARAM word, LPARAM parameter)
+{
+    tb_win32_window *const native = tb_win32_window_of(window);
+    const double x = tb_win32_x_of(parameter);
+    const double y = tb_win32_y_of(parameter);
+
+    if (!native->tracking_leave)
+    {
+        TRACKMOUSEEVENT track = {
+            .cbSize = sizeof(TRACKMOUSEEVENT), .dwFlags = TME_LEAVE, .hwndTrack = native->handle};
+        native->tracking_leave = TrackMouseEvent(&track) != FALSE;
+        tb_window_mouse_crossed(window, true, x, y);
+    }
+    tb_window_mouse_moved(window, x, y, tb_win32_mouse_modifiers(word));
+}
+
+static void tb_win32_on_mouse_leave(tb_window *window)
+{
+    tb_win32_window_of(window)->tracking_leave = false;
+    tb_window_mouse_crossed(window, false, 0.0, 0.0);
+}
+
+/* The wheel: its message has the position on the screen, and the turn in
+ * 120ths of a notch, which a finer wheel sends in parts. */
+static void tb_win32_on_wheel(tb_window *window, WPARAM word, LPARAM parameter, bool horizontal)
+{
+    const double notches = (double)GET_WHEEL_DELTA_WPARAM(word) / (double)WHEEL_DELTA;
+    POINT point = {(LONG)(short)LOWORD(parameter), (LONG)(short)HIWORD(parameter)};
+
+    (void)ScreenToClient(tb_win32_window_of(window)->handle, &point);
+    tb_window_mouse_wheel(window, horizontal ? notches : 0.0, horizontal ? 0.0 : notches,
+                          (double)point.x, (double)point.y,
+                          tb_win32_mouse_modifiers(GET_KEYSTATE_WPARAM(word)));
 }
 
 /* The active app changed: a fullscreen window gives the display back while
@@ -541,14 +853,66 @@ static bool tb_win32_on_message(tb_window *window, UINT message, WPARAM word, LP
         if (word != SIZE_MINIMIZED)
         {
             tb_win32_read_size(window);
+            tb_win32_update_confinement(window);
         }
+        return false;
+    case WM_MOVE:
+        tb_win32_update_confinement(window);
         return false;
     case WM_SETFOCUS:
         tb_window_focused(window, true);
+        tb_win32_update_confinement(window);
         return false;
     case WM_KILLFOCUS:
         tb_window_focused(window, false);
+        tb_win32_update_confinement(window);
         return false;
+    case WM_LBUTTONDOWN:
+    case WM_RBUTTONDOWN:
+    case WM_MBUTTONDOWN:
+    case WM_XBUTTONDOWN:
+        tb_win32_on_button(window, message, word, parameter, true);
+        /* An X button's message is answered TRUE, the others 0. */
+        *answer = message == WM_XBUTTONDOWN ? TRUE : 0;
+        return true;
+    case WM_LBUTTONUP:
+    case WM_RBUTTONUP:
+    case WM_MBUTTONUP:
+    case WM_XBUTTONUP:
+        tb_win32_on_button(window, message, word, parameter, false);
+        *answer = message == WM_XBUTTONUP ? TRUE : 0;
+        return true;
+    case WM_CAPTURECHANGED:
+        native->buttons_down = 0;
+        return false;
+    case WM_MOUSEMOVE:
+        tb_win32_on_mouse_move(window, word, parameter);
+        *answer = 0;
+        return true;
+    case WM_MOUSELEAVE:
+        tb_win32_on_mouse_leave(window);
+        *answer = 0;
+        return true;
+    case WM_MOUSEWHEEL:
+    case WM_MOUSEHWHEEL:
+        tb_win32_on_wheel(window, word, parameter, message == WM_MOUSEHWHEEL);
+        *answer = 0;
+        return true;
+    case WM_SETCURSOR:
+        if (LOWORD(parameter) != HTCLIENT)
+        {
+            return false;
+        }
+        tb_win32_set_cursor_shape(window);
+        *answer = TRUE;
+        return true;
+    case WM_INPUT:
+        tb_win32_on_raw_input(window, parameter);
+        return false;
+    case WM_CHAR:
+        tb_win32_on_char(window, word);
+        *answer = 0;
+        return true;
     case WM_ACTIVATEAPP:
         tb_win32_on_activate_app(window, word != FALSE);
         return false;
@@ -662,6 +1026,9 @@ static void tb_win32_pump(tb_window_system *system, uint64_t nanoseconds)
 
     while (PeekMessageW(&message, NULL, 0, 0, PM_REMOVE))
     {
+        /* Keys become characters, which the keyboard's layout composes, dead
+         * keys and all. */
+        (void)TranslateMessage(&message);
         (void)DispatchMessageW(&message);
         any = true;
     }
@@ -677,6 +1044,7 @@ static void tb_win32_pump(tb_window_system *system, uint64_t nanoseconds)
     }
     while (PeekMessageW(&message, NULL, 0, 0, PM_REMOVE))
     {
+        (void)TranslateMessage(&message);
         (void)DispatchMessageW(&message);
     }
 }
@@ -779,6 +1147,8 @@ static const tb_window_ops tb_win32_ops = {
     .configure = tb_win32_configure,
     .native = tb_win32_native,
     .confirm = tb_win32_confirm,
+    .set_relative_mouse = tb_win32_set_relative_mouse,
+    .update_cursor = tb_win32_update_cursor,
 };
 
 static bool tb_win32_register(tb_win32_system *native, const wchar_t *name, WNDPROC procedure)
@@ -859,6 +1229,7 @@ tb_window_result tb_native_window_open(tb_window_system *system, tb_window_backe
                                    native->instance, NULL);
     (void)SetWindowLongPtrW(native->wake, GWLP_USERDATA, (LONG_PTR)system);
     system->backend = TB_WINDOW_BACKEND_WIN32;
+    system->pointer_in_pixels = true;
     system->ops = &tb_win32_ops;
     system->native = native;
     tb_win32_read_displays(system);

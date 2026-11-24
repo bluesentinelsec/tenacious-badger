@@ -37,6 +37,13 @@ typedef struct tb_window_ops
      * one. */
     tb_window_result (*confirm)(tb_window *window, const char *title, const char *message,
                                 bool *confirmed);
+    /* Turn relative mouse mode on or off, before the front records it in
+     * `window->state`. Turning it off succeeds. */
+    tb_window_result (*set_relative_mouse)(tb_window *window, bool relative,
+                                           tb_window_error *error);
+    /* Show the cursor of `window->cursor`, or none when `window->cursor_hidden`
+     * or relative mouse mode says so. */
+    void (*update_cursor)(tb_window *window);
 } tb_window_ops;
 
 struct tb_window_system
@@ -48,6 +55,9 @@ struct tb_window_system
     tb_array *events;   /* tb_window_event, a queue from `next_event`. */
     size_t next_event;
     tb_array *windows; /* tb_window *. */
+    /* The backend reads the mouse's position in pixels (Win32, X11), not in
+     * logical units (Wayland, Cocoa). */
+    bool pointer_in_pixels;
 };
 
 struct tb_window
@@ -57,6 +67,9 @@ struct tb_window
     tb_window_options options; /* As last created or configured; its title is `title`. */
     char *title;               /* The heap's. */
     tb_window_state state;
+    tb_cursor cursor;
+    bool cursor_hidden;
+    bool mouse_inside; /* The last crossing reported was an entering. */
 };
 
 /* Where and how large a window goes, in the units its backend places
@@ -114,7 +127,32 @@ void tb_window_focused(tb_window *window, bool focused);
 void tb_window_minimized(tb_window *window, bool minimized);
 
 /* Queue a key's event. */
-void tb_window_key(tb_window *window, tb_key key, uint32_t scancode, bool down, bool repeat);
+void tb_window_key(tb_window *window, tb_key key, uint32_t scancode, bool down, bool repeat,
+                   uint32_t modifiers);
+
+/* Queue a mouse button's event at a position in the units the system reads
+ * the mouse in. */
+void tb_window_mouse_button(tb_window *window, tb_mouse_button button, bool down, double x,
+                            double y, uint32_t modifiers);
+
+/* Queue the mouse's motion to a position; nothing in relative mouse mode. */
+void tb_window_mouse_moved(tb_window *window, double x, double y, uint32_t modifiers);
+
+/* Queue the wheel's turn, in notches, positive away from the player and to
+ * the right, with the mouse at a position. */
+void tb_window_mouse_wheel(tb_window *window, double notches_x, double notches_y, double x,
+                           double y, uint32_t modifiers);
+
+/* Queue relative motion; nothing outside relative mouse mode. */
+void tb_window_mouse_relative(tb_window *window, double delta_x, double delta_y);
+
+/* Queue the mouse's entering or leaving, when it changed; the position is
+ * that of an entering. */
+void tb_window_mouse_crossed(tb_window *window, bool inside, double x, double y);
+
+/* Queue typed text, `length` bytes of UTF-8, in events of whole characters,
+ * without its control characters or anything that is not UTF-8. */
+void tb_window_text(tb_window *window, const char *text, size_t length);
 
 /* Queue that the displays changed, after tb_window_set_displays(). */
 void tb_window_displays_changed(tb_window_system *system);

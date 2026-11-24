@@ -639,3 +639,23 @@ TB_TEST(platform_default, tb_key_name)
 {
     (void)tb_key_name(TB_KEY_ESCAPE);
 }
+
+TB_TEST(platform_default, tb_window_set_relative_mouse)
+{
+    (void)tb_window_set_relative_mouse(NULL, true, NULL);
+}
+
+TB_TEST(platform_default, tb_window_set_cursor)
+{
+    tb_window_set_cursor(NULL, TB_CURSOR_TEXT);
+}
+
+TB_TEST(platform_default, tb_window_show_cursor)
+{
+    tb_window_show_cursor(NULL, false);
+}
+
+TB_TEST(platform_default, tb_mouse_button_name)
+{
+    (void)tb_mouse_button_name(TB_MOUSE_BUTTON_LEFT);
+}

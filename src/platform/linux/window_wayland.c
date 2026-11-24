@@ -16,6 +16,13 @@
  * decorations are the compositor's when it offers xdg-decoration, which
  * GNOME does not. Scale is the integer scale of the outputs a surface is on.
  *
+ * The mouse's cursor is the compositor's shape where it offers
+ * cursor-shape-v1, else the cursor theme's image from libwayland-cursor.so.0.
+ * Relative mouse mode locks the pointer through pointer-constraints and
+ * reads relative-pointer's unaccelerated motion; a compositor without them
+ * has no such mode. Text is the keymap's, through libxkbcommon.so.0, with
+ * dead keys composed by the locale's compose sequences.
+ *
  * libwayland takes the tables of event handlers, its listeners, as writable
  * pointers, so they are not const here, though nothing writes them. */
 #define _GNU_SOURCE
@@ -28,6 +35,7 @@
 #include "badger/str.h"
 
 #include <stddef.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <unistd.h>
@@ -67,12 +75,25 @@ typedef struct tb_wl_array
 
 typedef void (*tb_wl_handler)(void);
 
+typedef int32_t tb_wl_fixed; /* 24.8 fixed point. */
+
 #define TB_WL_MARSHAL_DESTROY 1u
 #define TB_WL_SHM_FORMAT_XRGB8888 1u
+#define TB_WL_SEAT_POINTER 1u
 #define TB_WL_SEAT_KEYBOARD 2u
 #define TB_WL_OUTPUT_MODE_CURRENT 1u
 #define TB_WL_KEY_PRESSED 1u
+#define TB_WL_BUTTON_PRESSED 1u
+#define TB_WL_AXIS_VERTICAL 0u
 #define TB_XDG_DECORATION_SERVER_SIDE 2u
+#define TB_WL_KEYMAP_XKB_V1 1u
+/* A locked pointer stays locked, through focus changes, until destroyed. */
+#define TB_WL_LOCK_PERSISTENT 2u
+/* The surface-local distance of one notch of a wheel without value120,
+ * which compositors report as 10 (libinput's default). */
+#define TB_WL_AXIS_PER_NOTCH 10.0
+/* The size of a theme's cursor, in logical units. */
+#define TB_WL_CURSOR_SIZE 24
 
 typedef struct tb_wl_api
 {
@@ -105,7 +126,77 @@ typedef struct tb_wl_core
     const tb_wl_interface *shm;
     const tb_wl_interface *shm_pool;
     const tb_wl_interface *buffer;
+    const tb_wl_interface *pointer;
+    const tb_wl_interface *region;
 } tb_wl_core;
+
+/* libwayland-cursor.so.0, for the cursor theme's images where the
+ * compositor has no cursor-shape protocol. */
+typedef struct tb_wl_cursor_image
+{
+    uint32_t width;
+    uint32_t height;
+    uint32_t hotspot_x;
+    uint32_t hotspot_y;
+    uint32_t delay;
+} tb_wl_cursor_image;
+
+typedef struct tb_wl_cursor
+{
+    unsigned int image_count;
+    tb_wl_cursor_image **images;
+    char *name;
+} tb_wl_cursor;
+
+typedef struct tb_wl_cursor_theme tb_wl_cursor_theme;
+
+typedef struct tb_wl_cursor_api
+{
+    tb_wl_cursor_theme *(*theme_load)(const char *name, int size, tb_wl_proxy *shm);
+    void (*theme_destroy)(tb_wl_cursor_theme *theme);
+    tb_wl_cursor *(*theme_get_cursor)(tb_wl_cursor_theme *theme, const char *name);
+    tb_wl_proxy *(*image_get_buffer)(tb_wl_cursor_image *image);
+} tb_wl_cursor_api;
+
+/* libxkbcommon.so.0, which turns keys into text by the keymap the
+ * compositor sends, and composes dead keys by the user's locale. */
+typedef struct tb_xkb_context tb_xkb_context;
+typedef struct tb_xkb_keymap tb_xkb_keymap;
+typedef struct tb_xkb_state tb_xkb_state;
+typedef struct tb_xkb_compose_table tb_xkb_compose_table;
+typedef struct tb_xkb_compose_state tb_xkb_compose_state;
+
+typedef struct tb_xkb_api
+{
+    tb_xkb_context *(*context_new)(int flags);
+    void (*context_unref)(tb_xkb_context *context);
+    tb_xkb_keymap *(*keymap_new_from_string)(tb_xkb_context *context, const char *text, int format,
+                                             int flags);
+    void (*keymap_unref)(tb_xkb_keymap *keymap);
+    tb_xkb_state *(*state_new)(tb_xkb_keymap *keymap);
+    void (*state_unref)(tb_xkb_state *state);
+    int (*state_update_mask)(tb_xkb_state *state, uint32_t depressed, uint32_t latched,
+                             uint32_t locked, uint32_t depressed_layout, uint32_t latched_layout,
+                             uint32_t locked_layout);
+    uint32_t (*state_key_get_one_sym)(tb_xkb_state *state, uint32_t key);
+    int (*state_key_get_utf8)(tb_xkb_state *state, uint32_t key, char *buffer, size_t size);
+    int (*state_mod_name_is_active)(tb_xkb_state *state, const char *name, int type);
+    tb_xkb_compose_table *(*compose_table_new_from_locale)(tb_xkb_context *context,
+                                                           const char *locale, int flags);
+    void (*compose_table_unref)(tb_xkb_compose_table *table);
+    tb_xkb_compose_state *(*compose_state_new)(tb_xkb_compose_table *table, int flags);
+    void (*compose_state_unref)(tb_xkb_compose_state *state);
+    int (*compose_state_feed)(tb_xkb_compose_state *state, uint32_t keysym);
+    void (*compose_state_reset)(tb_xkb_compose_state *state);
+    int (*compose_state_get_status)(tb_xkb_compose_state *state);
+    int (*compose_state_get_utf8)(tb_xkb_compose_state *state, char *buffer, size_t size);
+} tb_xkb_api;
+
+/* xkb_state_component's effective modifiers, and xkb_compose_status. */
+#define TB_XKB_MODS_EFFECTIVE (1 << 3)
+#define TB_XKB_COMPOSE_COMPOSING 1
+#define TB_XKB_COMPOSE_COMPOSED 2
+#define TB_XKB_COMPOSE_CANCELLED 3
 
 /* ---------------------------------------------------------------------------
  * xdg-shell and xdg-decoration, from their XML. Their tables name the core
@@ -188,6 +279,71 @@ const tb_wl_interface tb_xdg_toplevel_decoration_interface = {
     "zxdg_toplevel_decoration_v1",       1, 3,
     tb_xdg_toplevel_decoration_requests, 1, tb_xdg_toplevel_decoration_events};
 
+/* cursor-shape-v1, relative-pointer-unstable-v1 and
+ * pointer-constraints-unstable-v1, from their XML. */
+extern const tb_wl_interface tb_cursor_shape_manager_interface;
+extern const tb_wl_interface tb_cursor_shape_device_interface;
+extern const tb_wl_interface tb_relative_manager_interface;
+extern const tb_wl_interface tb_relative_pointer_interface;
+extern const tb_wl_interface tb_pointer_constraints_interface;
+extern const tb_wl_interface tb_locked_pointer_interface;
+
+static const tb_wl_interface *tb_cursor_shape_get_types[2] = {&tb_cursor_shape_device_interface,
+                                                              NULL};
+static const tb_wl_interface *tb_relative_get_types[2] = {&tb_relative_pointer_interface, NULL};
+static const tb_wl_interface *tb_lock_pointer_types[5] = {&tb_locked_pointer_interface, NULL, NULL,
+                                                          NULL, NULL};
+static const tb_wl_interface *tb_confine_pointer_types[5] = {NULL, NULL, NULL, NULL, NULL};
+static const tb_wl_interface *tb_locked_region_types[1] = {NULL};
+
+static const tb_wl_message tb_cursor_shape_manager_requests[] = {
+    {"destroy", "", tb_wl_no_types},
+    {"get_pointer", "no", tb_cursor_shape_get_types},
+    {"get_tablet_tool_v2", "no", tb_wl_no_types},
+};
+const tb_wl_interface tb_cursor_shape_manager_interface = {
+    "wp_cursor_shape_manager_v1", 1, 3, tb_cursor_shape_manager_requests, 0, NULL};
+
+static const tb_wl_message tb_cursor_shape_device_requests[] = {
+    {"destroy", "", tb_wl_no_types},
+    {"set_shape", "uu", tb_wl_no_types},
+};
+const tb_wl_interface tb_cursor_shape_device_interface = {"wp_cursor_shape_device_v1",     1, 2,
+                                                          tb_cursor_shape_device_requests, 0, NULL};
+
+static const tb_wl_message tb_relative_manager_requests[] = {
+    {"destroy", "", tb_wl_no_types},
+    {"get_relative_pointer", "no", tb_relative_get_types},
+};
+const tb_wl_interface tb_relative_manager_interface = {"zwp_relative_pointer_manager_v1", 1, 2,
+                                                       tb_relative_manager_requests,      0, NULL};
+
+static const tb_wl_message tb_relative_pointer_requests[] = {{"destroy", "", tb_wl_no_types}};
+static const tb_wl_message tb_relative_pointer_events[] = {
+    {"relative_motion", "uuffff", tb_wl_no_types}};
+const tb_wl_interface tb_relative_pointer_interface = {
+    "zwp_relative_pointer_v1", 1, 1, tb_relative_pointer_requests, 1, tb_relative_pointer_events};
+
+static const tb_wl_message tb_pointer_constraints_requests[] = {
+    {"destroy", "", tb_wl_no_types},
+    {"lock_pointer", "noo?ou", tb_lock_pointer_types},
+    {"confine_pointer", "noo?ou", tb_confine_pointer_types},
+};
+const tb_wl_interface tb_pointer_constraints_interface = {"zwp_pointer_constraints_v1",    1, 3,
+                                                          tb_pointer_constraints_requests, 0, NULL};
+
+static const tb_wl_message tb_locked_pointer_requests[] = {
+    {"destroy", "", tb_wl_no_types},
+    {"set_cursor_position_hint", "ff", tb_wl_no_types},
+    {"set_region", "?o", tb_locked_region_types},
+};
+static const tb_wl_message tb_locked_pointer_events[] = {
+    {"locked", "", tb_wl_no_types},
+    {"unlocked", "", tb_wl_no_types},
+};
+const tb_wl_interface tb_locked_pointer_interface = {
+    "zwp_locked_pointer_v1", 1, 3, tb_locked_pointer_requests, 2, tb_locked_pointer_events};
+
 /* Requests, by their opcodes in the protocols' XML. */
 enum
 {
@@ -222,13 +378,27 @@ enum
     TB_XDG_DECORATION_MANAGER_DESTROY = 0,
     TB_XDG_DECORATION_MANAGER_GET = 1,
     TB_XDG_TOPLEVEL_DECORATION_DESTROY = 0,
-    TB_XDG_TOPLEVEL_DECORATION_SET_MODE = 1
+    TB_XDG_TOPLEVEL_DECORATION_SET_MODE = 1,
+    TB_WL_SEAT_GET_POINTER = 0,
+    TB_WL_POINTER_SET_CURSOR = 0,
+    TB_WL_POINTER_RELEASE = 1,
+    TB_CURSOR_SHAPE_MANAGER_DESTROY = 0,
+    TB_CURSOR_SHAPE_MANAGER_GET_POINTER = 1,
+    TB_CURSOR_SHAPE_DEVICE_DESTROY = 0,
+    TB_CURSOR_SHAPE_DEVICE_SET_SHAPE = 1,
+    TB_RELATIVE_MANAGER_DESTROY = 0,
+    TB_RELATIVE_MANAGER_GET = 1,
+    TB_RELATIVE_POINTER_DESTROY = 0,
+    TB_POINTER_CONSTRAINTS_DESTROY = 0,
+    TB_POINTER_CONSTRAINTS_LOCK = 1,
+    TB_LOCKED_POINTER_DESTROY = 0
 };
 
-/* The highest versions the backend knows the events of. */
+/* The highest versions the backend knows the events of. A seat of version
+ * 8 sends a wheel's turn in 120ths of a notch. */
 #define TB_WL_COMPOSITOR_VERSION 6u
 #define TB_WL_OUTPUT_VERSION 4u
-#define TB_WL_SEAT_VERSION 5u
+#define TB_WL_SEAT_VERSION 8u
 #define TB_WL_SHM_VERSION 1u
 
 /* ---------------------------------------------------------------------------
@@ -269,6 +439,33 @@ struct tb_wl_system
     tb_linux_waker waker;
     tb_window_system *system;
     bool displays_changed;
+    /* The mouse. */
+    tb_wl_proxy *pointer;
+    tb_wl_proxy *cursor_shape_manager; /* NULL without cursor-shape-v1. */
+    tb_wl_proxy *cursor_shape_device;
+    tb_wl_proxy *relative_manager;    /* NULL without relative-pointer. */
+    tb_wl_proxy *pointer_constraints; /* NULL without pointer-constraints. */
+    tb_wl_proxy *relative_pointer;
+    tb_window *pointer_focus;
+    uint32_t pointer_serial; /* Of the pointer's last entering, to set the cursor with. */
+    double pointer_x;        /* Where it is over the focus, in logical units. */
+    double pointer_y;
+    double wheel_x; /* The wheel's turn in notches, gathered until a frame ends. */
+    double wheel_y;
+    bool wheel_in_120ths; /* The frame's turn came in 120ths, not as a distance. */
+    tb_library *cursor_library;
+    tb_wl_cursor_api cursor;
+    tb_wl_cursor_theme *cursor_theme;
+    tb_wl_proxy *cursor_surface;
+    /* The keyboard's text. */
+    tb_library *xkb_library;
+    tb_xkb_api xkb;
+    tb_xkb_context *xkb_context;
+    tb_xkb_keymap *keymap;
+    tb_xkb_state *xkb_state;
+    tb_xkb_compose_table *compose_table;
+    tb_xkb_compose_state *compose_state;
+    uint32_t modifiers;
 };
 
 typedef struct tb_wl_window
@@ -286,6 +483,7 @@ typedef struct tb_wl_window
     int32_t scale;
     int32_t preferred_scale; /* From wl_surface.preferred_buffer_scale; 0 before one. */
     bool configured;
+    tb_wl_proxy *locked_pointer; /* In relative mouse mode. */
 } tb_wl_window;
 
 static tb_wl_system *tb_wl_of(const tb_window_system *system)
@@ -468,6 +666,26 @@ static void tb_wl_seat_name(void *data, tb_wl_proxy *seat, const char *name)
     (void)name;
 }
 
+/* The protocols of the mouse that a compositor may offer: cursor shapes,
+ * and relative motion with the pointer locked. */
+static void tb_wl_bind_mouse_global(tb_wl_system *native, uint32_t name, const char *interface)
+{
+    if (tb_str_equal(interface, "wp_cursor_shape_manager_v1"))
+    {
+        native->cursor_shape_manager =
+            tb_wl_bind(native, name, &tb_cursor_shape_manager_interface, 1);
+    }
+    else if (tb_str_equal(interface, "zwp_relative_pointer_manager_v1"))
+    {
+        native->relative_manager = tb_wl_bind(native, name, &tb_relative_manager_interface, 1);
+    }
+    else if (tb_str_equal(interface, "zwp_pointer_constraints_v1"))
+    {
+        native->pointer_constraints =
+            tb_wl_bind(native, name, &tb_pointer_constraints_interface, 1);
+    }
+}
+
 static void tb_wl_global(void *data, tb_wl_proxy *registry, uint32_t name, const char *interface,
                          uint32_t version)
 {
@@ -506,6 +724,10 @@ static void tb_wl_global(void *data, tb_wl_proxy *registry, uint32_t name, const
     else if (tb_str_equal(interface, "wl_output"))
     {
         tb_wl_add_output(native, name, version);
+    }
+    else
+    {
+        tb_wl_bind_mouse_global(native, name, interface);
     }
 }
 
@@ -547,11 +769,12 @@ static struct
 } tb_wl_wm_base_listener = {tb_wl_ping};
 
 /* ---------------------------------------------------------------------------
- * The keyboard.
+ * The seat: the keyboard and the mouse.
  * ------------------------------------------------------------------------- */
 
-/* coverage-off: the headless compositor that CI tests under has no seat, so no keyboard;
- * keys are tested through X11 and Win32, which share the key tables */
+/* coverage-off: the headless compositor that CI tests under has no seat, so no keyboard or mouse;
+ * keys, buttons, and text are tested through X11, Win32, and Cocoa, and the translations here
+ * through the functions they share */
 static tb_window *tb_wl_window_of_surface(tb_wl_system *native, tb_wl_proxy *surface)
 {
     for (size_t index = 0; index < tb_array_length(native->system->windows); index++)
@@ -565,15 +788,72 @@ static tb_window *tb_wl_window_of_surface(tb_wl_system *native, tb_wl_proxy *sur
     return NULL;
 }
 
+static void tb_wl_forget_keymap(tb_wl_system *native)
+{
+    if (native->compose_state != NULL)
+    {
+        native->xkb.compose_state_unref(native->compose_state);
+        native->compose_state = NULL;
+    }
+    if (native->xkb_state != NULL)
+    {
+        native->xkb.state_unref(native->xkb_state);
+        native->xkb_state = NULL;
+    }
+    if (native->keymap != NULL)
+    {
+        native->xkb.keymap_unref(native->keymap);
+        native->keymap = NULL;
+    }
+}
+
+/* The keymap's text, read from the file the compositor shares. */
+static char *tb_wl_read_keymap(int32_t fd, uint32_t size)
+{
+    char *const text = tb_calloc((size_t)size + 1u, 1);
+    size_t done = 0;
+
+    while (done < size)
+    {
+        const ssize_t got = read(fd, text + done, size - done);
+        if (got <= 0)
+        {
+            break;
+        }
+        done += (size_t)got;
+    }
+    text[done] = '\0';
+    return text;
+}
+
+/* The keymap turns keys into text; without xkbcommon, keys have none. */
 static void tb_wl_keymap(void *data, tb_wl_proxy *keyboard, uint32_t format, int32_t fd,
                          uint32_t size)
 {
-    (void)data;
+    tb_wl_system *const native = data;
+    char *text = NULL;
+
     (void)keyboard;
-    (void)format;
-    (void)size;
-    /* Keys are read by their codes; the keymap, for text, is not needed. */
+    if (native->xkb_context == NULL || format != TB_WL_KEYMAP_XKB_V1)
+    {
+        (void)close(fd);
+        return;
+    }
+    text = tb_wl_read_keymap(fd, size);
     (void)close(fd);
+    tb_wl_forget_keymap(native);
+    native->keymap =
+        native->xkb.keymap_new_from_string(native->xkb_context, text, TB_WL_KEYMAP_XKB_V1, 0);
+    tb_free(text);
+    if (native->keymap == NULL)
+    {
+        return;
+    }
+    native->xkb_state = native->xkb.state_new(native->keymap);
+    if (native->compose_table != NULL)
+    {
+        native->compose_state = native->xkb.compose_state_new(native->compose_table, 0);
+    }
 }
 
 static void tb_wl_keyboard_enter(void *data, tb_wl_proxy *keyboard, uint32_t serial,
@@ -604,34 +884,104 @@ static void tb_wl_keyboard_leave(void *data, tb_wl_proxy *keyboard, uint32_t ser
         tb_window_focused(window, false);
     }
     native->keyboard_focus = NULL;
+    if (native->compose_state != NULL)
+    {
+        native->xkb.compose_state_reset(native->compose_state);
+    }
+}
+
+/* The text a key types, by the keymap, with a dead key composed with the
+ * key after it. */
+static void tb_wl_key_text(tb_wl_system *native, tb_window *window, uint32_t key)
+{
+    /* xkbcommon's keycodes are evdev's, 8 higher, as X's are. */
+    const uint32_t code = key + 8u;
+    char text[64] = {0};
+    int length = 0;
+
+    if (native->xkb_state == NULL)
+    {
+        return;
+    }
+    if (native->compose_state != NULL &&
+        native->xkb.compose_state_feed(
+            native->compose_state, native->xkb.state_key_get_one_sym(native->xkb_state, code)) != 0)
+    {
+        const int status = native->xkb.compose_state_get_status(native->compose_state);
+        if (status == TB_XKB_COMPOSE_COMPOSING)
+        {
+            return;
+        }
+        if (status == TB_XKB_COMPOSE_CANCELLED)
+        {
+            native->xkb.compose_state_reset(native->compose_state);
+            return;
+        }
+        if (status == TB_XKB_COMPOSE_COMPOSED)
+        {
+            length = native->xkb.compose_state_get_utf8(native->compose_state, text, sizeof(text));
+            native->xkb.compose_state_reset(native->compose_state);
+            tb_window_text(window, text, length > 0 ? (size_t)length : 0u);
+            return;
+        }
+    }
+    length = native->xkb.state_key_get_utf8(native->xkb_state, code, text, sizeof(text));
+    if (length > 0 && (size_t)length < sizeof(text))
+    {
+        tb_window_text(window, text, (size_t)length);
+    }
 }
 
 static void tb_wl_key(void *data, tb_wl_proxy *keyboard, uint32_t serial, uint32_t time,
                       uint32_t key, uint32_t state)
 {
     tb_wl_system *const native = data;
+    const bool down = state == TB_WL_KEY_PRESSED;
 
     (void)keyboard;
     (void)serial;
     (void)time;
-    if (native->keyboard_focus != NULL)
+    if (native->keyboard_focus == NULL)
     {
-        /* A compositor sends no repeats: a client repeats keys itself. */
-        tb_window_key(native->keyboard_focus, tb_linux_key(key), key, state == TB_WL_KEY_PRESSED,
-                      false);
+        return;
+    }
+    /* A compositor sends no repeats: a client repeats keys itself. */
+    tb_window_key(native->keyboard_focus, tb_linux_key(key), key, down, false, native->modifiers);
+    if (down)
+    {
+        tb_wl_key_text(native, native->keyboard_focus, key);
     }
 }
 
 static void tb_wl_modifiers(void *data, tb_wl_proxy *keyboard, uint32_t serial, uint32_t depressed,
                             uint32_t latched, uint32_t locked, uint32_t group)
 {
-    (void)data;
+    tb_wl_system *const native = data;
+    static const struct
+    {
+        const char *name;
+        uint32_t modifier;
+    } names[] = {{"Shift", TB_MODIFIER_SHIFT},
+                 {"Control", TB_MODIFIER_CONTROL},
+                 {"Mod1", TB_MODIFIER_ALT},
+                 {"Mod4", TB_MODIFIER_SUPER}};
+
     (void)keyboard;
     (void)serial;
-    (void)depressed;
-    (void)latched;
-    (void)locked;
-    (void)group;
+    native->modifiers = 0;
+    if (native->xkb_state == NULL)
+    {
+        return;
+    }
+    (void)native->xkb.state_update_mask(native->xkb_state, depressed, latched, locked, 0, 0, group);
+    for (size_t index = 0; index < sizeof(names) / sizeof(names[0]); index++)
+    {
+        if (native->xkb.state_mod_name_is_active(native->xkb_state, names[index].name,
+                                                 TB_XKB_MODS_EFFECTIVE) > 0)
+        {
+            native->modifiers |= names[index].modifier;
+        }
+    }
 }
 
 static void tb_wl_repeat_info(void *data, tb_wl_proxy *keyboard, int32_t rate, int32_t delay)
@@ -673,10 +1023,403 @@ static void tb_wl_release_keyboard(tb_wl_system *native)
     native->keyboard_focus = NULL;
 }
 
+static double tb_wl_from_fixed(tb_wl_fixed value)
+{
+    return (double)value / 256.0;
+}
+
+/* The names of each shape in a cursor theme: the CSS name, then the X
+ * cursor font's, which older themes have. */
+static const char *const tb_wl_cursor_names[TB_CURSOR_COUNT][2] = {
+    [TB_CURSOR_ARROW] = {"default", "left_ptr"},
+    [TB_CURSOR_TEXT] = {"text", "xterm"},
+    [TB_CURSOR_HAND] = {"pointer", "hand2"},
+    [TB_CURSOR_CROSSHAIR] = {"crosshair", "cross"},
+    [TB_CURSOR_NOT_ALLOWED] = {"not-allowed", "crossed_circle"},
+    [TB_CURSOR_RESIZE_HORIZONTAL] = {"ew-resize", "sb_h_double_arrow"},
+    [TB_CURSOR_RESIZE_VERTICAL] = {"ns-resize", "sb_v_double_arrow"},
+    [TB_CURSOR_RESIZE_DIAGONAL_DOWN] = {"nwse-resize", "bottom_right_corner"},
+    [TB_CURSOR_RESIZE_DIAGONAL_UP] = {"nesw-resize", "bottom_left_corner"},
+    [TB_CURSOR_RESIZE_ALL] = {"move", "fleur"},
+};
+
+/* wp_cursor_shape_device_v1's shapes. */
+static const uint32_t tb_wl_cursor_shapes[TB_CURSOR_COUNT] = {
+    [TB_CURSOR_ARROW] = 1,                 /* default */
+    [TB_CURSOR_TEXT] = 9,                  /* text */
+    [TB_CURSOR_HAND] = 4,                  /* pointer */
+    [TB_CURSOR_CROSSHAIR] = 8,             /* crosshair */
+    [TB_CURSOR_NOT_ALLOWED] = 15,          /* not_allowed */
+    [TB_CURSOR_RESIZE_HORIZONTAL] = 26,    /* ew_resize */
+    [TB_CURSOR_RESIZE_VERTICAL] = 27,      /* ns_resize */
+    [TB_CURSOR_RESIZE_DIAGONAL_DOWN] = 29, /* nwse_resize */
+    [TB_CURSOR_RESIZE_DIAGONAL_UP] = 28,   /* nesw_resize */
+    [TB_CURSOR_RESIZE_ALL] = 13,           /* move */
+};
+
+/* Set the pointer's cursor to nothing. */
+static void tb_wl_hide_cursor(tb_wl_system *native)
+{
+    (void)native->wl.marshal_flags(native->pointer, TB_WL_POINTER_SET_CURSOR, NULL,
+                                   native->wl.get_version(native->pointer), 0,
+                                   native->pointer_serial, NULL, 0, 0);
+}
+
+/* Draw a cursor of the theme's: an image of a surface of the client's. */
+static void tb_wl_draw_theme_cursor(tb_wl_system *native, tb_cursor shape)
+{
+    tb_wl_cursor *cursor = NULL;
+    tb_wl_cursor_image *image = NULL;
+    tb_wl_proxy *buffer = NULL;
+    uint32_t version = 0;
+
+    if (native->cursor_theme == NULL)
+    {
+        return;
+    }
+    cursor = native->cursor.theme_get_cursor(native->cursor_theme, tb_wl_cursor_names[shape][0]);
+    if (cursor == NULL)
+    {
+        cursor =
+            native->cursor.theme_get_cursor(native->cursor_theme, tb_wl_cursor_names[shape][1]);
+    }
+    if (cursor == NULL || cursor->image_count == 0)
+    {
+        return;
+    }
+    image = cursor->images[0];
+    buffer = native->cursor.image_get_buffer(image);
+    version = native->wl.get_version(native->cursor_surface);
+    (void)native->wl.marshal_flags(native->cursor_surface, TB_WL_SURFACE_ATTACH, NULL, version, 0,
+                                   buffer, 0, 0);
+    (void)native->wl.marshal_flags(native->cursor_surface, TB_WL_SURFACE_DAMAGE, NULL, version, 0,
+                                   0, 0, (int32_t)image->width, (int32_t)image->height);
+    (void)native->wl.marshal_flags(native->cursor_surface, TB_WL_SURFACE_COMMIT, NULL, version, 0);
+    (void)native->wl.marshal_flags(native->pointer, TB_WL_POINTER_SET_CURSOR, NULL,
+                                   native->wl.get_version(native->pointer), 0,
+                                   native->pointer_serial, native->cursor_surface,
+                                   (int32_t)image->hotspot_x, (int32_t)image->hotspot_y);
+}
+
+/* Show the cursor the window under the pointer asks for. */
+static void tb_wl_apply_cursor(tb_wl_system *native, const tb_window *window)
+{
+    if (native->pointer == NULL || native->pointer_focus != window)
+    {
+        return;
+    }
+    if (window->cursor_hidden || window->state.relative_mouse)
+    {
+        tb_wl_hide_cursor(native);
+    }
+    else if (native->cursor_shape_device != NULL)
+    {
+        (void)native->wl.marshal_flags(native->cursor_shape_device,
+                                       TB_CURSOR_SHAPE_DEVICE_SET_SHAPE, NULL, 1, 0,
+                                       native->pointer_serial, tb_wl_cursor_shapes[window->cursor]);
+    }
+    else
+    {
+        tb_wl_draw_theme_cursor(native, window->cursor);
+    }
+    (void)native->wl.flush(native->display);
+}
+
+static void tb_wl_pointer_enter(void *data, tb_wl_proxy *pointer, uint32_t serial,
+                                tb_wl_proxy *surface, tb_wl_fixed x, tb_wl_fixed y)
+{
+    tb_wl_system *const native = data;
+
+    (void)pointer;
+    native->pointer_focus = tb_wl_window_of_surface(native, surface);
+    native->pointer_serial = serial;
+    native->pointer_x = tb_wl_from_fixed(x);
+    native->pointer_y = tb_wl_from_fixed(y);
+    if (native->pointer_focus == NULL)
+    {
+        return;
+    }
+    tb_wl_apply_cursor(native, native->pointer_focus);
+    tb_window_mouse_crossed(native->pointer_focus, true, native->pointer_x, native->pointer_y);
+}
+
+static void tb_wl_pointer_leave(void *data, tb_wl_proxy *pointer, uint32_t serial,
+                                tb_wl_proxy *surface)
+{
+    tb_wl_system *const native = data;
+    tb_window *const window = tb_wl_window_of_surface(native, surface);
+
+    (void)pointer;
+    (void)serial;
+    if (window != NULL)
+    {
+        tb_window_mouse_crossed(window, false, 0.0, 0.0);
+    }
+    native->pointer_focus = NULL;
+}
+
+static void tb_wl_pointer_motion(void *data, tb_wl_proxy *pointer, uint32_t time, tb_wl_fixed x,
+                                 tb_wl_fixed y)
+{
+    tb_wl_system *const native = data;
+
+    (void)pointer;
+    (void)time;
+    native->pointer_x = tb_wl_from_fixed(x);
+    native->pointer_y = tb_wl_from_fixed(y);
+    if (native->pointer_focus != NULL)
+    {
+        tb_window_mouse_moved(native->pointer_focus, native->pointer_x, native->pointer_y,
+                              native->modifiers);
+    }
+}
+
+static void tb_wl_pointer_button(void *data, tb_wl_proxy *pointer, uint32_t serial, uint32_t time,
+                                 uint32_t button, uint32_t state)
+{
+    tb_wl_system *const native = data;
+    const tb_mouse_button which = tb_linux_button(button);
+
+    (void)pointer;
+    (void)serial;
+    (void)time;
+    if (native->pointer_focus == NULL || which == TB_MOUSE_BUTTON_NONE)
+    {
+        return;
+    }
+    tb_window_mouse_button(native->pointer_focus, which, state == TB_WL_BUTTON_PRESSED,
+                           native->pointer_x, native->pointer_y, native->modifiers);
+}
+
+/* Report the wheel's turn gathered in a frame. Wayland's vertical axis is
+ * positive down, the engine's up. */
+static void tb_wl_pointer_frame(void *data, tb_wl_proxy *pointer)
+{
+    tb_wl_system *const native = data;
+
+    (void)pointer;
+    if (native->pointer_focus != NULL && (native->wheel_x != 0.0 || native->wheel_y != 0.0))
+    {
+        tb_window_mouse_wheel(native->pointer_focus, native->wheel_x, -native->wheel_y,
+                              native->pointer_x, native->pointer_y, native->modifiers);
+    }
+    native->wheel_x = 0.0;
+    native->wheel_y = 0.0;
+    native->wheel_in_120ths = false;
+}
+
+static void tb_wl_add_turn(tb_wl_system *native, uint32_t axis, double notches)
+{
+    if (axis == TB_WL_AXIS_VERTICAL)
+    {
+        native->wheel_y += notches;
+    }
+    else
+    {
+        native->wheel_x += notches;
+    }
+}
+
+/* A distance scrolled; a wheel that also sends 120ths is counted by them. */
+static void tb_wl_pointer_axis(void *data, tb_wl_proxy *pointer, uint32_t time, uint32_t axis,
+                               tb_wl_fixed value)
+{
+    tb_wl_system *const native = data;
+
+    (void)time;
+    if (!native->wheel_in_120ths)
+    {
+        tb_wl_add_turn(native, axis, tb_wl_from_fixed(value) / TB_WL_AXIS_PER_NOTCH);
+    }
+    /* A seat before version 5 ends no frames. */
+    if (native->wl.get_version(pointer) < 5)
+    {
+        tb_wl_pointer_frame(data, pointer);
+    }
+}
+
+static void tb_wl_pointer_axis_source(void *data, tb_wl_proxy *pointer, uint32_t source)
+{
+    (void)data;
+    (void)pointer;
+    (void)source;
+}
+
+static void tb_wl_pointer_axis_stop(void *data, tb_wl_proxy *pointer, uint32_t time, uint32_t axis)
+{
+    (void)data;
+    (void)pointer;
+    (void)time;
+    (void)axis;
+}
+
+/* Whole notches, before seats of version 8. */
+static void tb_wl_pointer_axis_discrete(void *data, tb_wl_proxy *pointer, uint32_t axis,
+                                        int32_t discrete)
+{
+    tb_wl_system *const native = data;
+
+    (void)pointer;
+    if (!native->wheel_in_120ths)
+    {
+        native->wheel_x = 0.0;
+        native->wheel_y = 0.0;
+        native->wheel_in_120ths = true;
+    }
+    tb_wl_add_turn(native, axis, (double)discrete);
+}
+
+/* 120ths of a notch, which a high-resolution wheel sends in parts. The axis
+ * events of the frame, which come after, are not counted again. */
+static void tb_wl_pointer_axis_value120(void *data, tb_wl_proxy *pointer, uint32_t axis,
+                                        int32_t value120)
+{
+    tb_wl_system *const native = data;
+
+    (void)pointer;
+    if (!native->wheel_in_120ths)
+    {
+        native->wheel_x = 0.0;
+        native->wheel_y = 0.0;
+        native->wheel_in_120ths = true;
+    }
+    tb_wl_add_turn(native, axis, (double)value120 / 120.0);
+}
+
+static struct
+{
+    void (*enter)(void *, tb_wl_proxy *, uint32_t, tb_wl_proxy *, tb_wl_fixed, tb_wl_fixed);
+    void (*leave)(void *, tb_wl_proxy *, uint32_t, tb_wl_proxy *);
+    void (*motion)(void *, tb_wl_proxy *, uint32_t, tb_wl_fixed, tb_wl_fixed);
+    void (*button)(void *, tb_wl_proxy *, uint32_t, uint32_t, uint32_t, uint32_t);
+    void (*axis)(void *, tb_wl_proxy *, uint32_t, uint32_t, tb_wl_fixed);
+    void (*frame)(void *, tb_wl_proxy *);
+    void (*axis_source)(void *, tb_wl_proxy *, uint32_t);
+    void (*axis_stop)(void *, tb_wl_proxy *, uint32_t, uint32_t);
+    void (*axis_discrete)(void *, tb_wl_proxy *, uint32_t, int32_t);
+    void (*axis_value120)(void *, tb_wl_proxy *, uint32_t, int32_t);
+} tb_wl_pointer_listener = {tb_wl_pointer_enter,         tb_wl_pointer_leave,
+                            tb_wl_pointer_motion,        tb_wl_pointer_button,
+                            tb_wl_pointer_axis,          tb_wl_pointer_frame,
+                            tb_wl_pointer_axis_source,   tb_wl_pointer_axis_stop,
+                            tb_wl_pointer_axis_discrete, tb_wl_pointer_axis_value120};
+
+/* The mouse's own motion, unaccelerated, for the window that locked the
+ * pointer. */
+static void tb_wl_relative_motion(void *data, tb_wl_proxy *relative, uint32_t time_high,
+                                  uint32_t time_low, tb_wl_fixed delta_x, tb_wl_fixed delta_y,
+                                  tb_wl_fixed raw_x, tb_wl_fixed raw_y)
+{
+    tb_wl_system *const native = data;
+
+    (void)relative;
+    (void)time_high;
+    (void)time_low;
+    (void)delta_x;
+    (void)delta_y;
+    if (native->pointer_focus != NULL)
+    {
+        tb_window_mouse_relative(native->pointer_focus, tb_wl_from_fixed(raw_x),
+                                 tb_wl_from_fixed(raw_y));
+    }
+}
+
+static struct
+{
+    void (*relative_motion)(void *, tb_wl_proxy *, uint32_t, uint32_t, tb_wl_fixed, tb_wl_fixed,
+                            tb_wl_fixed, tb_wl_fixed);
+} tb_wl_relative_listener = {tb_wl_relative_motion};
+
+/* The cursor theme, for a compositor without cursor shapes: its images
+ * are drawn into a surface of the client's. */
+static void tb_wl_load_cursor_theme(tb_wl_system *native)
+{
+    static const char *const names[] = {"wl_cursor_theme_load", "wl_cursor_theme_destroy",
+                                        "wl_cursor_theme_get_cursor", "wl_cursor_image_get_buffer"};
+    enum
+    {
+        COUNT = sizeof(names) / sizeof(names[0])
+    };
+    tb_library_function functions[COUNT] = {0};
+    tb_library_binding bindings[COUNT] = {0};
+
+    TB_STATIC_ASSERT(sizeof(tb_wl_cursor_api) == COUNT * sizeof(tb_library_function),
+                     "the libwayland-cursor table has a function for each name");
+    if (native->cursor_library != NULL ||
+        tb_library_open("libwayland-cursor.so.0", TB_LIBRARY_SEARCH_SYSTEM, &native->cursor_library,
+                        NULL) != TB_LIBRARY_OK)
+    {
+        return;
+    }
+    for (size_t index = 0; index < COUNT; index++)
+    {
+        bindings[index] = (tb_library_binding){
+            .name = names[index], .function = &functions[index], .required = true};
+    }
+    if (tb_library_bind(native->cursor_library, bindings, COUNT, NULL) != TB_LIBRARY_OK)
+    {
+        return;
+    }
+    memcpy(&native->cursor, functions, sizeof(native->cursor));
+    native->cursor_theme = native->cursor.theme_load(NULL, TB_WL_CURSOR_SIZE, native->shm);
+    native->cursor_surface = native->wl.marshal_flags(
+        native->compositor, TB_WL_COMPOSITOR_CREATE_SURFACE, native->core.surface,
+        native->wl.get_version(native->compositor), 0, NULL);
+}
+
+static void tb_wl_get_pointer(tb_wl_system *native, tb_wl_proxy *seat)
+{
+    native->pointer = native->wl.marshal_flags(seat, TB_WL_SEAT_GET_POINTER, native->core.pointer,
+                                               native->wl.get_version(seat), 0, NULL);
+    (void)native->wl.add_listener(native->pointer, (tb_wl_handler *)&tb_wl_pointer_listener,
+                                  native);
+    if (native->cursor_shape_manager != NULL)
+    {
+        native->cursor_shape_device = native->wl.marshal_flags(
+            native->cursor_shape_manager, TB_CURSOR_SHAPE_MANAGER_GET_POINTER,
+            &tb_cursor_shape_device_interface, 1, 0, NULL, native->pointer);
+        return;
+    }
+    tb_wl_load_cursor_theme(native);
+}
+
+static void tb_wl_release_pointer(tb_wl_system *native)
+{
+    if (native->pointer == NULL)
+    {
+        return;
+    }
+    if (native->relative_pointer != NULL)
+    {
+        (void)native->wl.marshal_flags(native->relative_pointer, TB_RELATIVE_POINTER_DESTROY, NULL,
+                                       1, TB_WL_MARSHAL_DESTROY);
+        native->relative_pointer = NULL;
+    }
+    if (native->cursor_shape_device != NULL)
+    {
+        (void)native->wl.marshal_flags(native->cursor_shape_device, TB_CURSOR_SHAPE_DEVICE_DESTROY,
+                                       NULL, 1, TB_WL_MARSHAL_DESTROY);
+        native->cursor_shape_device = NULL;
+    }
+    if (native->wl.get_version(native->pointer) >= 3)
+    {
+        (void)native->wl.marshal_flags(native->pointer, TB_WL_POINTER_RELEASE, NULL,
+                                       native->wl.get_version(native->pointer),
+                                       TB_WL_MARSHAL_DESTROY);
+    }
+    else
+    {
+        native->wl.destroy(native->pointer);
+    }
+    native->pointer = NULL;
+    native->pointer_focus = NULL;
+}
+
 static void tb_wl_seat_capabilities(void *data, tb_wl_proxy *seat, uint32_t capabilities)
 {
     tb_wl_system *const native = data;
     const bool has_keyboard = (capabilities & TB_WL_SEAT_KEYBOARD) != 0;
+    const bool has_pointer = (capabilities & TB_WL_SEAT_POINTER) != 0;
 
     if (has_keyboard && native->keyboard == NULL)
     {
@@ -690,8 +1433,84 @@ static void tb_wl_seat_capabilities(void *data, tb_wl_proxy *seat, uint32_t capa
     {
         tb_wl_release_keyboard(native);
     }
+    if (has_pointer && native->pointer == NULL)
+    {
+        tb_wl_get_pointer(native, seat);
+    }
+    else if (!has_pointer)
+    {
+        tb_wl_release_pointer(native);
+    }
+}
+
+/* Lock the pointer where it is, hidden, and read the mouse's own motion. */
+static tb_window_result tb_wl_lock_pointer(tb_window *window)
+{
+    tb_wl_system *const native = tb_wl_of(window->system);
+    tb_wl_window *const record = tb_wl_window_of(window);
+
+    if (native->relative_pointer == NULL)
+    {
+        native->relative_pointer =
+            native->wl.marshal_flags(native->relative_manager, TB_RELATIVE_MANAGER_GET,
+                                     &tb_relative_pointer_interface, 1, 0, NULL, native->pointer);
+        (void)native->wl.add_listener(native->relative_pointer,
+                                      (tb_wl_handler *)&tb_wl_relative_listener, native);
+    }
+    record->locked_pointer = native->wl.marshal_flags(
+        native->pointer_constraints, TB_POINTER_CONSTRAINTS_LOCK, &tb_locked_pointer_interface, 1,
+        0, NULL, record->surface, native->pointer, NULL, TB_WL_LOCK_PERSISTENT);
+    (void)native->wl.flush(native->display);
+    return TB_WINDOW_OK;
 }
 /* coverage-on */
+
+static void tb_wl_unlock_pointer(tb_window *window)
+{
+    tb_wl_system *const native = tb_wl_of(window->system);
+    tb_wl_window *const record = tb_wl_window_of(window);
+
+    if (record->locked_pointer == NULL)
+    {
+        return;
+    }
+    /* coverage-off: only a seat with a mouse locks the pointer; see above */
+    (void)native->wl.marshal_flags(record->locked_pointer, TB_LOCKED_POINTER_DESTROY, NULL, 1,
+                                   TB_WL_MARSHAL_DESTROY);
+    record->locked_pointer = NULL;
+    (void)native->wl.flush(native->display);
+    /* coverage-on */
+}
+
+static tb_window_result tb_wl_set_relative_mouse(tb_window *window, bool relative,
+                                                 tb_window_error *error)
+{
+    tb_wl_system *const native = tb_wl_of(window->system);
+
+    if (!relative)
+    {
+        tb_wl_unlock_pointer(window);
+        return TB_WINDOW_OK;
+    }
+    if (native->relative_manager == NULL || native->pointer_constraints == NULL)
+    {
+        return tb_window_fail(error, TB_WINDOW_UNAVAILABLE,
+                              "the Wayland compositor offers no zwp_relative_pointer_manager_v1 "
+                              "and zwp_pointer_constraints_v1 for relative mouse mode");
+    }
+    if (native->pointer == NULL)
+    {
+        return tb_window_fail(error, TB_WINDOW_UNAVAILABLE, "the Wayland seat has no mouse");
+    }
+    /* coverage-off: the headless compositor that CI tests under has no seat, so no mouse */
+    return tb_wl_lock_pointer(window);
+    /* coverage-on */
+}
+
+static void tb_wl_update_cursor(tb_window *window)
+{
+    tb_wl_apply_cursor(tb_wl_of(window->system), window);
+}
 
 /* ---------------------------------------------------------------------------
  * Buffers.
@@ -1097,6 +1916,12 @@ static void tb_wl_destroy(tb_window *window)
     {
         native->keyboard_focus = NULL;
     }
+    if (native->pointer_focus == window)
+    {
+        /* coverage-off: the headless compositor that CI tests under has no seat, so no mouse */
+        native->pointer_focus = NULL;
+        /* coverage-on */
+    }
     if (record->decoration != NULL)
     {
         (void)native->wl.marshal_flags(record->decoration, TB_XDG_TOPLEVEL_DECORATION_DESTROY, NULL,
@@ -1209,11 +2034,52 @@ static void tb_wl_destroy_global(tb_wl_system *native, tb_wl_proxy **proxy, uint
     *proxy = NULL;
 }
 
+/* What turns keys into text, when the compositor sends the keymap. */
+static void tb_wl_release_xkb(tb_wl_system *native)
+{
+    if (native->xkb_context == NULL)
+    {
+        tb_library_close(native->xkb_library);
+        return;
+    }
+    tb_wl_forget_keymap(native);
+    if (native->compose_table != NULL)
+    {
+        native->xkb.compose_table_unref(native->compose_table);
+    }
+    native->xkb.context_unref(native->xkb_context);
+    tb_library_close(native->xkb_library);
+}
+
+static void tb_wl_release_mouse(tb_wl_system *native)
+{
+    tb_wl_release_pointer(native);
+    if (native->cursor_theme != NULL)
+    {
+        /* coverage-off: only a compositor without cursor shapes needs a theme */
+        native->cursor.theme_destroy(native->cursor_theme);
+        /* coverage-on */
+    }
+    if (native->cursor_surface != NULL)
+    {
+        /* coverage-off: see above */
+        (void)native->wl.marshal_flags(native->cursor_surface, TB_WL_SURFACE_DESTROY, NULL,
+                                       native->wl.get_version(native->cursor_surface),
+                                       TB_WL_MARSHAL_DESTROY);
+        /* coverage-on */
+    }
+    tb_wl_destroy_global(native, &native->cursor_shape_manager, TB_CURSOR_SHAPE_MANAGER_DESTROY);
+    tb_wl_destroy_global(native, &native->relative_manager, TB_RELATIVE_MANAGER_DESTROY);
+    tb_wl_destroy_global(native, &native->pointer_constraints, TB_POINTER_CONSTRAINTS_DESTROY);
+    tb_library_close(native->cursor_library);
+}
+
 static void tb_wl_release(tb_wl_system *native)
 {
     if (native->display != NULL)
     {
         tb_wl_release_keyboard(native);
+        tb_wl_release_mouse(native);
         if (native->seat != NULL)
         {
             if (native->wl.get_version(native->seat) >= 5)
@@ -1254,6 +2120,7 @@ static void tb_wl_release(tb_wl_system *native)
     {
         tb_linux_waker_close(&native->waker);
     }
+    tb_wl_release_xkb(native);
     tb_array_destroy(native->outputs);
     tb_library_close(native->library);
     tb_free(native);
@@ -1273,6 +2140,8 @@ static const tb_window_ops tb_wl_ops = {
     .configure = tb_wl_configure,
     .native = tb_wl_native,
     .confirm = tb_linux_confirm,
+    .set_relative_mouse = tb_wl_set_relative_mouse,
+    .update_cursor = tb_wl_update_cursor,
 };
 
 /* ---------------------------------------------------------------------------
@@ -1292,6 +2161,7 @@ static tb_window_result tb_wl_load(tb_wl_system *native, tb_window_error *error)
         "wl_registry_interface", "wl_compositor_interface", "wl_surface_interface",
         "wl_seat_interface",     "wl_keyboard_interface",   "wl_output_interface",
         "wl_shm_interface",      "wl_shm_pool_interface",   "wl_buffer_interface",
+        "wl_pointer_interface",  "wl_region_interface",
     };
     enum
     {
@@ -1342,7 +2212,98 @@ static tb_window_result tb_wl_load(tb_wl_system *native, tb_window_error *error)
     tb_xdg_get_surface_types[1] = native->core.surface;
     tb_xdg_seat_types[0] = native->core.seat;
     tb_xdg_output_types[0] = native->core.output;
+    /* And so do those of the mouse's protocols. */
+    tb_cursor_shape_get_types[1] = native->core.pointer;
+    tb_relative_get_types[1] = native->core.pointer;
+    for (size_t index = 1; index < 4; index++)
+    {
+        const tb_wl_interface *const core_types[4] = {NULL, native->core.surface,
+                                                      native->core.pointer, native->core.region};
+        tb_lock_pointer_types[index] = core_types[index];
+        tb_confine_pointer_types[index] = core_types[index];
+    }
+    tb_locked_region_types[0] = native->core.region;
     return TB_WINDOW_OK;
+}
+
+/* The locale whose compose sequences dead keys follow, as the C library
+ * would choose it. */
+static const char *tb_wl_locale(void)
+{
+    static const char *const variables[] = {"LC_ALL", "LC_CTYPE", "LANG"};
+
+    for (size_t index = 0; index < sizeof(variables) / sizeof(variables[0]); index++)
+    {
+        const char *const value = getenv(variables[index]);
+        if (value != NULL && value[0] != '\0')
+        {
+            return value;
+        }
+    }
+    return "C";
+}
+
+/* libxkbcommon, for text: without it, keys type nothing. */
+static void tb_wl_load_xkb(tb_wl_system *native)
+{
+    static const char *const names[] = {
+        "xkb_context_new",
+        "xkb_context_unref",
+        "xkb_keymap_new_from_string",
+        "xkb_keymap_unref",
+        "xkb_state_new",
+        "xkb_state_unref",
+        "xkb_state_update_mask",
+        "xkb_state_key_get_one_sym",
+        "xkb_state_key_get_utf8",
+        "xkb_state_mod_name_is_active",
+        "xkb_compose_table_new_from_locale",
+        "xkb_compose_table_unref",
+        "xkb_compose_state_new",
+        "xkb_compose_state_unref",
+        "xkb_compose_state_feed",
+        "xkb_compose_state_reset",
+        "xkb_compose_state_get_status",
+        "xkb_compose_state_get_utf8",
+    };
+    enum
+    {
+        COUNT = sizeof(names) / sizeof(names[0])
+    };
+    tb_library_function functions[COUNT] = {0};
+    tb_library_binding bindings[COUNT] = {0};
+
+    TB_STATIC_ASSERT(sizeof(tb_xkb_api) == COUNT * sizeof(tb_library_function),
+                     "the xkbcommon table has a function for each name");
+    if (tb_library_open("libxkbcommon.so.0", TB_LIBRARY_SEARCH_SYSTEM, &native->xkb_library,
+                        NULL) != TB_LIBRARY_OK)
+    {
+        /* coverage-off: every desktop that runs Wayland has xkbcommon */
+        return;
+        /* coverage-on */
+    }
+    for (size_t index = 0; index < COUNT; index++)
+    {
+        bindings[index] = (tb_library_binding){
+            .name = names[index], .function = &functions[index], .required = true};
+    }
+    if (tb_library_bind(native->xkb_library, bindings, COUNT, NULL) != TB_LIBRARY_OK)
+    {
+        /* coverage-off: every libxkbcommon.so.0 since 0.5 exports these */
+        return;
+        /* coverage-on */
+    }
+    memcpy(&native->xkb, functions, sizeof(native->xkb));
+    native->xkb_context = native->xkb.context_new(0);
+    if (native->xkb_context == NULL)
+    {
+        /* coverage-off: xkbcommon makes a context unless out of memory */
+        return;
+        /* coverage-on */
+    }
+    /* A locale without compose sequences has no dead keys. */
+    native->compose_table =
+        native->xkb.compose_table_new_from_locale(native->xkb_context, tb_wl_locale(), 0);
 }
 
 /* What the compositor must offer for a window: without it, Wayland is not
@@ -1413,6 +2374,7 @@ tb_window_result tb_wayland_open(tb_window_system *system, tb_window_error *erro
     system->backend = TB_WINDOW_BACKEND_WAYLAND;
     system->ops = &tb_wl_ops;
     system->native = native;
+    tb_wl_load_xkb(native);
     native->displays_changed = false;
     tb_wl_publish_displays(native);
     return TB_WINDOW_OK;

@@ -21,6 +21,16 @@ tb_window_result tb_linux_confirm(tb_window *window, const char *title, const ch
  * Wayland and X11 (less 8) report. */
 tb_key tb_linux_key(uint32_t code);
 
+/* The button a Linux input event code names: evdev's BTN_* values, which
+ * Wayland reports; none for a code of no mouse button. */
+tb_mouse_button tb_linux_button(uint32_t code);
+
+/* How far an XInput2 raw motion event moved, from its valuators: the mask
+ * of those it has, `mask_length` bytes, and their values, in order. A
+ * valuator it lacks moved 0. */
+void tb_x11_raw_motion(const unsigned char *mask, int mask_length, const double *raw_values,
+                       double *delta_x, double *delta_y);
+
 /* A pipe that wakes a backend's wait, both ends non-blocking. */
 typedef struct tb_linux_waker
 {

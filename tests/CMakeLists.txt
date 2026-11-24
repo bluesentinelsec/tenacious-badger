@@ -130,6 +130,10 @@ endfunction()
 # are cases of the engine's tests.
 if(WIN32)
     list(APPEND TB_TEST_CASE_SOURCES platform/win32/window_messages_test.c)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    list(APPEND TB_TEST_CASE_SOURCES platform/linux/window_x11_test.c)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    list(APPEND TB_TEST_CASE_SOURCES platform/macos/window_events_test.c)
 endif()
 
 tb_add_tests(tb_tests SOURCES ${TB_TEST_CASE_SOURCES} LIBRARIES TenaciousBadger::badger)
@@ -155,7 +159,15 @@ set(TB_INTERNAL_TEST_CASE_SOURCES
     jobs/deque_test.c
     shader/shader_check_test.c
     shader/shader_form_test.c
-    shader/shader_parse_test.c)
+    shader/shader_parse_test.c
+    platform/window_input_test.c)
+# Input that a platform sends only to the window in front is handed to its
+# backend's handling directly.
+if(WIN32)
+    list(APPEND TB_INTERNAL_TEST_CASE_SOURCES platform/win32/window_raw_test.c)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    list(APPEND TB_INTERNAL_TEST_CASE_SOURCES platform/linux/window_input_test.c)
+endif()
 set(TB_ENGINE_SOURCES ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES} ${TB_JOBS_SOURCES}
     ${TB_CODEC_SOURCES} ${TB_SERIALIZE_SOURCES} ${TB_VFS_SOURCES} ${TB_SETTINGS_SOURCES}
     ${TB_WINDOW_SOURCES} ${TB_GAME_SOURCES} ${TB_SHADER_SOURCES})

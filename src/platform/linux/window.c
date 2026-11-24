@@ -134,6 +134,26 @@ tb_key tb_linux_key(uint32_t code)
     return TB_KEY_UNKNOWN;
 }
 
+tb_mouse_button tb_linux_button(uint32_t code)
+{
+    /* linux/input-event-codes.h: BTN_LEFT and those after it. */
+    switch (code)
+    {
+    case 0x110:
+        return TB_MOUSE_BUTTON_LEFT;
+    case 0x111:
+        return TB_MOUSE_BUTTON_RIGHT;
+    case 0x112:
+        return TB_MOUSE_BUTTON_MIDDLE;
+    case 0x113: /* BTN_SIDE */
+        return TB_MOUSE_BUTTON_X1;
+    case 0x114: /* BTN_EXTRA */
+        return TB_MOUSE_BUTTON_X2;
+    default:
+        return TB_MOUSE_BUTTON_NONE;
+    }
+}
+
 /* ---------------------------------------------------------------------------
  * Waking and waiting.
  * ------------------------------------------------------------------------- */

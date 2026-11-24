@@ -1,11 +1,15 @@
 /* The Win32 windowing turns the messages Windows sends a window into the
  * engine's events: keys by their scancodes, a close request that leaves the
- * window open, focus, minimizing, displays, and a new scale. Messages are
+ * window open, focus, minimizing, displays, a new scale, the mouse, and the
+ * characters keys type. Messages are
  * sent to the window directly, as Windows would send them, so that each is
  * checked without a person at the keyboard. */
+#include "badger/str.h"
 #include "badger/window.h"
 
 #include "tb_test.h"
+
+#include <string.h>
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -218,6 +222,256 @@ TB_TEST(platform_win32_window, fullscreen_gives_the_display_back_while_away)
         ==, TB_WINDOW_OK);
     (void)SendMessageW(made.handle, WM_ACTIVATEAPP, FALSE, 0);
     TB_TEST_EXPECT(!IsIconic(made.handle));
+    close_window(&made);
+}
+
+/* Drain the queue, and say whether an event of a type came at a position in
+ * pixels; the real mouse may send events of its own meanwhile, which are
+ * passed over. */
+static bool received_at(tb_window_system *system, tb_window_event_type type, double pixel_x,
+                        tb_window_event *kept)
+{
+    tb_window_event event = {0};
+    bool found = false;
+
+    while (tb_window_system_poll(system, &event))
+    {
+        if (event.type == type && event.pixel_x == pixel_x)
+        {
+            found = true;
+            *kept = event;
+        }
+    }
+    return found;
+}
+
+/* A mouse message's lParam: a position in the client area. */
+static LPARAM position(int x, int y)
+{
+    return MAKELPARAM((WORD)(short)x, (WORD)(short)y);
+}
+
+/* Buttons are reported with where the mouse was, in pixels and in logical
+ * units, and the modifiers the message carries. */
+TB_TEST(platform_win32_window, mouse_buttons_are_events_with_a_position)
+{
+    fixture made = open_window();
+    tb_window_event event = {0};
+    tb_window_state state = {0};
+    static const struct
+    {
+        UINT message;
+        WPARAM word;
+        LRESULT answer;
+        tb_window_event_type type;
+        tb_mouse_button button;
+        uint32_t modifiers;
+    } rows[] = {
+        {WM_LBUTTONDOWN, MK_LBUTTON | MK_SHIFT, 0, TB_WINDOW_EVENT_MOUSE_BUTTON_DOWN,
+         TB_MOUSE_BUTTON_LEFT, TB_MODIFIER_SHIFT},
+        {WM_RBUTTONDOWN, MK_RBUTTON | MK_CONTROL, 0, TB_WINDOW_EVENT_MOUSE_BUTTON_DOWN,
+         TB_MOUSE_BUTTON_RIGHT, TB_MODIFIER_CONTROL},
+        {WM_RBUTTONUP, 0, 0, TB_WINDOW_EVENT_MOUSE_BUTTON_UP, TB_MOUSE_BUTTON_RIGHT, 0},
+        {WM_LBUTTONUP, 0, 0, TB_WINDOW_EVENT_MOUSE_BUTTON_UP, TB_MOUSE_BUTTON_LEFT, 0},
+        {WM_MBUTTONDOWN, MK_MBUTTON, 0, TB_WINDOW_EVENT_MOUSE_BUTTON_DOWN, TB_MOUSE_BUTTON_MIDDLE,
+         0},
+        {WM_MBUTTONUP, 0, 0, TB_WINDOW_EVENT_MOUSE_BUTTON_UP, TB_MOUSE_BUTTON_MIDDLE, 0},
+        {WM_XBUTTONDOWN, MAKEWPARAM(0, XBUTTON1), TRUE, TB_WINDOW_EVENT_MOUSE_BUTTON_DOWN,
+         TB_MOUSE_BUTTON_X1, 0},
+        {WM_XBUTTONUP, MAKEWPARAM(0, XBUTTON1), TRUE, TB_WINDOW_EVENT_MOUSE_BUTTON_UP,
+         TB_MOUSE_BUTTON_X1, 0},
+        {WM_XBUTTONDOWN, MAKEWPARAM(0, XBUTTON2), TRUE, TB_WINDOW_EVENT_MOUSE_BUTTON_DOWN,
+         TB_MOUSE_BUTTON_X2, 0},
+        {WM_XBUTTONUP, MAKEWPARAM(0, XBUTTON2), TRUE, TB_WINDOW_EVENT_MOUSE_BUTTON_UP,
+         TB_MOUSE_BUTTON_X2, 0},
+    };
+
+    tb_window_state_of(made.window, &state);
+    for (size_t index = 0; index < TB_TEST_COUNT_OF(rows); index++)
+    {
+        TB_TEST_CONTEXT("row %zu", index);
+        TB_TEST_EXPECT_INT(
+            SendMessageW(made.handle, rows[index].message, rows[index].word, position(12, 30)), ==,
+            rows[index].answer);
+        TB_TEST_REQUIRE(received(made.system, rows[index].type, &event));
+        TB_TEST_EXPECT_UINT(event.button, ==, rows[index].button);
+        TB_TEST_EXPECT_STRING(tb_mouse_button_name(event.button), !=, "none");
+        TB_TEST_EXPECT_UINT(event.modifiers & (TB_MODIFIER_SHIFT | TB_MODIFIER_CONTROL), ==,
+                            rows[index].modifiers);
+        TB_TEST_EXPECT_FLOAT(event.pixel_x, ==, 12.0);
+        TB_TEST_EXPECT_FLOAT(event.pixel_y, ==, 30.0);
+        TB_TEST_EXPECT_FLOAT_NEAR(event.x, 12.0 / state.content_scale, 1e-9);
+        TB_TEST_EXPECT_POINTER(event.window, ==, made.window);
+    }
+    /* Another window taking the mouse ends a drag. */
+    (void)SendMessageW(made.handle, WM_LBUTTONDOWN, MK_LBUTTON, position(1, 1));
+    (void)SendMessageW(made.handle, WM_CAPTURECHANGED, 0, 0);
+    (void)SendMessageW(made.handle, WM_LBUTTONUP, 0, position(1, 1));
+    TB_TEST_EXPECT(received(made.system, TB_WINDOW_EVENT_MOUSE_BUTTON_UP, NULL));
+    close_window(&made);
+}
+
+/* The first motion over the window is its entering; leaving is reported
+ * once. */
+TB_TEST(platform_win32_window, the_mouse_moves_enters_and_leaves)
+{
+    fixture made = open_window();
+    tb_window_event event = {0};
+    size_t entered = 0;
+    size_t left = 0;
+    bool moved = false;
+
+    /* Leaving is sent once the mouse is seen elsewhere: at once, unless the
+     * real mouse is over the window, so the message is sent too. */
+    TB_TEST_EXPECT_INT(SendMessageW(made.handle, WM_MOUSEMOVE, MK_SHIFT, position(33, 44)), ==, 0);
+    TB_TEST_EXPECT_INT(SendMessageW(made.handle, WM_MOUSELEAVE, 0, 0), ==, 0);
+    (void)SendMessageW(made.handle, WM_MOUSELEAVE, 0, 0);
+    while (tb_window_system_poll(made.system, &event))
+    {
+        if (event.type == TB_WINDOW_EVENT_MOUSE_MOVED && event.pixel_x == 33.0)
+        {
+            moved = true;
+            TB_TEST_EXPECT_FLOAT(event.pixel_y, ==, 44.0);
+            TB_TEST_EXPECT_UINT(event.modifiers & TB_MODIFIER_SHIFT, ==, TB_MODIFIER_SHIFT);
+        }
+        entered += event.type == TB_WINDOW_EVENT_MOUSE_ENTERED ? 1u : 0u;
+        left += event.type == TB_WINDOW_EVENT_MOUSE_LEFT ? 1u : 0u;
+    }
+    TB_TEST_EXPECT(moved);
+    TB_TEST_EXPECT_UINT(entered, >=, 1);
+    TB_TEST_EXPECT_UINT(left, >=, 1);
+    close_window(&made);
+}
+
+/* The wheel's turn is in notches, a fraction of one from a finer wheel, at
+ * the place on the screen its message gives. */
+TB_TEST(platform_win32_window, the_wheel_turns_in_notches)
+{
+    fixture made = open_window();
+    tb_window_event event = {0};
+    POINT point = {7, 9};
+
+    (void)ClientToScreen(made.handle, &point);
+    TB_TEST_EXPECT_INT(SendMessageW(made.handle, WM_MOUSEWHEEL,
+                                    MAKEWPARAM(MK_CONTROL, (WORD)(short)60),
+                                    MAKELPARAM((WORD)(short)point.x, (WORD)(short)point.y)),
+                       ==, 0);
+    TB_TEST_REQUIRE(received_at(made.system, TB_WINDOW_EVENT_MOUSE_WHEEL, 7.0, &event));
+    TB_TEST_EXPECT_FLOAT(event.delta_y, ==, 0.5);
+    TB_TEST_EXPECT_FLOAT(event.delta_x, ==, 0.0);
+    TB_TEST_EXPECT_FLOAT(event.pixel_y, ==, 9.0);
+    TB_TEST_EXPECT_UINT(event.modifiers & TB_MODIFIER_CONTROL, ==, TB_MODIFIER_CONTROL);
+    TB_TEST_EXPECT_INT(SendMessageW(made.handle, WM_MOUSEHWHEEL, MAKEWPARAM(0, (WORD)(short)-240),
+                                    MAKELPARAM((WORD)(short)point.x, (WORD)(short)point.y)),
+                       ==, 0);
+    TB_TEST_REQUIRE(received_at(made.system, TB_WINDOW_EVENT_MOUSE_WHEEL, 7.0, &event));
+    TB_TEST_EXPECT_FLOAT(event.delta_x, ==, -2.0);
+    TB_TEST_EXPECT_FLOAT(event.delta_y, ==, 0.0);
+    close_window(&made);
+}
+
+/* Drain the queue, joining the text of its text events. */
+static void received_text(tb_window_system *system, char *text, size_t capacity)
+{
+    tb_window_event event = {0};
+    size_t length = 0;
+
+    text[0] = '\0';
+    while (tb_window_system_poll(system, &event))
+    {
+        const size_t size = tb_str_length(event.text);
+        if (event.type != TB_WINDOW_EVENT_TEXT_INPUT || length + size >= capacity)
+        {
+            continue;
+        }
+        memcpy(text + length, event.text, size + 1);
+        length += size;
+    }
+}
+
+/* Characters arrive as UTF-8, a character outside the Basic Multilingual
+ * Plane in two halves that become one; control characters are keys, not
+ * text. */
+TB_TEST(platform_win32_window, characters_are_text_in_utf8)
+{
+    fixture made = open_window();
+    char text[64] = {0};
+
+    TB_TEST_EXPECT_INT(SendMessageW(made.handle, WM_CHAR, 'a', 1), ==, 0);
+    (void)SendMessageW(made.handle, WM_CHAR, 0x00E9, 1);
+    (void)SendMessageW(made.handle, WM_CHAR, 0xD83D, 1);
+    (void)SendMessageW(made.handle, WM_CHAR, 0xDE00, 1);
+    /* Backspace and a second half without a first are not text. */
+    (void)SendMessageW(made.handle, WM_CHAR, 0x08, 1);
+    (void)SendMessageW(made.handle, WM_CHAR, 0xDE00, 1);
+    received_text(made.system, text, sizeof(text));
+    TB_TEST_EXPECT_STRING(text, ==, "a\xC3\xA9\xF0\x9F\x98\x80");
+    close_window(&made);
+}
+
+/* The cursor's shape is set when Windows asks for it over the client area,
+ * and none is set when it is hidden. */
+TB_TEST(platform_win32_window, the_cursor_takes_its_shape_over_the_client_area)
+{
+    fixture made = open_window();
+    const LPARAM over_client = MAKELPARAM(HTCLIENT, WM_MOUSEMOVE);
+
+    for (int cursor = 0; cursor < TB_CURSOR_COUNT; cursor++)
+    {
+        tb_window_set_cursor(made.window, (tb_cursor)cursor);
+    }
+    tb_window_set_cursor(made.window, TB_CURSOR_TEXT);
+    TB_TEST_EXPECT_INT(SendMessageW(made.handle, WM_SETCURSOR, (WPARAM)made.handle, over_client),
+                       ==, TRUE);
+    TB_TEST_EXPECT_POINTER(GetCursor(), ==, LoadCursorW(NULL, MAKEINTRESOURCEW(32513)));
+    tb_window_show_cursor(made.window, false);
+    TB_TEST_EXPECT_INT(SendMessageW(made.handle, WM_SETCURSOR, (WPARAM)made.handle, over_client),
+                       ==, TRUE);
+    TB_TEST_EXPECT_POINTER(GetCursor(), ==, NULL);
+    tb_window_show_cursor(made.window, true);
+    /* Over the frame, the frame's own cursor. */
+    (void)SendMessageW(made.handle, WM_SETCURSOR, (WPARAM)made.handle,
+                       MAKELPARAM(HTCAPTION, WM_MOUSEMOVE));
+    /* A change while the mouse is over the window shows at once. */
+    (void)SendMessageW(made.handle, WM_MOUSEMOVE, 0, position(3, 3));
+    tb_window_set_cursor(made.window, TB_CURSOR_HAND);
+    TB_TEST_EXPECT_POINTER(GetCursor(), ==, LoadCursorW(NULL, MAKEINTRESOURCEW(32649)));
+    close_window(&made);
+}
+
+/* In relative mouse mode the cursor is hidden and positions are not
+ * reported; turning it off brings them back. */
+TB_TEST(platform_win32_window, relative_mouse_mode_hides_positions)
+{
+    fixture made = open_window();
+    tb_window_state state = {0};
+    tb_window_event event = {0};
+    tb_window_error error = TB_WINDOW_ERROR_INIT;
+
+    TB_TEST_REQUIRE_UINT(tb_window_set_relative_mouse(made.window, true, &error), ==, TB_WINDOW_OK);
+    TB_TEST_EXPECT_UINT(tb_window_set_relative_mouse(made.window, true, NULL), ==, TB_WINDOW_OK);
+    tb_window_state_of(made.window, &state);
+    TB_TEST_EXPECT(state.relative_mouse);
+    (void)SendMessageW(made.handle, WM_MOUSEMOVE, 0, position(21, 22));
+    TB_TEST_EXPECT(!received_at(made.system, TB_WINDOW_EVENT_MOUSE_MOVED, 21.0, &event));
+    /* The cursor is held while the window has the keyboard, and let go
+     * while it does not. */
+    (void)SendMessageW(made.handle, WM_KILLFOCUS, 0, 0);
+    (void)SendMessageW(made.handle, WM_SETFOCUS, 0, 0);
+    (void)SendMessageW(made.handle, WM_MOVE, 0, 0);
+    (void)SendMessageW(made.handle, WM_SIZE, SIZE_RESTORED, MAKELPARAM(320, 180));
+    (void)SendMessageW(made.handle, WM_SETCURSOR, (WPARAM)made.handle,
+                       MAKELPARAM(HTCLIENT, WM_MOUSEMOVE));
+    TB_TEST_EXPECT_POINTER(GetCursor(), ==, NULL);
+    /* Raw Input that cannot be read is passed over. */
+    (void)SendMessageW(made.handle, WM_INPUT, RIM_INPUT, 0);
+    TB_TEST_EXPECT_UINT(tb_window_set_relative_mouse(made.window, false, NULL), ==, TB_WINDOW_OK);
+    tb_window_state_of(made.window, &state);
+    TB_TEST_EXPECT(!state.relative_mouse);
+    (void)SendMessageW(made.handle, WM_MOUSEMOVE, 0, position(21, 22));
+    TB_TEST_EXPECT(received_at(made.system, TB_WINDOW_EVENT_MOUSE_MOVED, 21.0, &event));
+    /* A window destroyed in relative mouse mode lets the cursor go. */
+    TB_TEST_REQUIRE_UINT(tb_window_set_relative_mouse(made.window, true, NULL), ==, TB_WINDOW_OK);
     close_window(&made);
 }
 

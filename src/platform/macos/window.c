@@ -12,7 +12,13 @@
  * Cocoa's coordinates rise from the bottom of the primary display; the
  * engine's displays and windows are placed from its top, so y is flipped at
  * the boundary. Fullscreen is borderless: a frameless window over its
- * display, above the menu bar, with the Dock and menu bar hidden. */
+ * display, above the menu bar, with the Dock and menu bar hidden.
+ *
+ * A third class is the window's content view, flipped so that positions are
+ * from its top: it receives the mouse, and it is the text input client that
+ * Cocoa's input context gives typed text to, dead keys composed. Relative
+ * mouse mode parts the cursor from the mouse with
+ * CGAssociateMouseAndMouseCursorPosition() and reads the events' deltas. */
 #include "../shared/window.h"
 
 #include "badger/assert.h"
@@ -60,6 +66,9 @@ typedef struct tb_cocoa_rect
 #define TB_COCOA_KEY_UP 11ul
 #define TB_COCOA_FLAGS_CHANGED 12ul
 #define TB_COCOA_APPLICATION_DEFINED 15ul
+#define TB_COCOA_SHIFT (1ul << 17)
+#define TB_COCOA_CONTROL (1ul << 18)
+#define TB_COCOA_OPTION (1ul << 19)
 #define TB_COCOA_COMMAND (1ul << 20)
 #define TB_COCOA_LEFT_CONTROL 0x1ul
 #define TB_COCOA_LEFT_SHIFT 0x2ul
@@ -79,6 +88,24 @@ typedef struct tb_cocoa_rect
 
 /* The key code of Q, for Command+Q. */
 #define TB_COCOA_KEY_Q 12u
+
+/* NSTrackingArea's options: entering and exiting, whatever window is
+ * active, over the view's visible rectangle as it changes. */
+#define TB_COCOA_TRACK_ENTERED_AND_EXITED 0x01ul
+#define TB_COCOA_TRACK_ACTIVE_ALWAYS 0x80ul
+#define TB_COCOA_TRACK_IN_VISIBLE_RECT 0x200ul
+
+/* NSNotFound, NSIntegerMax. */
+#define TB_COCOA_NOT_FOUND 0x7FFFFFFFFFFFFFFFul
+
+/* A touchpad's precise scrolling is in points; this many make a notch. */
+#define TB_COCOA_POINTS_PER_NOTCH 10.0
+
+typedef struct tb_cocoa_range
+{
+    unsigned long location;
+    unsigned long length;
+} tb_cocoa_range;
 
 /* ---------------------------------------------------------------------------
  * The runtime, loaded once for the process: the classes made here point at
@@ -105,17 +132,23 @@ typedef struct tb_cocoa_runtime
     ptrdiff_t (*ivar_offset)(tb_id ivar);
     void *(*pool_push)(void);
     void (*pool_pop)(void *pool);
+    tb_id (*get_protocol)(const char *name);
+    bool (*add_protocol)(tb_id class_object, tb_id protocol);
     tb_cocoa_size (*screen_size)(uint32_t display);
     tb_id (*copy_mode)(uint32_t display);
     double (*mode_refresh)(tb_id mode);
     size_t (*mode_pixel_width)(tb_id mode);
     size_t (*mode_pixel_height)(tb_id mode);
     void (*release_mode)(tb_id mode);
-    tb_id default_mode;      /* NSDefaultRunLoopMode */
-    tb_id screens_changed;   /* NSApplicationDidChangeScreenParametersNotification */
-    tb_id window_class;      /* TBCocoaWindow */
-    tb_id delegate_class;    /* TBCocoaDelegate */
-    ptrdiff_t target_offset; /* Of the delegate's pointer to its window or system. */
+    int32_t (*associate_mouse)(bool connected);
+    int32_t (*warp_cursor)(tb_cocoa_point point);
+    tb_id default_mode;           /* NSDefaultRunLoopMode */
+    tb_id screens_changed;        /* NSApplicationDidChangeScreenParametersNotification */
+    tb_id window_class;           /* TBCocoaWindow */
+    tb_id delegate_class;         /* TBCocoaDelegate */
+    tb_id view_class;             /* TBCocoaView */
+    ptrdiff_t target_offset;      /* Of the delegate's pointer to its window or system. */
+    ptrdiff_t view_target_offset; /* Of the view's pointer to its window. */
     tb_id application;
 } tb_cocoa_runtime;
 
@@ -224,6 +257,9 @@ typedef struct tb_cocoa_window
 {
     tb_id handle;
     tb_id delegate;
+    tb_id view;         /* The content view, a TBCocoaView. */
+    bool cursor_hiding; /* NSCursor's hide was called for the window, and not unhide. */
+    bool marked_text;   /* The input context is composing text. */
 } tb_cocoa_window;
 
 static tb_cocoa_system *tb_cocoa_of(const tb_window_system *system)
@@ -439,18 +475,33 @@ static void tb_cocoa_did_resize(tb_id self, tb_sel command, tb_id notification)
     tb_cocoa_read_size(tb_cocoa_target(self));
 }
 
+static void tb_cocoa_hold_mouse(tb_window *window, bool held);
+static void tb_cocoa_update_cursor(tb_window *window);
+
+/* A window in relative mouse mode holds the mouse while it is the key
+ * window. */
+static void tb_cocoa_on_key_window(tb_window *window, bool key)
+{
+    tb_window_focused(window, key);
+    if (window->state.relative_mouse)
+    {
+        tb_cocoa_hold_mouse(window, key);
+    }
+    tb_cocoa_update_cursor(window);
+}
+
 static void tb_cocoa_did_become_key(tb_id self, tb_sel command, tb_id notification)
 {
     (void)command;
     (void)notification;
-    tb_window_focused(tb_cocoa_target(self), true);
+    tb_cocoa_on_key_window(tb_cocoa_target(self), true);
 }
 
 static void tb_cocoa_did_resign_key(tb_id self, tb_sel command, tb_id notification)
 {
     (void)command;
     (void)notification;
-    tb_window_focused(tb_cocoa_target(self), false);
+    tb_cocoa_on_key_window(tb_cocoa_target(self), false);
 }
 
 static void tb_cocoa_did_miniaturize(tb_id self, tb_sel command, tb_id notification)
@@ -485,6 +536,425 @@ static bool tb_cocoa_yes(tb_id self, tb_sel command)
 }
 
 /* ---------------------------------------------------------------------------
+ * The mouse, the cursor, and text: the content view's methods.
+ * ------------------------------------------------------------------------- */
+
+static tb_cocoa_point tb_get_point(tb_id receiver, const char *selector)
+{
+    return ((tb_cocoa_point (*)(tb_id, tb_sel))tb_cocoa.send)(receiver, tb_sel_of(selector));
+}
+
+/* The window a view shows; NULL once the window is destroyed. */
+static tb_window *tb_cocoa_view_target(tb_id view)
+{
+    return *(void **)((char *)view + tb_cocoa.view_target_offset);
+}
+
+static uint32_t tb_cocoa_modifier_bits(unsigned long flags)
+{
+    uint32_t modifiers = 0;
+
+    if ((flags & TB_COCOA_SHIFT) != 0)
+    {
+        modifiers |= TB_MODIFIER_SHIFT;
+    }
+    if ((flags & TB_COCOA_CONTROL) != 0)
+    {
+        modifiers |= TB_MODIFIER_CONTROL;
+    }
+    if ((flags & TB_COCOA_OPTION) != 0)
+    {
+        modifiers |= TB_MODIFIER_ALT;
+    }
+    if ((flags & TB_COCOA_COMMAND) != 0)
+    {
+        modifiers |= TB_MODIFIER_SUPER;
+    }
+    return modifiers;
+}
+
+static uint32_t tb_cocoa_event_modifiers(tb_id event)
+{
+    return tb_cocoa_modifier_bits(tb_get_unsigned(event, "modifierFlags"));
+}
+
+/* Where an event happened in a view, from the view's top-left corner: the
+ * view is flipped. */
+static tb_cocoa_point tb_cocoa_event_position(tb_id view, tb_id event)
+{
+    const tb_cocoa_point in_window = tb_get_point(event, "locationInWindow");
+
+    return ((tb_cocoa_point (*)(tb_id, tb_sel, tb_cocoa_point, tb_id))tb_cocoa.send)(
+        view, tb_sel_of("convertPoint:fromView:"), in_window, NULL);
+}
+
+/* NSEvent's button numbers. */
+static tb_mouse_button tb_cocoa_button(long number)
+{
+    switch (number)
+    {
+    case 0:
+        return TB_MOUSE_BUTTON_LEFT;
+    case 1:
+        return TB_MOUSE_BUTTON_RIGHT;
+    case 2:
+        return TB_MOUSE_BUTTON_MIDDLE;
+    case 3:
+        return TB_MOUSE_BUTTON_X1;
+    case 4:
+        return TB_MOUSE_BUTTON_X2;
+    default:
+        return TB_MOUSE_BUTTON_NONE;
+    }
+}
+
+static void tb_cocoa_on_button(tb_id view, tb_id event, bool down)
+{
+    tb_window *const window = tb_cocoa_view_target(view);
+    tb_mouse_button button = TB_MOUSE_BUTTON_NONE;
+    tb_cocoa_point position = {0};
+
+    if (window == NULL)
+    {
+        return;
+    }
+    button =
+        tb_cocoa_button(((long (*)(tb_id, tb_sel))tb_cocoa.send)(event, tb_sel_of("buttonNumber")));
+    if (button == TB_MOUSE_BUTTON_NONE)
+    {
+        return;
+    }
+    position = tb_cocoa_event_position(view, event);
+    tb_window_mouse_button(window, button, down, position.x, position.y,
+                           tb_cocoa_event_modifiers(event));
+}
+
+static void tb_cocoa_mouse_down(tb_id self, tb_sel command, tb_id event)
+{
+    (void)command;
+    tb_cocoa_on_button(self, event, true);
+}
+
+static void tb_cocoa_mouse_up(tb_id self, tb_sel command, tb_id event)
+{
+    (void)command;
+    tb_cocoa_on_button(self, event, false);
+}
+
+/* Motion, with a button down or not: the mouse's deltas in relative mouse
+ * mode, else its position. */
+static void tb_cocoa_mouse_moved(tb_id self, tb_sel command, tb_id event)
+{
+    tb_window *const window = tb_cocoa_view_target(self);
+    tb_cocoa_point position = {0};
+
+    (void)command;
+    if (window == NULL)
+    {
+        return;
+    }
+    if (window->state.relative_mouse)
+    {
+        tb_window_mouse_relative(window, tb_get_double(event, "deltaX"),
+                                 tb_get_double(event, "deltaY"));
+        return;
+    }
+    position = tb_cocoa_event_position(self, event);
+    tb_window_mouse_moved(window, position.x, position.y, tb_cocoa_event_modifiers(event));
+}
+
+/* Cocoa's horizontal scrolling is positive to the left; a touchpad's
+ * precise scrolling is in points. */
+static void tb_cocoa_scroll_wheel(tb_id self, tb_sel command, tb_id event)
+{
+    tb_window *const window = tb_cocoa_view_target(self);
+    tb_cocoa_point position = {0};
+    double notches_x = 0.0;
+    double notches_y = 0.0;
+
+    (void)command;
+    if (window == NULL)
+    {
+        return;
+    }
+    notches_x = -tb_get_double(event, "scrollingDeltaX");
+    notches_y = tb_get_double(event, "scrollingDeltaY");
+    if (tb_get_bool(event, "hasPreciseScrollingDeltas"))
+    {
+        notches_x /= TB_COCOA_POINTS_PER_NOTCH;
+        notches_y /= TB_COCOA_POINTS_PER_NOTCH;
+    }
+    if (notches_x == 0.0 && notches_y == 0.0)
+    {
+        return;
+    }
+    position = tb_cocoa_event_position(self, event);
+    tb_window_mouse_wheel(window, notches_x, notches_y, position.x, position.y,
+                          tb_cocoa_event_modifiers(event));
+}
+
+static void tb_cocoa_update_cursor(tb_window *window);
+
+static void tb_cocoa_mouse_entered(tb_id self, tb_sel command, tb_id event)
+{
+    tb_window *const window = tb_cocoa_view_target(self);
+    tb_cocoa_point position = {0};
+
+    (void)command;
+    if (window == NULL)
+    {
+        return;
+    }
+    position = tb_cocoa_event_position(self, event);
+    tb_window_mouse_crossed(window, true, position.x, position.y);
+    tb_cocoa_update_cursor(window);
+}
+
+static void tb_cocoa_mouse_exited(tb_id self, tb_sel command, tb_id event)
+{
+    tb_window *const window = tb_cocoa_view_target(self);
+
+    (void)command;
+    (void)event;
+    if (window == NULL)
+    {
+        return;
+    }
+    tb_window_mouse_crossed(window, false, 0.0, 0.0);
+    tb_cocoa_update_cursor(window);
+}
+
+/* The system's cursor of a shape. The diagonal resizing cursors are
+ * AppKit's own, not public: a system without them shows a closed hand, as
+ * for moving. */
+static tb_id tb_cocoa_cursor(tb_cursor cursor)
+{
+    static const char *const selectors[TB_CURSOR_COUNT] = {
+        [TB_CURSOR_ARROW] = "arrowCursor",
+        [TB_CURSOR_TEXT] = "IBeamCursor",
+        [TB_CURSOR_HAND] = "pointingHandCursor",
+        [TB_CURSOR_CROSSHAIR] = "crosshairCursor",
+        [TB_CURSOR_NOT_ALLOWED] = "operationNotAllowedCursor",
+        [TB_CURSOR_RESIZE_HORIZONTAL] = "resizeLeftRightCursor",
+        [TB_CURSOR_RESIZE_VERTICAL] = "resizeUpDownCursor",
+        [TB_CURSOR_RESIZE_DIAGONAL_DOWN] = "_windowResizeNorthWestSouthEastCursor",
+        [TB_CURSOR_RESIZE_DIAGONAL_UP] = "_windowResizeNorthEastSouthWestCursor",
+        [TB_CURSOR_RESIZE_ALL] = "closedHandCursor",
+    };
+    const tb_id cursor_class = tb_class("NSCursor");
+
+    if (!((bool (*)(tb_id, tb_sel, tb_sel))tb_cocoa.send)(
+            cursor_class, tb_sel_of("respondsToSelector:"), tb_sel_of(selectors[cursor])))
+    {
+        /* coverage-off: every macOS the engine runs on has AppKit's own diagonal cursors */
+        return tb_send(cursor_class, "closedHandCursor");
+        /* coverage-on */
+    }
+    return tb_send(cursor_class, selectors[cursor]);
+}
+
+/* The view's cursor, where Cocoa sets it as the mouse moves over the view. */
+static void tb_cocoa_reset_cursor_rects(tb_id self, tb_sel command)
+{
+    const tb_window *const window = tb_cocoa_view_target(self);
+
+    (void)command;
+    if (window == NULL)
+    {
+        return;
+    }
+    ((void (*)(tb_id, tb_sel, tb_cocoa_rect, tb_id))tb_cocoa.send)(
+        self, tb_sel_of("addCursorRect:cursor:"), tb_get_rect(self, "bounds"),
+        tb_cocoa_cursor(window->cursor));
+}
+
+/* NSCursor's hiding counts, for the whole application: a window hides the
+ * cursor once, while the mouse is over it, or while it holds the mouse. */
+static void tb_cocoa_update_cursor(tb_window *window)
+{
+    tb_cocoa_window *const native = tb_cocoa_window_of(window);
+    const bool hidden = window->state.relative_mouse
+                            ? window->state.focused
+                            : window->cursor_hidden && window->mouse_inside;
+
+    if (hidden != native->cursor_hiding)
+    {
+        (void)tb_send(tb_class("NSCursor"), hidden ? "hide" : "unhide");
+        native->cursor_hiding = hidden;
+    }
+    tb_send_id(native->handle, "invalidateCursorRectsForView:", native->view);
+    if (window->mouse_inside && !hidden)
+    {
+        (void)tb_send(tb_cocoa_cursor(window->cursor), "set");
+    }
+}
+
+/* Part the cursor from the mouse, over the window's middle, or join them
+ * again. */
+static void tb_cocoa_hold_mouse(tb_window *window, bool held)
+{
+    if (held)
+    {
+        const tb_cocoa_rect frame = tb_get_rect(tb_cocoa_window_of(window)->handle, "frame");
+        const tb_cocoa_point middle = {frame.origin.x + frame.size.width / 2.0,
+                                       tb_cocoa_primary_height() -
+                                           (frame.origin.y + frame.size.height / 2.0)};
+        (void)tb_cocoa.warp_cursor(middle);
+    }
+    (void)tb_cocoa.associate_mouse(!held);
+}
+
+static tb_window_result tb_cocoa_set_relative_mouse(tb_window *window, bool relative,
+                                                    tb_window_error *error)
+{
+    (void)error;
+    tb_cocoa_hold_mouse(window, relative && window->state.focused);
+    return TB_WINDOW_OK;
+}
+
+static bool tb_cocoa_accepts(tb_id self, tb_sel command, tb_id event)
+{
+    (void)self;
+    (void)command;
+    (void)event;
+    return true;
+}
+
+/* The text input client: the input context gives it the text it composed. */
+static void tb_cocoa_insert_text(tb_id self, tb_sel command, tb_id string,
+                                 tb_cocoa_range replacement)
+{
+    tb_window *const window = tb_cocoa_view_target(self);
+    tb_id text = string;
+    const char *utf8 = NULL;
+
+    (void)command;
+    (void)replacement;
+    if (window == NULL)
+    {
+        return;
+    }
+    tb_cocoa_window_of(window)->marked_text = false;
+    if (((bool (*)(tb_id, tb_sel, tb_id))tb_cocoa.send)(string, tb_sel_of("isKindOfClass:"),
+                                                        tb_class("NSAttributedString")))
+    {
+        text = tb_send(string, "string");
+    }
+    utf8 = ((const char *(*)(tb_id, tb_sel))tb_cocoa.send)(text, tb_sel_of("UTF8String"));
+    if (utf8 != NULL)
+    {
+        tb_window_text(window, utf8, tb_str_length(utf8));
+    }
+}
+
+/* Text being composed, as a dead key's accent is before its letter: it is
+ * not text until it is inserted. */
+static void tb_cocoa_set_marked_text(tb_id self, tb_sel command, tb_id string,
+                                     tb_cocoa_range selected, tb_cocoa_range replacement)
+{
+    tb_window *const window = tb_cocoa_view_target(self);
+
+    (void)command;
+    (void)selected;
+    (void)replacement;
+    if (window == NULL)
+    {
+        return;
+    }
+    tb_cocoa_window_of(window)->marked_text = tb_get_unsigned(string, "length") > 0;
+}
+
+static void tb_cocoa_unmark_text(tb_id self, tb_sel command)
+{
+    tb_window *const window = tb_cocoa_view_target(self);
+
+    (void)command;
+    if (window != NULL)
+    {
+        tb_cocoa_window_of(window)->marked_text = false;
+    }
+}
+
+static bool tb_cocoa_has_marked_text(tb_id self, tb_sel command)
+{
+    const tb_window *const window = tb_cocoa_view_target(self);
+
+    (void)command;
+    return window != NULL && tb_cocoa_window_of(window)->marked_text;
+}
+
+static tb_cocoa_range tb_cocoa_marked_range(tb_id self, tb_sel command)
+{
+    const tb_cocoa_range none = {TB_COCOA_NOT_FOUND, 0};
+
+    (void)self;
+    (void)command;
+    return none;
+}
+
+static tb_cocoa_range tb_cocoa_selected_range(tb_id self, tb_sel command)
+{
+    const tb_cocoa_range empty = {0, 0};
+
+    (void)self;
+    (void)command;
+    return empty;
+}
+
+static tb_id tb_cocoa_valid_attributes(tb_id self, tb_sel command)
+{
+    (void)self;
+    (void)command;
+    return tb_send(tb_class("NSArray"), "array");
+}
+
+static tb_id tb_cocoa_attributed_substring(tb_id self, tb_sel command, tb_cocoa_range range,
+                                           tb_cocoa_range *actual)
+{
+    (void)self;
+    (void)command;
+    (void)range;
+    (void)actual;
+    return NULL;
+}
+
+/* Where an input method editor puts its window: by the window, on the
+ * screen, until the interface says where its text is. */
+static tb_cocoa_rect tb_cocoa_first_rect(tb_id self, tb_sel command, tb_cocoa_range range,
+                                         tb_cocoa_range *actual)
+{
+    const tb_window *const window = tb_cocoa_view_target(self);
+    tb_cocoa_rect rect = {0};
+
+    (void)command;
+    (void)range;
+    (void)actual;
+    if (window != NULL)
+    {
+        rect = tb_get_rect(tb_cocoa_window_of(window)->handle, "frame");
+        rect.size = (tb_cocoa_size){0.0, 0.0};
+    }
+    return rect;
+}
+
+static unsigned long tb_cocoa_character_index(tb_id self, tb_sel command, tb_cocoa_point point)
+{
+    (void)self;
+    (void)command;
+    (void)point;
+    return 0;
+}
+
+/* A key the input context does not type, such as an arrow, is a command:
+ * it is a key event already, and nothing more. */
+static void tb_cocoa_do_command(tb_id self, tb_sel command, tb_sel selector)
+{
+    (void)self;
+    (void)command;
+    (void)selector;
+}
+
+/* ---------------------------------------------------------------------------
  * Loading the runtime and making the classes.
  * ------------------------------------------------------------------------- */
 
@@ -494,10 +964,65 @@ static void tb_cocoa_add(tb_id class_object, const char *name, tb_imp implementa
     (void)tb_cocoa.add_method(class_object, tb_sel_of(name), implementation, types);
 }
 
+/* The content view: the mouse's events, the cursor, and the text input
+ * client's methods. */
+static tb_id tb_cocoa_make_view_class(void)
+{
+    static const char *const mouse_downs[] = {"mouseDown:", "rightMouseDown:", "otherMouseDown:"};
+    static const char *const mouse_ups[] = {"mouseUp:", "rightMouseUp:", "otherMouseUp:"};
+    static const char *const motions[] = {
+        "mouseMoved:", "mouseDragged:", "rightMouseDragged:", "otherMouseDragged:"};
+    tb_id view_class = tb_cocoa.allocate_class(tb_class("NSView"), "TBCocoaView", 0);
+    tb_id protocol = tb_cocoa.get_protocol("NSTextInputClient");
+
+    (void)tb_cocoa.add_ivar(view_class, "tb_target", sizeof(void *), 3, "^v");
+    for (size_t index = 0; index < 3; index++)
+    {
+        tb_cocoa_add(view_class, mouse_downs[index], (tb_imp)tb_cocoa_mouse_down, "v@:@");
+        tb_cocoa_add(view_class, mouse_ups[index], (tb_imp)tb_cocoa_mouse_up, "v@:@");
+    }
+    for (size_t index = 0; index < 4; index++)
+    {
+        tb_cocoa_add(view_class, motions[index], (tb_imp)tb_cocoa_mouse_moved, "v@:@");
+    }
+    tb_cocoa_add(view_class, "scrollWheel:", (tb_imp)tb_cocoa_scroll_wheel, "v@:@");
+    tb_cocoa_add(view_class, "mouseEntered:", (tb_imp)tb_cocoa_mouse_entered, "v@:@");
+    tb_cocoa_add(view_class, "mouseExited:", (tb_imp)tb_cocoa_mouse_exited, "v@:@");
+    tb_cocoa_add(view_class, "resetCursorRects", (tb_imp)tb_cocoa_reset_cursor_rects, "v@:");
+    tb_cocoa_add(view_class, "acceptsFirstResponder", (tb_imp)tb_cocoa_yes, "c@:");
+    tb_cocoa_add(view_class, "isFlipped", (tb_imp)tb_cocoa_yes, "c@:");
+    tb_cocoa_add(view_class, "acceptsFirstMouse:", (tb_imp)tb_cocoa_accepts, "c@:@");
+    tb_cocoa_add(view_class, "insertText:replacementRange:", (tb_imp)tb_cocoa_insert_text,
+                 "v@:@{_NSRange=QQ}");
+    tb_cocoa_add(view_class,
+                 "setMarkedText:selectedRange:replacementRange:", (tb_imp)tb_cocoa_set_marked_text,
+                 "v@:@{_NSRange=QQ}{_NSRange=QQ}");
+    tb_cocoa_add(view_class, "unmarkText", (tb_imp)tb_cocoa_unmark_text, "v@:");
+    tb_cocoa_add(view_class, "hasMarkedText", (tb_imp)tb_cocoa_has_marked_text, "c@:");
+    tb_cocoa_add(view_class, "markedRange", (tb_imp)tb_cocoa_marked_range, "{_NSRange=QQ}@:");
+    tb_cocoa_add(view_class, "selectedRange", (tb_imp)tb_cocoa_selected_range, "{_NSRange=QQ}@:");
+    tb_cocoa_add(view_class, "validAttributesForMarkedText", (tb_imp)tb_cocoa_valid_attributes,
+                 "@@:");
+    tb_cocoa_add(view_class, "attributedSubstringForProposedRange:actualRange:",
+                 (tb_imp)tb_cocoa_attributed_substring, "@@:{_NSRange=QQ}^{_NSRange=QQ}");
+    tb_cocoa_add(view_class, "firstRectForCharacterRange:actualRange:", (tb_imp)tb_cocoa_first_rect,
+                 "{CGRect={CGPoint=dd}{CGSize=dd}}@:{_NSRange=QQ}^{_NSRange=QQ}");
+    tb_cocoa_add(view_class, "characterIndexForPoint:", (tb_imp)tb_cocoa_character_index,
+                 "Q@:{CGPoint=dd}");
+    tb_cocoa_add(view_class, "doCommandBySelector:", (tb_imp)tb_cocoa_do_command, "v@::");
+    if (protocol != NULL)
+    {
+        (void)tb_cocoa.add_protocol(view_class, protocol);
+    }
+    tb_cocoa.register_class(view_class);
+    return view_class;
+}
+
 static void tb_cocoa_make_classes(void)
 {
     tb_id window_class = tb_cocoa.get_class("TBCocoaWindow");
     tb_id delegate_class = tb_cocoa.get_class("TBCocoaDelegate");
+    tb_id view_class = tb_cocoa.get_class("TBCocoaView");
 
     if (window_class == NULL)
     {
@@ -526,9 +1051,15 @@ static void tb_cocoa_make_classes(void)
         tb_cocoa_add(delegate_class, "screensChanged:", (tb_imp)tb_cocoa_screens_changed, "v@:@");
         tb_cocoa.register_class(delegate_class);
     }
+    if (view_class == NULL)
+    {
+        view_class = tb_cocoa_make_view_class();
+    }
     tb_cocoa.window_class = window_class;
     tb_cocoa.delegate_class = delegate_class;
+    tb_cocoa.view_class = view_class;
     tb_cocoa.target_offset = tb_cocoa.ivar_offset(tb_cocoa.get_ivar(delegate_class, "tb_target"));
+    tb_cocoa.view_target_offset = tb_cocoa.ivar_offset(tb_cocoa.get_ivar(view_class, "tb_target"));
 }
 
 static bool tb_cocoa_bind(const tb_library *library, const char *const *names,
@@ -559,13 +1090,21 @@ static tb_window_result tb_cocoa_load(tb_window_error *error)
         "ivar_getOffset",
         "objc_autoreleasePoolPush",
         "objc_autoreleasePoolPop",
+        "objc_getProtocol",
+        "class_addProtocol",
     };
     static const char *const graphics_names[] = {
-        "CGDisplayScreenSize",        "CGDisplayCopyDisplayMode",    "CGDisplayModeGetRefreshRate",
-        "CGDisplayModeGetPixelWidth", "CGDisplayModeGetPixelHeight", "CGDisplayModeRelease",
+        "CGDisplayScreenSize",
+        "CGDisplayCopyDisplayMode",
+        "CGDisplayModeGetRefreshRate",
+        "CGDisplayModeGetPixelWidth",
+        "CGDisplayModeGetPixelHeight",
+        "CGDisplayModeRelease",
+        "CGAssociateMouseAndMouseCursorPosition",
+        "CGWarpMouseCursorPosition",
     };
-    tb_library_function objc[11] = {0};
-    tb_library_function graphics[6] = {0};
+    tb_library_function objc[13] = {0};
+    tb_library_function graphics[8] = {0};
     tb_library_error library_error = TB_LIBRARY_ERROR_INIT;
     void *data = NULL;
 
@@ -579,8 +1118,8 @@ static tb_window_result tb_cocoa_load(tb_window_error *error)
                         &library_error) != TB_LIBRARY_OK ||
         tb_library_open("CoreGraphics.framework/CoreGraphics", TB_LIBRARY_SEARCH_SYSTEM,
                         &tb_cocoa.graphics, &library_error) != TB_LIBRARY_OK ||
-        !tb_cocoa_bind(tb_cocoa.objc, objc_names, objc, 11, &library_error) ||
-        !tb_cocoa_bind(tb_cocoa.graphics, graphics_names, graphics, 6, &library_error))
+        !tb_cocoa_bind(tb_cocoa.objc, objc_names, objc, 13, &library_error) ||
+        !tb_cocoa_bind(tb_cocoa.graphics, graphics_names, graphics, 8, &library_error))
     {
         /* coverage-off: every macOS has the Objective-C runtime, AppKit, and CoreGraphics */
         return tb_window_fail(error, TB_WINDOW_UNAVAILABLE, "no Cocoa: %s", library_error.message);
@@ -597,12 +1136,16 @@ static tb_window_result tb_cocoa_load(tb_window_error *error)
     tb_cocoa.ivar_offset = (ptrdiff_t (*)(tb_id))objc[8];
     tb_cocoa.pool_push = (void *(*)(void))objc[9];
     tb_cocoa.pool_pop = (void (*)(void *))objc[10];
+    tb_cocoa.get_protocol = (tb_id (*)(const char *))objc[11];
+    tb_cocoa.add_protocol = (bool (*)(tb_id, tb_id))objc[12];
     tb_cocoa.screen_size = (tb_cocoa_size (*)(uint32_t))graphics[0];
     tb_cocoa.copy_mode = (tb_id (*)(uint32_t))graphics[1];
     tb_cocoa.mode_refresh = (double (*)(tb_id))graphics[2];
     tb_cocoa.mode_pixel_width = (size_t (*)(tb_id))graphics[3];
     tb_cocoa.mode_pixel_height = (size_t (*)(tb_id))graphics[4];
     tb_cocoa.release_mode = (void (*)(tb_id))graphics[5];
+    tb_cocoa.associate_mouse = (int32_t (*)(bool))graphics[6];
+    tb_cocoa.warp_cursor = (int32_t (*)(tb_cocoa_point))graphics[7];
 #if defined(__x86_64__)
     if (tb_library_find_function(tb_cocoa.objc, "objc_msgSend_stret", &tb_cocoa.send_stret, NULL) !=
         TB_LIBRARY_OK)
@@ -787,7 +1330,8 @@ static bool tb_cocoa_on_key(tb_window_system *system, tb_id event, unsigned long
     flags = tb_get_unsigned(event, "modifierFlags");
     if (type == TB_COCOA_FLAGS_CHANGED)
     {
-        tb_window_key(window, key, code, tb_cocoa_modifier_down(key, flags), false);
+        tb_window_key(window, key, code, tb_cocoa_modifier_down(key, flags), false,
+                      tb_cocoa_modifier_bits(flags));
         return true;
     }
     if (type == TB_COCOA_KEY_DOWN && code == TB_COCOA_KEY_Q && (flags & TB_COCOA_COMMAND) != 0)
@@ -798,7 +1342,15 @@ static bool tb_cocoa_on_key(tb_window_system *system, tb_id event, unsigned long
         return true;
     }
     tb_window_key(window, key, code, type == TB_COCOA_KEY_DOWN,
-                  type == TB_COCOA_KEY_DOWN && tb_get_bool(event, "isARepeat"));
+                  type == TB_COCOA_KEY_DOWN && tb_get_bool(event, "isARepeat"),
+                  tb_cocoa_modifier_bits(flags));
+    if (type == TB_COCOA_KEY_DOWN)
+    {
+        /* The input context types the key's text, composing dead keys, into
+         * the view. */
+        tb_send_id(tb_cocoa_window_of(window)->view, "interpretKeyEvents:",
+                   tb_send_id(tb_class("NSArray"), "arrayWithObject:", event));
+    }
     return true;
 }
 
@@ -878,6 +1430,30 @@ static tb_id tb_cocoa_new_delegate(void *target)
     return delegate;
 }
 
+/* The content view, which receives the mouse and is the first responder
+ * for text; the mouse's entering and leaving are tracked over all of it. */
+static void tb_cocoa_make_view(tb_window *window)
+{
+    tb_cocoa_window *const native = tb_cocoa_window_of(window);
+    const tb_cocoa_rect content = tb_get_rect(tb_send(native->handle, "contentView"), "frame");
+    const unsigned long options = TB_COCOA_TRACK_ENTERED_AND_EXITED | TB_COCOA_TRACK_ACTIVE_ALWAYS |
+                                  TB_COCOA_TRACK_IN_VISIBLE_RECT;
+    tb_id area = NULL;
+
+    native->view = ((tb_id (*)(tb_id, tb_sel, tb_cocoa_rect))tb_cocoa.send)(
+        tb_send(tb_cocoa.view_class, "alloc"), tb_sel_of("initWithFrame:"), content);
+    *(void **)((char *)native->view + tb_cocoa.view_target_offset) = window;
+    area = ((tb_id (*)(tb_id, tb_sel, tb_cocoa_rect, unsigned long, tb_id, tb_id))tb_cocoa.send)(
+        tb_send(tb_class("NSTrackingArea"), "alloc"),
+        tb_sel_of("initWithRect:options:owner:userInfo:"), content, options, native->view, NULL);
+    tb_send_id(native->view, "addTrackingArea:", area);
+    (void)tb_send(area, "release");
+    tb_send_id(native->handle, "setContentView:", native->view);
+    (void)tb_send(native->view, "release");
+    (void)tb_send_id(native->handle, "makeFirstResponder:", native->view);
+    tb_send_bool(native->handle, "setAcceptsMouseMovedEvents:", true);
+}
+
 static tb_window_result tb_cocoa_create(tb_window *window, tb_window_error *error)
 {
     tb_cocoa_window *const native = tb_calloc(1, sizeof(tb_cocoa_window));
@@ -899,6 +1475,7 @@ static tb_window_result tb_cocoa_create(tb_window *window, tb_window_error *erro
         /* coverage-on */
     }
     native->delegate = tb_cocoa_new_delegate(window);
+    tb_cocoa_make_view(window);
     tb_send_bool(native->handle, "setReleasedWhenClosed:", false);
     tb_send_id(native->handle, "setBackgroundColor:", tb_send(tb_class("NSColor"), "blackColor"));
     tb_send_id(native->handle, "setDelegate:", native->delegate);
@@ -918,6 +1495,13 @@ static void tb_cocoa_destroy(tb_window *window)
     {
         tb_send_unsigned(tb_cocoa.application, "setPresentationOptions:", 0);
     }
+    if (native->cursor_hiding)
+    {
+        (void)tb_send(tb_class("NSCursor"), "unhide");
+    }
+    /* The view may outlive the window in an autorelease pool: it forgets
+     * the window. */
+    *(void **)((char *)native->view + tb_cocoa.view_target_offset) = NULL;
     tb_send_id(native->handle, "setDelegate:", NULL);
     (void)tb_send(native->handle, "close");
     (void)tb_send(native->handle, "release");
@@ -983,6 +1567,8 @@ static const tb_window_ops tb_cocoa_ops = {
     .configure = tb_cocoa_configure,
     .native = tb_cocoa_native,
     .confirm = tb_cocoa_confirm,
+    .set_relative_mouse = tb_cocoa_set_relative_mouse,
+    .update_cursor = tb_cocoa_update_cursor,
 };
 
 tb_window_result tb_native_window_open(tb_window_system *system, tb_window_backend requested,
