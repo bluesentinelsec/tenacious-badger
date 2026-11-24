@@ -138,7 +138,7 @@ if(WIN32)
     # DXIL that tools/make_rhi_test_shaders.py compiled from tests/data/rhi.
     tb_embed_test_data(TB_RHI_SHADER_SOURCE tb_rhi_shader_files rhi "*.dxil")
     list(APPEND TB_TEST_CASE_SOURCES rhi/rhi_d3d12_test.c ${TB_RHI_SHADER_SOURCE}
-        render/renderer_d3d12_test.c)
+        render/canvas_d3d12_test.c render/renderer_d3d12_test.c)
 endif()
 
 tb_add_tests(tb_tests SOURCES ${TB_TEST_CASE_SOURCES} LIBRARIES TenaciousBadger::badger)
