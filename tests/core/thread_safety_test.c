@@ -18,6 +18,7 @@
 #include "badger/decimal.h"
 #include "badger/deflate.h"
 #include "badger/fmt.h"
+#include "badger/font.h"
 #include "badger/fs.h"
 #include "badger/hash.h"
 #include "badger/json.h"
@@ -28,6 +29,7 @@
 #include "badger/utf8.h"
 #include "badger/xp.h"
 #include "tb_test.h"
+#include "test_data.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -466,6 +468,60 @@ TB_TEST(core_thread_safety, a_file_replaced_by_several_threads_is_always_one_who
     tb_fs_buffer_free(&whole);
     TB_TEST_EXPECT_UINT(tb_fs_remove(view(path)), ==, TB_FS_OK);
     TB_TEST_EXPECT_UINT(tb_fs_remove(view(root)), ==, TB_FS_OK);
+}
+
+/* --- a font, read by every thread at once ------------------------------------- */
+
+extern const tb_test_file tb_font_files[];
+extern const size_t tb_font_files_count;
+
+static const tb_font *shared_font;
+
+/* Every thread finds the glyphs of printable ASCII, their kerning, and
+ * their outlines, each into an arena of its own: every character has a
+ * glyph, and every glyph an outline. */
+static void read_the_one_font(void *argument)
+{
+    worker *const self = argument;
+    tb_arena *const arena = tb_arena_create(0);
+    for (size_t round = 0; round < 4; round++)
+    {
+        for (uint32_t code_point = 0x21; code_point < 0x7F; code_point++)
+        {
+            const uint16_t glyph = tb_font_find_glyph(shared_font, code_point);
+            const uint16_t next = tb_font_find_glyph(shared_font, code_point + 1);
+            tb_font_outline outline = {0};
+            count_unless(self, glyph != 0);
+            count_unless(self, tb_font_get_outline(shared_font, glyph, arena, &outline, NULL) ==
+                                       TB_FONT_OK &&
+                                   outline.contour_count > 0);
+            (void)tb_font_get_kerning(shared_font, glyph, next);
+            tb_arena_reset(arena);
+        }
+    }
+    tb_arena_destroy(arena);
+}
+
+TB_TEST(core_thread_safety, every_thread_can_read_one_font)
+{
+    worker workers[THREAD_COUNT] = {0};
+    const tb_test_file *file = NULL;
+    for (size_t index = 0; index < tb_font_files_count; index++)
+    {
+        if (tb_str_equal(tb_font_files[index].name, "Roboto-Regular.ttf"))
+        {
+            file = &tb_font_files[index];
+        }
+    }
+    TB_TEST_REQUIRE_POINTER(file, !=, NULL);
+    tb_font *font = NULL;
+    TB_TEST_REQUIRE_UINT(tb_font_open(file->bytes, file->length, NULL, &font, NULL), ==,
+                         TB_FONT_OK);
+    shared_font = font;
+    run_on_every_thread(read_the_one_font, workers, NULL);
+    expect_no_wrong_answer(workers);
+    shared_font = NULL;
+    tb_font_close(font);
 }
 
 /* --- a JSON document, read by every thread at once ------------------------------ */
