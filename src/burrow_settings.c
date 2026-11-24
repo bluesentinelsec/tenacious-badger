@@ -120,6 +120,32 @@ static int burrow_apply_values(const burrow_settings_request *request, burrow_se
     return EXIT_SUCCESS;
 }
 
+/* --renderer=NAME, a shorthand for --set graphics.renderer=NAME that names
+ * the renderers when it is wrong. */
+static int burrow_apply_renderer(const burrow_settings_request *request, burrow_settings *loaded)
+{
+    const tb_setting *const renderer = loaded->engine.graphics.renderer;
+
+    if (request->renderer == NULL)
+    {
+        return EXIT_SUCCESS;
+    }
+    if (tb_settings_set(loaded->settings, TB_SETTING_LAYER_COMMAND_LINE, "graphics.renderer",
+                        request->renderer) == TB_SETTING_OK)
+    {
+        return EXIT_SUCCESS;
+    }
+    (void)tb_fmt_print_error("burrow: error: --renderer=%s: not a renderer; the renderers are ",
+                             request->renderer);
+    for (size_t index = 0; index < tb_setting_choice_count(renderer); index++)
+    {
+        const char *const separator = index == 0 ? "" : ", ";
+        (void)tb_fmt_print_error("%s%s", separator, tb_setting_choice_name(renderer, index));
+    }
+    (void)tb_fmt_print_error("\n");
+    return TB_CLI_EXIT_USAGE;
+}
+
 int burrow_settings_load(const burrow_settings_request *request, burrow_settings *loaded)
 {
     const tb_engine_settings_options options = {.developer = request->developer};
@@ -138,6 +164,10 @@ int burrow_settings_load(const burrow_settings_request *request, burrow_settings
     if (status == EXIT_SUCCESS)
     {
         status = burrow_apply_values(request, loaded);
+    }
+    if (status == EXIT_SUCCESS)
+    {
+        status = burrow_apply_renderer(request, loaded);
     }
     if (status != EXIT_SUCCESS)
     {

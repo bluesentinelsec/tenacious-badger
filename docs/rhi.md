@@ -12,7 +12,7 @@ tb_rhi_error error = TB_RHI_ERROR_INIT;
 if (tb_rhi_device_create(&(tb_rhi_device_options){.backend = TB_RHI_BACKEND_AUTOMATIC},
                          &device, &error) != TB_RHI_OK)
 {
-    report(error.message); /* "no backend of this platform can make a device" */
+    report(error.message); /* "no backend of Linux can make a device; ..." */
 }
 ```
 
@@ -24,12 +24,50 @@ if (tb_rhi_device_create(&(tb_rhi_device_options){.backend = TB_RHI_BACKEND_AUTO
 | `d3d12` | Windows. Direct3D 12 through its COM C bindings, with `d3d12.dll` and `dxgi.dll` loaded at run time. Bindless where the device has Shader Model 6.6 and resource binding tier 3; the debug layer, its messages written to the log, with validation; flip-model swap chains that tear without vsync where the system allows. Tested on WARP. |
 | `d3d11`, `vulkan`, `opengl`, `metal`, `software` | Planned. |
 
-`auto` tries the platform's backends in order of preference (D3D12, Metal,
-Vulkan, D3D11, OpenGL, the software renderer) and takes the first that makes
-a device; it never chooses `null`. Choosing a backend that this platform does
-not build, or that is not written yet, ends the process with "not
-implemented" and the next step, as [the platform model](../AGENTS.md#three-outcomes-never-confused)
-requires.
+## Choosing a backend
+
+The `graphics.renderer` setting names the backend, or `auto`
+([settings](settings.md#graphics)); Burrow's `--renderer=NAME` is a shorthand
+for it. `tb_engine_settings_device_options()` turns the setting into a
+device's options:
+
+```c
+tb_rhi_device_options options = {.log = log, .validation = developer};
+tb_engine_settings_device_options(&engine, &options);
+tb_rhi_device_create(&options, &device, &error);
+```
+
+Each platform lists the backends that belong on it in its order of
+preference, in a source the build selects as it selects the platform adapter
+(`src/rhi/win32/rhi_backends.c` and its siblings), so shared code holds no
+platform's order:
+
+| Platform | Order of preference | Written |
+| --- | --- | --- |
+| Windows | D3D12, D3D11, Vulkan, OpenGL, software | D3D12 |
+| Linux and the Steam Deck | Vulkan, OpenGL, software | none yet |
+| macOS | Metal, OpenGL, software | none yet |
+| Any other | none | — |
+
+The null backend is in no list: every platform has it, and `auto` never
+takes it. The three outcomes of [the platform model](../AGENTS.md#three-outcomes-never-confused)
+are kept apart:
+
+- **`auto`** tries the list in order, passes over each backend that is not
+  written yet or that is unavailable on this machine (no GPU, no driver, a
+  library missing), and takes the first that makes a device. The options'
+  log says why it passed over each, and which it used: `auto passed over
+  vulkan: not implemented on Linux yet`, `d3d12 is unavailable: ...`, `using
+  d3d12 on NVIDIA GeForce RTX 4090, as graphics.renderer auto chose`. When
+  none can, the result is `TB_RHI_UNAVAILABLE`.
+- **A backend named outright** is the only one tried. Unavailable on this
+  machine, it is `TB_RHI_UNAVAILABLE` with the reason, and the caller decides
+  whether to try `auto`.
+- **A backend named outright that the platform does not build, or has not
+  written yet,** is "not implemented": `tb_fatal()` ends the process, naming
+  the backend, the platform and the next step: `rhi: tb_rhi_device_create:
+  the vulkan backend is not implemented on Windows, not written yet; set
+  graphics.renderer to auto, or run with --renderer=auto`.
 
 ## Objects and handles
 
@@ -151,6 +189,9 @@ other uses it.
 ## Tests
 
 `tests/rhi/rhi_test.c` holds the device to its contracts on the null backend.
+`tests/rhi/rhi_choice_test.c` checks the choice of a backend on every
+platform, against made-up platforms whose backends are missing, unavailable
+or working, and against the platform's own list.
 `tests/rhi/rhi_d3d12_test.c` draws on WARP, the GPU Windows runs on the CPU,
 so every machine and CI runner draws the same pixels, and reads them back:
 clears, copies, a triangle, indexed vertices with depth, a texture sampled
@@ -163,4 +204,4 @@ shaders are `tests/data/rhi/*.hlsl`, compiled to DXIL by
 - Timestamps, indirect draws, and queries.
 - Async compute and copy queues: one queue does everything for now.
 - Rebuilding every object on another backend while the game runs (#218).
-- Choosing the backend from `graphics.renderer` and the command line (#265).
+- Making Burrow's device from `graphics.renderer`: Burrow does not draw yet.

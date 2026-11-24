@@ -480,6 +480,7 @@ bool tb_shader_form_is_emitted(tb_shader_form_expression_kind kind)
     case TB_SHADER_FORM_CONVERT:
     case TB_SHADER_FORM_INTRINSIC:
     case TB_SHADER_FORM_TEXEL:
+    case TB_SHADER_FORM_HEAP:
         return true;
     }
     return true;

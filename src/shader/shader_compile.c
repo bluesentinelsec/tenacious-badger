@@ -255,7 +255,8 @@ static bool reflect_entry(compile *state, const tb_shader_compile_request *reque
     tb_shader_syntax syntax = {0};
     (void)tb_shader_parse(unit, state->scratch, &syntax);
     tb_shader_checked checked = {0};
-    const tb_shader_result result = tb_shader_check(&syntax, state->scratch, &checked);
+    const tb_shader_result result =
+        tb_shader_check(&syntax, tb_shader_dxil_model(request), state->scratch, &checked);
     add_diagnostics(state, checked.diagnostics, checked.diagnostic_count);
     if (result != TB_SHADER_OK)
     {
@@ -402,6 +403,10 @@ const char *tb_shader_feature_name(tb_shader_feature feature)
         return "mesh shaders";
     case TB_SHADER_FEATURE_SAMPLER_FEEDBACK:
         return "sampler feedback";
+    case TB_SHADER_FEATURE_RESOURCE_HEAP:
+        return "resource descriptor heap indexing";
+    case TB_SHADER_FEATURE_SAMPLER_HEAP:
+        return "sampler descriptor heap indexing";
     }
     return "unknown feature";
 }

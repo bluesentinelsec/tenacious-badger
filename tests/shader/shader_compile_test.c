@@ -499,6 +499,18 @@ TB_TEST(shader_compile, a_shader_records_the_features_it_needs)
     TB_TEST_EXPECT_UINT(
         features_of("[numthreads(1, 1, 1)] void as() {}", "as", TB_SHADER_STAGE_AMPLIFICATION), ==,
         TB_SHADER_FEATURE_MESH_SHADER);
+    /* DXC names each heap a shader indexes, and binds neither. */
+    TB_TEST_EXPECT_UINT(features_of("float4 main(uint i : I) : SV_Target {\n"
+                                    "  Buffer<float4> b = ResourceDescriptorHeap[i];\n"
+                                    "  return b[0]; }",
+                                    "main", TB_SHADER_STAGE_PIXEL),
+                        ==, TB_SHADER_FEATURE_RESOURCE_HEAP);
+    TB_TEST_EXPECT_UINT(features_of("Texture2D t;\n"
+                                    "float4 main(uint i : I) : SV_Target {\n"
+                                    "  SamplerState s = SamplerDescriptorHeap[i];\n"
+                                    "  return t.Sample(s, float2(0, 0)); }",
+                                    "main", TB_SHADER_STAGE_PIXEL),
+                        ==, TB_SHADER_FEATURE_SAMPLER_HEAP);
 }
 
 TB_TEST(shader_compile, features_are_named_for_the_console)
@@ -517,6 +529,10 @@ TB_TEST(shader_compile, features_are_named_for_the_console)
                           "mesh shaders");
     TB_TEST_EXPECT_STRING(tb_shader_feature_name(TB_SHADER_FEATURE_SAMPLER_FEEDBACK), ==,
                           "sampler feedback");
+    TB_TEST_EXPECT_STRING(tb_shader_feature_name(TB_SHADER_FEATURE_RESOURCE_HEAP), ==,
+                          "resource descriptor heap indexing");
+    TB_TEST_EXPECT_STRING(tb_shader_feature_name(TB_SHADER_FEATURE_SAMPLER_HEAP), ==,
+                          "sampler descriptor heap indexing");
     TB_TEST_EXPECT_STRING(tb_shader_feature_name((tb_shader_feature)0), ==, "unknown feature");
 }
 
@@ -686,6 +702,8 @@ static void report_features(report *out, unsigned features)
         {TB_SHADER_FEATURE_INT64, "int64"},
         {TB_SHADER_FEATURE_WAVE_OPERATIONS, "wave"},
         {TB_SHADER_FEATURE_RAY_QUERY, "rayquery"},
+        {TB_SHADER_FEATURE_RESOURCE_HEAP, "resource_heap"},
+        {TB_SHADER_FEATURE_SAMPLER_HEAP, "sampler_heap"},
     };
     for (size_t index = 0; index < TB_TEST_COUNT_OF(named); index++)
     {

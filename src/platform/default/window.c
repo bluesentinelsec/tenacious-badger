@@ -120,3 +120,32 @@ const char *tb_key_name(tb_key key)
     (void)key;
     tb_default_not_implemented("platform.window", "tb_key_name");
 }
+
+tb_window_result tb_window_set_relative_mouse(tb_window *window, bool relative,
+                                              tb_window_error *error)
+{
+    (void)window;
+    (void)relative;
+    (void)error;
+    tb_default_not_implemented("platform.window", "tb_window_set_relative_mouse");
+}
+
+void tb_window_set_cursor(tb_window *window, tb_cursor cursor)
+{
+    (void)window;
+    (void)cursor;
+    tb_default_not_implemented("platform.window", "tb_window_set_cursor");
+}
+
+void tb_window_show_cursor(tb_window *window, bool shown)
+{
+    (void)window;
+    (void)shown;
+    tb_default_not_implemented("platform.window", "tb_window_show_cursor");
+}
+
+const char *tb_mouse_button_name(tb_mouse_button button)
+{
+    (void)button;
+    tb_default_not_implemented("platform.window", "tb_mouse_button_name");
+}

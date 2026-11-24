@@ -254,7 +254,35 @@ tb_shader_symbol *tb_shader_check_lookup(tb_shader_checker *checker, tb_shader_n
  * Checking a shader.
  * ------------------------------------------------------------------------- */
 
-tb_shader_result tb_shader_check(tb_shader_syntax *syntax, tb_arena *arena,
+/* Shader Model 6.6's `ResourceDescriptorHeap` and `SamplerDescriptorHeap`:
+ * built-in globals, declared as DXC declares them, so a shader's own
+ * declaration of either name at namespace scope is a redefinition. */
+static void declare_heaps(tb_shader_checker *checker, unsigned shader_model)
+{
+    if (shader_model < TB_SHADER_MODEL(6, 6))
+    {
+        return;
+    }
+    static const struct
+    {
+        const char *name;
+        tb_shader_object heap;
+    } heaps[] = {
+        {"ResourceDescriptorHeap", TB_SHADER_OBJECT_RESOURCE_HEAP},
+        {"SamplerDescriptorHeap", TB_SHADER_OBJECT_SAMPLER_HEAP},
+    };
+    for (size_t index = 0; index < sizeof(heaps) / sizeof(heaps[0]); index++)
+    {
+        tb_shader_symbol *const symbol = tb_shader_check_new_symbol(
+            checker, TB_SHADER_SYMBOL_VARIABLE, tb_shader_name_of(heaps[index].name), NULL);
+        symbol->type = tb_shader_heap_type(checker->types, heaps[index].heap);
+        symbol->storage = TB_SHADER_STORAGE_UNIFORM;
+        symbol->is_const = true;
+        (void)tb_table_put(checker->globals, &symbol->name, symbol);
+    }
+}
+
+tb_shader_result tb_shader_check(tb_shader_syntax *syntax, unsigned shader_model, tb_arena *arena,
                                  tb_shader_checked *checked)
 {
     tb_shader_checker checker = {0};
@@ -272,6 +300,7 @@ tb_shader_result tb_shader_check(tb_shader_syntax *syntax, tb_arena *arena,
         tb_table_create(&checker.allocator, 64, tb_shader_name_hash, tb_shader_name_equal);
     checker.scope_changes = TB_ARRAY_CREATE(&checker.allocator, scope_change);
 
+    declare_heaps(&checker, shader_model);
     tb_shader_check_declarations(&checker, syntax->declarations);
 
     checked->types = checker.types;

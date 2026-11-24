@@ -1231,6 +1231,12 @@ static unsigned function_features(const reflector *state, const tb_shader_form_f
         const tb_shader_form_expression *const expression =
             tb_shader_form_expression_at(function, (uint32_t)index);
         features |= type_features(state, expression->type);
+        if (expression->kind == TB_SHADER_FORM_HEAP)
+        {
+            features |= expression->index == TB_SHADER_FORM_HEAP_SAMPLER
+                            ? TB_SHADER_FEATURE_SAMPLER_HEAP
+                            : TB_SHADER_FEATURE_RESOURCE_HEAP;
+        }
         if (expression->kind == TB_SHADER_FORM_INTRINSIC)
         {
             features |= call_features(state, function, expression->intrinsic, expression->method,
