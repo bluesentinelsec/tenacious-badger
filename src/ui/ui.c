@@ -32,7 +32,7 @@ tb_ui_theme tb_ui_theme_dark(void)
 
     theme.colors[TB_UI_COLOR_TEXT] = tb_ui_gray(0.86f, 1.0f);
     theme.colors[TB_UI_COLOR_TEXT_DIM] = tb_ui_gray(0.52f, 1.0f);
-    theme.colors[TB_UI_COLOR_WINDOW] = tb_ui_gray(0.141f, 0.98f);
+    theme.colors[TB_UI_COLOR_WINDOW] = tb_ui_gray(0.141f, 1.0f);
     theme.colors[TB_UI_COLOR_BORDER] = tb_ui_gray(0.05f, 1.0f);
     theme.colors[TB_UI_COLOR_TITLE] = tb_ui_gray(0.085f, 1.0f);
     theme.colors[TB_UI_COLOR_TITLE_ACTIVE] = tb_ui_gray(0.105f, 1.0f);
@@ -51,7 +51,7 @@ tb_ui_theme tb_ui_theme_dark(void)
     theme.colors[TB_UI_COLOR_SCROLLBAR_GRAB] = tb_ui_gray(0.32f, 1.0f);
     theme.colors[TB_UI_COLOR_SCROLLBAR_GRAB_HOT] = tb_ui_gray(0.45f, 1.0f);
     theme.colors[TB_UI_COLOR_SEPARATOR] = tb_ui_gray(0.075f, 1.0f);
-    theme.colors[TB_UI_COLOR_POPUP] = tb_ui_gray(0.10f, 0.99f);
+    theme.colors[TB_UI_COLOR_POPUP] = tb_ui_gray(0.10f, 1.0f);
     theme.colors[TB_UI_COLOR_TABLE_ROW_ALTERNATE] = tb_ui_gray(1.0f, 0.035f);
     theme.colors[TB_UI_COLOR_SHADOW] = tb_ui_gray(0.0f, 0.30f);
     theme.font_size = 14.0f;

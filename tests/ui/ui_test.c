@@ -997,6 +997,53 @@ TB_TEST(ui_gallery, every_widget_draws_and_opens)
     ui_fixture_close(&fixture);
 }
 
+static void plot_scene(ui_fixture *fixture)
+{
+    static const float times[] = {16.0f, 17.5f, 15.0f, 33.0f, 16.6f};
+
+    if (tb_ui_begin_window(fixture->ui, "Plots", UI_WINDOW_RECT, 0))
+    {
+        tb_ui_plot(fixture->ui, "Frame times", times, 5, 0.0f, 0.0f, 0.0f);
+        tb_ui_plot(fixture->ui, NULL, times, 5, 0.0f, 40.0f, 50.0f);
+        tb_ui_plot(fixture->ui, "Empty", NULL, 0, 0.0f, 0.0f, 0.0f);
+        tb_ui_text_mono(fixture->ui, "pass  scene");
+        tb_ui_end_window(fixture->ui);
+    }
+}
+
+static size_t count_lines(const ui_fixture *fixture)
+{
+    size_t count = 0;
+    size_t lines = 0;
+    const tb_ui_command *const commands = tb_ui_commands(fixture->ui, &count);
+
+    for (size_t index = 0; index < count; index++)
+    {
+        lines += commands[index].type == TB_UI_COMMAND_LINE ? 1 : 0;
+    }
+    return lines;
+}
+
+/* A graph joins its values with a line each, in its box; its range is the
+ * values' own when none is given, and values outside one are kept in it. */
+TB_TEST(ui_gallery, a_plot_joins_its_values)
+{
+    ui_fixture fixture = {0};
+
+    ui_fixture_open(&fixture, 1.0f, 0);
+    fixture.scene = plot_scene;
+    ui_frame(&fixture);
+    /* Two graphs of five values, and the window's arrow and grip. */
+    TB_TEST_EXPECT_UINT(count_lines(&fixture), ==, 2 * 4 + 2 + 2);
+    const tb_ui_command *const label = ui_text_command(&fixture, "Frame times");
+    TB_TEST_REQUIRE_POINTER(label, !=, NULL);
+    TB_TEST_EXPECT_POINTER(ui_text_command(&fixture, "Empty"), !=, NULL);
+    const tb_ui_command *const mono = ui_text_command(&fixture, "pass  scene");
+    TB_TEST_REQUIRE_POINTER(mono, !=, NULL);
+    TB_TEST_EXPECT_POINTER(mono->font, ==, fixture.font);
+    ui_fixture_close(&fixture);
+}
+
 /* A color's channels are numbers dragged from 0 to 1. */
 TB_TEST(ui_gallery, a_color_edit_drags_its_channels)
 {

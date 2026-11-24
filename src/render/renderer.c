@@ -344,6 +344,12 @@ tb_rhi_device *tb_renderer_device(tb_renderer *renderer)
     return renderer->device;
 }
 
+const tb_render_graph *tb_renderer_graph(const tb_renderer *renderer)
+{
+    TB_ASSERT(renderer != NULL);
+    return renderer->graph;
+}
+
 void tb_renderer_size(const tb_renderer *renderer, uint32_t *width, uint32_t *height)
 {
     TB_ASSERT(renderer != NULL && width != NULL && height != NULL);

@@ -3,6 +3,7 @@
  * backend; and on D3D12 (WARP, on Windows) a mesh and debug lines land on
  * the pixels they should. */
 #include "badger/memory.h"
+#include "badger/render_graph.h"
 #include "badger/renderer.h"
 #include "badger/window.h"
 
@@ -224,6 +225,8 @@ TB_TEST(renderer_frame, frames_run_on_the_null_backend)
         TB_TEST_EXPECT_UINT(depth, ==, TB_RHI_FORMAT_D32_FLOAT);
     }
     TB_TEST_EXPECT(tb_renderer_captured(opened.renderer, &width, &height) != NULL);
+    /* The graph the frames went through describes the last of them. */
+    TB_TEST_EXPECT_UINT(tb_render_graph_dump(tb_renderer_graph(opened.renderer), NULL, 0), >, 0);
     TB_TEST_EXPECT_UINT(width, >, 0);
     TB_TEST_EXPECT_UINT(height, >, 0);
     tb_mesh_destroy(opened.renderer, sphere);

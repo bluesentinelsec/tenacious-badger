@@ -558,6 +558,25 @@ TB_API void tb_ui_text_wrapped(tb_ui *ui, const char *text);
 /** @brief Text in the bold font: a heading. @param text Required. */
 TB_API void tb_ui_heading(tb_ui *ui, const char *text);
 
+/** @brief Text in the monospace font, a line of its own height: a log's
+ * lines, or a table of text in columns. `\n` breaks it.
+ * @param text Required; UTF-8. */
+TB_API void tb_ui_text_mono(tb_ui *ui, const char *text);
+
+/**
+ * @brief A graph of values joined by lines, as wide as the window: frame
+ * times, say. The first value is at the left, the last at the right.
+ * @param label Optional; drawn in its top left corner. NULL for none.
+ * @param values Required when `count` is more than 0.
+ * @param count How many; fewer than 2 draws the graph's box alone.
+ * @param min The value at the bottom.
+ * @param max The value at the top; not more than `min` takes the values'
+ * own least and greatest.
+ * @param height Units; 0 is three lines of fields.
+ */
+TB_API void tb_ui_plot(tb_ui *ui, const char *label, const float *values, size_t count, float min,
+                       float max, float height);
+
 /** @brief A label and a value beside it, as a field's label and field are
  * placed: a property that is read but not changed. Both required. */
 TB_API void tb_ui_value(tb_ui *ui, const char *label, const char *value);

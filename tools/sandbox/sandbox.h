@@ -4,6 +4,7 @@
 #ifndef SANDBOX_H
 #define SANDBOX_H
 
+#include "badger/engine_settings.h"
 #include "badger/font.h"
 #include "badger/font_catalog.h"
 #include "badger/renderer.h"
@@ -75,6 +76,21 @@ extern const size_t sandbox_scene_count;
 bool shapes_create(sandbox *box, void **state);
 void shapes_draw(sandbox *box, void *state, const sandbox_frame *frame);
 void shapes_destroy(sandbox *box, void *state);
+
+/* The inspector over every scene, which F1 or the backquote shows and
+ * hides: every engine setting, applied as it changes, and the frame's
+ * times and statistics (sandbox_inspector.c). */
+typedef struct sandbox_inspector sandbox_inspector;
+sandbox_inspector *sandbox_inspector_create(sandbox *box, tb_settings *settings,
+                                            tb_engine_settings *engine, bool shown);
+void sandbox_inspector_destroy(sandbox_inspector *inspector, sandbox *box);
+/* True when it takes the event: its key, or input over its windows. */
+bool sandbox_inspector_event(sandbox_inspector *inspector, const tb_window_event *event);
+/* Between the renderer's begin and end, after the scene. */
+void sandbox_inspector_draw(sandbox_inspector *inspector, sandbox *box, const char *scene,
+                            double seconds);
+/* After the frame ended: its time, and the statistics of what it drew. */
+void sandbox_inspector_after_frame(sandbox_inspector *inspector, sandbox *box, double seconds);
 
 /* The interface: every widget, in windows over the shapes (sandbox_ui.c). */
 bool ui_scene_create(sandbox *box, void **state);

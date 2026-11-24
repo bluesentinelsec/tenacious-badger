@@ -37,6 +37,8 @@ are in flight: the CPU fills one while the GPU draws the other. The swap
 chain follows the window's size in pixels by itself, and a frame the window
 does not show (minimized) is skipped: `tb_renderer_begin_frame()` returns
 false. `tb_renderer_set_vsync()` takes effect at the next frame.
+`tb_renderer_graph()` gives the render graph the frames go through, whose
+`tb_render_graph_dump()` describes the last of them.
 
 `tb_renderer_capture_next_frame()` keeps the next frame's pixels, which
 `tb_renderer_captured()` then gives: what golden-image tests and

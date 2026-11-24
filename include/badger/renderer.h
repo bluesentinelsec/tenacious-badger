@@ -168,6 +168,14 @@ TB_API tb_rhi_device *tb_renderer_device(tb_renderer *renderer);
  */
 TB_API void tb_renderer_size(const tb_renderer *renderer, uint32_t *width, uint32_t *height);
 
+/**
+ * @brief The render graph the renderer records its frames through: for
+ * tb_render_graph_dump(), to see the last frame's passes and barriers.
+ * @return The renderer's; valid until it is destroyed. Read it outside a
+ * frame, on the thread that renders.
+ */
+TB_API const struct tb_render_graph *tb_renderer_graph(const tb_renderer *renderer);
+
 /** @brief Wait for the display's refresh from the next frame on, or not. */
 TB_API void tb_renderer_set_vsync(tb_renderer *renderer, bool vsync);
 
