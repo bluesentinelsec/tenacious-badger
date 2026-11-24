@@ -302,9 +302,8 @@ static void sandbox_copy_out(sandbox_run *run, tb_rhi_command_list *list, tb_rhi
     tb_rhi_cmd_barrier(list, &(tb_rhi_barrier){.texture = image,
                                                .before = TB_RHI_STATE_PRESENT,
                                                .after = TB_RHI_STATE_COPY_SOURCE});
-    tb_rhi_cmd_copy_texture_to_buffer(list, &(tb_rhi_texture_copy){.buffer = run->capture,
-                                                                     .row_pitch = pitch,
-                                                                     .texture = image});
+    tb_rhi_cmd_copy_texture_to_buffer(
+        list, &(tb_rhi_texture_copy){.buffer = run->capture, .row_pitch = pitch, .texture = image});
     tb_rhi_cmd_barrier(list, &(tb_rhi_barrier){.texture = image,
                                                .before = TB_RHI_STATE_COPY_SOURCE,
                                                .after = TB_RHI_STATE_PRESENT});
@@ -358,14 +357,14 @@ static void sandbox_frame_callback(void *context, const tb_game_time *time)
     {
         sandbox_scenes[run->scene].prepare(&run->box, run->state, list);
     }
-    tb_rhi_cmd_barriers(list,
-                        (const tb_rhi_barrier[]){{.texture = image,
-                                                  .before = TB_RHI_STATE_PRESENT,
-                                                  .after = TB_RHI_STATE_RENDER_TARGET},
-                                                 {.texture = run->box.depth,
-                                                  .before = TB_RHI_STATE_COMMON,
-                                                  .after = TB_RHI_STATE_DEPTH_WRITE}},
-                        2);
+    tb_rhi_cmd_barriers(
+        list,
+        (const tb_rhi_barrier[]){
+            {.texture = image, .before = TB_RHI_STATE_PRESENT, .after = TB_RHI_STATE_RENDER_TARGET},
+            {.texture = run->box.depth,
+             .before = TB_RHI_STATE_COMMON,
+             .after = TB_RHI_STATE_DEPTH_WRITE}},
+        2);
     pass.colors[0] = (tb_rhi_color_target){.texture = image, .load = TB_RHI_LOAD_CLEAR};
     sandbox_clear_color(run, pass.colors[0].clear);
     pass.depth = (tb_rhi_depth_target){.texture = run->box.depth, .load = TB_RHI_LOAD_CLEAR};
@@ -378,14 +377,14 @@ static void sandbox_frame_callback(void *context, const tb_game_time *time)
         sandbox_scenes[run->scene].draw(&run->box, run->state, &frame);
     }
     tb_rhi_cmd_end_pass(list);
-    tb_rhi_cmd_barriers(list,
-                        (const tb_rhi_barrier[]){{.texture = image,
-                                                  .before = TB_RHI_STATE_RENDER_TARGET,
-                                                  .after = TB_RHI_STATE_PRESENT},
-                                                 {.texture = run->box.depth,
-                                                  .before = TB_RHI_STATE_DEPTH_WRITE,
-                                                  .after = TB_RHI_STATE_COMMON}},
-                        2);
+    tb_rhi_cmd_barriers(
+        list,
+        (const tb_rhi_barrier[]){
+            {.texture = image, .before = TB_RHI_STATE_RENDER_TARGET, .after = TB_RHI_STATE_PRESENT},
+            {.texture = run->box.depth,
+             .before = TB_RHI_STATE_DEPTH_WRITE,
+             .after = TB_RHI_STATE_COMMON}},
+        2);
     if (sandbox_capturing(time))
     {
         sandbox_copy_out(run, list, image);
@@ -554,7 +553,8 @@ static int sandbox_main(const tb_cli_outcome *outcome, void *context)
             .system = system,
             .window = run.box.window,
             .settings = &run.engine,
-            .callbacks = {.frame = sandbox_frame_callback, .event = sandbox_event, .context = &run}});
+            .callbacks = {
+                .frame = sandbox_frame_callback, .event = sandbox_event, .context = &run}});
         sandbox_enter_scene(&run, scene);
         tb_game_loop_run(run.loop);
         tb_game_loop_destroy(run.loop);

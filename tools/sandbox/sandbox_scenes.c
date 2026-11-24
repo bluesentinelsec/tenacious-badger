@@ -139,7 +139,8 @@ typedef struct cube_scene
 static bool cube_create(sandbox *box, void **state)
 {
     /* Each face its own four corners, so that each has one color. */
-    static const float faces[6][3] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+    static const float faces[6][3] = {{1, 0, 0},  {-1, 0, 0}, {0, 1, 0},
+                                      {0, -1, 0}, {0, 0, 1},  {0, 0, -1}};
     static const float colors[6][3] = {{0.9f, 0.3f, 0.3f}, {0.3f, 0.9f, 0.3f}, {0.3f, 0.3f, 0.9f},
                                        {0.9f, 0.9f, 0.3f}, {0.9f, 0.3f, 0.9f}, {0.3f, 0.9f, 0.9f}};
     const tb_rhi_vertex_attribute attributes[2] = {
@@ -160,8 +161,9 @@ static bool cube_create(sandbox *box, void **state)
         for (int corner = 0; corner < 4; corner++)
         {
             cube_vertex *const vertex = &vertices[face * 4 + corner];
-            const tb_vec3 point = tb_vec3_add(normal, tb_vec3_add(tb_vec3_scale(side, corners[corner][0]),
-                                                                   tb_vec3_scale(up, corners[corner][1])));
+            const tb_vec3 point =
+                tb_vec3_add(normal, tb_vec3_add(tb_vec3_scale(side, corners[corner][0]),
+                                                tb_vec3_scale(up, corners[corner][1])));
             vertex->position[0] = point.x * 0.5f;
             vertex->position[1] = point.y * 0.5f;
             vertex->position[2] = point.z * 0.5f;
@@ -209,7 +211,8 @@ static void cube_draw(sandbox *box, void *state, const sandbox_frame *frame)
                                      tb_quat_from_axis_angle((tb_vec3){1, 0, 0}, seconds * 0.6f));
     const tb_mat4 model = tb_mat4_rotation(spin);
     tb_mat4 view = tb_mat4_identity();
-    const tb_mat4 projection = tb_mat4_perspective(tb_radians(60.0f), frame->aspect, 0.1f, INFINITY);
+    const tb_mat4 projection =
+        tb_mat4_perspective(tb_radians(60.0f), frame->aspect, 0.1f, INFINITY);
     tb_mat4 clip = {0};
 
     (void)box;
@@ -312,7 +315,8 @@ static bool textured_create(sandbox *box, void **state)
         tb_rhi_buffer_write(box->device, scene->staging, 0, texels, CHECKER_SIZE * CHECKER_PITCH);
         desc.topology = TB_RHI_TOPOLOGY_TRIANGLE_STRIP;
         desc.name = "textured";
-        made = make_pipeline(box, "/Sandbox/Textured.hlsl", textured_source, &desc, &scene->pipeline);
+        made =
+            make_pipeline(box, "/Sandbox/Textured.hlsl", textured_source, &desc, &scene->pipeline);
     }
     tb_free(texels);
     return made;
@@ -332,8 +336,8 @@ static void textured_prepare(sandbox *box, void *state, tb_rhi_command_list *lis
                                                .before = TB_RHI_STATE_COMMON,
                                                .after = TB_RHI_STATE_COPY_DEST});
     tb_rhi_cmd_copy_buffer_to_texture(list, &(tb_rhi_texture_copy){.buffer = scene->staging,
-                                                                     .row_pitch = CHECKER_PITCH,
-                                                                     .texture = scene->texture});
+                                                                   .row_pitch = CHECKER_PITCH,
+                                                                   .texture = scene->texture});
     tb_rhi_cmd_barrier(list, &(tb_rhi_barrier){.texture = scene->texture,
                                                .before = TB_RHI_STATE_COPY_DEST,
                                                .after = TB_RHI_STATE_SHADER_READ});
@@ -370,8 +374,8 @@ static void textured_destroy(sandbox *box, void *state)
 }
 
 const sandbox_scene sandbox_scenes[] = {
-    {"clear", "the swap chain cleared to a color that cycles", clear_create, NULL,
-     clear_draw, clear_destroy},
+    {"clear", "the swap chain cleared to a color that cycles", clear_create, NULL, clear_draw,
+     clear_destroy},
     {"triangle", "a triangle of three colored corners, turning", triangle_create, NULL,
      triangle_draw, triangle_destroy},
     {"cube", "a cube from a vertex buffer, turning in perspective, with reversed depth",
