@@ -410,6 +410,39 @@ TB_TEST(shader_compile, pack_matrix_lays_out_the_matrices_after_it)
     tb_arena_destroy(out.arena);
 }
 
+/* A hull shader runs its patch-constant function too, so what that function
+ * binds is bound, and what it gives is the patch-constant signature; the
+ * control points are the inputs and outputs. */
+TB_TEST(shader_compile, a_hull_shader_binds_and_gives_what_its_patch_function_does)
+{
+    compiled out = {0};
+    compile_text(&out,
+                 "cbuffer Tessellation { float amount; };\n"
+                 "struct CP { float3 p : POSITION; };\n"
+                 "struct PC { float e[3] : SV_TessFactor; float i : SV_InsideTessFactor; };\n"
+                 "PC constants(InputPatch<CP, 3> ip) { PC o = (PC)0; o.e[0] = amount; "
+                 "return o; }\n"
+                 "[domain(\"tri\")] [partitioning(\"integer\")] "
+                 "[outputtopology(\"triangle_cw\")] [outputcontrolpoints(3)] "
+                 "[patchconstantfunc(\"constants\")]\n"
+                 "CP main(InputPatch<CP, 3> ip, uint i : SV_OutputControlPointID) "
+                 "{ return ip[i]; }",
+                 "main", TB_SHADER_STAGE_HULL);
+    TB_TEST_REQUIRE_UINT(out.result, ==, TB_SHADER_OK);
+    const tb_shader_reflection *const reflection = &out.output.reflection;
+    TB_TEST_REQUIRE_UINT(reflection->binding_count, ==, 1);
+    TB_TEST_EXPECT_STRING(reflection->bindings[0].name, ==, "Tessellation");
+    TB_TEST_EXPECT_UINT(reflection->input_count, ==, 1);
+    TB_TEST_EXPECT_UINT(reflection->output_count, ==, 1);
+    TB_TEST_REQUIRE_UINT(reflection->patch_constant_count, ==, 4);
+    /* The inside factor of a triangle is read from the register after its
+     * edges', in its first component. */
+    TB_TEST_EXPECT_STRING(reflection->patch_constants[3].semantic, ==, "SV_InsideTessFactor");
+    TB_TEST_EXPECT_UINT(reflection->patch_constants[3].register_index, ==, 3);
+    TB_TEST_EXPECT_UINT(reflection->patch_constants[3].first_column, ==, 0);
+    tb_arena_destroy(out.arena);
+}
+
 static unsigned features_of(const char *text, const char *entry_point, tb_shader_stage stage)
 {
     compiled out = {0};
@@ -676,6 +709,8 @@ static const char *render(report *out, const tb_shader_reflection *reflection)
     report_signature(out, "input", reflection->inputs, reflection->input_count,
                      reflection->stage == TB_SHADER_STAGE_PIXEL);
     report_signature(out, "output", reflection->outputs, reflection->output_count, false);
+    report_signature(out, "patch", reflection->patch_constants, reflection->patch_constant_count,
+                     false);
     report_buffers(out, reflection);
     report_features(out, reflection->features);
     const size_t count = tb_array_length(out->lines);
@@ -807,6 +842,22 @@ TB_TEST(shader_compile, what_cannot_be_compiled_says_why)
     TB_TEST_EXPECT_STRING(out.output.diagnostics[0].message, ==,
                           "entry point 'main': 't', an array of resources of no size, needs a "
                           "register");
+    tb_arena_destroy(out.arena);
+
+    /* A hull shader's patch constants come from the function it names. */
+    compile_text(&out,
+                 "struct CP { float3 p : POSITION; };\n"
+                 "[domain(\"tri\")] [partitioning(\"integer\")] "
+                 "[outputtopology(\"triangle_cw\")] [outputcontrolpoints(3)] "
+                 "[patchconstantfunc(\"missing\")]\n"
+                 "CP main(InputPatch<CP, 3> ip, uint i : SV_OutputControlPointID) "
+                 "{ return ip[i]; }",
+                 "main", TB_SHADER_STAGE_HULL);
+    TB_TEST_EXPECT_UINT(out.result, ==, TB_SHADER_FAILED);
+    TB_TEST_REQUIRE_UINT(out.output.diagnostic_count, ==, 1);
+    TB_TEST_EXPECT_STRING(out.output.diagnostics[0].message, ==,
+                          "entry point 'main': the hull shader 'main' names no patch-constant "
+                          "function it has");
     tb_arena_destroy(out.arena);
 
     /* The source's own errors come first, with where they are. */

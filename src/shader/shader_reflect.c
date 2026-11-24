@@ -27,7 +27,11 @@ typedef struct reflector
      * its elements are known. */
     tb_array *input_blocks;  /* signature_block */
     tb_array *output_blocks; /* signature_block */
-    const char *error;       /* The first reason the entry point cannot run. */
+    /* A hull shader's patch constants, or a domain shader's. */
+    tb_array *patch_constants; /* tb_shader_signature_element */
+    tb_array *patch_blocks;    /* signature_block */
+    const char *domain;        /* `[domain("tri")]`: "tri", "quad", "isoline"; NULL for none. */
+    const char *error;         /* The first reason the entry point cannot run. */
 } reflector;
 
 static void fail(reflector *state, const char *format, const char *name)
@@ -124,6 +128,16 @@ static const char *split_semantic(reflector *state, const char *semantic, unsign
     return tb_fmt_string(&state->allocator, "%.*s", (int)length, semantic);
 }
 
+/* The signatures of an entry point. */
+typedef enum signature
+{
+    SIGNATURE_INPUT,
+    SIGNATURE_OUTPUT,
+    /* A hull shader's patch constants given, a domain shader's taken, or a
+     * mesh shader's primitives given: DXC's one signature of the three. */
+    SIGNATURE_PATCH
+} signature;
+
 /* Where a signature is in the pipeline, which decides how DXC treats each
  * system value in it. */
 typedef enum signature_point
@@ -134,7 +148,9 @@ typedef enum signature_point
     POINT_PIXEL_OUTPUT,
     POINT_GEOMETRY_INPUT, /* A geometry shader's vertex. */
     POINT_HULL_INPUT,     /* A hull shader's control point. */
-    POINT_DOMAIN_INPUT    /* A domain shader's control point. */
+    POINT_DOMAIN_INPUT,   /* A domain shader's control point. */
+    POINT_PATCH_CONSTANT,
+    POINT_PRIMITIVE_OUTPUT /* A mesh shader's primitives. */
 } signature_point;
 
 /* How a signature takes an element, as DXC's table of system values says.
@@ -147,9 +163,11 @@ typedef enum semantic_kind
     SEMANTIC_SYSTEM,    /* A system value: `SV_Position`. */
     SEMANTIC_GENERATED, /* Generated for a pixel shader: `SV_PrimitiveID`, `SV_IsFrontFace`. */
     SEMANTIC_CLIP_CULL, /* Packed in rows of clip and cull distances only. */
-    SEMANTIC_TARGET,    /* SV_Target: the register of its index. */
-    SEMANTIC_UNPACKED,  /* Listed, in no register: SV_Depth, SV_SampleIndex. */
-    SEMANTIC_ABSENT     /* Not in the signature: SV_Coverage taken, SV_GSInstanceID. */
+    /* SV_TessFactor, SV_InsideTessFactor: where the tessellator reads them. */
+    SEMANTIC_TESS_FACTOR,
+    SEMANTIC_TARGET,   /* SV_Target: the register of its index. */
+    SEMANTIC_UNPACKED, /* Listed, in no register: SV_Depth, SV_SampleIndex. */
+    SEMANTIC_ABSENT    /* Not in the signature: SV_Coverage taken, SV_GSInstanceID. */
 } semantic_kind;
 
 /* The rows an element takes together: an array's or a matrix's, packed as
@@ -176,8 +194,13 @@ static bool same_semantic(const char *left, const char *right)
     return *left == *right;
 }
 
-static signature_point point_of(tb_shader_stage stage, bool is_input)
+static signature_point point_of(tb_shader_stage stage, signature which)
 {
+    const bool is_input = which == SIGNATURE_INPUT;
+    if (which == SIGNATURE_PATCH)
+    {
+        return stage == TB_SHADER_STAGE_MESH ? POINT_PRIMITIVE_OUTPUT : POINT_PATCH_CONSTANT;
+    }
     if (stage == TB_SHADER_STAGE_VERTEX && is_input)
     {
         return POINT_VERTEX_INPUT;
@@ -226,6 +249,12 @@ static semantic_kind kind_of_semantic(signature_point point, const char *semanti
         {POINT_HULL_INPUT, "SV_OutputControlPointID", SEMANTIC_ABSENT},
         {POINT_DOMAIN_INPUT, "SV_PrimitiveID", SEMANTIC_ABSENT},
         {POINT_DOMAIN_INPUT, "SV_DomainLocation", SEMANTIC_ABSENT},
+        {POINT_PATCH_CONSTANT, "SV_TessFactor", SEMANTIC_TESS_FACTOR},
+        {POINT_PATCH_CONSTANT, "SV_InsideTessFactor", SEMANTIC_TESS_FACTOR},
+        /* A domain shader's parameters that are not its control points. */
+        {POINT_PATCH_CONSTANT, "SV_PrimitiveID", SEMANTIC_ABSENT},
+        {POINT_PATCH_CONSTANT, "SV_DomainLocation", SEMANTIC_ABSENT},
+        {POINT_PRIMITIVE_OUTPUT, "SV_CullPrimitive", SEMANTIC_UNPACKED},
     };
     if (same_semantic(semantic, "SV_ViewID") && point != POINT_PASSED)
     {
@@ -258,7 +287,25 @@ static semantic_kind kind_of_semantic(signature_point point, const char *semanti
  * or a vector, one for each element of an array, one for each column of a
  * matrix, or each row when `row_major`, one for each member of a struct,
  * under the member's own semantic. */
-static void add_elements(reflector *state, bool is_input, uint32_t type, const char *semantic,
+static tb_array *elements_of(const reflector *state, signature which)
+{
+    if (which == SIGNATURE_PATCH)
+    {
+        return state->patch_constants;
+    }
+    return which == SIGNATURE_INPUT ? state->inputs : state->outputs;
+}
+
+static tb_array *blocks_of(const reflector *state, signature which)
+{
+    if (which == SIGNATURE_PATCH)
+    {
+        return state->patch_blocks;
+    }
+    return which == SIGNATURE_INPUT ? state->input_blocks : state->output_blocks;
+}
+
+static void add_elements(reflector *state, signature which, uint32_t type, const char *semantic,
                          uint64_t modifiers, const char *owner)
 {
     const tb_shader_form_type *const found = type_at(state, type);
@@ -268,7 +315,7 @@ static void add_elements(reflector *state, bool is_input, uint32_t type, const c
         {
             const tb_shader_form_member *const member =
                 tb_shader_form_member_at(state->form, found->first_member + at);
-            add_elements(state, is_input, member->type, member->semantic,
+            add_elements(state, which, member->type, member->semantic,
                          modifiers | member->modifiers, member->name);
         }
         return;
@@ -293,7 +340,7 @@ static void add_elements(reflector *state, bool is_input, uint32_t type, const c
         fail(state, "'%s' is not a value a stage can pass", owner);
         return;
     }
-    const signature_point point = point_of(state->stage, is_input);
+    const signature_point point = point_of(state->stage, which);
     const semantic_kind kind = kind_of_semantic(point, name);
     if (kind == SEMANTIC_ABSENT)
     {
@@ -306,16 +353,20 @@ static void add_elements(reflector *state, bool is_input, uint32_t type, const c
         count *= by_rows ? row->rows : row->columns;
         columns = by_rows ? (unsigned)row->columns : (unsigned)row->rows;
     }
-    tb_array *const elements = is_input ? state->inputs : state->outputs;
+    tb_array *const elements = elements_of(state, which);
     const tb_shader_component component = component_of(row->scalar);
-    const tb_shader_interpolation mode = interpolation_of(name, modifiers, component);
+    /* Patch constants and primitives are not interpolated, and share
+     * registers whatever their component. */
+    const bool interpolated = point != POINT_PATCH_CONSTANT && point != POINT_PRIMITIVE_OUTPUT;
+    const tb_shader_interpolation mode =
+        interpolated ? interpolation_of(name, modifiers, component) : TB_SHADER_INTERPOLATION_NONE;
     signature_block block = {0};
     block.first = tb_array_length(elements);
     block.rows = count;
     block.columns = columns;
     block.kind = kind;
     block.mode = mode;
-    (void)tb_array_push(is_input ? state->input_blocks : state->output_blocks, &block);
+    (void)tb_array_push(blocks_of(state, which), &block);
     for (uint32_t index = 0; index < count; index++)
     {
         tb_shader_signature_element entry = {0};
@@ -342,14 +393,14 @@ typedef struct signature_register
     tb_shader_interpolation mode;
 } signature_register;
 
-/* Where an element must be in a register beside others: clip and cull
- * distances rank with system values, in rows of their own. */
+/* Where an element must be in a register beside others. */
 static unsigned rank_of(semantic_kind kind)
 {
     if (kind == SEMANTIC_ARBITRARY)
     {
         return 0;
     }
+    /* Clip and cull distances and tessellation factors rank with system values. */
     return kind == SEMANTIC_GENERATED ? 2u : 1u;
 }
 
@@ -452,12 +503,41 @@ static void pack_block(reflector *state, signature_register *registers, tb_array
     fail(state, "'%s' does not fit in the 32 registers a signature has", element->semantic);
 }
 
+/* Where the tessellator reads a tessellation factor: the edges' in the last
+ * component of the first registers, one for each; a triangle's inside factor
+ * in the first component of the register after its 3 edges', and a quad's 2
+ * in the last component of the registers after its 4 edges'. */
+static void place_tess_factor(const reflector *state, signature_register *registers,
+                              tb_array *elements, const signature_block *block)
+{
+    const tb_shader_signature_element *const element =
+        TB_ARRAY_AT(elements, tb_shader_signature_element, block->first);
+    uint32_t first = element->semantic_index;
+    unsigned column = SIGNATURE_COLUMNS - 1u;
+    if (same_semantic(element->semantic, "SV_InsideTessFactor"))
+    {
+        const bool is_triangle =
+            state->domain != NULL ? tb_str_equal(state->domain, "tri") : block->rows == 1;
+        first += is_triangle ? 3u : 4u;
+        column = is_triangle ? 0u : SIGNATURE_COLUMNS - 1u;
+    }
+    if (first + block->rows > SIGNATURE_REGISTERS || column + block->columns > SIGNATURE_COLUMNS)
+    {
+        return;
+    }
+    take_block(registers, block, first, column);
+    place_block(elements, block, first, column);
+}
+
 /* Registers for a signature's elements, as DXC assigns them: a vertex
  * shader's inputs a register each, in order; a pixel shader's targets the
- * register of their index; and every other signature packed. */
-static void pack_signature(reflector *state, tb_array *elements, tb_array *blocks, bool is_input)
+ * register of their index; tessellation factors where the tessellator reads
+ * them; and every other element packed around them. */
+static void pack_signature(reflector *state, signature which)
 {
-    const signature_point point = point_of(state->stage, is_input);
+    tb_array *const elements = elements_of(state, which);
+    tb_array *const blocks = blocks_of(state, which);
+    const signature_point point = point_of(state->stage, which);
     signature_register registers[SIGNATURE_REGISTERS] = {0};
     for (size_t row = 0; row < SIGNATURE_REGISTERS; row++)
     {
@@ -471,7 +551,15 @@ static void pack_signature(reflector *state, tb_array *elements, tb_array *block
     for (size_t index = 0; index < count; index++)
     {
         const signature_block *const block = TB_ARRAY_AT(blocks, signature_block, index);
-        if (block->kind == SEMANTIC_UNPACKED)
+        if (block->kind == SEMANTIC_TESS_FACTOR)
+        {
+            place_tess_factor(state, registers, elements, block);
+        }
+    }
+    for (size_t index = 0; index < count; index++)
+    {
+        const signature_block *const block = TB_ARRAY_AT(blocks, signature_block, index);
+        if (block->kind == SEMANTIC_UNPACKED || block->kind == SEMANTIC_TESS_FACTOR)
         {
             continue;
         }
@@ -502,11 +590,23 @@ static bool has_signatures(tb_shader_stage stage)
 
 /* A parameter's elements: a geometry shader's primitive and a patch pass
  * their element's, a stream gives its element's, a mesh shader gives its
- * vertices'. */
+ * vertices' and its primitives'. */
 static void add_parameter(reflector *state, const tb_shader_form_parameter *parameter)
 {
     const tb_shader_form_type *const type = type_at(state, parameter->type);
-    const bool is_input = parameter->direction != TB_SHADER_FORM_OUT;
+    /* A domain shader takes its control points from its OutputPatch, and
+     * its patch constants from every other parameter. */
+    signature which = state->stage == TB_SHADER_STAGE_DOMAIN ? SIGNATURE_PATCH : SIGNATURE_INPUT;
+    if (parameter->direction == TB_SHADER_FORM_OUT)
+    {
+        which = SIGNATURE_OUTPUT;
+    }
+    /* A mesh shader takes its thread's IDs and its payload, and neither is
+     * a signature. */
+    if (state->stage == TB_SHADER_STAGE_MESH && which == SIGNATURE_INPUT)
+    {
+        return;
+    }
     if (type->kind == TB_SHADER_FORM_RESOURCE)
     {
         const bool is_stream = type->object == TB_SHADER_OBJECT_POINT_STREAM ||
@@ -514,7 +614,8 @@ static void add_parameter(reflector *state, const tb_shader_form_parameter *para
                                type->object == TB_SHADER_OBJECT_TRIANGLE_STREAM;
         if (type->element != TB_SHADER_FORM_NONE)
         {
-            add_elements(state, !is_stream, type->element, NULL, 0, parameter->name);
+            add_elements(state, is_stream ? SIGNATURE_OUTPUT : SIGNATURE_INPUT, type->element, NULL,
+                         0, parameter->name);
         }
         return;
     }
@@ -523,8 +624,15 @@ static void add_parameter(reflector *state, const tb_shader_form_parameter *para
                                TB_SHADER_MODIFIER_TRIANGLEADJ | TB_SHADER_MODIFIER_VERTICES;
     if ((parameter->modifiers & primitive) != 0 && type->kind == TB_SHADER_FORM_ARRAY)
     {
-        add_elements(state, is_input, type->element, parameter->semantic, parameter->modifiers,
+        add_elements(state, which, type->element, parameter->semantic, parameter->modifiers,
                      parameter->name);
+        return;
+    }
+    if ((parameter->modifiers & TB_SHADER_MODIFIER_PRIMITIVES) != 0 &&
+        type->kind == TB_SHADER_FORM_ARRAY)
+    {
+        add_elements(state, SIGNATURE_PATCH, type->element, parameter->semantic,
+                     parameter->modifiers, parameter->name);
         return;
     }
     const uint64_t not_passed =
@@ -533,32 +641,89 @@ static void add_parameter(reflector *state, const tb_shader_form_parameter *para
     {
         return;
     }
-    add_elements(state, is_input, parameter->type, parameter->semantic, parameter->modifiers,
+    add_elements(state, which, parameter->type, parameter->semantic, parameter->modifiers,
                  parameter->name);
     if (parameter->direction == TB_SHADER_FORM_INOUT)
     {
-        add_elements(state, false, parameter->type, parameter->semantic, parameter->modifiers,
-                     parameter->name);
+        add_elements(state, SIGNATURE_OUTPUT, parameter->type, parameter->semantic,
+                     parameter->modifiers, parameter->name);
     }
 }
 
-static void reflect_signatures(reflector *state, const tb_shader_form_function *entry)
+/* The patch constants a hull shader's patch-constant function gives: its
+ * result's and its `out` parameters'. */
+static void add_patch_constants(reflector *state, uint32_t entry_function)
 {
+    const uint32_t found = tb_shader_form_patch_constant_function(state->form, entry_function);
+    const tb_shader_form_function *const entry =
+        tb_shader_form_function_at(state->form, entry_function);
+    if (found == TB_SHADER_FORM_NONE)
+    {
+        fail(state, "the hull shader '%s' names no patch-constant function it has", entry->name);
+        return;
+    }
+    const tb_shader_form_function *const function = tb_shader_form_function_at(state->form, found);
+    if (type_at(state, function->result)->kind != TB_SHADER_FORM_VOID)
+    {
+        add_elements(state, SIGNATURE_PATCH, function->result, function->result_semantic, 0,
+                     function->name);
+    }
+    const size_t count = tb_array_length(function->parameters);
+    for (size_t index = 0; index < count; index++)
+    {
+        const tb_shader_form_parameter *const parameter =
+            TB_ARRAY_AT(function->parameters, tb_shader_form_parameter, index);
+        if (parameter->direction != TB_SHADER_FORM_IN)
+        {
+            add_elements(state, SIGNATURE_PATCH, parameter->type, parameter->semantic,
+                         parameter->modifiers, parameter->name);
+        }
+    }
+}
+
+/* `[domain("tri")]`: the domain a hull or domain shader tessellates. */
+static const char *domain_of(const tb_shader_form_function *entry)
+{
+    const size_t count = tb_array_length(entry->attributes);
+    for (size_t index = 0; index < count; index++)
+    {
+        const tb_shader_form_attribute *const attribute =
+            TB_ARRAY_AT(entry->attributes, tb_shader_form_attribute, index);
+        if (tb_str_equal(attribute->name, "domain") && attribute->argument_count == 1 &&
+            attribute->arguments[0].kind == TB_SHADER_FORM_ARGUMENT_STRING)
+        {
+            return attribute->arguments[0].text;
+        }
+    }
+    return NULL;
+}
+
+static void reflect_signatures(reflector *state, uint32_t entry_function)
+{
+    const tb_shader_form_function *const entry =
+        tb_shader_form_function_at(state->form, entry_function);
     if (!has_signatures(state->stage))
     {
         return;
     }
+    state->domain = domain_of(entry);
     if (type_at(state, entry->result)->kind != TB_SHADER_FORM_VOID)
     {
-        add_elements(state, false, entry->result, entry->result_semantic, 0, entry->name);
+        add_elements(state, SIGNATURE_OUTPUT, entry->result, entry->result_semantic, 0,
+                     entry->name);
     }
     const size_t count = tb_array_length(entry->parameters);
     for (size_t index = 0; index < count; index++)
     {
         add_parameter(state, TB_ARRAY_AT(entry->parameters, tb_shader_form_parameter, index));
     }
-    pack_signature(state, state->inputs, state->input_blocks, true);
-    pack_signature(state, state->outputs, state->output_blocks, false);
+    if (state->stage == TB_SHADER_STAGE_HULL)
+    {
+        add_patch_constants(state, entry_function);
+    }
+    pack_signature(state, SIGNATURE_INPUT);
+    pack_signature(state, SIGNATURE_OUTPUT);
+    pack_signature(state, SIGNATURE_PATCH);
 }
 
 /* -------------------------------------------------------------------------
@@ -1163,11 +1328,13 @@ const char *tb_shader_reflect(const tb_shader_form *form, tb_arena *arena,
     state.bindings = TB_ARRAY_CREATE(&state.allocator, tb_shader_binding);
     state.input_blocks = TB_ARRAY_CREATE(&state.allocator, signature_block);
     state.output_blocks = TB_ARRAY_CREATE(&state.allocator, signature_block);
+    state.patch_constants = TB_ARRAY_CREATE(&state.allocator, tb_shader_signature_element);
+    state.patch_blocks = TB_ARRAY_CREATE(&state.allocator, signature_block);
     const tb_shader_form_function *const function =
         tb_shader_form_function_at(form, entry->function);
     reflection->stage = state.stage;
     reflect_thread_group(function, reflection);
-    reflect_signatures(&state, function);
+    reflect_signatures(&state, entry->function);
     reflect_bindings(&state);
     reflect_buffers(&state, reflection);
     reflection->features = reflect_features(&state);
@@ -1175,6 +1342,8 @@ const char *tb_shader_reflect(const tb_shader_form *form, tb_arena *arena,
     reflection->input_count = tb_array_length(state.inputs);
     reflection->outputs = tb_array_data(state.outputs);
     reflection->output_count = tb_array_length(state.outputs);
+    reflection->patch_constants = tb_array_data(state.patch_constants);
+    reflection->patch_constant_count = tb_array_length(state.patch_constants);
     reflection->bindings = tb_array_data(state.bindings);
     reflection->binding_count = tb_array_length(state.bindings);
     return state.error;

@@ -423,7 +423,14 @@ if (tb_shader_compile(&request, arena, &compiled) == TB_SHADER_OK)
   they are interpolated: as their modifiers say, or a float linearly,
   `SV_Position` without perspective, and an integer or a bool not at all, as
   DXC does. A compute or ray-tracing shader has none; a geometry shader takes
-  its primitive's vertex once, and gives its stream's.
+  its primitive's vertex once, and gives its stream's. A hull shader's inputs
+  and outputs are its control points, and its patch constants are what the
+  function `[patchconstantfunc]` names gives; that function runs with it, so
+  what it binds is bound. A domain shader takes its control points from its
+  `OutputPatch`, and its patch constants from its other parameters. A mesh
+  shader takes no signature; it gives its vertices as its outputs, and its
+  primitives in the signature of patch constants, as DXC does, packed the same
+  way and not interpolated (`SV_CullPrimitive` in no register).
 
   Registers are assigned as DXC assigns them. A vertex shader's inputs take a
   register each, in order, and a pixel shader's targets the register of their
@@ -436,6 +443,11 @@ if (tb_shader_compile(&request, arena, &compiled) == TB_SHADER_OK)
   `SV_IsFrontFace`). A system value passed in no register, such as
   `SV_Depth` or `SV_SampleIndex`, has none, and one that is not passed at
   all, such as `SV_Coverage` taken or `SV_GSInstanceID`, is not listed.
+  Tessellation factors are where the tessellator reads them: the edges' in
+  the last component of the first registers, a triangle's inside factor in
+  the first component of the next, and a quad's two in the last component of
+  the next two; the other patch constants pack around them, whatever their
+  component, as they are not interpolated.
 - **Bindings.** Each constant buffer, texture, buffer and sampler the entry
   point uses, and only those: its kind (which decides its register class),
   its shape, the element it holds, its register, space and count. One the
@@ -475,8 +487,7 @@ and compares, on every platform, and a Windows job of CI runs the tool with
 `--check`, so a DXC that reports otherwise fails the build. To add a case, add
 a shader, run the tool, and review what it wrote.
 
-**Not yet.** A hull shader's patch constants, and a mesh shader's primitives,
-are not described yet.
+
 
 ## Diagnostics
 

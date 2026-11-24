@@ -1,0 +1,9 @@
+output C 0 float 1 r1.z
+output ID 0 uint 1 r2.x
+output SV_Position 0 float 4 r0.x
+output TEXCOORD 0 float 2 r1.x
+patch MAT 0 uint 1 r1.w
+patch NORMAL 0 float 3 r1.x
+patch SV_CullPrimitive 0 uint - -
+patch SV_PrimitiveID 0 uint 1 r0.x
+patch SV_RenderTargetArrayIndex 0 uint 1 r0.y

@@ -419,6 +419,9 @@ const char *tb_shader_form_string_at(const tb_shader_form *form, uint32_t string
 uint32_t tb_shader_form_add_function(tb_shader_form *form, const char *name, uint32_t result);
 tb_shader_form_function *tb_shader_form_function_at(const tb_shader_form *form, uint32_t function);
 size_t tb_shader_form_function_count(const tb_shader_form *form);
+/* The function `[patchconstantfunc("name")]` of `function` names, the first
+ * of that name; TB_SHADER_FORM_NONE when it names none, or none is found. */
+uint32_t tb_shader_form_patch_constant_function(const tb_shader_form *form, uint32_t function);
 
 /* Make a function an entry point of a stage; returns false when it is one
  * already, of that stage. */
@@ -458,8 +461,8 @@ bool tb_shader_form_verify(const tb_shader_form *form, char *why, size_t size);
 
 /* Copy into `out`, in `arena`, the part of a form entry point `entry_point`
  * (an index of the form's entry points) runs: the functions it calls,
- * directly or not, the globals they use, and the initializer when it sets
- * one of those globals. Types and strings keep their indices; globals and
+ * directly or not, and a hull shader's patch-constant function, the globals they use, and the
+ * initializer when it sets one of those globals. Types and strings keep their indices; globals and
  * functions are numbered anew, in their order in the form. `out` has that
  * entry point alone. Returns false, with `out` empty, when there is no such
  * entry point. */

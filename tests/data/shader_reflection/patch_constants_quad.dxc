@@ -1,0 +1,12 @@
+input POSITION 0 float 3 r0.x
+output POSITION 0 float 3 r0.x
+patch A 0 float 2 r0.x
+patch B 0 float 3 r1.x
+patch C 0 uint 1 r0.z
+patch D 0 float 1 r2.x
+patch SV_InsideTessFactor 0 float 1 r4.w
+patch SV_InsideTessFactor 1 float 1 r5.w
+patch SV_TessFactor 0 float 1 r0.w
+patch SV_TessFactor 1 float 1 r1.w
+patch SV_TessFactor 2 float 1 r2.w
+patch SV_TessFactor 3 float 1 r3.w

@@ -1,0 +1,7 @@
+input POSITION 0 float 3 r0.x
+input TEXCOORD 0 float 2 r1.x
+output SV_Position 0 float 4 r0.x
+patch SV_InsideTessFactor 0 float 1 r3.x
+patch SV_TessFactor 0 float 1 r0.w
+patch SV_TessFactor 1 float 1 r1.w
+patch SV_TessFactor 2 float 1 r2.w
