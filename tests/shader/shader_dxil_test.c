@@ -303,6 +303,19 @@ TB_TEST(shader_dxil, dxc_compiles_hlsl_and_reports_its_errors)
     TB_TEST_EXPECT_POINTER(output.code, ==, NULL);
     TB_TEST_EXPECT_UINT(tb_str_starts_with(output.messages, error.message), ==, true);
     tb_dxc_release(&output);
+
+    /* The validator writes a summary first; the error is the first that names a place. */
+    static const char invalid[] =
+        "RWStructuredBuffer<uint64_t> counters;\n"
+        "[numthreads(1, 1, 1)] void main(uint3 id : SV_DispatchThreadID)\n"
+        "{ InterlockedAdd(counters[id.x], 1); }\n";
+    request.source = invalid;
+    request.source_length = sizeof(invalid) - 1;
+    request.profile = "cs_6_0";
+    TB_TEST_EXPECT_UINT(tb_dxc_compile(dxc, &request, &output, &error), ==, TB_DXC_FAILED);
+    TB_TEST_EXPECT_UINT(tb_str_starts_with(output.messages, "error: validation errors"), ==, true);
+    TB_TEST_EXPECT_UINT(tb_str_starts_with(error.message, "main.hlsl:3:"), ==, true);
+    tb_dxc_release(&output);
     tb_dxc_close(dxc);
 }
 

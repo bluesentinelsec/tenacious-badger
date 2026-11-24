@@ -288,24 +288,37 @@ static size_t line_end(const char *text, size_t start, size_t length)
     return end == TB_STR_NOT_FOUND ? length : end;
 }
 
-/* Say what failed with the first line of DXC's messages that is an error,
- * or else with the first line. */
-static void report_first_error(const char *messages, size_t length, tb_dxc_error *error)
+/* Find the first line of DXC's messages that holds `pattern`: false when
+ * none does, which leaves `begin` and `end` as they were. */
+static bool find_line(const char *messages, size_t length, const char *pattern, size_t *begin,
+                      size_t *end)
 {
-    size_t chosen = 0;
-    size_t chosen_end = line_end(messages, 0, length);
     for (size_t start = 0; start < length;)
     {
-        const size_t end = line_end(messages, start, length);
-        if (tb_str_find(messages, start, end, "error:") != TB_STR_NOT_FOUND)
+        const size_t stop = line_end(messages, start, length);
+        if (tb_str_find(messages, start, stop, pattern) != TB_STR_NOT_FOUND)
         {
-            chosen = start;
-            chosen_end = end;
-            break;
+            *begin = start;
+            *end = stop;
+            return true;
         }
-        start = end + 1;
+        start = stop + 1;
     }
-    (void)fail(error, TB_DXC_FAILED, "%.*s", (int)(chosen_end - chosen), messages + chosen);
+    return false;
+}
+
+/* Say what failed with DXC's first error that names a place; else its first
+ * error, which may be the summary its validator writes before the errors
+ * themselves; else its first line. */
+static void report_first_error(const char *messages, size_t length, tb_dxc_error *error)
+{
+    size_t begin = 0;
+    size_t end = line_end(messages, 0, length);
+    if (!find_line(messages, length, ": error: ", &begin, &end))
+    {
+        (void)find_line(messages, length, "error: ", &begin, &end);
+    }
+    (void)fail(error, TB_DXC_FAILED, "%.*s", (int)(end - begin), messages + begin);
 }
 
 /* The arguments of a compile, in `arguments`, from the request and from

@@ -143,7 +143,8 @@ typedef struct tb_dxc_output
  * @param[out] dxc Required. Receives DXC, which the caller closes with
  * tb_dxc_close(); NULL on failure.
  * @param[out] error Why it failed, or NULL.
- * @return TB_DXC_OK, UNAVAILABLE, or NO_MEMORY.
+ * @return TB_DXC_OK or UNAVAILABLE. Running out of memory ends the process,
+ * as allocation does.
  * @par Threading Thread-safe.
  */
 TB_API tb_dxc_result tb_dxc_open(tb_dxc **dxc, tb_dxc_error *error);
@@ -167,7 +168,7 @@ TB_API void tb_dxc_close(tb_dxc *dxc);
  * @param[out] output Required. Filled in on OK and FAILED, with DXC's
  * messages; zero otherwise. Release it with tb_dxc_release() in every case.
  * @param[out] error Why it failed, or NULL. On FAILED, the message is DXC's
- * first error.
+ * first error, the first that names a place where one does.
  * @return TB_DXC_OK, INVALID, FAILED, or NO_MEMORY.
  * @par Threading Thread-safe.
  */
