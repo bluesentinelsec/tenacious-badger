@@ -9,8 +9,8 @@
  * tb_renderer_set_sky(renderer, &sky); // from the next frame on, until changed
  * @endcode
  *
- * **Where it is drawn.** The sky is drawn in the scene pass after the
- * meshes and custom draws, before the debug lines, on the pixels nothing
+ * **Where it is drawn.** The sky is drawn after the meshes are lit and
+ * after the custom draws, before the debug lines, on the pixels nothing
  * covered: a triangle over the whole view at the far plane (depth 0, as
  * depth is reversed), tested against the depth the scene wrote and writing
  * none. Pixels the scene covered fail the test before they are shaded, so
@@ -21,7 +21,12 @@
  * is Direct3D's: the face of the direction's largest component, +X, -X, +Y,
  * -Y, +Z, -Z, each face laid out as Direct3D lays it (tb_texture_create_cube()).
  *
- * **Colors** are linear RGB, written to the frame as every draw's are.
+ * **Colors** are linear RGB, light that the output transform maps as the
+ * scene's.
+ *
+ * **Lighting.** The sky lights the scene too: its colors, or its cube
+ * map's lower levels, are the ambient light of every surface, and what
+ * smooth surfaces reflect (badger/light.h).
  *
  * A device without bindless resources draws no sky: the clear color shows.
  *

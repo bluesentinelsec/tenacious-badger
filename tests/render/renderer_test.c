@@ -221,7 +221,9 @@ TB_TEST(renderer_frame, frames_run_on_the_null_backend)
         TB_TEST_REQUIRE_UINT(tb_renderer_end_frame(opened.renderer), ==, TB_RHI_OK);
         TB_TEST_EXPECT_INT(calls, ==, 2);
         tb_renderer_target_formats(opened.renderer, &color, &depth);
-        TB_TEST_EXPECT_UINT(color, ==, TB_RHI_FORMAT_B8G8R8A8_UNORM);
+        /* The null backend has bindless resources, so the raster lighting
+         * mode, whose custom draws go into the scene's light, in HDR. */
+        TB_TEST_EXPECT_UINT(color, ==, TB_RHI_FORMAT_R16G16B16A16_FLOAT);
         TB_TEST_EXPECT_UINT(depth, ==, TB_RHI_FORMAT_D32_FLOAT);
     }
     TB_TEST_EXPECT(tb_renderer_captured(opened.renderer, &width, &height) != NULL);

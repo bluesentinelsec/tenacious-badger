@@ -71,6 +71,12 @@ typedef struct sandbox_scene
 
 extern const sandbox_scene sandbox_scenes[];
 
+/* The lighting scene (sandbox_lighting.c). */
+bool sandbox_lighting_create(sandbox *box, void **state);
+void sandbox_lighting_draw(sandbox *box, void *state, const sandbox_frame *frame);
+void sandbox_lighting_destroy(sandbox *box, void *state);
+bool sandbox_lighting_event(sandbox *box, void *state, const tb_window_event *event);
+
 /* The skinning scene (sandbox_skinning.c). */
 bool sandbox_skinning_create(sandbox *box, void **state);
 void sandbox_skinning_draw(sandbox *box, void *state, const sandbox_frame *frame);

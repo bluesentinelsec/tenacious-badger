@@ -3,6 +3,7 @@
 #include "badger/renderer.h"
 #include "badger/window.h"
 
+#include "display_color.h"
 #include "tb_test.h"
 
 typedef struct screen
@@ -79,8 +80,9 @@ static uint32_t pixel_at(const uint8_t *pixels, uint32_t width, uint32_t x, uint
            (uint32_t)bgra[3] << 24;
 }
 
-/* On D3D12, the cube is red in the middle, the line on top is green over
- * everything, and the corners are the clear color. */
+/* On D3D12, the cube is red in the middle, as the output transform shows
+ * it; the line on top is green over everything, as given, since lines are
+ * drawn over the tone-mapped frame; and the corners are the clear color. */
 TB_TEST(renderer_frame, a_mesh_and_lines_land_where_they_should_on_d3d12)
 {
     screen opened = {0};
@@ -98,7 +100,8 @@ TB_TEST(renderer_frame, a_mesh_and_lines_land_where_they_should_on_d3d12)
     draw_frame(opened.renderer, cube);
     pixels = tb_renderer_captured(opened.renderer, &width, &height);
     TB_TEST_REQUIRE(pixels != NULL);
-    TB_TEST_EXPECT_HEX(pixel_at(pixels, width, width / 2, height / 2), ==, 0xFFFF0000u);
+    TB_TEST_EXPECT_HEX(pixel_at(pixels, width, width / 2, height / 2), ==,
+                       0xFF000000u | display_rgb(1, 0, 0));
     TB_TEST_EXPECT_HEX(pixel_at(pixels, width, 1, height - 2), ==, 0xFF000000u);
     /* Where the line on top crosses the middle of the view. */
     TB_TEST_REQUIRE(tb_camera_look_at(&camera, (tb_vec3){0, 0, 3}, (tb_vec3){0, 0, 0}));

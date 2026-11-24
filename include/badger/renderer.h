@@ -28,8 +28,16 @@
  *
  * **Meshes** are triangles with positions, normals and texture coordinates,
  * made from data a caller gives or as shapes the renderer generates. A mesh
- * is drawn with a transform and a color, lit by a light from above, or flat;
- * or with a material of textures (badger/material.h).
+ * is drawn with a transform and a color, lit or flat, or with a material of
+ * textures (badger/material.h).
+ *
+ * **Lighting.** On a device with bindless resources, frames are drawn in
+ * the raster lighting mode: meshes into a G-buffer, lit by the scene's
+ * lights (badger/light.h) and its sky (badger/sky.h) with Unreal's default
+ * lit model, and tone mapped from linear HDR into the swap chain by an ACES
+ * filmic curve and sRGB's encoding, so that the colors given are light, not
+ * pixels. Without bindless resources, meshes are drawn straight into the
+ * swap chain, lit by one light.
  *
  * **Debug drawing** puts lines in the world for one frame: lines, boxes,
  * spheres, grids, axes and arrows, tested against depth or drawn over
@@ -284,7 +292,7 @@ TB_API void tb_mesh_destroy(tb_renderer *renderer, tb_mesh *mesh);
 /** @brief How a mesh is shaded. */
 typedef enum tb_mesh_shading
 {
-    TB_MESH_LIT, /**< Lit by a light from above and behind the camera, with ambient light. */
+    TB_MESH_LIT, /**< Lit by the scene's lights and its ambient light. */
     TB_MESH_FLAT /**< Its color alone. */
 } tb_mesh_shading;
 
@@ -301,11 +309,13 @@ TB_API void tb_renderer_draw_mesh(tb_renderer *renderer, const tb_mesh *mesh, tb
 TB_API void tb_renderer_draw_mesh_shaded(tb_renderer *renderer, const tb_mesh *mesh,
                                          tb_mat4 transform, tb_vec4 color, tb_mesh_shading shading);
 
-/** @brief What a custom draw is given, inside the frame's scene pass. */
+/** @brief What a custom draw is given, inside the frame's pass of what is
+ * drawn as it is after lighting, or, without bindless resources, its scene
+ * pass. */
 typedef struct tb_renderer_draw_context
 {
     tb_rhi_device *device;     /**< The renderer's device. */
-    tb_rhi_command_list *list; /**< To record into, inside the scene pass. */
+    tb_rhi_command_list *list; /**< To record into, inside the pass. */
     tb_mat4 view;              /**< The frame's camera's view. */
     tb_mat4 projection;        /**< Its projection, for the frame's aspect. */
     tb_mat4 clip;              /**< `projection * view`. */
@@ -318,9 +328,11 @@ typedef struct tb_renderer_draw_context
 typedef void tb_renderer_draw_function(const tb_renderer_draw_context *draw);
 
 /**
- * @brief Record a draw of the caller's own in this frame's scene pass, after
- * the meshes and before the debug lines: what draws through the RHI itself
- * with pipelines of tb_renderer_target_formats().
+ * @brief Record a draw of the caller's own in this frame, after the meshes
+ * are lit and before the sky and the debug lines: what draws through the
+ * RHI itself with pipelines of tb_renderer_target_formats(). Its colors
+ * are light, in linear HDR, which the output transform maps as the
+ * scene's; it tests and writes the scene's depth.
  * @param draw Required; called once, while the frame ends.
  * @param context Given to `draw`.
  */
@@ -328,8 +340,10 @@ TB_API void tb_renderer_draw_custom(tb_renderer *renderer, tb_renderer_draw_func
                                     void *context);
 
 /**
- * @brief The formats of the scene pass's targets, which a custom draw's
- * pipelines use. Its depth is reversed: clear to 0, keep what is greater.
+ * @brief The formats of the targets custom draws draw into, which their
+ * pipelines use: the scene's light (#TB_RHI_FORMAT_R16G16B16A16_FLOAT) in
+ * the raster lighting mode, else the swap chain's; and depth, which is
+ * reversed: clear to 0, keep what is greater.
  * @param color Required; receives the color target's format.
  * @param depth Required; receives the depth target's format.
  */

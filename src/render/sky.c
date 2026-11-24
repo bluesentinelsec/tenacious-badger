@@ -105,7 +105,7 @@ tb_rhi_result tb_renderer_sky_create(tb_renderer *renderer, tb_rhi_error *error)
     desc.topology = TB_RHI_TOPOLOGY_TRIANGLES;
     desc.depth_test = true;
     desc.depth_compare = TB_RHI_COMPARE_GREATER_EQUAL;
-    desc.colors[0] = TB_RENDERER_COLOR_FORMAT;
+    desc.colors[0] = TB_RENDERER_SCENE_FORMAT;
     desc.color_count = 1;
     desc.depth = TB_RENDERER_DEPTH_FORMAT;
     desc.name = "sky";

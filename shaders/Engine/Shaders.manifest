@@ -12,6 +12,10 @@
 /Engine/Private/Canvas.hlsl              pixel     MainPS
 /Engine/Private/DebugLines.hlsl          vertex    MainVS
 /Engine/Private/DebugLines.hlsl          pixel     MainPS
+/Engine/Private/DebugLinesOutput.hlsl    vertex    MainVS
+/Engine/Private/DebugLinesOutput.hlsl    pixel     MainPS
+/Engine/Private/DeferredLighting.hlsl    vertex    MainVS
+/Engine/Private/DeferredLighting.hlsl    pixel     MainPS
 /Engine/Private/GenerateMips.hlsl        compute   MainCS
 /Engine/Private/Material.hlsl            vertex    MainVS
 /Engine/Private/Material.hlsl            pixel     MainPS
@@ -20,3 +24,5 @@
 /Engine/Private/Skinning.hlsl            compute   MainCS
 /Engine/Private/Sky.hlsl                 vertex    MainVS
 /Engine/Private/Sky.hlsl                 pixel     MainPS
+/Engine/Private/Tonemap.hlsl             vertex    MainVS
+/Engine/Private/Tonemap.hlsl             pixel     MainPS

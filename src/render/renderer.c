@@ -1,6 +1,8 @@
 /* The renderer: a device and swap chain on a window, the shaders it draws
  * with, frames in flight, and each frame's meshes and debug lines recorded
- * through the render graph. */
+ * through the render graph: into a G-buffer, lit, and tone mapped, in the
+ * raster lighting mode; or, on a device without bindless resources, lit by
+ * one light straight into the swap chain. */
 #include "renderer_internal.h"
 
 #include "badger/arena.h"
@@ -23,6 +25,17 @@
 #define TB_RENDERER_UPLOAD_BYTES ((uint64_t)16 * 1024 * 1024)
 /* Bytes of one draw's constants, at the alignment constant buffers need. */
 #define TB_RENDERER_DRAW_BYTES 256u
+
+/* What a line pipeline reads, as the line shaders' LineConstants lay it
+ * out: the frame's clip transform and, with bindless resources, how to test
+ * against the scene's depth. */
+typedef struct tb_renderer_line_constants
+{
+    tb_mat4 clip;
+    uint32_t depth; /* the scene depth's bindless index */
+    uint32_t test;  /* 1 to test against it */
+    float scale[2]; /* from the output's pixels to the depth's */
+} tb_renderer_line_constants;
 
 static tb_rhi_result tb_renderer_fail(tb_rhi_error *error, tb_rhi_result result, const char *format,
                                       ...)
@@ -138,15 +151,20 @@ tb_rhi_result tb_renderer_pipeline(tb_renderer *renderer, const char *path, cons
     return result;
 }
 
-static tb_rhi_result tb_renderer_pipelines(tb_renderer *renderer, tb_rhi_error *error)
+static const tb_rhi_vertex_attribute tb_renderer_line_attributes[2] = {
+    {.semantic = "POSITION", .format = TB_RHI_FORMAT_R32G32B32_FLOAT},
+    {.semantic = "COLOR", .format = TB_RHI_FORMAT_R32G32B32A32_FLOAT, .offset = 12}};
+
+/* coverage-off: only a device without bindless resources draws this way, and no
+ * backend that tests run on lacks them */
+/* The pipelines of a device without bindless resources: meshes lit by one
+ * light, and lines tested by depth or on top, all into the swap chain. */
+static tb_rhi_result tb_renderer_forward_pipelines(tb_renderer *renderer, tb_rhi_error *error)
 {
     const tb_rhi_vertex_attribute mesh_attributes[3] = {
         {.semantic = "POSITION", .format = TB_RHI_FORMAT_R32G32B32_FLOAT},
         {.semantic = "NORMAL", .format = TB_RHI_FORMAT_R32G32B32_FLOAT, .offset = 12},
         {.semantic = "TEXCOORD", .format = TB_RHI_FORMAT_R32G32_FLOAT, .offset = 24}};
-    const tb_rhi_vertex_attribute line_attributes[2] = {
-        {.semantic = "POSITION", .format = TB_RHI_FORMAT_R32G32B32_FLOAT},
-        {.semantic = "COLOR", .format = TB_RHI_FORMAT_R32G32B32A32_FLOAT, .offset = 12}};
     tb_rhi_graphics_pipeline_desc desc = {0};
     tb_rhi_result result = TB_RHI_OK;
 
@@ -169,7 +187,7 @@ static tb_rhi_result tb_renderer_pipelines(tb_renderer *renderer, tb_rhi_error *
         return result;
     }
     desc = (tb_rhi_graphics_pipeline_desc){0};
-    desc.attributes = line_attributes;
+    desc.attributes = tb_renderer_line_attributes;
     desc.attribute_count = 2;
     desc.buffers[0] = (tb_rhi_vertex_buffer_layout){.stride = sizeof(tb_renderer_line_vertex)};
     desc.buffer_count = 1;
@@ -191,6 +209,35 @@ static tb_rhi_result tb_renderer_pipelines(tb_renderer *renderer, tb_rhi_error *
     desc.name = "debug lines on top";
     return tb_renderer_pipeline(renderer, "/Engine/Private/DebugLines.hlsl", NULL, &desc,
                                 &renderer->line_top_pipeline, error);
+}
+
+/* coverage-on */
+
+/* The line pipeline of the raster lighting mode: lines over the output,
+ * tested in the shader against the scene's depth or not. */
+static tb_rhi_result tb_renderer_output_line_pipeline(tb_renderer *renderer, tb_rhi_error *error)
+{
+    tb_rhi_graphics_pipeline_desc desc = {0};
+
+    desc.attributes = tb_renderer_line_attributes;
+    desc.attribute_count = 2;
+    desc.buffers[0] = (tb_rhi_vertex_buffer_layout){.stride = sizeof(tb_renderer_line_vertex)};
+    desc.buffer_count = 1;
+    desc.topology = TB_RHI_TOPOLOGY_LINES;
+    desc.colors[0] = TB_RENDERER_COLOR_FORMAT;
+    desc.color_count = 1;
+    desc.name = "debug lines";
+    return tb_renderer_pipeline(renderer, "/Engine/Private/DebugLinesOutput.hlsl", NULL, &desc,
+                                &renderer->line_pipeline, error);
+}
+
+static tb_rhi_result tb_renderer_pipelines(tb_renderer *renderer, tb_rhi_error *error)
+{
+    if (renderer->deferred)
+    {
+        return tb_renderer_output_line_pipeline(renderer, error);
+    }
+    return tb_renderer_forward_pipelines(renderer, error);
 }
 
 /* ---------------------------------------------------------------------------
@@ -262,6 +309,7 @@ tb_rhi_result tb_renderer_create(const tb_renderer_options *options, tb_renderer
         goto failed;
     }
     tb_rhi_device_info_of(renderer->device, &renderer->info);
+    renderer->deferred = (renderer->info.features & TB_RHI_FEATURE_BINDLESS) != 0;
     result = tb_renderer_shader_sources(renderer, options, error);
     if (result != TB_RHI_OK)
     {
@@ -318,6 +366,11 @@ tb_rhi_result tb_renderer_create(const tb_renderer_options *options, tb_renderer
     {
         goto failed;
     }
+    result = tb_renderer_lighting_create(renderer, error);
+    if (result != TB_RHI_OK)
+    {
+        goto failed;
+    }
     renderer->graph = tb_render_graph_create(renderer->device);
     *made = renderer;
     return TB_RHI_OK;
@@ -337,6 +390,7 @@ void tb_renderer_destroy(tb_renderer *renderer)
     {
         (void)tb_rhi_wait_idle(renderer->device);
         tb_render_graph_destroy(renderer->graph);
+        tb_renderer_lighting_destroy(renderer);
         tb_renderer_skinning_destroy(renderer);
         tb_renderer_sky_destroy(renderer);
         tb_renderer_materials_destroy(renderer);
@@ -359,6 +413,7 @@ void tb_renderer_destroy(tb_renderer *renderer)
     tb_free(renderer->lines[0].vertices);
     tb_free(renderer->lines[1].vertices);
     tb_free(renderer->captured);
+    tb_free(renderer->lights);
     tb_free(renderer);
 }
 
@@ -507,13 +562,6 @@ void tb_renderer_draw_mesh_shaded(tb_renderer *renderer, const tb_mesh *mesh, tb
                       .mesh = mesh, .transform = transform, .color = color, .shading = shading});
 }
 
-/* Whether a draw goes through the material pipeline: it has a material, and
- * the device the bindless resources materials need. */
-static bool tb_renderer_draws_material(const tb_renderer *renderer, const tb_renderer_draw *draw)
-{
-    return draw->material != NULL && renderer->material_pipeline.generation != 0;
-}
-
 void tb_renderer_draw_custom(tb_renderer *renderer, tb_renderer_draw_function *draw, void *context)
 {
     TB_ASSERT(renderer != NULL && draw != NULL);
@@ -533,55 +581,73 @@ void tb_renderer_target_formats(const tb_renderer *renderer, tb_rhi_format *colo
                                 tb_rhi_format *depth)
 {
     TB_ASSERT(renderer != NULL && color != NULL && depth != NULL);
-    *color = TB_RENDERER_COLOR_FORMAT;
+    *color = renderer->deferred ? TB_RENDERER_SCENE_FORMAT : TB_RENDERER_COLOR_FORMAT;
     *depth = TB_RENDERER_DEPTH_FORMAT;
 }
 
-/* The constants of the frame's draws, and its lines, into its uploads. */
+/* The constants of the frame's draws, and its lines, into its uploads, and
+ * the graph's resources its passes share. */
 typedef struct tb_renderer_recording
 {
     tb_renderer *renderer;
     tb_mat4 view;
     tb_mat4 projection;
     tb_mat4 clip;
-    uint64_t sky; /* the sky's constants in the frame's uploads; UINT64_MAX for none */
+    uint64_t sky;      /* the sky's constants in the frame's uploads; UINT64_MAX for none */
+    uint64_t lighting; /* the lighting pass's; UINT64_MAX when they did not fit */
     uint64_t lines_offset[2];
     tb_render_graph_buffer skinned; /* the frame's skinned vertices; none when none */
+    tb_render_graph_texture gbuffer[TB_RENDERER_GBUFFER_TARGETS];
+    tb_render_graph_texture depth;
+    tb_render_graph_texture scene; /* the scene's light, before tone mapping */
 } tb_renderer_recording;
+
+/* coverage-off: only a device without bindless resources draws this way, and no
+ * backend that tests run on lacks them */
+/* A draw's constants for the pipeline of a device without bindless
+ * resources: its color, lit by the frame's default light or flat. */
+static uint64_t tb_renderer_forward_upload(tb_renderer *renderer, const tb_renderer_draw *draw,
+                                           tb_mat4 clip, tb_vec3 light)
+{
+    tb_renderer_draw_constants constants = {0};
+
+    constants.clip = clip;
+    constants.model = draw->transform;
+    constants.color = draw->color;
+    constants.light =
+        (tb_vec4){light.x, light.y, light.z, draw->shading == TB_MESH_LIT ? 1.0f : 0.0f};
+    return tb_renderer_upload(renderer, &constants, sizeof(constants), TB_RENDERER_DRAW_BYTES);
+}
+
+/* coverage-on */
 
 static void tb_renderer_upload_frame(tb_renderer *renderer, tb_renderer_recording *recording)
 {
     const float aspect = (float)renderer->width / (float)renderer->height;
     const tb_mat4 projection = tb_camera_projection_of(&renderer->camera, aspect);
-    const tb_vec3 forward = tb_quat_rotate(renderer->camera.orientation, (tb_vec3){0, 0, -1});
-    /* Light from above and a little behind the camera. */
-    const tb_vec3 light =
-        tb_vec3_normalize(tb_vec3_add((tb_vec3){0.3f, -1.0f, 0.2f}, tb_vec3_scale(forward, 0.5f)));
-    const tb_renderer_lighting lighting = {light, renderer->camera.position};
+    const tb_light light = tb_renderer_default_light(renderer);
 
     recording->renderer = renderer;
     recording->view = tb_camera_view(&renderer->camera);
     recording->projection = projection;
     recording->clip = tb_mat4_mul(projection, recording->view);
+    recording->lighting = UINT64_MAX;
     for (size_t index = 0; index < renderer->draw_count; index++)
     {
         tb_renderer_draw *const draw = &renderer->draws[index];
-        tb_renderer_draw_constants constants = {0};
-        if (tb_renderer_draws_material(renderer, draw))
+        const tb_mat4 clip = tb_mat4_mul(recording->clip, draw->transform);
+        if (renderer->deferred)
         {
-            draw->constants = tb_renderer_material_upload(
-                renderer, draw, tb_mat4_mul(recording->clip, draw->transform), &lighting);
+            draw->constants = tb_renderer_material_upload(renderer, draw, clip);
             continue;
         }
-        constants.clip = tb_mat4_mul(recording->clip, draw->transform);
-        constants.model = draw->transform;
-        constants.color = draw->color;
-        constants.light =
-            (tb_vec4){light.x, light.y, light.z, draw->shading == TB_MESH_LIT ? 1.0f : 0.0f};
-        draw->constants =
-            tb_renderer_upload(renderer, &constants, sizeof(constants), TB_RENDERER_DRAW_BYTES);
+        draw->constants = tb_renderer_forward_upload(renderer, draw, clip, light.direction);
     }
     recording->sky = tb_renderer_sky_upload(renderer, aspect);
+    if (renderer->deferred)
+    {
+        recording->lighting = tb_renderer_lighting_upload(renderer, recording->clip);
+    }
     tb_mutex_lock(&renderer->lines_lock);
     for (int layer = 0; layer < 2; layer++)
     {
@@ -595,46 +661,55 @@ static void tb_renderer_upload_frame(tb_renderer *renderer, tb_renderer_recordin
     tb_mutex_unlock(&renderer->lines_lock);
 }
 
-static void tb_renderer_record_lines(tb_renderer_recording *recording, tb_rhi_command_list *list,
-                                     int layer)
+/* Draw a layer of lines: 0 tested against depth, 1 on top. In the raster
+ * lighting mode, depth is the scene's, read by the shader. */
+static void tb_renderer_record_lines(tb_renderer_recording *recording,
+                                     const tb_render_graph_pass_context *pass, int layer)
 {
     tb_renderer *const renderer = recording->renderer;
     const tb_renderer_frame *const frame = &renderer->frames[renderer->slot];
+    tb_renderer_line_constants constants = {.clip = recording->clip, .scale = {1.0f, 1.0f}};
+    tb_rhi_pipeline pipeline = renderer->line_pipeline;
 
     if (recording->lines_offset[layer] == UINT64_MAX)
     {
         return;
     }
-    tb_rhi_cmd_pipeline(list, layer == 0 ? renderer->line_pipeline : renderer->line_top_pipeline);
-    tb_rhi_cmd_push_constants(list, &recording->clip, sizeof(recording->clip));
-    tb_rhi_cmd_vertex_buffer(list, 0, frame->upload, recording->lines_offset[layer]);
-    tb_rhi_cmd_draw(list, (uint32_t)renderer->lines[layer].count, 1, 0, 0);
+    if (renderer->deferred)
+    {
+        constants.test = layer == 0 ? 1u : 0u;
+        constants.depth = tb_rhi_texture_index(
+            renderer->device, tb_render_graph_rhi_texture(pass->graph, recording->depth));
+    }
+    else if (layer == 1)
+    {
+        pipeline = renderer->line_top_pipeline;
+    }
+    tb_rhi_cmd_pipeline(pass->list, pipeline);
+    tb_rhi_cmd_push_constants(pass->list, &constants, sizeof(constants));
+    tb_rhi_cmd_vertex_buffer(pass->list, 0, frame->upload, recording->lines_offset[layer]);
+    tb_rhi_cmd_draw(pass->list, (uint32_t)renderer->lines[layer].count, 1, 0, 0);
 }
 
-static void tb_renderer_record_scene(const tb_render_graph_pass_context *pass)
+/* Draw the frame's meshes with a pipeline, skipping those whose constants
+ * did not fit in the frame's uploads. */
+static void tb_renderer_record_draws(tb_renderer_recording *recording,
+                                     const tb_render_graph_pass_context *pass,
+                                     tb_rhi_pipeline pipeline)
 {
-    tb_renderer_recording *const recording = pass->context;
     tb_renderer *const renderer = recording->renderer;
     const tb_renderer_frame *const frame = &renderer->frames[renderer->slot];
     const tb_rhi_buffer skinned = recording->skinned.id != 0
                                       ? tb_render_graph_rhi_buffer(pass->graph, recording->skinned)
                                       : (tb_rhi_buffer){0};
-    tb_rhi_pipeline bound = {0};
 
+    tb_rhi_cmd_pipeline(pass->list, pipeline);
     for (size_t index = 0; index < renderer->draw_count; index++)
     {
         const tb_renderer_draw *const draw = &renderer->draws[index];
-        const tb_rhi_pipeline pipeline = tb_renderer_draws_material(renderer, draw)
-                                             ? renderer->material_pipeline
-                                             : renderer->mesh_pipeline;
         if (draw->constants == UINT64_MAX)
         {
             continue; /* the frame's uploads ran out */
-        }
-        if (pipeline.index != bound.index || pipeline.generation != bound.generation)
-        {
-            tb_rhi_cmd_pipeline(pass->list, pipeline);
-            bound = pipeline;
         }
         tb_rhi_cmd_constant_buffer(pass->list, 0, frame->upload, draw->constants);
         if (draw->skinned_on_cpu)
@@ -652,6 +727,13 @@ static void tb_renderer_record_scene(const tb_render_graph_pass_context *pass)
         tb_rhi_cmd_index_buffer(pass->list, draw->mesh->indices, 0, TB_RHI_FORMAT_R32_UINT);
         tb_rhi_cmd_draw_indexed(pass->list, draw->mesh->index_count, 1, 0, 0, 0);
     }
+}
+
+static void tb_renderer_record_customs(tb_renderer_recording *recording,
+                                       const tb_render_graph_pass_context *pass)
+{
+    tb_renderer *const renderer = recording->renderer;
+
     for (size_t index = 0; index < renderer->custom_count; index++)
     {
         const tb_renderer_draw_context context = {.device = renderer->device,
@@ -664,14 +746,215 @@ static void tb_renderer_record_scene(const tb_render_graph_pass_context *pass)
                                                   .context = renderer->customs[index].context};
         renderer->customs[index].draw(&context);
     }
-    /* After the opaque scene, so that it shades only the pixels left. */
-    tb_renderer_sky_record(renderer, pass->list, recording->sky);
-    tb_renderer_record_lines(recording, pass->list, 0);
+}
+
+/* coverage-off: only a device without bindless resources draws this way, and no
+ * backend that tests run on lacks them */
+/* Without bindless resources: the meshes, the custom draws, and the lines
+ * tested against depth, into the swap chain. */
+static void tb_renderer_record_scene(const tb_render_graph_pass_context *pass)
+{
+    tb_renderer_recording *const recording = pass->context;
+
+    tb_renderer_record_draws(recording, pass, recording->renderer->mesh_pipeline);
+    tb_renderer_record_customs(recording, pass);
+    tb_renderer_record_lines(recording, pass, 0);
 }
 
 static void tb_renderer_record_overlay(const tb_render_graph_pass_context *pass)
 {
-    tb_renderer_record_lines(pass->context, pass->list, 1);
+    tb_renderer_record_lines(pass->context, pass, 1);
+}
+
+/* coverage-on */
+
+static void tb_renderer_record_gbuffer(const tb_render_graph_pass_context *pass)
+{
+    tb_renderer_recording *const recording = pass->context;
+
+    tb_renderer_record_draws(recording, pass, recording->renderer->material_pipeline);
+}
+
+static uint32_t tb_renderer_graph_index(const tb_render_graph_pass_context *pass,
+                                        tb_render_graph_texture texture)
+{
+    const tb_renderer_recording *const recording = pass->context;
+
+    return tb_rhi_texture_index(recording->renderer->device,
+                                tb_render_graph_rhi_texture(pass->graph, texture));
+}
+
+static void tb_renderer_record_lighting(const tb_render_graph_pass_context *pass)
+{
+    tb_renderer_recording *const recording = pass->context;
+    const tb_renderer_gbuffer_indices indices = {
+        .base_color = tb_renderer_graph_index(pass, recording->gbuffer[0]),
+        .normal = tb_renderer_graph_index(pass, recording->gbuffer[1]),
+        .surface = tb_renderer_graph_index(pass, recording->gbuffer[2]),
+        .depth = tb_renderer_graph_index(pass, recording->depth)};
+
+    tb_renderer_lighting_record(recording->renderer, pass->list, recording->lighting, &indices);
+}
+
+/* After lighting, what is drawn into the scene's light as it is: the
+ * custom draws, then the sky behind everything, so that it shades only the
+ * pixels left. */
+static void tb_renderer_record_forward(const tb_render_graph_pass_context *pass)
+{
+    tb_renderer_recording *const recording = pass->context;
+
+    tb_renderer_record_customs(recording, pass);
+    tb_renderer_sky_record(recording->renderer, pass->list, recording->sky);
+}
+
+static void tb_renderer_record_tonemap(const tb_render_graph_pass_context *pass)
+{
+    tb_renderer_recording *const recording = pass->context;
+
+    tb_renderer_tonemap_record(recording->renderer, pass->list,
+                               tb_renderer_graph_index(pass, recording->scene));
+}
+
+/* Both layers of lines over the tone-mapped output. */
+static void tb_renderer_record_output_lines(const tb_render_graph_pass_context *pass)
+{
+    tb_renderer_record_lines(pass->context, pass, 0);
+    tb_renderer_record_lines(pass->context, pass, 1);
+}
+
+static tb_render_graph_texture tb_renderer_target(tb_renderer *renderer, tb_rhi_format format,
+                                                  const char *name)
+{
+    return tb_render_graph_create_texture(renderer->graph,
+                                          &(tb_rhi_texture_desc){.format = format,
+                                                                 .width = renderer->width,
+                                                                 .height = renderer->height},
+                                          name);
+}
+
+/* coverage-off: only a device without bindless resources draws this way, and no
+ * backend that tests run on lacks them */
+/* Without bindless resources: the scene pass straight into the swap
+ * chain's image, and the lines on top. */
+static void tb_renderer_add_forward_passes(tb_renderer *renderer, tb_renderer_recording *recording,
+                                           tb_render_graph_texture image)
+{
+    tb_render_graph_pass pass = {
+        .name = "scene", .execute = tb_renderer_record_scene, .context = recording};
+
+    if (recording->skinned.id != 0)
+    {
+        pass.accesses[0] = (tb_render_graph_access){.buffer = recording->skinned,
+                                                    .state = TB_RHI_STATE_VERTEX_INDEX};
+        pass.access_count = 1;
+    }
+    pass.colors[0] = (tb_render_graph_color){.texture = image, .load = TB_RHI_LOAD_CLEAR};
+    memcpy(pass.colors[0].clear, &renderer->clear, sizeof(pass.colors[0].clear));
+    pass.color_count = 1;
+    recording->depth = tb_renderer_target(renderer, TB_RENDERER_DEPTH_FORMAT, "depth");
+    pass.depth = (tb_render_graph_depth){.texture = recording->depth, .load = TB_RHI_LOAD_CLEAR};
+    tb_render_graph_add_pass(renderer->graph, &pass);
+    if (recording->lines_offset[1] != UINT64_MAX)
+    {
+        pass = (tb_render_graph_pass){
+            .name = "debug on top", .execute = tb_renderer_record_overlay, .context = recording};
+        pass.colors[0] = (tb_render_graph_color){.texture = image, .load = TB_RHI_LOAD_KEEP};
+        pass.color_count = 1;
+        tb_render_graph_add_pass(renderer->graph, &pass);
+    }
+}
+
+/* coverage-on */
+
+/* The G-buffer: each mesh's surface, and depth. */
+static void tb_renderer_add_gbuffer_pass(tb_renderer *renderer, tb_renderer_recording *recording)
+{
+    static const tb_rhi_format formats[TB_RENDERER_GBUFFER_TARGETS] = {
+        TB_RENDERER_BASE_COLOR_FORMAT, TB_RENDERER_NORMAL_FORMAT, TB_RENDERER_SURFACE_FORMAT};
+    static const char *const names[TB_RENDERER_GBUFFER_TARGETS] = {"base color", "normal",
+                                                                   "surface"};
+    tb_render_graph_pass pass = {
+        .name = "gbuffer", .execute = tb_renderer_record_gbuffer, .context = recording};
+
+    if (recording->skinned.id != 0)
+    {
+        pass.accesses[0] = (tb_render_graph_access){.buffer = recording->skinned,
+                                                    .state = TB_RHI_STATE_VERTEX_INDEX};
+        pass.access_count = 1;
+    }
+    for (uint32_t target = 0; target < TB_RENDERER_GBUFFER_TARGETS; target++)
+    {
+        recording->gbuffer[target] = tb_renderer_target(renderer, formats[target], names[target]);
+        /* The lighting pass reads the G-buffer only where depth says a
+         * mesh was drawn, so what was there before need not be cleared. */
+        pass.colors[target] =
+            (tb_render_graph_color){.texture = recording->gbuffer[target], .load = TB_RHI_LOAD_ANY};
+    }
+    pass.color_count = TB_RENDERER_GBUFFER_TARGETS;
+    recording->depth = tb_renderer_target(renderer, TB_RENDERER_DEPTH_FORMAT, "depth");
+    pass.depth = (tb_render_graph_depth){.texture = recording->depth, .load = TB_RHI_LOAD_CLEAR};
+    tb_render_graph_add_pass(renderer->graph, &pass);
+}
+
+/* The raster lighting mode: the G-buffer, lit into the scene's light, the
+ * custom draws and the sky over it, tone mapped into the swap chain's
+ * image, and the lines over that. */
+static void tb_renderer_add_deferred_passes(tb_renderer *renderer, tb_renderer_recording *recording,
+                                            tb_render_graph_texture image)
+{
+    tb_render_graph_pass pass = {0};
+
+    tb_renderer_add_gbuffer_pass(renderer, recording);
+    recording->scene = tb_renderer_target(renderer, TB_RENDERER_SCENE_FORMAT, "scene color");
+    pass = (tb_render_graph_pass){
+        .name = "lighting", .execute = tb_renderer_record_lighting, .context = recording};
+    for (uint32_t target = 0; target < TB_RENDERER_GBUFFER_TARGETS; target++)
+    {
+        pass.accesses[target] = (tb_render_graph_access){.texture = recording->gbuffer[target],
+                                                         .state = TB_RHI_STATE_SHADER_READ};
+    }
+    pass.accesses[TB_RENDERER_GBUFFER_TARGETS] =
+        (tb_render_graph_access){.texture = recording->depth, .state = TB_RHI_STATE_SHADER_READ};
+    pass.access_count = TB_RENDERER_GBUFFER_TARGETS + 1u;
+    pass.colors[0] = (tb_render_graph_color){.texture = recording->scene, .load = TB_RHI_LOAD_ANY};
+    if (recording->lighting == UINT64_MAX)
+    {
+        /* The frame's uploads had no room for the lighting: the clear color. */
+        pass.colors[0].load = TB_RHI_LOAD_CLEAR;
+        memcpy(pass.colors[0].clear, &renderer->clear, sizeof(pass.colors[0].clear));
+    }
+    pass.color_count = 1;
+    tb_render_graph_add_pass(renderer->graph, &pass);
+    if (renderer->custom_count > 0 || recording->sky != UINT64_MAX)
+    {
+        pass = (tb_render_graph_pass){
+            .name = "forward", .execute = tb_renderer_record_forward, .context = recording};
+        pass.colors[0] =
+            (tb_render_graph_color){.texture = recording->scene, .load = TB_RHI_LOAD_KEEP};
+        pass.color_count = 1;
+        pass.depth = (tb_render_graph_depth){.texture = recording->depth, .load = TB_RHI_LOAD_KEEP};
+        tb_render_graph_add_pass(renderer->graph, &pass);
+    }
+    pass = (tb_render_graph_pass){
+        .name = "tonemap", .execute = tb_renderer_record_tonemap, .context = recording};
+    pass.accesses[0] =
+        (tb_render_graph_access){.texture = recording->scene, .state = TB_RHI_STATE_SHADER_READ};
+    pass.access_count = 1;
+    pass.colors[0] = (tb_render_graph_color){.texture = image, .load = TB_RHI_LOAD_ANY};
+    pass.color_count = 1;
+    tb_render_graph_add_pass(renderer->graph, &pass);
+    if (recording->lines_offset[0] != UINT64_MAX || recording->lines_offset[1] != UINT64_MAX)
+    {
+        pass = (tb_render_graph_pass){.name = "debug lines",
+                                      .execute = tb_renderer_record_output_lines,
+                                      .context = recording};
+        pass.accesses[0] = (tb_render_graph_access){.texture = recording->depth,
+                                                    .state = TB_RHI_STATE_SHADER_READ};
+        pass.access_count = 1;
+        pass.colors[0] = (tb_render_graph_color){.texture = image, .load = TB_RHI_LOAD_KEEP};
+        pass.color_count = 1;
+        tb_render_graph_add_pass(renderer->graph, &pass);
+    }
 }
 
 typedef struct tb_renderer_capturing
@@ -741,33 +1024,13 @@ tb_rhi_result tb_renderer_end_frame(tb_renderer *renderer)
                                        TB_RHI_STATE_PRESENT, TB_RHI_STATE_PRESENT, "back buffer");
     tb_renderer_skinning_record(renderer, &skinning);
     recording.skinned = skinning.vertices;
-    pass = (tb_render_graph_pass){
-        .name = "scene", .execute = tb_renderer_record_scene, .context = &recording};
-    if (skinning.vertices.id != 0)
+    if (renderer->deferred)
     {
-        pass.accesses[0] = (tb_render_graph_access){.buffer = skinning.vertices,
-                                                    .state = TB_RHI_STATE_VERTEX_INDEX};
-        pass.access_count = 1;
+        tb_renderer_add_deferred_passes(renderer, &recording, image);
     }
-    pass.colors[0] = (tb_render_graph_color){.texture = image, .load = TB_RHI_LOAD_CLEAR};
-    memcpy(pass.colors[0].clear, &renderer->clear, sizeof(pass.colors[0].clear));
-    pass.color_count = 1;
-    pass.depth =
-        (tb_render_graph_depth){.texture = tb_render_graph_create_texture(
-                                    renderer->graph,
-                                    &(tb_rhi_texture_desc){.format = TB_RENDERER_DEPTH_FORMAT,
-                                                           .width = renderer->width,
-                                                           .height = renderer->height},
-                                    "depth"),
-                                .load = TB_RHI_LOAD_CLEAR};
-    tb_render_graph_add_pass(renderer->graph, &pass);
-    if (recording.lines_offset[1] != UINT64_MAX)
+    else
     {
-        pass = (tb_render_graph_pass){
-            .name = "debug on top", .execute = tb_renderer_record_overlay, .context = &recording};
-        pass.colors[0] = (tb_render_graph_color){.texture = image, .load = TB_RHI_LOAD_KEEP};
-        pass.color_count = 1;
-        tb_render_graph_add_pass(renderer->graph, &pass);
+        tb_renderer_add_forward_passes(renderer, &recording, image);
     }
     tb_renderer_canvas_record(renderer, &canvas, image);
     if (renderer->capture_next)

@@ -3,14 +3,15 @@
 // Precomputed Tangents", 2013), so a mesh needs no tangents: any caller's
 // vertices work, mirrored coordinates included, for a few instructions a
 // pixel. Its sign follows the screen's handedness, since D3D's y runs down
-// where the paper's runs up. A normal map's +Y is up in the image, toward smaller v, as glTF's
-// is. Shade() is the lighting of a surface: the renderer's one light with
-// ambient, and a highlight that roughness and metallic shape, until the
-// raster lighting mode replaces it.
+// where the paper's runs up. A normal map's +Y is up in the image, toward
+// smaller v, as glTF's is. The surface is written to the G-buffer, which
+// the lighting pass lights: its base color; its normal, octahedrally
+// encoded (Cigolle et al., "A Survey of Efficient Representations for
+// Independent Unit Vectors", 2014); and its metallic, roughness, ambient
+// occlusion, and whether it is lit.
 struct MaterialConstants
 {
-    float4x4 Clip; float4x4 Model; float4 Color; float4 Light; float4 Eye;
-    float4 Surface; float4 UV; uint4 Textures;
+    float4x4 Clip; float4x4 Model; float4 Color; float4 Surface; float4 UV; uint4 Textures;
 };
 ConstantBuffer<MaterialConstants> Draw : register(b1);
 struct VertexIn { float3 Position : POSITION; float3 Normal : NORMAL; float2 UV : TEXCOORD0; };
@@ -20,6 +21,12 @@ struct VertexOut
     float3 World : TEXCOORD1;
     float3 Normal : NORMAL;
     float2 UV : TEXCOORD0;
+};
+struct GBuffer
+{
+    float4 BaseColor : SV_Target0;
+    float2 Normal : SV_Target1;
+    float4 Surface : SV_Target2;
 };
 VertexOut MainVS(VertexIn input)
 {
@@ -47,19 +54,17 @@ float3 BendNormal(float3 normal, float3 position, float2 uv, float3 bent)
         tangent * (bent.x * scale) - bitangent * (bent.y * scale) + normal * bent.z;
     return normalize(bent_normal);
 }
-float3 Shade(float3 base, float3 normal, float3 view, float roughness, float metallic)
+float2 EncodeNormal(float3 normal)
 {
-    const float3 to_light = -Draw.Light.xyz;
-    const float facing = saturate(dot(normal, to_light));
-    const float3 diffuse = base * (1.0 - metallic) * (0.25 + 0.75 * facing);
-    const float3 specular = lerp(float3(0.04, 0.04, 0.04), base, metallic);
-    const float3 halfway = normalize(to_light + view);
-    const float shininess = exp2(10.0 * (1.0 - roughness) + 1.0);
-    const float highlight =
-        pow(saturate(dot(normal, halfway)), shininess) * (shininess + 2.0) / 8.0 * facing;
-    return diffuse + specular * (0.25 * metallic + highlight);
+    const float2 folded = normal.xy / (abs(normal.x) + abs(normal.y) + abs(normal.z));
+    if (normal.z >= 0.0)
+    {
+        return folded;
+    }
+    const float2 sign_of = float2(folded.x >= 0.0 ? 1.0 : -1.0, folded.y >= 0.0 ? 1.0 : -1.0);
+    return (1.0 - abs(folded.yx)) * sign_of;
 }
-float4 MainPS(VertexOut input) : SV_Target
+GBuffer MainPS(VertexOut input)
 {
     Texture2D<float4> base_map = ResourceDescriptorHeap[Draw.Textures.x];
     Texture2D<float4> normal_map = ResourceDescriptorHeap[Draw.Textures.y];
@@ -71,9 +76,10 @@ float4 MainPS(VertexOut input) : SV_Target
     const float3 normal =
         BendNormal(normalize(input.Normal), input.World, input.UV, bent);
     const float4 surface = surface_map.Sample(filter, input.UV);
-    const float roughness = saturate(surface.g * Draw.Surface.x);
-    const float metallic = saturate(surface.b * Draw.Surface.y);
-    const float3 view = normalize(Draw.Eye.xyz - input.World);
-    const float3 lit = Shade(base.rgb, normal, view, roughness, metallic);
-    return float4(lerp(base.rgb, lit, Draw.Light.w), base.a);
+    GBuffer output;
+    output.BaseColor = float4(saturate(base.rgb), 1);
+    output.Normal = EncodeNormal(normal);
+    output.Surface = float4(saturate(surface.b * Draw.Surface.y),
+                            saturate(surface.g * Draw.Surface.x), 1, Draw.Surface.w);
+    return output;
 }

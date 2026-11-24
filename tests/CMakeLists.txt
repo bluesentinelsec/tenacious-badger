@@ -118,6 +118,7 @@ set(TB_TEST_CASE_SOURCES
     shader/shader_compile_test.c
     ${TB_SHADER_REFLECTION_SOURCE}
     render/canvas_test.c
+    render/light_test.c
     render/material_test.c
     render/text_test.c
     render/render_graph_test.c
@@ -166,8 +167,11 @@ if(WIN32)
     list(APPEND TB_TEST_CASE_SOURCES platform/win32/window_messages_test.c)
     # DXIL that tools/make_rhi_test_shaders.py compiled from tests/data/rhi.
     tb_embed_test_data(TB_RHI_SHADER_SOURCE tb_rhi_shader_files rhi "*.dxil")
+    # Frames the renderer drew on WARP, looked at by eye (see docs/testing.md).
+    tb_embed_test_data(TB_GOLDEN_SOURCE tb_golden_files golden "*.bmp")
     list(APPEND TB_TEST_CASE_SOURCES rhi/rhi_d3d12_test.c ${TB_RHI_SHADER_SOURCE}
-        render/canvas_d3d12_test.c render/material_d3d12_test.c
+        render/canvas_d3d12_test.c render/lighting_d3d12_test.c ${TB_GOLDEN_SOURCE}
+        render/material_d3d12_test.c
         render/renderer_d3d12_test.c render/skinning_d3d12_test.c render/sky_d3d12_test.c
         render/text_d3d12_test.c shader/shader_library_d3d12_test.c)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -210,6 +214,7 @@ set(TB_INTERNAL_TEST_CASE_SOURCES
     # A window's scale changed as its adapter changes it, with Roboto of the test data.
     render/canvas_scale_test.c
     ${TB_FONT_DATA_SOURCE}
+    render/light_pack_test.c
     rhi/rhi_choice_test.c
     rhi/rhi_device_test.c
     shader/shader_check_test.c

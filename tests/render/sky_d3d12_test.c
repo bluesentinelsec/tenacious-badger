@@ -7,6 +7,7 @@
 #include "badger/sky.h"
 #include "badger/window.h"
 
+#include "display_color.h"
 #include "tb_test.h"
 
 #include <stdlib.h>
@@ -133,8 +134,8 @@ static bool near_color(uint32_t actual, uint32_t expected, int tolerance)
 }
 
 /* A procedural sky: straight up is the zenith's color, straight down the
- * ground's, and toward the sun the sun's; a mesh in front hides it. The
- * frame is written linear, so 0.2 is 51. */
+ * ground's, and toward the sun the sun's; a mesh in front hides it. Each
+ * is as the output transform shows it. */
 TB_TEST(sky_frame, a_procedural_sky_shows_zenith_ground_and_sun_on_d3d12)
 {
     screen opened = {0};
@@ -157,32 +158,35 @@ TB_TEST(sky_frame, a_procedural_sky_shows_zenith_ground_and_sun_on_d3d12)
     camera = camera_turned((tb_vec3){1, 0, 0}, TB_PI * 0.5f);
     color = middle_of(&opened, &camera, NULL);
     TB_TEST_CONTEXT("up: %06X", (unsigned)color);
-    TB_TEST_EXPECT(near_color(color, 0x3366CCu, 2));
+    TB_TEST_EXPECT(near_color(color, display_rgb(0.2f, 0.4f, 0.8f), 2));
     camera = camera_turned((tb_vec3){1, 0, 0}, -TB_PI * 0.5f);
     color = middle_of(&opened, &camera, NULL);
     TB_TEST_CONTEXT("down: %06X", (unsigned)color);
-    TB_TEST_EXPECT(near_color(color, 0x663300u, 2));
+    TB_TEST_EXPECT(near_color(color, display_rgb(0.4f, 0.2f, 0.0f), 2));
     camera = tb_camera_perspective(tb_radians(60.0f));
     TB_TEST_REQUIRE(tb_camera_look_at(&camera, (tb_vec3){0, 0, 0}, sun));
     color = middle_of(&opened, &camera, NULL);
     TB_TEST_CONTEXT("sun: %06X", (unsigned)color);
-    TB_TEST_EXPECT(near_color(color, 0xFFFF00u, 2));
+    /* The disc's color with its glow, a quarter more, at its middle. */
+    TB_TEST_EXPECT(near_color(color, display_rgb(1.25f, 1.25f, 0), 2));
     /* Straight ahead, at the horizon, a cube three meters away is in front
      * of the sky; without it, the horizon's color, nearly: the middle pixel
      * is half a pixel below the horizon, a little toward the ground. */
     camera = tb_camera_perspective(tb_radians(60.0f));
     TB_TEST_CONTEXT("ahead");
-    TB_TEST_EXPECT_HEX(middle_of(&opened, &camera, cube), ==, 0x00FF00u);
-    TB_TEST_EXPECT(near_color(middle_of(&opened, &camera, NULL), 0xCCCCCCu, 16));
+    TB_TEST_EXPECT_HEX(middle_of(&opened, &camera, cube), ==, display_rgb(0, 1, 0));
+    TB_TEST_EXPECT(
+        near_color(middle_of(&opened, &camera, NULL), display_rgb(0.8f, 0.8f, 0.8f), 16));
     /* Without a sky, the clear color. */
     tb_renderer_set_sky(opened.renderer, NULL);
-    TB_TEST_EXPECT_HEX(middle_of(&opened, &camera, NULL), ==, 0xFF00FFu);
+    TB_TEST_EXPECT_HEX(middle_of(&opened, &camera, NULL), ==, display_rgb(1, 0, 1));
     tb_mesh_destroy(opened.renderer, cube);
     close_screen(&opened);
 }
 
 /* A cube map of six plain faces: each direction shows its face, Direct3D's
- * order (+X, -X, +Y, -Y, +Z, -Z). */
+ * order (+X, -X, +Y, -Y, +Z, -Z). Each channel of a face is 0 or 1, the
+ * same in sRGB and in linear. */
 TB_TEST(sky_frame, a_cube_map_sky_shows_each_face_where_it_should_on_d3d12)
 {
     enum
@@ -220,7 +224,11 @@ TB_TEST(sky_frame, a_cube_map_sky_shows_each_face_where_it_should_on_d3d12)
     {
         const tb_camera camera = camera_turned(looks[look].axis, looks[look].angle * TB_PI);
         TB_TEST_CONTEXT("face %d", looks[look].face);
-        TB_TEST_EXPECT_HEX(middle_of(&opened, &camera, NULL), ==, faces[looks[look].face]);
+        const uint32_t face = faces[looks[look].face];
+        TB_TEST_EXPECT_HEX(middle_of(&opened, &camera, NULL), ==,
+                           display_rgb((float)(face >> 16) / 255.0f,
+                                       (float)((face >> 8) & 0xFFu) / 255.0f,
+                                       (float)(face & 0xFFu) / 255.0f));
     }
     tb_renderer_set_sky(opened.renderer, NULL);
     tb_texture_destroy(opened.renderer, cube);

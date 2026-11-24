@@ -1,7 +1,7 @@
 /* Textures and materials: pixels uploaded and their mip chains made by a
  * compute shader, the sampler that filters them as the settings say, and
- * the pipeline that draws a mesh with a material's textures, reached by
- * their bindless indices. */
+ * the pipeline that draws a mesh into the G-buffer with a material's
+ * textures, reached by their bindless indices. */
 #include "renderer_internal.h"
 
 #include "badger/assert.h"
@@ -41,16 +41,14 @@ struct tb_material
     bool unlit;
 };
 
-/* A material draw's constants, as the material shader's MaterialConstants
- * lays them out. */
+/* A draw's constants, as the material shader's MaterialConstants lays
+ * them out. */
 typedef struct tb_material_constants
 {
     tb_mat4 clip;
     tb_mat4 model;
     tb_vec4 color;        /* the base color factor */
-    tb_vec4 light;        /* the way the light goes, and 1 to light the surface or 0 */
-    tb_vec4 eye;          /* the camera's position */
-    tb_vec4 surface;      /* roughness, metallic, normal scale */
+    tb_vec4 surface;      /* roughness, metallic, normal scale, and 1 for lit or 0 for unlit */
     tb_vec4 uv;           /* the scale of the texture coordinates */
     uint32_t textures[4]; /* base color, normal, metallic-roughness, sampler */
 } tb_material_constants;
@@ -338,24 +336,34 @@ void tb_renderer_draw_mesh_material(tb_renderer *renderer, const tb_mesh *mesh, 
 }
 
 uint64_t tb_renderer_material_upload(tb_renderer *renderer, const tb_renderer_draw *draw,
-                                     tb_mat4 clip, const tb_renderer_lighting *lighting)
+                                     tb_mat4 clip)
 {
     const tb_material *const material = draw->material;
+    const float lit = draw->shading == TB_MESH_LIT ? 1.0f : 0.0f;
     tb_material_constants constants = {0};
 
     constants.clip = clip;
     constants.model = draw->transform;
-    constants.color = material->base_color_factor;
-    constants.light = (tb_vec4){lighting->direction.x, lighting->direction.y, lighting->direction.z,
-                                material->unlit ? 0.0f : 1.0f};
-    constants.eye = (tb_vec4){lighting->eye.x, lighting->eye.y, lighting->eye.z, 1.0f};
+    constants.color = draw->color;
+    constants.textures[3] = tb_rhi_sampler_index(renderer->device, renderer->material_sampler);
+    if (material == NULL)
+    {
+        /* A color is drawn as a material of it with no textures would be:
+         * rough, and not metal. */
+        constants.surface = (tb_vec4){1.0f, 0.0f, 1.0f, lit};
+        constants.uv = (tb_vec4){1.0f, 1.0f, 0.0f, 0.0f};
+        constants.textures[0] = renderer->material_white->index;
+        constants.textures[1] = renderer->material_flat->index;
+        constants.textures[2] = renderer->material_white->index;
+        return tb_renderer_upload(renderer, &constants, sizeof(constants),
+                                  TB_RHI_CONSTANT_ALIGNMENT);
+    }
     constants.surface =
-        (tb_vec4){material->roughness, material->metallic, material->normal_scale, 0.0f};
+        (tb_vec4){material->roughness, material->metallic, material->normal_scale, lit};
     constants.uv = (tb_vec4){material->uv_scale.x, material->uv_scale.y, 0.0f, 0.0f};
     constants.textures[0] = material->base_color;
     constants.textures[1] = material->normal;
     constants.textures[2] = material->metallic_roughness;
-    constants.textures[3] = tb_rhi_sampler_index(renderer->device, renderer->material_sampler);
     return tb_renderer_upload(renderer, &constants, sizeof(constants), TB_RHI_CONSTANT_ALIGNMENT);
 }
 
@@ -402,8 +410,10 @@ static tb_rhi_result tb_material_pipelines(tb_renderer *renderer, tb_rhi_error *
     desc.depth_test = true;
     desc.depth_write = true;
     desc.depth_compare = TB_RHI_COMPARE_GREATER;
-    desc.colors[0] = TB_RENDERER_COLOR_FORMAT;
-    desc.color_count = 1;
+    desc.colors[0] = TB_RENDERER_BASE_COLOR_FORMAT;
+    desc.colors[1] = TB_RENDERER_NORMAL_FORMAT;
+    desc.colors[2] = TB_RENDERER_SURFACE_FORMAT;
+    desc.color_count = TB_RENDERER_GBUFFER_TARGETS;
     desc.depth = TB_RENDERER_DEPTH_FORMAT;
     desc.name = "material";
     result = tb_renderer_pipeline(renderer, "/Engine/Private/Material.hlsl", NULL, &desc,
