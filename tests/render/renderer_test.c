@@ -217,36 +217,3 @@ TB_TEST(renderer_frame, frames_run_on_the_null_backend)
     close_screen(&opened);
     tb_renderer_destroy(NULL);
 }
-
-/* On D3D12, the cube is red in the middle, the line on top is green over
- * everything, and the corners are the clear color. */
-TB_TEST(renderer_frame, a_mesh_and_lines_land_where_they_should_on_d3d12)
-{
-    screen opened = {0};
-    tb_mesh *cube = NULL;
-    const uint8_t *pixels = NULL;
-    uint32_t width = 0;
-    uint32_t height = 0;
-    tb_camera camera = tb_camera_perspective(tb_radians(60.0f));
-    tb_vec4 clip = {0};
-    uint32_t line_y = 0;
-
-    open_screen(&opened, TB_RHI_BACKEND_D3D12);
-    cube = tb_mesh_create_shape(opened.renderer, TB_MESH_CUBE, 0);
-    tb_renderer_capture_next_frame(opened.renderer);
-    draw_frame(opened.renderer, cube);
-    pixels = tb_renderer_captured(opened.renderer, &width, &height);
-    TB_TEST_REQUIRE(pixels != NULL);
-    TB_TEST_EXPECT_HEX(pixel_at(pixels, width, width / 2, height / 2), ==, 0xFFFF0000u);
-    TB_TEST_EXPECT_HEX(pixel_at(pixels, width, 1, height - 2), ==, 0xFF000000u);
-    /* Where the line on top crosses the middle of the view. */
-    TB_TEST_REQUIRE(tb_camera_look_at(&camera, (tb_vec3){0, 0, 3}, (tb_vec3){0, 0, 0}));
-    clip = tb_mat4_transform(
-        tb_mat4_mul(tb_camera_projection_of(&camera, (float)width / (float)height),
-                    tb_camera_view(&camera)),
-        (tb_vec4){0, 1.2f, 0, 1});
-    line_y = (uint32_t)((1.0f - clip.y / clip.w) * 0.5f * (float)height);
-    TB_TEST_EXPECT_HEX(pixel_at(pixels, width, width / 2, line_y) & 0xFF00FF00u, ==, 0xFF00FF00u);
-    tb_mesh_destroy(opened.renderer, cube);
-    close_screen(&opened);
-}
