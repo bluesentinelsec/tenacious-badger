@@ -207,6 +207,9 @@ set(TB_INTERNAL_TEST_CASE_SOURCES
     font/font_embedded_cache_test.c
     jobs/deque_test.c
     render/canvas_batch_test.c
+    # A window's scale changed as its adapter changes it, with Roboto of the test data.
+    render/canvas_scale_test.c
+    ${TB_FONT_DATA_SOURCE}
     rhi/rhi_choice_test.c
     rhi/rhi_device_test.c
     shader/shader_check_test.c

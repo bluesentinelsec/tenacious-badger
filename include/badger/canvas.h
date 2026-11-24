@@ -45,7 +45,10 @@
  *
  * **Text** is laid out by the font module (badger/font_layout.h) at the
  * view's scale, so text in logical units is drawn at the display's own
- * pixels and stays crisp at any display scale. Its glyphs are rasterized
+ * pixels and stays crisp at any display scale: 16 units at 150% is laid out
+ * and rasterized at 24 pixels, never drawn at 16 and scaled up. A pixel
+ * font is drawn at the whole multiple of its design size nearest its size
+ * in pixels (see tb_canvas_draw_text()). Its glyphs are rasterized
  * once into the renderer's glyph atlas, a single-channel texture, and each
  * is drawn as a quad of the atlas's coverage times the text's color, on a
  * whole pixel; the atlas's subpixel bins keep the pen's fractions of a
@@ -157,6 +160,12 @@ TB_API tb_canvas_view tb_canvas_view_pixels(void);
  * @brief A view in the window's logical units: one unit is as many pixels
  * as its display's scale (1.5 at 150%), so an interface keeps its size on
  * every display.
+ *
+ * The scale is the window's content scale when this is called. When the
+ * window moves to a display of another scale, the window learns the new
+ * scale as its events are pumped (#TB_WINDOW_EVENT_SCALE_CHANGED), and the
+ * renderer the new size of its pixels at the next tb_renderer_begin_frame();
+ * a view made in each frame follows it in the frame after the move.
  */
 TB_API tb_canvas_view tb_canvas_view_logical(const tb_renderer *renderer);
 
@@ -266,8 +275,12 @@ TB_API void tb_canvas_draw_sprite(tb_renderer *renderer, const tb_canvas_sprite 
  * units: its first baseline is the font's ascent below it.
  * @param color Straight alpha; zero alpha draws nothing.
  * @param options Optional; NULL is every default. `wrap_width` is in the
- * canvas's units; `pixel_size` is the font's own size in pixels, which a
- * pixel font is drawn at whole multiples of, after the view's scale.
+ * canvas's units. `pixel_size` is a pixel font's design size in pixels
+ * (#tb_font_info::pixel_size): the size in pixels, `size` times the view's
+ * scale, is then rounded to the nearest whole multiple of it, halves up,
+ * and at least once, and every glyph is drawn aliased on a whole pixel. The
+ * pixel role at 16 units is 16 pixels at 100% and 125% (20 rounds down),
+ * and 32 at 150% (24 rounds up) and 200%.
  */
 TB_API void tb_canvas_draw_text(tb_renderer *renderer, const tb_font *font, tb_text text,
                                 float size, tb_vec2 position, tb_vec4 color,

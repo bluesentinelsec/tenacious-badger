@@ -102,12 +102,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # It also keeps only the fonts of the default roles, so that the build
-      # of TB_EMBED_FONTS=defaults is checked on every change.
+      # It also embeds no font, so that the build of TB_EMBED_FONTS=none is
+      # checked on every change.
       - name: Configure the engine as an unsupported platform would be, with the default adapter
         run: >
           cmake -S . -B build/default-adapter -DCMAKE_BUILD_TYPE=Debug
-          -DTB_USE_DEFAULT_PLATFORM_ADAPTER=ON -DTB_EMBED_FONTS=defaults
+          -DTB_USE_DEFAULT_PLATFORM_ADAPTER=ON -DTB_EMBED_FONTS=none
           -DTB_BUILD_BURROW=OFF -DTB_BUILD_SANDBOX=OFF -DTB_BUILD_TESTS=OFF -DTB_BUILD_BENCHMARKS=OFF
       - name: Build the shared and static libraries
         run: cmake --build build/default-adapter --parallel
@@ -286,11 +286,13 @@ jobs:
           persist-credentials: false
       - name: Check the coverage check against reports with known answers
         run: python3 tools/check_coverage.py --self-test
+      # It embeds every font of the pack, an opt-in, so that the tests check
+      # every embedded font on every change.
       - name: Build with the compiler's coverage instrumentation
         run: >
           cmake -S . -B build/coverage -DCMAKE_BUILD_TYPE=Debug
           -DCMAKE_C_COMPILER=${{ matrix.cc }} -DTB_ENABLE_COVERAGE=ON
-          -DTB_BUILD_BENCHMARKS=OFF
+          -DTB_BUILD_BENCHMARKS=OFF -DTB_EMBED_FONTS=all
       - run: cmake --build build/coverage --parallel
       # The window tests run on every windowing that opens. A runner has no
       # display, so Linux gets both kinds it supports: an X server in memory
