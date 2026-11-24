@@ -102,6 +102,13 @@ display (90 by default, about 59 degrees vertically). Burrow turns it into
 the vertical field of view the camera takes, and keeps that whatever the
 window's shape: a wider window sees more at the sides, a narrower one less.
 
+**Shaders.** Burrow gives the renderer the shader libraries the build
+writes, `Shaders/<backend>.tbsl`, from beside its executable, or from
+`Contents/Resources` in a macOS bundle. A developer build also compiles what
+they lack, keeping it in the user's shader cache; a Release build, with
+`shaders.runtime_compile` off, draws with the libraries alone, so its exports
+carry them ([releasing](releasing.md)).
+
 **Windows and displays.** The renderer follows the window's size in pixels,
 and the HUD the display's scale, by themselves; the game loop applies
 changed display settings to the window, and Burrow applies `display.vsync`,

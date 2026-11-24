@@ -9,16 +9,28 @@
 #include "burrow_room.h"
 #include "burrow_scene.h"
 
+#include "badger/file.h"
 #include "badger/fmt.h"
 #include "badger/game_loop.h"
 #include "badger/material.h"
+#include "badger/path.h"
 #include "badger/renderer.h"
 #include "badger/settings.h"
+#include "badger/shader_cache.h"
+#include "badger/str.h"
+#include "badger/vfs.h"
 #include "badger/window.h"
 
 #include <stdlib.h>
 
 #define BURROW_TITLE "Burrow"
+
+/* Bytes enough for the directories Burrow finds its files in. */
+#define BURROW_PATH_CAPACITY 4096
+
+/* Where a macOS bundle keeps its resources, from its executable's
+ * directory, Contents/MacOS. */
+#define BURROW_BUNDLE_RESOURCES "../Resources"
 
 /* What is behind the sky, which covers it: seen only where the device draws
  * no sky. */
@@ -29,8 +41,9 @@ typedef struct burrow_game
 {
     const tb_engine_settings *engine;
     const burrow_room *room;
-    tb_window *window;     /* NULL without a window. */
-    tb_renderer *renderer; /* NULL without a window. */
+    tb_window *window;             /* NULL without a window. */
+    tb_renderer *renderer;         /* NULL without a window. */
+    tb_shader_cache *shader_cache; /* The user's; NULL for none. */
     burrow_scene *scene;
     burrow_hud *hud;
     tb_game_loop *loop;
@@ -131,18 +144,71 @@ static void burrow_run_loop(burrow_game *game, tb_window_system *system)
     game->loop = NULL;
 }
 
+/* Mount a directory, relative to the executable's, where Burrow's files may
+ * be: one that is missing is passed over. */
+static void burrow_mount_beside(tb_vfs *vfs, const char *executable, const char *relative,
+                                int priority)
+{
+    const tb_path_style style = tb_fs_native_style();
+    char joined[BURROW_PATH_CAPACITY] = {0};
+    char normal[BURROW_PATH_CAPACITY] = {0};
+    size_t required = 0;
+
+    if (tb_path_join(style, (tb_path_view){executable, tb_str_length(executable)},
+                     (tb_path_view){relative, tb_str_length(relative)}, joined, sizeof(joined),
+                     &required) != TB_PATH_OK ||
+        tb_path_normalize(style, (tb_path_view){joined, tb_str_length(joined)}, normal,
+                          sizeof(normal), &required) != TB_PATH_OK)
+    {
+        return;
+    }
+    (void)tb_vfs_mount_directory(vfs, "", 0, normal, priority);
+}
+
+/* Where the renderer finds the shader libraries the build writes,
+ * Shaders/<backend>.tbsl: beside the executable on Windows and Linux, and
+ * in the bundle's Resources on macOS, mounted over it. In a VFS for the
+ * caller to destroy. While shaders may be compiled at run time, the user's
+ * shader cache keeps them between runs. */
+static tb_vfs *burrow_shader_sources(burrow_game *game)
+{
+    char executable[BURROW_PATH_CAPACITY] = {0};
+    char cache[BURROW_PATH_CAPACITY] = {0};
+    size_t required = 0;
+    tb_vfs *const vfs = tb_vfs_create(NULL);
+
+    if (tb_fs_get_location(TB_FS_EXECUTABLE, executable, sizeof(executable), &required) == TB_FS_OK)
+    {
+        burrow_mount_beside(vfs, executable, ".", 0);
+        burrow_mount_beside(vfs, executable, BURROW_BUNDLE_RESOURCES, 1);
+    }
+    if (tb_setting_boolean(game->engine->shaders.runtime_compile) &&
+        tb_shader_cache_default_directory(cache, sizeof(cache)))
+    {
+        (void)tb_shader_cache_open(cache, &game->shader_cache);
+    }
+    return vfs;
+}
+
 /* Make the renderer, and what it draws: the room and the HUD. */
 static int burrow_open_renderer(burrow_game *game)
 {
     tb_renderer_options options = {0};
     tb_rhi_error error = TB_RHI_ERROR_INIT;
     tb_rhi_device_info info = {0};
+    tb_vfs *const shaders = burrow_shader_sources(game);
+    tb_rhi_result made = TB_RHI_OK;
 
     options.window = game->window;
     options.vsync = tb_setting_choice(game->engine->display.vsync) != 0;
     options.anisotropy = tb_engine_settings_anisotropy(game->engine);
+    options.shader_vfs = shaders;
+    options.shader_cache = game->shader_cache;
+    options.shader_library_only = !tb_setting_boolean(game->engine->shaders.runtime_compile);
     tb_engine_settings_device_options(game->engine, &options.device);
-    if (tb_renderer_create(&options, &game->renderer, &error) != TB_RHI_OK)
+    made = tb_renderer_create(&options, &game->renderer, &error);
+    tb_vfs_destroy(shaders);
+    if (made != TB_RHI_OK)
     {
         (void)tb_fmt_print_error("burrow: error: no renderer: %s; --renderer=null runs without "
                                  "drawing\n",
@@ -203,6 +269,7 @@ static int burrow_play_windowed(burrow_game *game, const burrow_settings *loaded
         burrow_capture_mouse(game, false);
     }
     burrow_close_renderer(game);
+    tb_shader_cache_close(game->shader_cache);
     tb_window_destroy(game->window);
     tb_window_system_close(system);
     return game->status;
