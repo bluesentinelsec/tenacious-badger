@@ -155,6 +155,8 @@ static const tb_rhi_vertex_attribute tb_renderer_line_attributes[2] = {
     {.semantic = "POSITION", .format = TB_RHI_FORMAT_R32G32B32_FLOAT},
     {.semantic = "COLOR", .format = TB_RHI_FORMAT_R32G32B32A32_FLOAT, .offset = 12}};
 
+/* coverage-off: only a device without bindless resources draws this way, and no
+ * backend that tests run on lacks them */
 /* The pipelines of a device without bindless resources: meshes lit by one
  * light, and lines tested by depth or on top, all into the swap chain. */
 static tb_rhi_result tb_renderer_forward_pipelines(tb_renderer *renderer, tb_rhi_error *error)
@@ -208,6 +210,8 @@ static tb_rhi_result tb_renderer_forward_pipelines(tb_renderer *renderer, tb_rhi
     return tb_renderer_pipeline(renderer, "/Engine/Private/DebugLines.hlsl", NULL, &desc,
                                 &renderer->line_top_pipeline, error);
 }
+
+/* coverage-on */
 
 /* The line pipeline of the raster lighting mode: lines over the output,
  * tested in the shader against the scene's depth or not. */
@@ -598,6 +602,8 @@ typedef struct tb_renderer_recording
     tb_render_graph_texture scene; /* the scene's light, before tone mapping */
 } tb_renderer_recording;
 
+/* coverage-off: only a device without bindless resources draws this way, and no
+ * backend that tests run on lacks them */
 /* A draw's constants for the pipeline of a device without bindless
  * resources: its color, lit by the frame's default light or flat. */
 static uint64_t tb_renderer_forward_upload(tb_renderer *renderer, const tb_renderer_draw *draw,
@@ -612,6 +618,8 @@ static uint64_t tb_renderer_forward_upload(tb_renderer *renderer, const tb_rende
         (tb_vec4){light.x, light.y, light.z, draw->shading == TB_MESH_LIT ? 1.0f : 0.0f};
     return tb_renderer_upload(renderer, &constants, sizeof(constants), TB_RENDERER_DRAW_BYTES);
 }
+
+/* coverage-on */
 
 static void tb_renderer_upload_frame(tb_renderer *renderer, tb_renderer_recording *recording)
 {
@@ -736,6 +744,8 @@ static void tb_renderer_record_customs(tb_renderer_recording *recording,
     }
 }
 
+/* coverage-off: only a device without bindless resources draws this way, and no
+ * backend that tests run on lacks them */
 /* Without bindless resources: the meshes, the custom draws, and the lines
  * tested against depth, into the swap chain. */
 static void tb_renderer_record_scene(const tb_render_graph_pass_context *pass)
@@ -751,6 +761,8 @@ static void tb_renderer_record_overlay(const tb_render_graph_pass_context *pass)
 {
     tb_renderer_record_lines(pass->context, pass, 1);
 }
+
+/* coverage-on */
 
 static void tb_renderer_record_gbuffer(const tb_render_graph_pass_context *pass)
 {
@@ -816,6 +828,8 @@ static tb_render_graph_texture tb_renderer_target(tb_renderer *renderer, tb_rhi_
                                           name);
 }
 
+/* coverage-off: only a device without bindless resources draws this way, and no
+ * backend that tests run on lacks them */
 /* Without bindless resources: the scene pass straight into the swap
  * chain's image, and the lines on top. */
 static void tb_renderer_add_forward_passes(tb_renderer *renderer, tb_renderer_recording *recording,
@@ -845,6 +859,8 @@ static void tb_renderer_add_forward_passes(tb_renderer *renderer, tb_renderer_re
         tb_render_graph_add_pass(renderer->graph, &pass);
     }
 }
+
+/* coverage-on */
 
 /* The G-buffer: each mesh's surface, and depth. */
 static void tb_renderer_add_gbuffer_pass(tb_renderer *renderer, tb_renderer_recording *recording)
