@@ -26,7 +26,11 @@ struct tb_window;
 typedef struct tb_rhi_indices
 {
     uint32_t read;  /* Sampled textures, buffers read by index, samplers. */
-    uint32_t write; /* Storage textures and buffers. */
+    uint32_t write; /* Storage textures (their first level) and buffers. */
+    /* A storage texture's levels after the first, each written through an
+     * index of its own: mip_writes[0] is level 1. */
+    uint32_t mip_writes[TB_RHI_MAX_MIPS - 1];
+    uint32_t mip_write_count;
 } tb_rhi_indices;
 
 /* A texture as a command sees it: the backend's object and what it was made

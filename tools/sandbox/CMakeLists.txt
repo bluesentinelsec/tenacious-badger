@@ -21,5 +21,11 @@ if(TB_BUILD_TESTS)
                 --frames 3 --capture "${CMAKE_CURRENT_BINARY_DIR}/sandbox_shapes.bmp")
         set_tests_properties(sandbox.draws_and_captures_on_d3d12 PROPERTIES
             PASS_REGULAR_EXPRESSION "saved")
+        # Materials: textures uploaded and mipmapped on the GPU, under validation.
+        add_test(NAME sandbox.draws_materials_on_d3d12
+            COMMAND badger-sandbox --renderer d3d12 --software --validation --scene materials
+                --frames 3 --capture "${CMAKE_CURRENT_BINARY_DIR}/sandbox_materials.bmp")
+        set_tests_properties(sandbox.draws_materials_on_d3d12 PROPERTIES
+            PASS_REGULAR_EXPRESSION "saved")
     endif()
 endif()

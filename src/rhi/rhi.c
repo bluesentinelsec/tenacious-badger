@@ -108,6 +108,27 @@ bool tb_rhi_format_is_depth(tb_rhi_format format)
     return format == TB_RHI_FORMAT_D32_FLOAT || format == TB_RHI_FORMAT_D24_UNORM_S8_UINT;
 }
 
+uint32_t tb_rhi_mip_count(uint32_t width, uint32_t height)
+{
+    uint32_t larger = width > height ? width : height;
+    uint32_t count = 1;
+
+    TB_ASSERT_MSG(width > 0 && height > 0, "a size of some texels");
+    while (larger > 1)
+    {
+        larger >>= 1;
+        count++;
+    }
+    return count;
+}
+
+uint32_t tb_rhi_mip_size(uint32_t size, uint32_t mip)
+{
+    const uint32_t halved = mip >= 32 ? 0u : size >> mip;
+
+    return halved > 0 ? halved : 1u;
+}
+
 /* ---------------------------------------------------------------------------
  * Tables of slots, and bindless indices.
  * ------------------------------------------------------------------------- */
@@ -232,24 +253,50 @@ static void tb_rhi_index_give(tb_rhi_index_pool *pool, uint32_t index)
     pool->vacant_count++;
 }
 
-/* Take the indices an object needs, or none if a heap is full. */
-static tb_rhi_result tb_rhi_indices_take(tb_rhi_index_pool *pool, bool read, bool write,
+/* Give back every index an object had. */
+static void tb_rhi_indices_give(tb_rhi_index_pool *pool, const tb_rhi_indices *indices)
+{
+    tb_rhi_index_give(pool, indices->read);
+    tb_rhi_index_give(pool, indices->write);
+    for (uint32_t mip = 0; mip < indices->mip_write_count; mip++)
+    {
+        tb_rhi_index_give(pool, indices->mip_writes[mip]);
+    }
+}
+
+/* Take the indices an object needs: one to read, and one to write each of
+ * `writes` levels; or none if a heap is full. */
+static tb_rhi_result tb_rhi_indices_take(tb_rhi_index_pool *pool, bool read, uint32_t writes,
                                          tb_rhi_indices *indices, tb_rhi_error *error)
 {
-    *indices = (tb_rhi_indices){TB_RHI_NO_INDEX, TB_RHI_NO_INDEX};
+    bool full = false;
+
+    TB_ASSERT(writes <= TB_RHI_MAX_MIPS);
+    *indices = (tb_rhi_indices){.read = TB_RHI_NO_INDEX, .write = TB_RHI_NO_INDEX};
     if (read)
     {
         indices->read = tb_rhi_index_take(pool);
+        full = indices->read == TB_RHI_NO_INDEX;
     }
-    if (write)
+    if (writes > 0 && !full)
     {
         indices->write = tb_rhi_index_take(pool);
+        full = indices->write == TB_RHI_NO_INDEX;
     }
-    if ((read && indices->read == TB_RHI_NO_INDEX) || (write && indices->write == TB_RHI_NO_INDEX))
+    for (uint32_t mip = 1; mip < writes && !full; mip++)
     {
-        tb_rhi_index_give(pool, indices->read);
-        tb_rhi_index_give(pool, indices->write);
-        *indices = (tb_rhi_indices){TB_RHI_NO_INDEX, TB_RHI_NO_INDEX};
+        const uint32_t index = tb_rhi_index_take(pool);
+        full = index == TB_RHI_NO_INDEX;
+        if (!full)
+        {
+            indices->mip_writes[indices->mip_write_count] = index;
+            indices->mip_write_count++;
+        }
+    }
+    if (full)
+    {
+        tb_rhi_indices_give(pool, indices);
+        *indices = (tb_rhi_indices){.read = TB_RHI_NO_INDEX, .write = TB_RHI_NO_INDEX};
         return tb_rhi_fail(error, TB_RHI_OUT_OF_MEMORY,
                            "every one of the %u bindless indices is in use", pool->capacity);
     }
@@ -302,8 +349,7 @@ void tb_rhi_collect(tb_rhi_device *device, uint64_t completed)
         if (retired.after <= completed)
         {
             tb_rhi_release_object(device, retired.kind, retired.object);
-            tb_rhi_index_give(tb_rhi_pool_of(device, retired.kind), retired.indices.read);
-            tb_rhi_index_give(tb_rhi_pool_of(device, retired.kind), retired.indices.write);
+            tb_rhi_indices_give(tb_rhi_pool_of(device, retired.kind), &retired.indices);
         }
         else
         {
@@ -596,8 +642,9 @@ tb_rhi_result tb_rhi_buffer_create(tb_rhi_device *device, const tb_rhi_buffer_de
     TB_ASSERT_MSG(desc->size > 0, "a buffer of no bytes");
     *buffer = (tb_rhi_buffer){0};
     tb_mutex_lock(&device->lock);
-    result = tb_rhi_indices_take(&device->resources, (desc->usage & TB_RHI_BUFFER_SHADER_READ) != 0,
-                                 (desc->usage & TB_RHI_BUFFER_STORAGE) != 0, &indices, error);
+    result =
+        tb_rhi_indices_take(&device->resources, (desc->usage & TB_RHI_BUFFER_SHADER_READ) != 0,
+                            (desc->usage & TB_RHI_BUFFER_STORAGE) != 0 ? 1u : 0u, &indices, error);
     tb_mutex_unlock(&device->lock);
     if (result != TB_RHI_OK)
     {
@@ -607,8 +654,7 @@ tb_rhi_result tb_rhi_buffer_create(tb_rhi_device *device, const tb_rhi_buffer_de
     tb_mutex_lock(&device->lock);
     if (result != TB_RHI_OK)
     {
-        tb_rhi_index_give(&device->resources, indices.read);
-        tb_rhi_index_give(&device->resources, indices.write);
+        tb_rhi_indices_give(&device->resources, &indices);
         tb_mutex_unlock(&device->lock);
         return result;
     }
@@ -703,8 +749,8 @@ static void tb_rhi_texture_check(const tb_rhi_texture_desc *desc)
     TB_ASSERT_MSG(((desc->usage & TB_RHI_TEXTURE_DEPTH) != 0) ==
                       tb_rhi_format_is_depth(desc->format),
                   "a depth target has a depth format, and only it");
-    TB_ASSERT_MSG(desc->mips <= 32 &&
-                      (desc->width >> (desc->mips - 1)) + (desc->height >> (desc->mips - 1)) > 0,
+    TB_ASSERT_MSG(desc->mips <= TB_RHI_MAX_MIPS &&
+                      desc->mips <= tb_rhi_mip_count(desc->width, desc->height),
                   "more levels than the texture has");
 }
 
@@ -730,7 +776,8 @@ tb_rhi_result tb_rhi_texture_create(tb_rhi_device *device, const tb_rhi_texture_
     }
     tb_mutex_lock(&device->lock);
     result = tb_rhi_indices_take(&device->resources, (filled.usage & TB_RHI_TEXTURE_SAMPLED) != 0,
-                                 (filled.usage & TB_RHI_TEXTURE_STORAGE) != 0, &indices, error);
+                                 (filled.usage & TB_RHI_TEXTURE_STORAGE) != 0 ? filled.mips : 0u,
+                                 &indices, error);
     tb_mutex_unlock(&device->lock);
     if (result != TB_RHI_OK)
     {
@@ -742,8 +789,7 @@ tb_rhi_result tb_rhi_texture_create(tb_rhi_device *device, const tb_rhi_texture_
     tb_mutex_lock(&device->lock);
     if (result != TB_RHI_OK)
     {
-        tb_rhi_index_give(&device->resources, indices.read);
-        tb_rhi_index_give(&device->resources, indices.write);
+        tb_rhi_indices_give(&device->resources, &indices);
         tb_mutex_unlock(&device->lock);
         return result;
     }
@@ -784,6 +830,20 @@ uint32_t tb_rhi_texture_storage_index(tb_rhi_device *device, tb_rhi_texture text
         ->indices.write;
 }
 
+uint32_t tb_rhi_texture_storage_mip_index(tb_rhi_device *device, tb_rhi_texture texture,
+                                          uint32_t mip)
+{
+    const tb_rhi_slot *const slot =
+        tb_rhi_slot_of(device, TB_RHI_KIND_TEXTURE, texture.index, texture.generation);
+
+    TB_ASSERT_MSG(mip < slot->desc.texture.mips, "a level the texture has");
+    if (mip == 0 || slot->indices.write == TB_RHI_NO_INDEX)
+    {
+        return slot->indices.write;
+    }
+    return slot->indices.mip_writes[mip - 1];
+}
+
 tb_rhi_result tb_rhi_sampler_create(tb_rhi_device *device, const tb_rhi_sampler_desc *desc,
                                     tb_rhi_sampler *sampler, tb_rhi_error *error)
 {
@@ -796,7 +856,7 @@ tb_rhi_result tb_rhi_sampler_create(tb_rhi_device *device, const tb_rhi_sampler_
     TB_ASSERT_MSG(desc->anisotropy <= 16, "anisotropy above 16");
     *sampler = (tb_rhi_sampler){0};
     tb_mutex_lock(&device->lock);
-    result = tb_rhi_indices_take(&device->samplers, true, false, &indices, error);
+    result = tb_rhi_indices_take(&device->samplers, true, 0, &indices, error);
     tb_mutex_unlock(&device->lock);
     if (result != TB_RHI_OK)
     {
@@ -837,7 +897,7 @@ uint32_t tb_rhi_sampler_index(tb_rhi_device *device, tb_rhi_sampler sampler)
 tb_rhi_result tb_rhi_shader_create(tb_rhi_device *device, const tb_rhi_shader_desc *desc,
                                    tb_rhi_shader *shader, tb_rhi_error *error)
 {
-    const tb_rhi_indices none = {TB_RHI_NO_INDEX, TB_RHI_NO_INDEX};
+    const tb_rhi_indices none = {.read = TB_RHI_NO_INDEX, .write = TB_RHI_NO_INDEX};
     tb_rhi_shader_desc kept = {0};
     char entry[TB_RHI_ENTRY_CAPACITY] = {0};
     void *code = NULL;
@@ -895,7 +955,7 @@ tb_rhi_result tb_rhi_graphics_pipeline_create(tb_rhi_device *device,
                                               const tb_rhi_graphics_pipeline_desc *desc,
                                               tb_rhi_pipeline *pipeline, tb_rhi_error *error)
 {
-    const tb_rhi_indices none = {TB_RHI_NO_INDEX, TB_RHI_NO_INDEX};
+    const tb_rhi_indices none = {.read = TB_RHI_NO_INDEX, .write = TB_RHI_NO_INDEX};
     tb_rhi_graphics_pipeline_ref ref = {0};
     const tb_rhi_slot *vertex = NULL;
     const tb_rhi_slot *pixel = NULL;
@@ -942,7 +1002,7 @@ tb_rhi_result tb_rhi_compute_pipeline_create(tb_rhi_device *device,
                                              const tb_rhi_compute_pipeline_desc *desc,
                                              tb_rhi_pipeline *pipeline, tb_rhi_error *error)
 {
-    const tb_rhi_indices none = {TB_RHI_NO_INDEX, TB_RHI_NO_INDEX};
+    const tb_rhi_indices none = {.read = TB_RHI_NO_INDEX, .write = TB_RHI_NO_INDEX};
     const tb_rhi_slot *compute = NULL;
     void *object = NULL;
     tb_rhi_slot *slot = NULL;
@@ -981,7 +1041,7 @@ void tb_rhi_pipeline_destroy(tb_rhi_device *device, tb_rhi_pipeline pipeline)
 
 void tb_rhi_register_images(tb_rhi_swap_chain *chain, const tb_rhi_swap_chain_images *images)
 {
-    const tb_rhi_indices none = {TB_RHI_NO_INDEX, TB_RHI_NO_INDEX};
+    const tb_rhi_indices none = {.read = TB_RHI_NO_INDEX, .write = TB_RHI_NO_INDEX};
     tb_rhi_device *const device = chain->device;
 
     TB_ASSERT(images->count >= 2 && images->count <= TB_RHI_SWAP_CHAIN_MAX_IMAGES);
