@@ -73,7 +73,16 @@ if(TB_BUILD_BURROW)
             "${PROJECT_SOURCE_DIR}/cmake/EmbedText.cmake"
         COMMENT "Embedding Burrow's default settings"
         VERBATIM)
-    add_executable(burrow main.c burrow_game.c burrow_settings.c "${burrow_defaults_source}")
+    # The game's logic and data, which its tests build too: the room, the
+    # world grid's texture, the player, and the HUD.
+    set(TB_BURROW_SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/burrow_grid.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/burrow_hud.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/burrow_player.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/burrow_room.c"
+        CACHE INTERNAL "Burrow's sources that its tests build")
+    add_executable(burrow main.c burrow_game.c burrow_scene.c burrow_settings.c
+        ${TB_BURROW_SOURCES} "${burrow_defaults_source}")
     target_link_libraries(burrow PRIVATE TenaciousBadger::badger)
     # A developer build starts in a window and quits on Escape; Release and
     # MinSizeRel are release builds.

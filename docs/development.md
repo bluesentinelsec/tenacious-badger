@@ -71,13 +71,15 @@ is in [the conventions of the public API](conventions.md).
 
 [`badger-sandbox`](sandbox.md) draws the engine's test scenes in a window, to look at by eye.
 
-`burrow` loads its [settings](settings.md#burrow), opens its
-[window](windows.md), and runs [the game loop](game-loop.md#burrow), with
-nothing rendered yet; `burrow --headless` runs without a window, `burrow check`
-prints `2 + 3 = 5` to show it starts against the engine, `burrow settings`
-lists every setting, and `burrow --help` and `burrow --version` answer as a
-command-line program does. Rendering, input, gameplay, vendor integrations, and
-the other planned modules remain future work.
+[`burrow`](burrow.md) loads its [settings](settings.md#burrow), opens its
+[window](windows.md), and runs [the game loop](game-loop.md#burrow), drawing a
+graybox room the player flies through with the mouse and the keyboard;
+`burrow --frames=N` stops after N frames, `burrow --headless` runs without a
+window, `burrow check` prints `2 + 3 = 5` to show it starts against the engine,
+`burrow settings` lists every setting, and `burrow --help` and
+`burrow --version` answer as a command-line program does. Collision,
+gameplay, vendor integrations, and the other planned modules remain future
+work.
 
 The [release and distribution requirements](../AGENTS.md#releases-and-distribution)
 define desktop exports and the later browser and mobile targets. See
@@ -296,9 +298,10 @@ publishes verified native exports after all tagged-build checks pass.
   whose every function reports "not implemented".
 - `src/settings/`: [settings](settings.md) and the engine's catalog of them.
 - `src/game/`: [the game loop](game-loop.md).
-- `src/main.c`, `src/burrow_game.c`, `src/burrow_settings.c`: the `burrow`
-  entrypoint, its game, and its settings; `src/burrow_defaults.cfg` is Burrow's default settings file, which
-  the build embeds in the executable.
+- `src/main.c`, `src/burrow_*.c`: the `burrow` entrypoint, its game, its
+  room, player, HUD and settings ([Burrow](burrow.md#how-it-is-made));
+  `src/burrow_defaults.cfg` is Burrow's default settings file, which the build
+  embeds in the executable.
 - `tests/`: unit tests and platform integration checks.
 - `benchmarks/`: `tb_bench`, which times the operations of the foundation
   modules. [Benchmarks](benchmarks.md) explains how to run it and how to read it.

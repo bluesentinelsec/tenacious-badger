@@ -7,6 +7,7 @@
 #include "badger/fs.h"
 #include "badger/str.h"
 
+#include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -15,6 +16,9 @@
 
 /* Bytes enough for any value `burrow settings` lists. */
 #define BURROW_VALUE_CAPACITY (TB_SETTING_DEFAULT_TEXT_LIMIT * 2 + 3)
+
+/* Bytes enough for any int64_t in decimal. */
+#define BURROW_FRAMES_CAPACITY 24
 
 /* Burrow's defaults, burrow_defaults.cfg, which the build embeds, and the
  * name its problems are reported under. */
@@ -146,6 +150,21 @@ static int burrow_apply_renderer(const burrow_settings_request *request, burrow_
     return TB_CLI_EXIT_USAGE;
 }
 
+/* --frames=N, a shorthand for --set developer.frame_count=N: the escape
+ * hatch that runs the game for a number of frames, for tests. */
+static void burrow_apply_frames(const burrow_settings_request *request, burrow_settings *loaded)
+{
+    char value[BURROW_FRAMES_CAPACITY] = {0};
+
+    if (request->frames <= 0)
+    {
+        return;
+    }
+    (void)tb_fmt_buffer(value, sizeof(value), "%" PRId64, request->frames);
+    (void)tb_settings_set(loaded->settings, TB_SETTING_LAYER_COMMAND_LINE, "developer.frame_count",
+                          value);
+}
+
 int burrow_settings_load(const burrow_settings_request *request, burrow_settings *loaded)
 {
     const tb_engine_settings_options options = {.developer = request->developer};
@@ -168,6 +187,10 @@ int burrow_settings_load(const burrow_settings_request *request, burrow_settings
     if (status == EXIT_SUCCESS)
     {
         status = burrow_apply_renderer(request, loaded);
+    }
+    if (status == EXIT_SUCCESS)
+    {
+        burrow_apply_frames(request, loaded);
     }
     if (status != EXIT_SUCCESS)
     {
