@@ -176,8 +176,33 @@ extern const tb_rhi_backend_table tb_rhi_null_backend;
 /* The Direct3D 12 backend, where the platform builds it. */
 extern const tb_rhi_backend_table tb_rhi_d3d12_backend;
 
-/* The table of a backend this platform builds, or NULL. */
-const tb_rhi_backend_table *tb_rhi_backend_table_of(tb_rhi_backend backend);
+/* A backend that belongs on a platform: its table, or NULL while it is not
+ * written yet. */
+typedef struct tb_rhi_backend_entry
+{
+    tb_rhi_backend backend;
+    const tb_rhi_backend_table *table;
+} tb_rhi_backend_entry;
+
+/* The backends of a platform, in the order `auto` tries them. The null
+ * backend is in no list: every platform has it, and `auto` never takes it. */
+typedef struct tb_rhi_backend_list
+{
+    const char *platform; /* As messages name it: "Windows". */
+    const tb_rhi_backend_entry *entries;
+    size_t count;
+} tb_rhi_backend_list;
+
+/* This platform's backends. The build selects the source that defines it
+ * (win32/, linux/, macos/ or default/), so the order of preference lives
+ * with the platform, not in shared code. */
+const tb_rhi_backend_list *tb_rhi_platform_backends(void);
+
+/* Make a device as tb_rhi_device_create() does, from a given list of
+ * backends in place of the platform's: for tests of the choice itself. */
+tb_rhi_result tb_rhi_device_create_from(const tb_rhi_backend_list *list,
+                                        const tb_rhi_device_options *options,
+                                        tb_rhi_device **device, tb_rhi_error *error);
 
 /* Make a device on a given table, for tests of the device itself. */
 tb_rhi_result tb_rhi_device_create_on(const tb_rhi_backend_table *table,

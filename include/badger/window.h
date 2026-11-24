@@ -55,6 +55,15 @@
  * **Until something draws.** A window shows black until a renderer presents
  * into it.
  *
+ * **The mouse and text.** A window reports the mouse's buttons, its motion,
+ * its wheel, and its entering and leaving, at positions in logical units and
+ * in pixels from the client area's top-left corner. A first-person camera
+ * turns on relative mouse mode with tb_window_set_relative_mouse(): the
+ * cursor is hidden and held in the window, and the mouse's own motion comes
+ * as #TB_WINDOW_EVENT_MOUSE_RELATIVE_MOTION in place of positions. Typed text
+ * comes apart from keys, as UTF-8 that the system has composed, dead keys
+ * included, in #TB_WINDOW_EVENT_TEXT_INPUT.
+ *
  * @par Threading
  * Stage-owned: every function but tb_window_system_wake() is called on the
  * thread that opened the window system, which on macOS must be the main
@@ -196,6 +205,8 @@ typedef struct tb_window_state
     double content_scale;  /**< Pixels per logical unit, as its display's. */
     bool focused;          /**< It receives the keyboard. */
     bool minimized;        /**< It is minimized, or hidden: nothing of it is seen. */
+    /** Its relative mouse mode is on: see tb_window_set_relative_mouse(). */
+    bool relative_mouse;
 } tb_window_state;
 
 /** @brief Keys, by their place on the keyboard, whatever its layout: the key
@@ -270,6 +281,48 @@ typedef enum tb_key
     TB_KEY_COUNT /**< The number of keys; not a key. */
 } tb_key;
 
+/** @brief The modifier keys held during an event: bits of an event's
+ * `modifiers`. Either key of a pair sets its bit. */
+typedef enum tb_modifier
+{
+    TB_MODIFIER_SHIFT = 1u << 0,   /**< Shift. */
+    TB_MODIFIER_CONTROL = 1u << 1, /**< Control. */
+    TB_MODIFIER_ALT = 1u << 2,     /**< Alt; Option on a Mac. */
+    TB_MODIFIER_SUPER = 1u << 3    /**< The Windows key; Command on a Mac. */
+} tb_modifier;
+
+/** @brief A mouse's buttons. */
+typedef enum tb_mouse_button
+{
+    TB_MOUSE_BUTTON_NONE,   /**< No button: the event is not of a button. */
+    TB_MOUSE_BUTTON_LEFT,   /**< The primary button. */
+    TB_MOUSE_BUTTON_RIGHT,  /**< The secondary button. */
+    TB_MOUSE_BUTTON_MIDDLE, /**< The wheel, pressed. */
+    TB_MOUSE_BUTTON_X1,     /**< The first side button, usually "back". */
+    TB_MOUSE_BUTTON_X2,     /**< The second side button, usually "forward". */
+    TB_MOUSE_BUTTON_COUNT   /**< The number of buttons; not a button. */
+} tb_mouse_button;
+
+/** @brief The shapes of the system's cursor that an interface asks for. */
+typedef enum tb_cursor
+{
+    TB_CURSOR_ARROW,                /**< The ordinary pointer. */
+    TB_CURSOR_TEXT,                 /**< The I-beam, over text that can be edited. */
+    TB_CURSOR_HAND,                 /**< The pointing hand, over a link or a button. */
+    TB_CURSOR_CROSSHAIR,            /**< A crosshair, for picking a point. */
+    TB_CURSOR_NOT_ALLOWED,          /**< What is under it cannot be done. */
+    TB_CURSOR_RESIZE_HORIZONTAL,    /**< Resizing left and right. */
+    TB_CURSOR_RESIZE_VERTICAL,      /**< Resizing up and down. */
+    TB_CURSOR_RESIZE_DIAGONAL_DOWN, /**< Resizing from top-left to bottom-right. */
+    TB_CURSOR_RESIZE_DIAGONAL_UP,   /**< Resizing from bottom-left to top-right. */
+    TB_CURSOR_RESIZE_ALL,           /**< Moving, in every direction. */
+    TB_CURSOR_COUNT                 /**< The number of shapes; not a shape. */
+} tb_cursor;
+
+/** @brief Bytes of an event's text, its NUL included. Text longer than
+ * this comes in several events, each of whole characters. */
+#define TB_WINDOW_TEXT_CAPACITY 32
+
 /** @brief What happened to a window. */
 typedef enum tb_window_event_type
 {
@@ -285,7 +338,23 @@ typedef enum tb_window_event_type
     TB_WINDOW_EVENT_KEY_DOWN,         /**< A key went down, or repeats. */
     TB_WINDOW_EVENT_KEY_UP,           /**< A key came up. */
     TB_WINDOW_EVENT_DISPLAYS_CHANGED, /**< A display came, went, or changed. */
-    TB_WINDOW_EVENT_WAKE              /**< tb_window_system_wake() was called. */
+    TB_WINDOW_EVENT_WAKE,             /**< tb_window_system_wake() was called. */
+    /** A mouse button went down over the window. The window holds the mouse
+     * until every button is up again, and reports it even outside. */
+    TB_WINDOW_EVENT_MOUSE_BUTTON_DOWN,
+    TB_WINDOW_EVENT_MOUSE_BUTTON_UP, /**< A mouse button came up. */
+    /** The mouse moved over the window, or while the window held it; never
+     * in relative mouse mode. */
+    TB_WINDOW_EVENT_MOUSE_MOVED,
+    /** The mouse moved in relative mouse mode: the event's deltas are the
+     * mouse's own motion, and it has no position. */
+    TB_WINDOW_EVENT_MOUSE_RELATIVE_MOTION,
+    TB_WINDOW_EVENT_MOUSE_WHEEL,   /**< The wheel turned, or a touchpad scrolled. */
+    TB_WINDOW_EVENT_MOUSE_ENTERED, /**< The mouse came over the window. */
+    TB_WINDOW_EVENT_MOUSE_LEFT,    /**< The mouse left it. */
+    /** Text was typed: the event's text, as the system composed it from
+     * keys, dead keys included. The keys come as keys too. */
+    TB_WINDOW_EVENT_TEXT_INPUT
 } tb_window_event_type;
 
 /** @brief An event, from tb_window_system_poll(). */
@@ -298,6 +367,27 @@ typedef struct tb_window_event
     /** For keys: the system's own code of the key, for keys #tb_key does not
      * name. */
     uint32_t scancode;
+    /** For keys, mouse buttons, the mouse's motion, and the wheel: the
+     * #tb_modifier bits held. */
+    uint32_t modifiers;
+    tb_mouse_button button; /**< For mouse buttons: which. */
+    /** For mouse buttons, motion, the wheel, and entering: where the mouse
+     * is, in logical units from the client area's top-left corner; outside
+     * the client area while the window holds the mouse. */
+    double x;
+    double y;       /**< See `x`; down is positive. */
+    double pixel_x; /**< The same place in pixels: `x` times the content scale. */
+    double pixel_y; /**< See `pixel_x`. */
+    /** For the wheel: how far it turned, in notches, with fractions of one
+     * from a wheel or touchpad of a finer resolution. Positive `delta_y` is
+     * away from the player, which scrolls up; positive `delta_x` scrolls
+     * right. For relative motion: how far the mouse moved, in the system's
+     * unaccelerated units where it has them; positive `delta_y` is toward
+     * the player. */
+    double delta_x;
+    double delta_y; /**< See `delta_x`. */
+    /** For text: UTF-8, terminated; never a control character. */
+    char text[TB_WINDOW_TEXT_CAPACITY];
     /** For a resize or a scale change: the window's state after it. */
     tb_window_state state;
 } tb_window_event;
@@ -460,6 +550,50 @@ TB_API void tb_window_native_of(const tb_window *window, tb_window_native *nativ
 TB_API tb_window_result tb_window_confirm(tb_window *window, const char *title, const char *message,
                                           bool *confirmed);
 
+/* ---------------------------------------------------------------------------
+ * The mouse.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * @brief Turn relative mouse mode on or off: the cursor hidden and held in
+ * the window, and the mouse's own motion reported, for a first-person
+ * camera.
+ *
+ * While it is on, the window sends #TB_WINDOW_EVENT_MOUSE_RELATIVE_MOTION in
+ * place of #TB_WINDOW_EVENT_MOUSE_MOVED; buttons and the wheel come as
+ * before. The system lets the cursor go while the player is in another
+ * window, and the window takes it again on the player's return. Windows
+ * reads the motion from Raw Input, X11 from XInput2's raw motion, Wayland
+ * from the relative-pointer and pointer-constraints protocols, and macOS
+ * from Cocoa's deltas, which the system has accelerated.
+ *
+ * @param window Required non-null.
+ * @param relative Whether it is on.
+ * @param[out] error Receives why it failed; NULL when nobody asks.
+ * @return #TB_WINDOW_OK; #TB_WINDOW_UNAVAILABLE where the system cannot, as
+ * under a Wayland compositor without those protocols or without a mouse; or
+ * #TB_WINDOW_SYSTEM_ERROR, as when another program holds the mouse. Turning
+ * it off always succeeds. The mode is unchanged on failure.
+ */
+TB_API tb_window_result tb_window_set_relative_mouse(tb_window *window, bool relative,
+                                                     tb_window_error *error);
+
+/**
+ * @brief Give the cursor a shape while it is over a window's client area.
+ * A shape the system lacks is the nearest it has, or the arrow.
+ * @param window Required non-null.
+ * @param cursor Less than #TB_CURSOR_COUNT; a new window's is the arrow.
+ */
+TB_API void tb_window_set_cursor(tb_window *window, tb_cursor cursor);
+
+/**
+ * @brief Show or hide the cursor while it is over a window's client area.
+ * Relative mouse mode hides it whatever this says.
+ * @param window Required non-null.
+ * @param shown Whether it is seen; a new window's is.
+ */
+TB_API void tb_window_show_cursor(tb_window *window, bool shown);
+
 /** @brief Name a backend: "wayland". @param backend Any value.
  * @return A string with static storage duration; "unknown backend" for no backend. */
 TB_API const char *tb_window_backend_name(tb_window_backend backend);
@@ -471,5 +605,9 @@ TB_API const char *tb_window_result_name(tb_window_result result);
 /** @brief Name a key: "escape", "f1", "left_shift". @param key Any value.
  * @return A string with static storage duration; "unknown" for no key. */
 TB_API const char *tb_key_name(tb_key key);
+
+/** @brief Name a mouse button: "left", "x1". @param button Any value.
+ * @return A string with static storage duration; "none" for no button. */
+TB_API const char *tb_mouse_button_name(tb_mouse_button button);
 
 #endif

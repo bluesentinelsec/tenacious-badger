@@ -6,6 +6,7 @@
 #include "badger/assert.h"
 #include "badger/fatal.h"
 #include "badger/fmt.h"
+#include "badger/log.h"
 #include "badger/memory.h"
 #include "badger/str.h"
 
@@ -344,11 +345,6 @@ static void tb_rhi_retire(tb_rhi_device *device, tb_rhi_kind kind, uint32_t inde
  * Devices.
  * ------------------------------------------------------------------------- */
 
-/* The order `auto` tries backends in. */
-static const tb_rhi_backend tb_rhi_preference[] = {TB_RHI_BACKEND_D3D12,  TB_RHI_BACKEND_METAL,
-                                                   TB_RHI_BACKEND_VULKAN, TB_RHI_BACKEND_D3D11,
-                                                   TB_RHI_BACKEND_OPENGL, TB_RHI_BACKEND_SOFTWARE};
-
 tb_rhi_result tb_rhi_device_create_on(const tb_rhi_backend_table *table,
                                       const tb_rhi_device_options *options, tb_rhi_device **device,
                                       tb_rhi_error *error)
@@ -382,35 +378,139 @@ tb_rhi_result tb_rhi_device_create_on(const tb_rhi_backend_table *table,
     return TB_RHI_OK;
 }
 
-tb_rhi_result tb_rhi_device_create(const tb_rhi_device_options *options, tb_rhi_device **device,
+/* The next step that "not implemented" names, for a setting and for a flag. */
+#define TB_RHI_NEXT_STEP "set graphics.renderer to auto, or run with --renderer=auto"
+
+/* Write to the options' log, where there is one. */
+static void tb_rhi_log(const tb_rhi_device_options *options, tb_log_level level, const char *format,
+                       ...)
+{
+    va_list arguments;
+
+    if (options->log == NULL)
+    {
+        return;
+    }
+    va_start(arguments, format);
+    (void)tb_log_vprintf(options->log, level, "rhi", format, arguments);
+    va_end(arguments);
+}
+
+/* The entry of a list for a backend, or NULL where the list has none. */
+static const tb_rhi_backend_entry *tb_rhi_entry_of(const tb_rhi_backend_list *list,
+                                                   tb_rhi_backend backend)
+{
+    for (size_t index = 0; index < list->count; index++)
+    {
+        if (list->entries[index].backend == backend)
+        {
+            return &list->entries[index];
+        }
+    }
+    return NULL;
+}
+
+/* A backend chosen by name that the platform does not have: "not
+ * implemented", with the next step, which ends the process. */
+static _Noreturn void tb_rhi_not_implemented(const tb_rhi_backend_list *list,
+                                             const tb_rhi_device_options *options,
+                                             const tb_rhi_backend_entry *entry)
+{
+    const char *const name = tb_rhi_backend_name(options->backend);
+    const char *const why = entry == NULL ? "which does not build it" : "not written yet";
+
+    tb_rhi_log(options, TB_LOG_FATAL,
+               "tb_rhi_device_create: the %s backend is not implemented on %s, %s; %s", name,
+               list->platform, why, TB_RHI_NEXT_STEP);
+    tb_fatal("rhi: tb_rhi_device_create: the %s backend is not implemented on %s, %s; %s", name,
+             list->platform, why, TB_RHI_NEXT_STEP);
+}
+
+/* Make a device on a backend, saying in the log what came of it. */
+static tb_rhi_result tb_rhi_try(const tb_rhi_backend_table *table,
+                                const tb_rhi_device_options *options, tb_rhi_device **device,
+                                tb_rhi_error *error)
+{
+    const tb_rhi_result result = tb_rhi_device_create_on(table, options, device, error);
+
+    if (result == TB_RHI_OK)
+    {
+        tb_rhi_log(options, TB_LOG_INFO, "using %s on %s, as graphics.renderer %s chose",
+                   tb_rhi_backend_name(table->backend), (*device)->info.adapter,
+                   tb_rhi_backend_name(options->backend));
+        return TB_RHI_OK;
+    }
+    tb_rhi_log(options, TB_LOG_WARNING, "%s is unavailable: %s",
+               tb_rhi_backend_name(table->backend), error->message);
+    return result;
+}
+
+/* `auto`: each backend of the list in turn, past any not written yet or
+ * unavailable, saying why for each. Never the null backend. */
+static tb_rhi_result tb_rhi_choose(const tb_rhi_backend_list *list,
+                                   const tb_rhi_device_options *options, tb_rhi_device **device,
                                    tb_rhi_error *error)
 {
-    const tb_rhi_backend_table *table = NULL;
-
-    TB_ASSERT(options != NULL && device != NULL);
-    TB_ASSERT_MSG((unsigned)options->backend < TB_RHI_BACKEND_COUNT, "not a backend");
-    *device = NULL;
-    if (options->backend != TB_RHI_BACKEND_AUTOMATIC)
+    for (size_t index = 0; index < list->count; index++)
     {
-        table = tb_rhi_backend_table_of(options->backend);
-        if (table == NULL)
+        const tb_rhi_backend_entry *const entry = &list->entries[index];
+        if (entry->table == NULL)
         {
-            tb_fatal("rhi: the %s backend is not implemented on this platform; run with "
-                     "--renderer=auto",
-                     tb_rhi_backend_name(options->backend));
+            tb_rhi_log(options, TB_LOG_INFO, "auto passed over %s: not implemented on %s yet",
+                       tb_rhi_backend_name(entry->backend), list->platform);
+            continue;
         }
-        return tb_rhi_device_create_on(table, options, device, error);
-    }
-    for (size_t index = 0; index < sizeof(tb_rhi_preference) / sizeof(tb_rhi_preference[0]);
-         index++)
-    {
-        table = tb_rhi_backend_table_of(tb_rhi_preference[index]);
-        if (table != NULL && tb_rhi_device_create_on(table, options, device, error) == TB_RHI_OK)
+        if (tb_rhi_try(entry->table, options, device, error) == TB_RHI_OK)
         {
             return TB_RHI_OK;
         }
     }
-    return tb_rhi_fail(error, TB_RHI_UNAVAILABLE, "no backend of this platform can make a device");
+    tb_rhi_log(options, TB_LOG_ERROR, "auto found no backend of %s that can make a device",
+               list->platform);
+    return tb_rhi_fail(error, TB_RHI_UNAVAILABLE,
+                       "no backend of %s can make a device; the log says why of each",
+                       list->platform);
+}
+
+tb_rhi_result tb_rhi_device_create_from(const tb_rhi_backend_list *list,
+                                        const tb_rhi_device_options *options,
+                                        tb_rhi_device **device, tb_rhi_error *error)
+{
+    tb_rhi_error attempt = TB_RHI_ERROR_INIT;
+    const tb_rhi_backend_entry *entry = NULL;
+    tb_rhi_result result = TB_RHI_OK;
+
+    TB_ASSERT(list != NULL && options != NULL && device != NULL);
+    TB_ASSERT_MSG((unsigned)options->backend < TB_RHI_BACKEND_COUNT, "not a backend");
+    *device = NULL;
+    if (options->backend == TB_RHI_BACKEND_AUTOMATIC)
+    {
+        result = tb_rhi_choose(list, options, device, &attempt);
+    }
+    else if (options->backend == TB_RHI_BACKEND_NULL)
+    {
+        result = tb_rhi_try(&tb_rhi_null_backend, options, device, &attempt);
+    }
+    else
+    {
+        entry = tb_rhi_entry_of(list, options->backend);
+        if (entry == NULL || entry->table == NULL)
+        {
+            tb_rhi_not_implemented(list, options, entry);
+        }
+        result = tb_rhi_try(entry->table, options, device, &attempt);
+    }
+    if (error != NULL)
+    {
+        *error = attempt;
+    }
+    return result;
+}
+
+tb_rhi_result tb_rhi_device_create(const tb_rhi_device_options *options, tb_rhi_device **device,
+                                   tb_rhi_error *error)
+{
+    return tb_rhi_device_create_from(tb_rhi_platform_backends(), options, device, error);
 }
 
 void tb_rhi_device_destroy(tb_rhi_device *device)

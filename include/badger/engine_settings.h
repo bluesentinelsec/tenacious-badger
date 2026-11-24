@@ -43,6 +43,8 @@
 
 #include <stdbool.h>
 
+struct tb_rhi_device_options;
+
 /** @brief The choices of `display.vsync`. */
 typedef enum tb_vsync
 {
@@ -121,6 +123,9 @@ typedef struct tb_engine_settings
     /** Family `graphics`. */
     struct
     {
+        /** The graphics API: auto, d3d12, d3d11, vulkan, opengl, metal,
+         * software or null, in the order of tb_rhi_backend. */
+        tb_setting *renderer;
         tb_setting *render_scale;       /**< Render resolution over the output's. */
         tb_setting *dynamic_resolution; /**< Frames a second to hold; 0 for a fixed resolution. */
         tb_setting *upscaler;           /**< native, dlss, fsr, xess or metalfx. */
@@ -239,6 +244,22 @@ TB_API void tb_engine_settings_add(tb_settings *settings, const tb_engine_settin
  */
 TB_API void tb_engine_settings_window_options(const tb_engine_settings *engine, const char *title,
                                               tb_window_options *options);
+
+/**
+ * @brief The device that the `graphics` settings describe: the backend that
+ * `graphics.renderer` names, as rhi.h's tb_rhi_device_create() takes it.
+ *
+ * Sets only what the settings describe, so a caller fills in the rest of the
+ * options (the adapter, validation, the log) before or after. A backend that
+ * this platform does not build is still a value the setting holds, since
+ * settings files travel between machines: tb_rhi_device_create() reports it.
+ *
+ * @param engine The engine's settings; required.
+ * @param[in,out] options The device's options; required. Its backend is set.
+ * @par Threading Thread-safe.
+ */
+TB_API void tb_engine_settings_device_options(const tb_engine_settings *engine,
+                                              struct tb_rhi_device_options *options);
 
 /**
  * @brief Set the overall quality: every quality group to `quality`, and

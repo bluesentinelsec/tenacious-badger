@@ -4,6 +4,7 @@
 #include "badger/engine_settings.h"
 
 #include "badger/assert.h"
+#include "badger/rhi.h"
 
 #include <stddef.h>
 
@@ -63,6 +64,14 @@ static const tb_settings_family tb_engine_families[] = {
 
 static const char *const tb_engine_window_modes[] = {"windowed", "borderless", "fullscreen"};
 static const char *const tb_engine_vsync_modes[] = {"off", "on", "adaptive"};
+/* The renderers, in the order of tb_rhi_backend and as tb_rhi_backend_name()
+ * spells them. `null` is among them for servers and tests, which name it on
+ * the command line; an options menu leaves it out, as Unreal's leave out its
+ * null RHI. */
+static const char *const tb_engine_renderers[] = {"auto",   "d3d12", "d3d11",    "vulkan",
+                                                  "opengl", "metal", "software", "null"};
+TB_STATIC_ASSERT(TB_COUNT_OF(tb_engine_renderers) == TB_RHI_BACKEND_COUNT,
+                 "a renderer for each backend");
 static const char *const tb_engine_upscalers[] = {"native", "dlss", "fsr", "xess", "metalfx"};
 static const char *const tb_engine_low_latency[] = {"off", "on", "boost"};
 static const char *const tb_engine_lighting[] = {"raster", "hybrid", "path_tracing"};
@@ -255,6 +264,11 @@ static void tb_engine_add_display(tb_settings *settings, const tb_engine_setting
 
 static void tb_engine_add_graphics(tb_settings *settings, tb_engine_settings *engine)
 {
+    engine->graphics.renderer = TB_ENGINE_CHOICE(
+        settings, "graphics.renderer",
+        "The graphics API the game draws through; auto takes the platform's best that the "
+        "machine has. One the platform does not have stops the game, saying so.",
+        tb_engine_renderers, (size_t)TB_RHI_BACKEND_AUTOMATIC);
     engine->graphics.render_scale = tb_engine_number(
         settings, "graphics.render_scale",
         "The resolution the game renders at, as a fraction of the output's; the upscaler makes "
@@ -520,6 +534,14 @@ void tb_engine_settings_add(tb_settings *settings, const tb_engine_settings_opti
     tb_engine_add_language(settings, engine);
     tb_engine_add_engine(settings, engine);
     tb_engine_add_developer(settings, options, engine);
+}
+
+void tb_engine_settings_device_options(const tb_engine_settings *engine,
+                                       tb_rhi_device_options *options)
+{
+    TB_ASSERT(engine != NULL);
+    TB_ASSERT(options != NULL);
+    options->backend = (tb_rhi_backend)tb_setting_choice(engine->graphics.renderer);
 }
 
 /* Anisotropic filtering follows the texture quality in a preset: 2x at low

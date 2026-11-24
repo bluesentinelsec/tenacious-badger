@@ -25,6 +25,7 @@ typedef struct burrow_settings_request
     const char *player_file;   /* The player's file; NULL for the usual place. */
     const char *const *values; /* NAME=VALUE, for the command line layer. */
     size_t value_count;
+    const char *renderer; /* --renderer: graphics.renderer, after the values; NULL for none. */
 } burrow_settings_request;
 
 /* Load the settings as the request says, writing problems with the files to
