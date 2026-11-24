@@ -58,10 +58,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/** @brief A texture that materials sample. Made by tb_texture_create() or
- * tb_texture_from_rhi(); owned by the caller; destroyed by
- * tb_texture_destroy() after the materials that use it, before its
- * renderer. */
+/** @brief A texture that materials and skies sample. Made by
+ * tb_texture_create(), tb_texture_create_cube() or tb_texture_from_rhi(); owned by the caller;
+ * destroyed by tb_texture_destroy() after the materials that use it, before its renderer. */
 typedef struct tb_texture tb_texture;
 
 /** @brief A material. Made by tb_material_create(); owned by the caller;
@@ -104,6 +103,24 @@ typedef struct tb_texture_desc
  */
 TB_API tb_texture *tb_texture_create(tb_renderer *renderer, const tb_texture_desc *desc,
                                      const uint8_t *pixels, size_t size);
+
+/**
+ * @brief Make a cube map from six square faces of RGBA pixels, one after
+ * another in Direct3D's order: +X, -X, +Y, -Y, +Z, -Z. Each face is laid
+ * out as Direct3D lays it, rows from the top, seen from the cube's middle:
+ * the texel at (u, v), each from -1 at the face's left or top edge to 1 at
+ * its right or bottom, is the direction (1, -v, -u) on +X, (-1, -v, u) on
+ * -X, (u, 1, v) on +Y, (u, -1, -v) on -Y, (u, -v, 1) on +Z and (-u, -v, -1)
+ * on -Z. Its mip chain is made on the GPU, as a texture's is: skies
+ * (badger/sky.h), and reflections later.
+ * @param renderer Required.
+ * @param desc Required; `width` equal to `height`.
+ * @param pixels Required; `width * height * 4 * 6` bytes; copied.
+ * @param size Bytes of `pixels`.
+ * @return The texture; never NULL.
+ */
+TB_API tb_texture *tb_texture_create_cube(tb_renderer *renderer, const tb_texture_desc *desc,
+                                          const uint8_t *pixels, size_t size);
 
 /**
  * @brief Make a texture of one a caller made through the RHI, for what the

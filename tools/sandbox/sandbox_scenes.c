@@ -9,6 +9,7 @@
 #include "badger/fmt.h"
 #include "badger/math.h"
 #include "badger/memory.h"
+#include "badger/sky.h"
 
 #include <math.h>
 #include <string.h>
@@ -660,6 +661,147 @@ static void materials_destroy(sandbox *box, void *state)
     tb_free(scene);
 }
 
+/* ---------------------------------------------------------------------------
+ * sky and sky_cube: the shapes under a procedural sky whose sun circles
+ * slowly, and under a cube map made in memory: a dusk gradient with lines
+ * every 15 degrees of latitude and longitude, to see its seams and its
+ * orientation.
+ * ------------------------------------------------------------------------- */
+
+#define SKY_FACE 256u
+#define SKY_GRID_DEGREES 15.0f
+
+typedef struct sky_scene
+{
+    shapes_scene *shapes;
+    tb_texture *cube; /* NULL for the procedural sky */
+} sky_scene;
+
+/* The direction of a texel of a cube's face, as Direct3D lays the faces
+ * out: +X, -X, +Y, -Y, +Z, -Z, each seen from inside with u to the right
+ * and v down. */
+static tb_vec3 sky_face_direction(uint32_t face, float u, float v)
+{
+    switch (face)
+    {
+    case 0:
+        return (tb_vec3){1, -v, -u};
+    case 1:
+        return (tb_vec3){-1, -v, u};
+    case 2:
+        return (tb_vec3){u, 1, v};
+    case 3:
+        return (tb_vec3){u, -1, -v};
+    case 4:
+        return (tb_vec3){u, -v, 1};
+    default:
+        return (tb_vec3){-u, -v, -1};
+    }
+}
+
+/* A dusk: orange at the horizon to deep blue overhead, dark ground, and
+ * lines of latitude and longitude. */
+static void sky_fill_face(uint8_t *pixels, uint32_t face)
+{
+    const tb_vec3 zenith = {0.05f, 0.08f, 0.30f};
+    const tb_vec3 horizon = {0.95f, 0.45f, 0.20f};
+    const tb_vec3 ground = {0.08f, 0.06f, 0.06f};
+
+    for (uint32_t y = 0; y < SKY_FACE; y++)
+    {
+        for (uint32_t x = 0; x < SKY_FACE; x++)
+        {
+            const float u = ((float)x + 0.5f) / (float)SKY_FACE * 2.0f - 1.0f;
+            const float v = ((float)y + 0.5f) / (float)SKY_FACE * 2.0f - 1.0f;
+            const tb_vec3 direction = tb_vec3_normalize(sky_face_direction(face, u, v));
+            const float latitude = asinf(direction.y) * 180.0f / TB_PI;
+            const float longitude = atan2f(direction.x, -direction.z) * 180.0f / TB_PI;
+            const float near_line = fminf(fabsf(remainderf(latitude, SKY_GRID_DEGREES)),
+                                          fabsf(remainderf(longitude, SKY_GRID_DEGREES)));
+            tb_vec3 color = direction.y >= 0.0f
+                                ? tb_vec3_lerp(horizon, zenith, sqrtf(direction.y))
+                                : tb_vec3_lerp(horizon, ground, fminf(-direction.y * 8.0f, 1.0f));
+            uint8_t *const texel =
+                &pixels[((size_t)face * SKY_FACE * SKY_FACE + (size_t)y * SKY_FACE + x) * 4u];
+            /* A line a little over half a degree wide, its edges smoothed. */
+            const float line = 1.0f - fminf(fmaxf((near_line - 0.15f) / 0.3f, 0.0f), 1.0f);
+            color = tb_vec3_lerp(color, (tb_vec3){1, 1, 1}, 0.5f * line);
+            texel[0] = (uint8_t)(fminf(color.x, 1.0f) * 255.0f + 0.5f);
+            texel[1] = (uint8_t)(fminf(color.y, 1.0f) * 255.0f + 0.5f);
+            texel[2] = (uint8_t)(fminf(color.z, 1.0f) * 255.0f + 0.5f);
+            texel[3] = UINT8_MAX;
+        }
+    }
+}
+
+static bool sky_create_any(sandbox *box, void **state, bool cube)
+{
+    sky_scene *const scene = tb_calloc(1, sizeof(*scene));
+    void *shapes = NULL;
+
+    *state = scene;
+    (void)shapes_create(box, &shapes);
+    scene->shapes = shapes;
+    if (cube)
+    {
+        const size_t size = (size_t)SKY_FACE * SKY_FACE * 4u * 6u;
+        uint8_t *const pixels = tb_malloc(size);
+        tb_sky sky = {.kind = TB_SKY_CUBE};
+        for (uint32_t face = 0; face < 6; face++)
+        {
+            sky_fill_face(pixels, face);
+        }
+        scene->cube = tb_texture_create_cube(
+            box->renderer,
+            &(tb_texture_desc){.width = SKY_FACE, .height = SKY_FACE, .name = "sky cube"}, pixels,
+            size);
+        tb_free(pixels);
+        sky.cube = scene->cube;
+        tb_renderer_set_sky(box->renderer, &sky);
+    }
+    return true;
+}
+
+static bool sky_create(sandbox *box, void **state)
+{
+    return sky_create_any(box, state, false);
+}
+
+static bool sky_cube_create(sandbox *box, void **state)
+{
+    return sky_create_any(box, state, true);
+}
+
+static void sky_draw(sandbox *box, void *state, const sandbox_frame *frame)
+{
+    const sky_scene *const scene = state;
+
+    if (scene->cube == NULL)
+    {
+        /* The sun circles the sky once a minute, low ahead of the camera
+         * at first, higher behind it. */
+        const float turn = (float)frame->seconds * TB_TAU / 60.0f;
+        tb_sky sky = TB_SKY_PROCEDURAL_INIT;
+        sky.sun_direction = (tb_vec3){sinf(turn) + 0.3f, 0.3f - 0.2f * cosf(turn), -cosf(turn)};
+        tb_renderer_set_sky(box->renderer, &sky);
+    }
+    shapes_draw(box, scene->shapes, frame);
+}
+
+static void sky_destroy(sandbox *box, void *state)
+{
+    sky_scene *const scene = state;
+
+    /* The sky lasts until it is changed: the next scene starts without. */
+    tb_renderer_set_sky(box->renderer, NULL);
+    tb_texture_destroy(box->renderer, scene->cube);
+    if (scene->shapes != NULL)
+    {
+        shapes_destroy(box, scene->shapes);
+    }
+    tb_free(scene);
+}
+
 const sandbox_scene sandbox_scenes[] = {
     {"shapes",
      "every shape the renderer makes, lit, under the fly camera",
@@ -679,6 +821,18 @@ const sandbox_scene sandbox_scenes[] = {
      materials_create,
      materials_draw,
      materials_destroy},
+    {"sky",
+     "the shapes under a procedural sky: a gradient, a ground, and a circling sun",
+     {0.10f, 0.11f, 0.13f, 1},
+     sky_create,
+     sky_draw,
+     sky_destroy},
+    {"sky_cube",
+     "the shapes under a cube-map sky made in memory: a dusk with lines of latitude and longitude",
+     {0.10f, 0.11f, 0.13f, 1},
+     sky_cube_create,
+     sky_draw,
+     sky_destroy},
     {"triangle",
      "a triangle of three colored corners, turning, drawn through the RHI",
      {0.08f, 0.09f, 0.11f, 1},

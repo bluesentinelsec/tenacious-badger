@@ -111,6 +111,7 @@ set(TB_TEST_CASE_SOURCES
     render/material_test.c
     render/render_graph_test.c
     render/renderer_test.c
+    render/sky_test.c
     rhi/rhi_test.c
     shader/shader_dxil_test.c
     shader/shader_preprocess_test.c
@@ -149,7 +150,7 @@ if(WIN32)
     tb_embed_test_data(TB_RHI_SHADER_SOURCE tb_rhi_shader_files rhi "*.dxil")
     list(APPEND TB_TEST_CASE_SOURCES rhi/rhi_d3d12_test.c ${TB_RHI_SHADER_SOURCE}
         render/canvas_d3d12_test.c render/material_d3d12_test.c
-        render/renderer_d3d12_test.c)
+        render/renderer_d3d12_test.c render/sky_d3d12_test.c)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     list(APPEND TB_TEST_CASE_SOURCES platform/linux/window_x11_test.c)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")

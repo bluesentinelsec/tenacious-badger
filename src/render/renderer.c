@@ -285,6 +285,11 @@ tb_rhi_result tb_renderer_create(const tb_renderer_options *options, tb_renderer
     {
         goto failed;
     }
+    result = tb_renderer_sky_create(renderer, error);
+    if (result != TB_RHI_OK)
+    {
+        goto failed;
+    }
     renderer->graph = tb_render_graph_create(renderer->device);
     *made = renderer;
     return TB_RHI_OK;
@@ -304,6 +309,7 @@ void tb_renderer_destroy(tb_renderer *renderer)
     {
         (void)tb_rhi_wait_idle(renderer->device);
         tb_render_graph_destroy(renderer->graph);
+        tb_renderer_sky_destroy(renderer);
         tb_renderer_materials_destroy(renderer);
         tb_renderer_canvas_destroy(renderer);
         for (uint32_t slot = 0; slot < TB_RENDERER_FRAMES; slot++)
@@ -500,6 +506,7 @@ typedef struct tb_renderer_recording
     tb_mat4 view;
     tb_mat4 projection;
     tb_mat4 clip;
+    uint64_t sky; /* the sky's constants in the frame's uploads; UINT64_MAX for none */
     uint64_t lines_offset[2];
 } tb_renderer_recording;
 
@@ -535,6 +542,7 @@ static void tb_renderer_upload_frame(tb_renderer *renderer, tb_renderer_recordin
         draw->constants =
             tb_renderer_upload(renderer, &constants, sizeof(constants), TB_RENDERER_DRAW_BYTES);
     }
+    recording->sky = tb_renderer_sky_upload(renderer, aspect);
     tb_mutex_lock(&renderer->lines_lock);
     for (int layer = 0; layer < 2; layer++)
     {
@@ -604,6 +612,8 @@ static void tb_renderer_record_scene(const tb_render_graph_pass_context *pass)
                                                   .context = renderer->customs[index].context};
         renderer->customs[index].draw(&context);
     }
+    /* After the opaque scene, so that it shades only the pixels left. */
+    tb_renderer_sky_record(renderer, pass->list, recording->sky);
     tb_renderer_record_lines(recording, pass->list, 0);
 }
 

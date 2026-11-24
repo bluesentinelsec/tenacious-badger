@@ -1,7 +1,7 @@
 # The renderer
 
 `badger/renderer.h` draws frames to a window from a camera: meshes, plain or
-with [materials](#materials), and debug lines, through
+with [materials](#materials), under a [sky](#skies), and debug lines, through
 [the render graph](render-graph.md) and [the RHI](rhi.md). It is the layer
 games and tools draw through, in 3D and in [2D](#2d-the-canvas); what it
 draws grows from here (text, the lighting modes).
@@ -125,6 +125,51 @@ draws a material in its base color factor.
 `B8G8R8A8_UNORM` swap chain, as every draw is until the output transform
 comes: so sRGB textures, read as linear, look darker than they were
 authored.
+
+## Skies
+
+`badger/sky.h` draws a sky behind the scene: a procedural one, computed in
+its shader with no texture, or a cube map a caller fills.
+
+```c
+tb_sky sky = TB_SKY_PROCEDURAL_INIT;   /* blue overhead, pale at the horizon, a sun */
+sky.sun_direction = (tb_vec3){0.4f, 0.5f, -1.0f};
+tb_renderer_set_sky(renderer, &sky);
+
+tb_texture *const faces = tb_texture_create_cube(
+    renderer, &(tb_texture_desc){.width = 512, .height = 512}, pixels, sizeof(pixels));
+tb_renderer_set_sky(renderer, &(tb_sky){.kind = TB_SKY_CUBE, .cube = faces});
+
+tb_renderer_set_sky(renderer, NULL);   /* back to the clear color */
+```
+
+**Lasting.** `tb_renderer_set_sky()` sets the sky for every frame from the
+next until it is set again, as a level's sky is; a game need not repeat it
+each frame. A cube map is borrowed while it is the sky.
+
+**Procedural.** Above the horizon the color runs from the horizon's to the
+zenith's, by the square root of the direction's height, so it changes
+quickly near the horizon as a sky does; below, it reaches the ground's a few
+degrees down. The sun is a disc of an angular radius, toward its direction,
+smoothed over a pixel, with a faint glow.
+
+**Cube maps** are six square faces in Direct3D's order (+X, -X, +Y, -Y, +Z,
+-Z), each laid out as Direct3D lays it; `tb_texture_create_cube()` names the
+direction of each texel. Their mip chains are made as a texture's are, each
+face's levels in one dispatch. The RHI's `TB_RHI_TEXTURE_CUBE` is a texture
+of six layers sampled as a `TextureCube`; its faces are filled by a copy to
+each layer.
+
+**How it draws.** After the meshes and custom draws, before the debug
+lines, one triangle covers the view at depth 0, the far plane (depth is
+reversed), tested `GREATER_EQUAL` against the depth the scene wrote and
+writing none. Each pixel the scene covered fails before it is shaded, so
+the sky costs only what shows, which drawing it first with depth writes off
+would not: there every pixel shades the sky, and the scene overdraws it.
+Each pixel's direction is the camera's forward plus its place in the view
+times the view's edges, so it needs no matrix inverse, which a projection
+with no far plane does not have. A device without bindless resources draws
+no sky.
 
 ## Debug drawing
 
@@ -250,7 +295,8 @@ the engine's compiler, through DXC to DXIL for D3D12. They move to
 
 ## Not yet
 
-- Instanced draws, transparency, skyboxes (#281).
+- Instanced draws, transparency.
+- A sky that lights the scene (ambient light from the sky, image-based lighting), clouds and atmosphere.
 - The output transform: writing the frame in sRGB, and tone mapping.
 - Precomputed tangents, texture compression, and streaming of mip levels.
 - Debug drawing that lasts more than one frame, and text labels (#278).
