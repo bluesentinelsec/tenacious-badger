@@ -77,6 +77,11 @@ TB_TEST(platform_default, tb_dxc_release)
     tb_dxc_release(&output);
 }
 
+TB_TEST(platform_default, tb_dxc_version)
+{
+    (void)tb_dxc_version(NULL);
+}
+
 TB_TEST(platform_default, tb_library_open)
 {
     tb_library *library = NULL;

@@ -209,6 +209,24 @@ TB_TEST(shader_dxil, dxc_opens_or_says_why_it_is_unavailable)
     tb_dxc_close(dxc);
 }
 
+TB_TEST(shader_dxil, dxc_names_its_compiler_and_its_validator)
+{
+    /* The shader cache keys on this name, so it must tell apart the DXCs
+     * that compile differently: each part's version and commit. */
+    tb_dxc *const dxc = open_or_skip();
+    const char *const version = tb_dxc_version(dxc);
+    TB_TEST_EXPECT(tb_str_starts_with(version, "dxcompiler 1."));
+    TB_TEST_EXPECT_UINT(tb_str_find(version, 0, TB_STR_END, " dxil 1."), !=, TB_STR_NOT_FOUND);
+    /* The commits, as the Windows SDK's DXC tells them. */
+    TB_TEST_EXPECT_UINT(tb_str_find(version, 0, TB_STR_END, " ("), !=, TB_STR_NOT_FOUND);
+    TB_TEST_EXPECT_UINT(tb_str_length(version), <, TB_DXC_VERSION_CAPACITY);
+    /* The same DXC opened again names itself alike. */
+    tb_dxc *const again = open_or_skip();
+    TB_TEST_EXPECT_STRING(tb_dxc_version(again), ==, version);
+    tb_dxc_close(again);
+    tb_dxc_close(dxc);
+}
+
 TB_TEST(shader_dxil, nothing_is_closed_or_released_twice)
 {
     tb_dxc_close(NULL);

@@ -773,7 +773,10 @@ Public declaration: `include/badger/dxc.h`. DXC, Microsoft's HLSL compiler,
 is the only compiler that writes DXIL, the bytecode D3D12 runs.
 `tb_dxc_open` loads it, `tb_dxc_compile` compiles HLSL into a signed DXIL
 container, `tb_dxc_release` lets a compile's output go, and `tb_dxc_close`
-unloads it. The shader module compiles for D3D12 through it (see
+unloads it. `tb_dxc_version` names the DXC loaded, its compiler's version and
+commit and its validator's version, as `IDxcVersionInfo2` tells them
+(`dxcompiler 1.8 (4792, 23992152) dxil 1.8`): the
+[shader cache](shader-cache.md) keys on it. The shader module compiles for D3D12 through it (see
 [Shaders](shaders.md#compiling-for-d3d12-dxil)); most code calls
 `tb_shader_compile` instead.
 

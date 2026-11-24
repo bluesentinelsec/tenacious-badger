@@ -58,6 +58,7 @@ The foundation layer so far, one public header per module under
 | `stream.h` | [Streams](streams.md): one interface for reading and writing bytes, over memory, files, and ranges of other streams |
 | `window.h` | [Windows and displays](windows.md): windowed, borderless and fullscreen windows, displays and their scale, and window events |
 | `shader.h` | [Shaders](shaders.md): HLSL written once for every backend; virtual shader paths, includes and the preprocessor |
+| `shader_cache.h`, `shader_library.h` | [The shader cache and shader libraries](shader-cache.md): keys of what a compile writes, compiled shaders kept on disk, and the libraries a game ships |
 | `rhi.h` | [The render hardware interface](rhi.md): one interface to every graphics API, with bindless resources, command lists and submissions |
 | `renderer.h` | [The renderer](renderer.md): frames from a camera, meshes and generated shapes, and debug drawing |
 | `ui.h` | [The interface](ui.md): an immediate-mode GUI of windows, layout, and widgets, drawn through the canvas |
