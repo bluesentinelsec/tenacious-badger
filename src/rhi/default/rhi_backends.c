@@ -1,23 +1,12 @@
-/* The backends of a platform without one of its own yet: the null backend.
- * Each graphics API joins this list in the change that writes it; until then,
- * choosing it is "not implemented". */
+/* The backends of a platform the engine does not support: none but the null
+ * backend, which every platform has. A port lists its own, in its order of
+ * preference, in a source of its own beside win32/, linux/ and macos/; until
+ * then, choosing any other is "not implemented". */
 #include "../rhi_backend.h"
 
-const tb_rhi_backend_table *tb_rhi_backend_table_of(tb_rhi_backend backend)
+static const tb_rhi_backend_list tb_rhi_unsupported = {"this platform", NULL, 0};
+
+const tb_rhi_backend_list *tb_rhi_platform_backends(void)
 {
-    switch (backend)
-    {
-    case TB_RHI_BACKEND_NULL:
-        return &tb_rhi_null_backend;
-    case TB_RHI_BACKEND_AUTOMATIC:
-    case TB_RHI_BACKEND_D3D12:
-    case TB_RHI_BACKEND_D3D11:
-    case TB_RHI_BACKEND_VULKAN:
-    case TB_RHI_BACKEND_OPENGL:
-    case TB_RHI_BACKEND_METAL:
-    case TB_RHI_BACKEND_SOFTWARE:
-    case TB_RHI_BACKEND_COUNT:
-        break;
-    }
-    return NULL;
+    return &tb_rhi_unsupported;
 }

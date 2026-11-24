@@ -188,6 +188,7 @@ window falls back to borderless and says so.
 
 | Setting | Type | Default | Honored by |
 | --- | --- | --- | --- |
+| `graphics.renderer` | `auto`, `d3d12`, `d3d11`, `vulkan`, `opengl`, `metal`, `software`, `null` | `auto` | [the RHI](rhi.md#choosing-a-backend), through `tb_engine_settings_device_options()` |
 | `graphics.render_scale` | number, 0.25 to 2 | `1.0` | the renderer, to come |
 | `graphics.dynamic_resolution` | integer, 0 to 1000 frames a second | `0`, a fixed resolution | the renderer, to come |
 | `graphics.upscaler` | `native`, `dlss`, `fsr`, `xess`, `metalfx` | `native` | the renderer, to come |
@@ -214,6 +215,16 @@ window falls back to borderless and says so.
 | `graphics.depth_of_field` | boolean | `true` | the renderer, to come |
 | `graphics.chromatic_aberration` | boolean | `true` | the renderer, to come |
 | `graphics.film_grain` | number, 0 to 1 | `1.0`, as the game was made | the renderer, to come |
+
+**Renderer.** `graphics.renderer` names the graphics API, its choices in the
+order of `tb_rhi_backend`, and `tb_engine_settings_device_options()` turns it
+into the backend of a device's options. `auto` takes the platform's best
+that the machine has. Every choice is a value on every platform, because
+settings files travel between machines; a choice this platform does not
+build is reported by the RHI when the device is made, as "not implemented"
+with the next step. `null` draws nothing, for servers and tests that name it
+on the command line; an options menu leaves it out, as Unreal's leave out its
+null RHI.
 
 The upscaler's mode sets the render scale as the vendors' modes do (`native`
 renders at the output's resolution, `ultra_performance` at a third of it),
@@ -329,6 +340,7 @@ the executable, then the player's file, then the command line.
 | `burrow settings` | Lists every setting, its value, and the layer it comes from |
 | `burrow` | Plays |
 | `--set NAME=VALUE` | Gives a setting a value for this session; may be repeated |
+| `--renderer=NAME` | The same as `--set graphics.renderer=NAME`, given after every `--set` |
 | `--reset-settings` | Sets the player's file aside and starts from the defaults |
 | `--settings-file FILE` | Uses another settings file in place of the player's |
 | `--mode developer` or `--mode release` | Takes a developer or a release build's defaults; each build defaults to its own |
