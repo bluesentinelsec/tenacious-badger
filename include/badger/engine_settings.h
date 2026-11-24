@@ -18,6 +18,7 @@
  * | `accessibility` | yes | Subtitles, text size, color blindness, camera shake, flashing |
  * | `language` | yes | The language of text and of speech |
  * | `engine` | no | Tuning a game ships with: the tick rate, the longest frame |
+ * | `shaders` | no | Whether shaders the game's libraries lack are compiled at run time |
  * | `developer` | no | Switches for developing the game |
  *
  * Every setting is declared here, so that the options of a game and its
@@ -211,6 +212,13 @@ typedef struct tb_engine_settings
         tb_setting *tick_rate;      /**< Simulation ticks a second. */
         tb_setting *max_frame_time; /**< The longest a frame counts for, in seconds. */
     } engine;
+    /** Family `shaders`. */
+    struct
+    {
+        /** Whether a shader the game's libraries lack is compiled at run time,
+         * as the renderer's `shader_library_only` takes it, negated. */
+        tb_setting *runtime_compile;
+    } shaders;
     /** Family `developer`. */
     struct
     {

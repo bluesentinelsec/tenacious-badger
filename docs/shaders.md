@@ -54,6 +54,13 @@ each new shader model as Microsoft ships it (see
 written by our compiler, so compiling at run time works on Linux, the Steam
 Deck and macOS with no SDK installed.
 
+**`badger-shaderc`** (`tools/shaderc/`) compiles the shaders a manifest lists
+into a library for each backend, in parallel, through the same shader module
+and cache as the engine; the build runs it on the engine's own shaders (see
+[badger-shaderc](shader-cache.md#badger-shaderc)). The engine's shaders are
+the files under `shaders/` of its source tree, which the engine library
+carries, so the renderer and the build compile the same text.
+
 **Shipping.** A packaged game carries a shader library for each backend its
 platform builds, as Unreal's packaged games do, so switching backends loads
 shaders instead of compiling them. A library finds a shader by a key of its

@@ -110,7 +110,7 @@ the build directory is.
 ## Shader libraries
 
 A library is the compiled shaders a game ships for one backend, such as
-`Engine/Shaders/D3D12.tbsl`, loaded through the VFS
+`Shaders/d3d12.tbsl`, loaded through the VFS
 (`tb_shader_library_load`) or from memory (`tb_shader_library_open`). It is
 found by shader keys, which do not name the compiler: the library records the
 compiler that wrote it once, for all of its shaders
@@ -165,6 +165,106 @@ An entry of the table:
 
 A library is at most `TB_SHADER_LIBRARY_MAX_SIZE`, 1 GiB. Its code stays
 aligned to 8 bytes in memory, for as long as the library is open.
+
+## Finding a shader, or compiling it
+
+`tb_shader_compile_cached()` is what the renderer and `badger-shaderc` both
+do with a compile request, so that both give the same bytes:
+
+1. A request for no target (`TB_SHADER_TARGET_NONE`) writes no code, and is
+   compiled for its reflection whatever else is asked.
+2. The shader key is made. A source that cannot be read has none; it is
+   compiled for its reflection, which says what is wrong.
+3. The library, if one is given, is searched by the shader key.
+4. If the lookup is library-only, as `shaders.runtime_compile` off asks, a
+   shader the library lacks is `TB_SHADER_UNAVAILABLE`, and a diagnostic says
+   so. So is one whose request has no DXC.
+5. The cache, if one is given, is searched by the cache key.
+6. Otherwise the shader is compiled, and what is compiled is put in the cache.
+
+A shader from a library or a cache has its code only; its reflection comes
+with a compile. `tb_shader_origin` says where each shader came from.
+
+## badger-shaderc
+
+`badger-shaderc`, in `tools/shaderc/`, is our counterpart of Unreal's
+ShaderCompileWorker. It reads a manifest, compiles every shader it lists for
+each backend asked for, in parallel on the job system (`badger/jobs.h`),
+through `tb_shader_compile_cached()` and the shader cache, and writes one
+library for each backend, named after it: `d3d12.tbsl`.
+
+```
+badger-shaderc --root C:/game/shaders --backend d3d12 --output bin/Shaders shaders/Game/Shaders.manifest
+```
+
+| Option | Meaning |
+| --- | --- |
+| `MANIFEST` | The shaders to compile |
+| `--root DIRECTORY` | An absolute directory whose files are shaders by their virtual paths: `DIRECTORY/Engine/Private/Sky.hlsl` is `/Engine/Private/Sky.hlsl`. May be given more than once; a later root's file wins, as a mod's does |
+| `--backend NAME` | A backend to write a library for, as `graphics.renderer` names it: `d3d12` so far. With none, nothing is compiled |
+| `--output DIRECTORY` | Where the libraries are written; the current directory by default |
+| `--cache DIRECTORY` | The shader cache; the user's by default (`tb_shader_cache_default_directory()`), which the engine shares |
+| `--no-cache` | Compile without the cache |
+| `--debug` | Compile for debugging, as `TB_SHADER_COMPILE_DEBUG` |
+| `--quiet` | Say only what fails |
+
+Each error names its file, line and column, as editors read them; a shader
+that does not compile names its line of the manifest. Any error fails the
+run, and no library is written. A backend that needs DXC fails the run where
+DXC is unavailable.
+
+### Manifests
+
+A manifest lists one shader on each line: its virtual path, its stage as
+`[shader("...")]` names it, its entry point, and any defines, `NAME` or
+`NAME=VALUE`, separated by spaces or tabs. A `#` begins a comment, and a line
+with nothing else is ignored. A shader has at most
+`TB_SHADER_MANIFEST_MAX_DEFINES`, 32, defines. `tb_shader_manifest_read()`
+reads one.
+
+```
+# path                           stage     entry point  defines
+/Engine/Private/Sky.hlsl         vertex    MainVS
+/Engine/Private/Sky.hlsl         pixel     MainPS
+/Engine/Private/Blur.hlsl        compute   MainCS       RADIUS=4 HORIZONTAL
+```
+
+### The engine's shaders in the build
+
+The engine's shaders are the files under `shaders/` of its source tree.
+`cmake/EmbedShaders.cmake` builds them into the engine library, which the
+renderer reads them from (`tb_shader_engine_loader()`), and
+`tools/shaderc/CMakeLists.txt` runs `badger-shaderc` on them as part of the
+build, with the manifest `shaders/Engine/Shaders.manifest`, into
+`bin/Shaders/`, beside the executables. Both read the same files, so the
+library holds what the renderer would compile.
+
+**To add a shader to the library**, add a line to
+`shaders/Engine/Shaders.manifest` for each entry point; the next build
+compiles it. A change to a shader file, or to the manifest, compiles the
+library again; shaders that did not change come from the cache.
+
+| Platform | Libraries |
+| --- | --- |
+| Windows | `d3d12.tbsl`, through DXC: the one in the Windows SDK, or beside `badger-shaderc` |
+| Linux, macOS | None yet: no backend there needs compiled shaders, and the build makes no library |
+
+`TB_BUILD_SHADERS` (on when the engine is built on its own, off when a game
+builds it in its tree) builds `badger-shaderc` and the libraries.
+
+A test on Windows compiles every shader of the manifest at run time and
+compares it, byte for byte, with the library the build wrote
+(`tests/shader/shader_library_d3d12_test.c`), and makes a renderer that draws
+with the library alone.
+
+## The setting
+
+`shaders.runtime_compile` says whether a game may compile at run time the
+shaders its libraries lack: on in developer builds, off in release builds. A
+game passes it to its renderer, negated, as `shader_library_only`. Off, a
+shipped game draws with its libraries' shaders alone, as Unreal's packaged
+games do, and a shader they lack is an error that names it, rather than a
+compile on a player's machine.
 
 ## Threading
 

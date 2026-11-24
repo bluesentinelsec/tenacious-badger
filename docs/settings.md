@@ -319,6 +319,15 @@ its default file.
 | `engine.tick_rate` | integer, 1 to 1000 | `60` | [the game loop](game-loop.md) |
 | `engine.max_frame_time` | number, 0.01 to 1 seconds | `0.25` | [the game loop](game-loop.md) |
 
+### Shaders
+
+Not shown to players, and not saved in their file: what a game ships with in
+its default file.
+
+| Setting | Type | Default | Honored by |
+| --- | --- | --- | --- |
+| `shaders.runtime_compile` | boolean | developer `true`, release `false` | [the renderer](renderer.md), through its `shader_library_only` ([shader libraries](shader-cache.md#shader-libraries)) |
+
 ### Developer
 
 Not shown to players, and not saved in their file.

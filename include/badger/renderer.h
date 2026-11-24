@@ -62,6 +62,8 @@
 
 struct tb_font;
 struct tb_log;
+struct tb_shader_cache;
+struct tb_vfs;
 struct tb_window;
 
 /** @brief A renderer. Created by tb_renderer_create(); owned by the caller;
@@ -88,6 +90,20 @@ typedef struct tb_renderer_options
     /** Pixels a side of the glyph atlas, the texture the canvas draws text
      * from: from 16 to the device's largest texture; 0 for 1024. */
     uint32_t glyph_atlas_size;
+    /** Where the renderer finds the shader library of its device's backend,
+     * `Shaders/<backend>.tbsl` (`Shaders/d3d12.tbsl`), which `badger-shaderc`
+     * writes (badger/shader_library.h). Its shaders are found first, and
+     * need no compiler. NULL, or a VFS without the library, finds none
+     * there. Borrowed for the call. */
+    struct tb_vfs *shader_vfs;
+    /** The shader cache (badger/shader_cache.h), searched for the shaders
+     * the library lacks, and given those compiled; NULL for none. Borrowed
+     * until the renderer is destroyed. */
+    struct tb_shader_cache *shader_cache;
+    /** Use the library's shaders only, compiling none at run time, as
+     * `shaders.runtime_compile` off asks of a shipped game: a shader the
+     * library lacks makes tb_renderer_create() fail. */
+    bool shader_library_only;
 } tb_renderer_options;
 
 /** @brief How a camera projects. */

@@ -13,9 +13,9 @@ TB_TEST(settings_engine, the_families_are_those_of_an_options_menu_in_its_order)
 {
     static const char *const names[] = {"gameplay", "display",   "graphics",      "audio",
                                         "controls", "interface", "accessibility", "language",
-                                        "engine",   "developer"};
-    static const bool for_players[] = {true, true, true, true,  true,
-                                       true, true, true, false, false};
+                                        "engine",   "shaders",   "developer"};
+    static const bool for_players[] = {true, true, true,  true,  true, true,
+                                       true, true, false, false, false};
     tb_settings *const settings = tb_settings_create();
     tb_engine_settings engine = {0};
 

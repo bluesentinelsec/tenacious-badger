@@ -24,57 +24,6 @@ typedef struct tb_sky_constants
 
 TB_STATIC_ASSERT(sizeof(tb_sky_constants) <= 256u, "the sky's constants in 256 bytes");
 
-/* The sky's triangle covers the view, at depth 0: the far plane, as depth
- * is reversed. Each pixel's direction is the camera's forward, plus its
- * place in the view times the edges' directions. Above the horizon the
- * color runs from the horizon's to the zenith's, quickly near the horizon
- * as a sky's does; below, to the ground's over a few degrees. The sun's
- * disc is smoothed over a pixel, with a faint glow around it. */
-static const char tb_sky_source[] =
-    "struct SkyConstants\n"
-    "{\n"
-    "    float4 Forward; float4 Right; float4 Up; float4 Zenith; float4 Horizon; float4 Ground;\n"
-    "    float4 Sun; float4 SunColor; uint4 Cube;\n"
-    "};\n"
-    "ConstantBuffer<SkyConstants> Sky : register(b1);\n"
-    "struct VertexOut { float4 Position : SV_Position; float2 View : TEXCOORD0; };\n"
-    "VertexOut MainVS(uint vertex : SV_VertexID)\n"
-    "{\n"
-    "    const float2 corner = float2((vertex << 1) & 2, vertex & 2);\n"
-    "    const float2 view = corner * float2(2, -2) + float2(-1, 1);\n"
-    "    VertexOut output;\n"
-    "    output.Position = float4(view, 0, 1);\n"
-    "    output.View = view;\n"
-    "    return output;\n"
-    "}\n"
-    "float3 Procedural(float3 direction)\n"
-    "{\n"
-    "    float3 color = lerp(Sky.Horizon.rgb, Sky.Ground.rgb, saturate(-direction.y * 12.0));\n"
-    "    if (direction.y >= 0.0)\n"
-    "    {\n"
-    "        color = lerp(Sky.Horizon.rgb, Sky.Zenith.rgb, sqrt(direction.y));\n"
-    "    }\n"
-    "    const float facing = dot(direction, Sky.Sun.xyz);\n"
-    "    const float edge = max(fwidth(facing), 1e-6);\n"
-    "    const float disc = smoothstep(Sky.Sun.w - edge, Sky.Sun.w + edge, facing);\n"
-    "    const float glow = pow(saturate(facing), 64.0) * 0.25;\n"
-    "    const float sun = Sky.SunColor.w;\n"
-    "    color = lerp(color, Sky.SunColor.rgb, disc * sun) + Sky.SunColor.rgb * glow * sun;\n"
-    "    return color;\n"
-    "}\n"
-    "float4 MainPS(VertexOut input) : SV_Target\n"
-    "{\n"
-    "    const float3 direction = normalize(Sky.Forward.xyz + input.View.x * Sky.Right.xyz +\n"
-    "                                       input.View.y * Sky.Up.xyz);\n"
-    "    if (Sky.Cube.x != 0)\n"
-    "    {\n"
-    "        TextureCube<float4> cube = ResourceDescriptorHeap[Sky.Cube.y];\n"
-    "        SamplerState filter = SamplerDescriptorHeap[Sky.Cube.z];\n"
-    "        return float4(cube.Sample(filter, direction).rgb, 1);\n"
-    "    }\n"
-    "    return float4(Procedural(direction), 1);\n"
-    "}\n";
-
 static tb_vec4 tb_sky_color(tb_vec3 color)
 {
     return (tb_vec4){color.x, color.y, color.z, 1.0f};
@@ -160,7 +109,7 @@ tb_rhi_result tb_renderer_sky_create(tb_renderer *renderer, tb_rhi_error *error)
     desc.color_count = 1;
     desc.depth = TB_RENDERER_DEPTH_FORMAT;
     desc.name = "sky";
-    return tb_renderer_pipeline(renderer, "/Engine/Private/Sky.hlsl", tb_sky_source, &desc,
+    return tb_renderer_pipeline(renderer, "/Engine/Private/Sky.hlsl", NULL, &desc,
                                 &renderer->sky_pipeline, error);
 }
 

@@ -40,6 +40,9 @@ static const uint8_t entry_magic[4] = {'T', 'B', 'S', 'C'};
 
 #define STAGE_COUNT ((size_t)TB_SHADER_STAGE_CALLABLE + 1)
 
+/* Bytes of the user's cache directory at most. */
+#define TB_SHADER_CACHE_PATH_CAPACITY ((size_t)4096)
+
 struct tb_shader_cache
 {
     char *directory;
@@ -158,6 +161,21 @@ tb_shader_cache_result tb_shader_cache_open(const char *directory, tb_shader_cac
     memcpy(opened->directory, directory, length + 1);
     *cache = opened;
     return TB_SHADER_CACHE_OK;
+}
+
+bool tb_shader_cache_default_directory(char *buffer, size_t size)
+{
+    char base[TB_SHADER_CACHE_PATH_CAPACITY] = {0};
+    size_t required = 0;
+    if (tb_fs_get_location(TB_FS_USER_CACHE, base, sizeof(base), &required) != TB_FS_OK)
+    {
+        /* coverage-off: every system the engine runs on has a cache directory */
+        return false;
+        /* coverage-on */
+    }
+    return tb_path_rooted_join(tb_fs_native_style(), view_of(base),
+                               view_of("TenaciousBadger/ShaderCache"), buffer, size,
+                               &required) == TB_PATH_OK;
 }
 
 void tb_shader_cache_close(tb_shader_cache *cache)

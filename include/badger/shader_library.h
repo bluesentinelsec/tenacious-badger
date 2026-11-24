@@ -9,7 +9,7 @@
  *
  * @code
  * tb_shader_library *library = NULL;
- * if (tb_shader_library_load(vfs, "Engine/Shaders/D3D12.tbsl", 26, &library) ==
+ * if (tb_shader_library_load(vfs, "Shaders/d3d12.tbsl", 18, &library) ==
  *     TB_SHADER_LIBRARY_OK)
  * {
  *     const void *code = NULL;
@@ -83,7 +83,7 @@ TB_API tb_shader_library_result tb_shader_library_open(const void *bytes, size_t
 /**
  * @brief Read a library from a VFS, and open it as tb_shader_library_open() does.
  * @param vfs Required. Borrowed for the call.
- * @param name The file's name in the VFS, such as `Engine/Shaders/D3D12.tbsl`.
+ * @param name The file's name in the VFS, such as `Shaders/d3d12.tbsl`.
  * @param length Bytes of `name`.
  * @param[out] library Required. As tb_shader_library_open().
  * @return OK, NOT_FOUND, READ_FAILED (for a file over
@@ -133,6 +133,116 @@ TB_API const char *tb_shader_library_compiler(const tb_shader_library *library);
  * @return A string with static storage duration; never NULL.
  */
 TB_API const char *tb_shader_library_result_name(tb_shader_library_result result);
+
+/* -------------------------------------------------------------------------
+ * Finding a shader, or compiling it.
+ * ------------------------------------------------------------------------- */
+
+/** @brief Where tb_shader_compile_cached() looks for a shader, and whether
+ * it may compile one. Zero-initialized, it compiles every shader. */
+typedef struct tb_shader_lookup
+{
+    /** Searched first, by shader key; NULL for none. Borrowed for the call;
+     * code found there lasts as long as the library is open. */
+    const tb_shader_library *library;
+    /** Searched next, by cache key, and given what is compiled; NULL for
+     * none. Borrowed for the call. */
+    tb_shader_cache *cache;
+    /** Whether the library alone may give shaders, as `shaders.runtime_compile`
+     * off asks of a shipped game: a shader it lacks is unavailable. */
+    bool library_only;
+} tb_shader_lookup;
+
+/** @brief Where a shader tb_shader_compile_cached() gave came from. */
+typedef enum tb_shader_origin
+{
+    TB_SHADER_ORIGIN_COMPILE, /**< It was compiled. */
+    TB_SHADER_ORIGIN_LIBRARY, /**< The library held it. */
+    TB_SHADER_ORIGIN_CACHE    /**< The cache held it. */
+} tb_shader_origin;
+
+/**
+ * @brief Find a shader in a library, then in a cache, else compile it and
+ * keep it in the cache: what the renderer and `badger-shaderc` both do, so
+ * that both give the same bytes.
+ *
+ * A request for TB_SHADER_TARGET_NONE writes no code, so it is compiled
+ * whatever the lookup says. Otherwise the shader key is made
+ * (tb_shader_key_make()), and the library searched. The cache is searched
+ * by the cache key of the request's DXC (tb_dxc_version()). A shader in
+ * neither is compiled with tb_shader_compile(), unless the lookup is
+ * library-only, or the request has no DXC: then it is UNAVAILABLE, and a
+ * diagnostic says why. A source with errors is compiled, so that the
+ * diagnostics say what they are.
+ * @param request Required, as tb_shader_compile() takes it.
+ * @param lookup Required.
+ * @param arena Where the output lives, as for tb_shader_compile().
+ * @param[out] output Required. On OK from a library or a cache, only `code`
+ * and `code_size` are filled in: the reflection comes with a compile.
+ * Otherwise as tb_shader_compile() fills it in.
+ * @param[out] key Required. The shader key, or zero for a request that has
+ * none.
+ * @param[out] origin Required. Where the shader came from, on OK.
+ * @return As tb_shader_compile(), or UNAVAILABLE.
+ * @par Threading Thread-safe, as tb_shader_compile() is.
+ */
+TB_API tb_shader_result tb_shader_compile_cached(const tb_shader_compile_request *request,
+                                                 const tb_shader_lookup *lookup, tb_arena *arena,
+                                                 tb_shader_compiled *output, tb_shader_key *key,
+                                                 tb_shader_origin *origin);
+
+/* -------------------------------------------------------------------------
+ * Manifests.
+ * ------------------------------------------------------------------------- */
+
+/** @brief Defines one shader of a manifest has at most. */
+#define TB_SHADER_MANIFEST_MAX_DEFINES ((size_t)32)
+
+/** @brief One shader a manifest lists. Its strings live in the reader's arena. */
+typedef struct tb_shader_manifest_entry
+{
+    const char *path;                /**< Its file's virtual path. */
+    tb_shader_stage stage;           /**< The stage it runs in. */
+    const char *entry_point;         /**< The function the stage runs. */
+    const tb_shader_define *defines; /**< Its defines, in order. */
+    size_t define_count;             /**< Entries of `defines`. */
+    size_t line;                     /**< Its line in the manifest, from 1. */
+} tb_shader_manifest_entry;
+
+/** @brief A manifest as tb_shader_manifest_read() read it. */
+typedef struct tb_shader_manifest
+{
+    const tb_shader_manifest_entry *entries; /**< In the order of their lines. */
+    size_t entry_count;                      /**< Entries of `entries`. */
+    const tb_shader_diagnostic *diagnostics; /**< Its errors, by line and column. */
+    size_t diagnostic_count;                 /**< Entries of `diagnostics`. */
+} tb_shader_manifest;
+
+/**
+ * @brief Read a manifest: the shaders `badger-shaderc` compiles into a
+ * library, one to a line.
+ *
+ * A line lists a shader's virtual path, its stage as `[shader("...")]`
+ * names it, its entry point, and its defines, `NAME` or `NAME=VALUE`,
+ * separated by spaces or tabs. A `#` begins a comment, to the end of the
+ * line, and a line with nothing else is ignored:
+ * @code
+ * # path                          stage   entry point  defines
+ * /Engine/Private/Sky.hlsl        vertex  MainVS
+ * /Engine/Private/Blur.hlsl       compute MainCS       RADIUS=4 HORIZONTAL
+ * @endcode
+ * @param text The manifest, UTF-8; NULL only at length zero. Borrowed.
+ * @param length Bytes of `text`.
+ * @param name What its diagnostics name it, such as its file's path. Copied.
+ * @param arena Where the manifest lives, until the arena is reset or destroyed.
+ * @param[out] manifest Required. Filled in on OK; on FAILED, its
+ * diagnostics say what is wrong, and its entries are the lines that read.
+ * @return OK or FAILED.
+ * @par Errors Running out of memory ends the process, as allocation does.
+ * @par Threading Thread-safe when each call has its own arena.
+ */
+TB_API tb_shader_result tb_shader_manifest_read(const char *text, size_t length, const char *name,
+                                                tb_arena *arena, tb_shader_manifest *manifest);
 
 /* -------------------------------------------------------------------------
  * Writing a library.

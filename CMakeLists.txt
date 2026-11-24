@@ -33,6 +33,9 @@ endforeach()
 option(TB_BUILD_BURROW "Build the Burrow showcase executable" ${PROJECT_IS_TOP_LEVEL})
 option(TB_BUILD_SANDBOX "Build badger-sandbox, which draws test scenes to look at by eye"
     ${PROJECT_IS_TOP_LEVEL})
+option(TB_BUILD_SHADERS
+    "Build badger-shaderc, and compile the engine's shaders ahead of time into shader libraries"
+    ${PROJECT_IS_TOP_LEVEL})
 option(TB_BUILD_TESTS "Build the in-house test harness" ${PROJECT_IS_TOP_LEVEL})
 option(TB_BUILD_BENCHMARKS "Build the benchmarks of the foundation modules" ${PROJECT_IS_TOP_LEVEL})
 option(TB_ENABLE_SANITIZERS
@@ -70,6 +73,10 @@ endif()
 
 if(TB_BUILD_BENCHMARKS)
     add_subdirectory(benchmarks)
+endif()
+
+if(TB_BUILD_SHADERS)
+    add_subdirectory(tools/shaderc)
 endif()
 
 # After the tests, so that its smoke tests are registered with them.

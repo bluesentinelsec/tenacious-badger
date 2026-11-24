@@ -71,6 +71,8 @@ What these headers do the same way, such as how a function reports failure,
 is in [the conventions of the public API](conventions.md).
 
 [`badger-sandbox`](sandbox.md) draws the engine's test scenes in a window, to look at by eye.
+[`badger-shaderc`](shader-cache.md#badger-shaderc) compiles shaders ahead of
+time into shader libraries; the build runs it on the engine's own shaders.
 
 `burrow` loads its [settings](settings.md#burrow), opens its
 [window](windows.md), and runs [the game loop](game-loop.md#burrow), with
