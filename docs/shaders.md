@@ -427,7 +427,10 @@ if (tb_shader_compile(&request, arena, &compiled) == TB_SHADER_OK)
   and outputs are its control points, and its patch constants are what the
   function `[patchconstantfunc]` names gives; that function runs with it, so
   what it binds is bound. A domain shader takes its control points from its
-  `OutputPatch`, and its patch constants from its other parameters.
+  `OutputPatch`, and its patch constants from its other parameters. A mesh
+  shader takes no signature; it gives its vertices as its outputs, and its
+  primitives in the signature of patch constants, as DXC does, packed the same
+  way and not interpolated (`SV_CullPrimitive` in no register).
 
   Registers are assigned as DXC assigns them. A vertex shader's inputs take a
   register each, in order, and a pixel shader's targets the register of their
@@ -484,7 +487,7 @@ and compares, on every platform, and a Windows job of CI runs the tool with
 `--check`, so a DXC that reports otherwise fails the build. To add a case, add
 a shader, run the tool, and review what it wrote.
 
-**Not yet.** A mesh shader's primitives are not described yet.
+
 
 ## Diagnostics
 

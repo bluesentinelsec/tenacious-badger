@@ -425,8 +425,10 @@ typedef struct tb_shader_reflection
     const tb_shader_signature_element *outputs; /**< Its result's, then its `out` parameters'. */
     size_t output_count;
     /** A hull shader's patch constants, which its patch-constant function gives,
-     *  or a domain shader's, which it takes; none for any other stage. A hull
-     *  or domain shader's `inputs` are its control points. */
+     *  or a domain shader's, which it takes, or a mesh shader's primitives,
+     *  which it gives (as DXC, one signature serves all three); none for any
+     *  other stage. A hull or domain shader's `inputs` are its control points,
+     *  and a mesh shader's `outputs` its vertices. */
     const tb_shader_signature_element *patch_constants;
     size_t patch_constant_count;
     const tb_shader_binding *bindings; /**< By kind (`b`, `s`, `t`, `u`), then as assigned. */

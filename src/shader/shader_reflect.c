@@ -133,7 +133,9 @@ typedef enum signature
 {
     SIGNATURE_INPUT,
     SIGNATURE_OUTPUT,
-    SIGNATURE_PATCH /* A hull shader's patch constants given, or a domain shader's taken. */
+    /* A hull shader's patch constants given, a domain shader's taken, or a
+     * mesh shader's primitives given: DXC's one signature of the three. */
+    SIGNATURE_PATCH
 } signature;
 
 /* Where a signature is in the pipeline, which decides how DXC treats each
@@ -147,7 +149,8 @@ typedef enum signature_point
     POINT_GEOMETRY_INPUT, /* A geometry shader's vertex. */
     POINT_HULL_INPUT,     /* A hull shader's control point. */
     POINT_DOMAIN_INPUT,   /* A domain shader's control point. */
-    POINT_PATCH_CONSTANT
+    POINT_PATCH_CONSTANT,
+    POINT_PRIMITIVE_OUTPUT /* A mesh shader's primitives. */
 } signature_point;
 
 /* How a signature takes an element, as DXC's table of system values says.
@@ -196,7 +199,7 @@ static signature_point point_of(tb_shader_stage stage, signature which)
     const bool is_input = which == SIGNATURE_INPUT;
     if (which == SIGNATURE_PATCH)
     {
-        return POINT_PATCH_CONSTANT;
+        return stage == TB_SHADER_STAGE_MESH ? POINT_PRIMITIVE_OUTPUT : POINT_PATCH_CONSTANT;
     }
     if (stage == TB_SHADER_STAGE_VERTEX && is_input)
     {
@@ -251,6 +254,7 @@ static semantic_kind kind_of_semantic(signature_point point, const char *semanti
         /* A domain shader's parameters that are not its control points. */
         {POINT_PATCH_CONSTANT, "SV_PrimitiveID", SEMANTIC_ABSENT},
         {POINT_PATCH_CONSTANT, "SV_DomainLocation", SEMANTIC_ABSENT},
+        {POINT_PRIMITIVE_OUTPUT, "SV_CullPrimitive", SEMANTIC_UNPACKED},
     };
     if (same_semantic(semantic, "SV_ViewID") && point != POINT_PASSED)
     {
@@ -351,11 +355,11 @@ static void add_elements(reflector *state, signature which, uint32_t type, const
     }
     tb_array *const elements = elements_of(state, which);
     const tb_shader_component component = component_of(row->scalar);
-    /* Patch constants are not interpolated, and share registers whatever
-     * their component. */
-    const tb_shader_interpolation mode = point == POINT_PATCH_CONSTANT
-                                             ? TB_SHADER_INTERPOLATION_NONE
-                                             : interpolation_of(name, modifiers, component);
+    /* Patch constants and primitives are not interpolated, and share
+     * registers whatever their component. */
+    const bool interpolated = point != POINT_PATCH_CONSTANT && point != POINT_PRIMITIVE_OUTPUT;
+    const tb_shader_interpolation mode =
+        interpolated ? interpolation_of(name, modifiers, component) : TB_SHADER_INTERPOLATION_NONE;
     signature_block block = {0};
     block.first = tb_array_length(elements);
     block.rows = count;
@@ -586,7 +590,7 @@ static bool has_signatures(tb_shader_stage stage)
 
 /* A parameter's elements: a geometry shader's primitive and a patch pass
  * their element's, a stream gives its element's, a mesh shader gives its
- * vertices'. */
+ * vertices' and its primitives'. */
 static void add_parameter(reflector *state, const tb_shader_form_parameter *parameter)
 {
     const tb_shader_form_type *const type = type_at(state, parameter->type);
@@ -596,6 +600,12 @@ static void add_parameter(reflector *state, const tb_shader_form_parameter *para
     if (parameter->direction == TB_SHADER_FORM_OUT)
     {
         which = SIGNATURE_OUTPUT;
+    }
+    /* A mesh shader takes its thread's IDs and its payload, and neither is
+     * a signature. */
+    if (state->stage == TB_SHADER_STAGE_MESH && which == SIGNATURE_INPUT)
+    {
+        return;
     }
     if (type->kind == TB_SHADER_FORM_RESOURCE)
     {
@@ -616,6 +626,13 @@ static void add_parameter(reflector *state, const tb_shader_form_parameter *para
     {
         add_elements(state, which, type->element, parameter->semantic, parameter->modifiers,
                      parameter->name);
+        return;
+    }
+    if ((parameter->modifiers & TB_SHADER_MODIFIER_PRIMITIVES) != 0 &&
+        type->kind == TB_SHADER_FORM_ARRAY)
+    {
+        add_elements(state, SIGNATURE_PATCH, type->element, parameter->semantic,
+                     parameter->modifiers, parameter->name);
         return;
     }
     const uint64_t not_passed =
