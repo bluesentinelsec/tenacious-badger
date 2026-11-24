@@ -85,6 +85,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+struct tb_log;
 struct tb_window;
 
 /** @brief A device: one GPU, through one backend. Created by
@@ -217,6 +218,9 @@ typedef struct tb_rhi_device_options
     uint32_t bindless_resources;
     /** Samplers that shaders reach by index at once; 0 is 2048. */
     uint32_t bindless_samplers;
+    /** Where the graphics API's validation messages go, in category "rhi";
+     * NULL drops them. Borrowed until the device is destroyed. */
+    struct tb_log *log;
 } tb_rhi_device_options;
 
 /** @brief Features a device may have, as bits of tb_rhi_device_info::features. */
