@@ -16,6 +16,7 @@ badger-sandbox --set display.vsync=off
 badger-sandbox --renderer null       # no GPU at all
 badger-sandbox --frames 120 --capture shapes.bmp   # stop after 120 frames, saving the last
 badger-sandbox --scene ui --ui-scale 150             # the interface half as large again
+badger-sandbox --inspector                           # start with the inspector shown
 ```
 
 While it runs, keys 1 to 9 choose the first nine scenes, Tab moves to the
@@ -50,11 +51,42 @@ the engine's compiler, through DXC to DXIL for D3D12. The window, settings
 and frame pacing are the engine's own: the sandbox runs on the game loop with
 the engine's settings, in developer mode.
 
+`--frames` with `--capture` makes any scene a check in CI: the tests run the
+shapes on WARP and save their last frame.
+
+## The inspector
+
+F1, or the backquote, shows and hides the inspector over any scene
+(`--inspector` starts with it shown). Its **Settings** window lists every
+engine setting, a header for each family, each changed by the widget its
+type wants: a checkbox for a switch, a slider within its range for a number
+or a whole number of a narrow range, a number dragged for a wide one, a
+combo for a choice, and a text field for text. A change is made at the
+runtime layer and applied at once: the game loop changes the window (its
+mode, size, and display), and the sandbox gives the renderer the vertical
+sync and anisotropic filtering and the camera its field of view. Graphics
+begins with the overall quality, which sets every quality group, as an
+options menu does (`tb_engine_settings_set_quality()`), and reads custom
+when they differ. Each family can be restored to its defaults. Settings
+the device is made with, such as the renderer, take effect at the next
+start. A setting's description is its tooltip.
+
+Its **Frame** window shows the frame times of the last 120 frames as a
+graph, their average and worst, the frames a second, the scene, the
+backend and adapter, what the canvas drew in the last frame, and the
+render graph's description of its passes and barriers
+(`tb_render_graph_dump()`), read again every half second. GPU timings wait
+for timestamp queries in the RHI.
+
+The inspector takes the mouse over its windows and the keys while it has
+the focus, before the scene and the fly camera.
+
+## The ui scene
+
 In the `ui` scene the interface sees the window's events first: it takes
 the mouse over its windows, and the keys while a text field or Tab has its
 focus, and the fly camera has the rest. Tab moves the interface's focus
 there, rather than to the next scene. `--ui-scale` draws the interface at
-a share of the display's scale, to look at it larger or smaller.
+a share of the display's scale, to look at it larger or smaller; it
+zooms the inspector too.
 
-`--frames` with `--capture` makes any scene a check in CI: the tests run the
-shapes on WARP and save their last frame.

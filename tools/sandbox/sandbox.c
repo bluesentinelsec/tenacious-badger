@@ -55,6 +55,7 @@ static const char *sandbox_scene_name = "shapes";
 static int64_t sandbox_frames = 0;
 static const char *sandbox_capture_path = NULL;
 static int64_t sandbox_ui_scale = 100;
+static bool sandbox_show_inspector = false;
 static bool sandbox_software = false;
 static bool sandbox_validation = false;
 static const char *sandbox_values[SANDBOX_MOST_VALUES] = {0};
@@ -80,6 +81,8 @@ typedef struct sandbox_run
     tb_settings *settings;
     tb_engine_settings engine;
     tb_game_loop *loop;
+    sandbox_inspector *inspector;
+    uint64_t vsync_version; /* of display.vsync, when the renderer last took it */
     size_t scene;
     void *state;
     bool scene_ready;
@@ -298,6 +301,14 @@ static bool sandbox_event(void *context, const tb_window_event *event)
     sandbox_run *const run = context;
     const tb_window_event_type type = event->type;
 
+    if (!run->looking && run->inspector != NULL && sandbox_inspector_event(run->inspector, event))
+    {
+        if (type == TB_WINDOW_EVENT_KEY_UP)
+        {
+            sandbox_hold(run, event->key, false);
+        }
+        return true;
+    }
     if (sandbox_scene_event(run, event))
     {
         return true;
@@ -423,6 +434,21 @@ static void sandbox_save_capture(sandbox_run *run)
     run->status = EXIT_FAILURE;
 }
 
+/* Settings that the renderer and camera take as they change; the game loop
+ * applies the window's. */
+static void sandbox_apply_settings(sandbox_run *run)
+{
+    const uint64_t vsync = tb_setting_version(run->engine.display.vsync);
+
+    if (vsync != run->vsync_version)
+    {
+        tb_renderer_set_vsync(run->box.renderer, tb_setting_choice(run->engine.display.vsync) != 0);
+        run->vsync_version = vsync;
+    }
+    run->box.camera.vertical_fov =
+        tb_radians((float)tb_setting_number(run->engine.graphics.field_of_view));
+}
+
 static void sandbox_frame_callback(void *context, const tb_game_time *time)
 {
     sandbox_run *const run = context;
@@ -436,6 +462,7 @@ static void sandbox_frame_callback(void *context, const tb_game_time *time)
         tb_renderer_capture_next_frame(run->box.renderer);
     }
     tb_renderer_set_anisotropy(run->box.renderer, tb_engine_settings_anisotropy(&run->engine));
+    sandbox_apply_settings(run);
     if (!tb_renderer_begin_frame(run->box.renderer, &run->box.camera,
                                  sandbox_scenes[run->scene].clear))
     {
@@ -447,6 +474,11 @@ static void sandbox_frame_callback(void *context, const tb_game_time *time)
         frame.delta_seconds = time->frame_seconds;
         sandbox_scenes[run->scene].draw(&run->box, run->state, &frame);
     }
+    if (run->inspector != NULL)
+    {
+        sandbox_inspector_draw(run->inspector, &run->box, sandbox_scenes[run->scene].name,
+                               time->frame_seconds);
+    }
     sandbox_draw_status(run);
     if (tb_renderer_end_frame(run->box.renderer) != TB_RHI_OK)
     {
@@ -454,6 +486,10 @@ static void sandbox_frame_callback(void *context, const tb_game_time *time)
         run->status = EXIT_FAILURE;
         tb_game_loop_quit(run->loop);
         return;
+    }
+    if (run->inspector != NULL)
+    {
+        sandbox_inspector_after_frame(run->inspector, &run->box, time->frame_seconds);
     }
     if (sandbox_capturing(time))
     {
@@ -616,6 +652,11 @@ static int sandbox_open_renderer(sandbox_run *run, tb_window_system *system)
 static void sandbox_close(sandbox_run *run, tb_window_system *system)
 {
     sandbox_leave_scene(run);
+    if (run->inspector != NULL)
+    {
+        (void)tb_rhi_wait_idle(run->box.device);
+        sandbox_inspector_destroy(run->inspector, &run->box);
+    }
     tb_renderer_destroy(run->box.renderer);
     for (int font = 0; font < SANDBOX_FONT_COUNT; font++)
     {
@@ -669,6 +710,9 @@ static int sandbox_main(const tb_cli_outcome *outcome, void *context)
             .settings = &run.engine,
             .callbacks = {
                 .frame = sandbox_frame_callback, .event = sandbox_event, .context = &run}});
+        run.vsync_version = tb_setting_version(run.engine.display.vsync);
+        run.inspector =
+            sandbox_inspector_create(&run.box, run.settings, &run.engine, sandbox_show_inspector);
         sandbox_enter_scene(&run, scene);
         tb_game_loop_run(run.loop);
         tb_game_loop_destroy(run.loop);
@@ -716,6 +760,10 @@ static const tb_cli_option sandbox_options[] = {
      .maximum = 400,
      .help = "Draw the interface at this share of the display's scale: 150 is half as large "
              "again. The default is 100."},
+    {.long_name = "inspector",
+     .flag = &sandbox_show_inspector,
+     .help = "Start with the inspector shown: every setting, and the frame's statistics. F1 or "
+             "the backquote shows and hides it."},
     {.long_name = "software",
      .flag = &sandbox_software,
      .help = "Draw on the system's GPU on the CPU (WARP on Windows), which draws the same "
