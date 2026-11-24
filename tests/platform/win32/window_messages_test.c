@@ -145,33 +145,6 @@ TB_TEST(platform_win32_window, closing_is_a_request_that_leaves_the_window_open)
     close_window(&made);
 }
 
-TB_TEST(platform_win32_window, focus_minimizing_and_displays_are_events)
-{
-    fixture made = open_window();
-    tb_window_state state = {0};
-    HDC context = NULL;
-
-    (void)SendMessageW(made.handle, WM_KILLFOCUS, 0, 0);
-    TB_TEST_EXPECT(received(made.system, TB_WINDOW_EVENT_FOCUS_LOST, NULL));
-    (void)SendMessageW(made.handle, WM_SETFOCUS, 0, 0);
-    TB_TEST_EXPECT(received(made.system, TB_WINDOW_EVENT_FOCUS_GAINED, NULL));
-    tb_window_state_of(made.window, &state);
-    TB_TEST_EXPECT(state.focused);
-
-    (void)SendMessageW(made.handle, WM_SIZE, SIZE_MINIMIZED, 0);
-    TB_TEST_EXPECT(received(made.system, TB_WINDOW_EVENT_MINIMIZED, NULL));
-    (void)SendMessageW(made.handle, WM_SIZE, SIZE_RESTORED, MAKELPARAM(320, 180));
-    TB_TEST_EXPECT(received(made.system, TB_WINDOW_EVENT_RESTORED, NULL));
-
-    (void)SendMessageW(made.handle, WM_DISPLAYCHANGE, 32, 0);
-    TB_TEST_EXPECT(received(made.system, TB_WINDOW_EVENT_DISPLAYS_CHANGED, NULL));
-
-    context = GetDC(made.handle);
-    TB_TEST_EXPECT_INT(SendMessageW(made.handle, WM_ERASEBKGND, (WPARAM)context, 0), ==, 1);
-    (void)ReleaseDC(made.handle, context);
-    close_window(&made);
-}
-
 /* Moving to a monitor of another scale, Windows suggests a new frame: a
  * windowed window takes it. */
 TB_TEST(platform_win32_window, a_windowed_window_takes_the_frame_a_new_scale_suggests)

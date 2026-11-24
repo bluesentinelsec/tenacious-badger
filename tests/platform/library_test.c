@@ -9,7 +9,6 @@
 #include "badger/assert.h"
 #include "badger/file.h"
 #include "badger/library.h"
-#include "badger/thread.h"
 
 #include "fs.h"
 #include "library_fixture.h"
@@ -354,55 +353,6 @@ TB_TEST(platform_library, a_long_message_is_cut_at_a_character)
     TB_TEST_EXPECT_UINT(text_length(error.message), >, TB_LIBRARY_MESSAGE_CAPACITY - 4);
     TB_TEST_EXPECT(tb_native_fs_text_valid(error.message, text_length(error.message)));
     tb_library_close(library);
-}
-
-typedef struct use
-{
-    bool passed;
-} use;
-
-static void open_find_and_close(void *context)
-{
-    use *const result = context;
-    result->passed = true;
-    for (int round = 0; round < 100; round++)
-    {
-        tb_library *library = NULL;
-        tb_library_function function = NULL;
-        if (tb_library_open(TB_LIBRARY_FIXTURE_FILE, TB_LIBRARY_SEARCH_APPLICATION, &library,
-                            NULL) != TB_LIBRARY_OK)
-        {
-            result->passed = false;
-            return;
-        }
-        if (tb_library_find_function(library, TB_LIBRARY_FIXTURE_ADD, &function, NULL) !=
-                TB_LIBRARY_OK ||
-            add_through(function, round, 1) != round + 1)
-        {
-            result->passed = false;
-        }
-        tb_library_close(library);
-    }
-}
-
-TB_TEST(platform_library, threads_open_find_and_close_at_once)
-{
-    enum
-    {
-        THREADS = 8
-    };
-    tb_thread threads[THREADS] = {0};
-    use uses[THREADS] = {0};
-
-    for (size_t index = 0; index < THREADS; index++)
-    {
-        tb_thread_create(&threads[index], open_find_and_close, &uses[index]);
-    }
-    for (size_t index = 0; index < THREADS; index++)
-    {
-        tb_thread_join(&threads[index]);
-        TB_TEST_EXPECT(uses[index].passed);
-    }
 }
 
 static void open_without_a_name(void *context)

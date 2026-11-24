@@ -98,6 +98,8 @@ set(TB_TEST_CASE_SOURCES
     settings/settings_test.c
     shader/shader_compile_test.c
     ${TB_SHADER_REFLECTION_SOURCE}
+    rhi/rhi_test.c
+    shader/shader_dxil_test.c
     shader/shader_preprocess_test.c
     vfs/vfs_test.c
     framework/selftest/checks_test.c
@@ -130,6 +132,9 @@ endfunction()
 # are cases of the engine's tests.
 if(WIN32)
     list(APPEND TB_TEST_CASE_SOURCES platform/win32/window_messages_test.c)
+    # DXIL that tools/make_rhi_test_shaders.py compiled from tests/data/rhi.
+    tb_embed_test_data(TB_RHI_SHADER_SOURCE tb_rhi_shader_files rhi "*.dxil")
+    list(APPEND TB_TEST_CASE_SOURCES rhi/rhi_d3d12_test.c ${TB_RHI_SHADER_SOURCE})
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     list(APPEND TB_TEST_CASE_SOURCES platform/linux/window_x11_test.c)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
@@ -157,7 +162,9 @@ set(TB_INTERNAL_TEST_CASE_SOURCES
     core/reserved_arena_failure_test.c
     codec/crc32_table_test.c
     jobs/deque_test.c
+    rhi/rhi_device_test.c
     shader/shader_check_test.c
+    shader/shader_dxc_test.c
     shader/shader_form_test.c
     shader/shader_parse_test.c
     platform/window_input_test.c)
@@ -170,7 +177,8 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 endif()
 set(TB_ENGINE_SOURCES ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES} ${TB_JOBS_SOURCES}
     ${TB_CODEC_SOURCES} ${TB_SERIALIZE_SOURCES} ${TB_VFS_SOURCES} ${TB_SETTINGS_SOURCES}
-    ${TB_WINDOW_SOURCES} ${TB_GAME_SOURCES} ${TB_SHADER_SOURCES})
+    ${TB_WINDOW_SOURCES} ${TB_DXC_SOURCES} ${TB_GAME_SOURCES} ${TB_SHADER_SOURCES}
+    ${TB_RHI_SOURCES})
 
 # The arguments go to tb_add_tests.
 function(tb_add_internal_tests target)
@@ -349,6 +357,7 @@ tb_configure_target(tb_platform_default_probe)
 tb_make_standalone(tb_platform_default_probe)
 set(TB_PLATFORM_INTERFACE_HEADERS
     "${PROJECT_SOURCE_DIR}/include/badger/crash.h"
+    "${PROJECT_SOURCE_DIR}/include/badger/dxc.h"
     "${PROJECT_SOURCE_DIR}/include/badger/virtual_memory.h"
     "${PROJECT_SOURCE_DIR}/include/badger/file.h"
     "${PROJECT_SOURCE_DIR}/include/badger/library.h"
