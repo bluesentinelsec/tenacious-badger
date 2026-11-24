@@ -5,6 +5,7 @@
 #include "badger/base64.h"
 #include "badger/cli.h"
 #include "badger/deflate.h"
+#include "badger/font.h"
 #include "badger/fs.h"
 #include "badger/json.h"
 #include "badger/library.h"
@@ -41,6 +42,11 @@ static const char *name_of_deflate(int result)
 static const char *name_of_json(int result)
 {
     return tb_json_result_name((tb_json_result)result);
+}
+
+static const char *name_of_font(int result)
+{
+    return tb_font_result_name((tb_font_result)result);
 }
 
 static const char *name_of_fs(int result)
@@ -104,6 +110,7 @@ TB_TEST(core_result, every_result_has_a_name_of_its_own)
         {"base64", name_of_base64, TB_BASE64_BUFFER_TOO_SMALL},
         {"cli", name_of_cli, TB_CLI_ERROR},
         {"deflate", name_of_deflate, TB_DEFLATE_UNSUPPORTED},
+        {"font", name_of_font, TB_FONT_TOO_LARGE},
         {"fs", name_of_fs, TB_FS_END},
         {"json", name_of_json, TB_JSON_OUTPUT_FAILED},
         {"library", name_of_library, TB_LIBRARY_NO_MEMORY},
