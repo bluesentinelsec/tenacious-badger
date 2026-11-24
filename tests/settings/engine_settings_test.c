@@ -2,6 +2,7 @@
  * the families players see apart from those they do not, start developer and
  * release builds as each should, and write and read back every default. */
 #include "badger/engine_settings.h"
+#include "badger/rhi.h"
 #include "badger/str.h"
 
 #include "tb_test.h"
@@ -174,5 +175,62 @@ TB_TEST(settings_engine, each_quality_group_is_a_setting_of_its_name)
         TB_TEST_EXPECT_STRING(tb_setting_name(engine.graphics.quality[index]), ==, names[index]);
         TB_TEST_EXPECT_UINT(tb_setting_choice_count(engine.graphics.quality[index]), ==, 4);
     }
+    tb_settings_destroy(settings);
+}
+
+/* The renderers are the RHI's backends, in the order of tb_rhi_backend and
+ * spelled as tb_rhi_backend_name() spells them, so a choice's index is the
+ * backend; the default lets the RHI choose. */
+TB_TEST(settings_engine, the_renderers_are_the_backends_of_the_rhi)
+{
+    tb_settings *const settings = tb_settings_create();
+    tb_engine_settings engine = {0};
+
+    tb_engine_settings_add(settings, NULL, &engine);
+    TB_TEST_EXPECT_STRING(tb_setting_name(engine.graphics.renderer), ==, "graphics.renderer");
+    TB_TEST_REQUIRE_UINT(tb_setting_choice_count(engine.graphics.renderer), ==,
+                         TB_RHI_BACKEND_COUNT);
+    for (size_t index = 0; index < TB_RHI_BACKEND_COUNT; index++)
+    {
+        TB_TEST_CONTEXT("backend %zu", index);
+        TB_TEST_EXPECT_STRING(tb_setting_choice_name(engine.graphics.renderer, index), ==,
+                              tb_rhi_backend_name((tb_rhi_backend)index));
+    }
+    TB_TEST_EXPECT_UINT(tb_setting_choice(engine.graphics.renderer), ==, TB_RHI_BACKEND_AUTOMATIC);
+    tb_settings_destroy(settings);
+}
+
+/* The device's options take the backend the setting names, whatever the
+ * platform builds, since a settings file may come from another machine; the
+ * rest of the options are the caller's. */
+TB_TEST(settings_engine, the_renderer_chooses_the_device_backend)
+{
+    static const struct
+    {
+        const char *value;
+        tb_rhi_backend backend;
+    } cases[] = {{"auto", TB_RHI_BACKEND_AUTOMATIC},
+                 {"d3d12", TB_RHI_BACKEND_D3D12},
+                 {"metal", TB_RHI_BACKEND_METAL},
+                 {"null", TB_RHI_BACKEND_NULL}};
+    tb_settings *const settings = tb_settings_create();
+    tb_engine_settings engine = {0};
+
+    tb_engine_settings_add(settings, NULL, &engine);
+    for (size_t index = 0; index < TB_TEST_COUNT_OF(cases); index++)
+    {
+        tb_rhi_device_options options = {.validation = true, .adapter = TB_RHI_ADAPTER_SOFTWARE};
+        TB_TEST_CONTEXT("%s", cases[index].value);
+        TB_TEST_REQUIRE_UINT(tb_settings_set(settings, TB_SETTING_LAYER_COMMAND_LINE,
+                                             "graphics.renderer", cases[index].value),
+                             ==, TB_SETTING_OK);
+        tb_engine_settings_device_options(&engine, &options);
+        TB_TEST_EXPECT_UINT(options.backend, ==, cases[index].backend);
+        TB_TEST_EXPECT(options.validation);
+        TB_TEST_EXPECT_UINT(options.adapter, ==, TB_RHI_ADAPTER_SOFTWARE);
+    }
+    TB_TEST_EXPECT_UINT(
+        tb_settings_set(settings, TB_SETTING_LAYER_COMMAND_LINE, "graphics.renderer", "directx"),
+        ==, TB_SETTING_OUT_OF_RANGE);
     tb_settings_destroy(settings);
 }
