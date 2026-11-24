@@ -30,6 +30,9 @@ tb_embed_test_data(TB_TAR_DATA_SOURCE tb_tar_files tar "*.tar*")
 # Archives that Python, bsdtar, and .NET wrote (tools/make_zip_test_data.py).
 tb_embed_test_data(TB_ZIP_DATA_SOURCE tb_zip_files zip "*.zip")
 
+# Fonts of the author's font pack, under the licenses beside them (see data/fonts/README.md).
+tb_embed_test_data(TB_FONT_DATA_SOURCE tb_font_files fonts "*.ttf")
+
 # Shaders, and what DXC reports for them (tools/shader_reflection_goldens.py).
 tb_embed_test_data(TB_SHADER_REFLECTION_SOURCE tb_shader_reflection_files shader_reflection "*")
 
@@ -86,6 +89,10 @@ set(TB_TEST_CASE_SOURCES
     core/thread_safety_test.c
     core/utf8_test.c
     core/xp_test.c
+    font/font_builder.c
+    font/font_test.c
+    font/font_damage_test.c
+    ${TB_FONT_DATA_SOURCE}
     jobs/jobs_test.c
     serialize/json_test.c
     serialize/json_suite_test.c
@@ -138,6 +145,10 @@ if(WIN32)
     tb_embed_test_data(TB_RHI_SHADER_SOURCE tb_rhi_shader_files rhi "*.dxil")
     list(APPEND TB_TEST_CASE_SOURCES rhi/rhi_d3d12_test.c ${TB_RHI_SHADER_SOURCE}
         render/renderer_d3d12_test.c)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    list(APPEND TB_TEST_CASE_SOURCES platform/linux/window_x11_test.c)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    list(APPEND TB_TEST_CASE_SOURCES platform/macos/window_events_test.c)
 endif()
 
 tb_add_tests(tb_tests SOURCES ${TB_TEST_CASE_SOURCES} LIBRARIES TenaciousBadger::badger)
@@ -161,15 +172,24 @@ set(TB_INTERNAL_TEST_CASE_SOURCES
     core/reserved_arena_failure_test.c
     codec/crc32_table_test.c
     jobs/deque_test.c
+    rhi/rhi_choice_test.c
     rhi/rhi_device_test.c
     shader/shader_check_test.c
     shader/shader_dxc_test.c
     shader/shader_form_test.c
-    shader/shader_parse_test.c)
+    shader/shader_parse_test.c
+    platform/window_input_test.c)
+# Input that a platform sends only to the window in front is handed to its
+# backend's handling directly.
+if(WIN32)
+    list(APPEND TB_INTERNAL_TEST_CASE_SOURCES platform/win32/window_raw_test.c)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    list(APPEND TB_INTERNAL_TEST_CASE_SOURCES platform/linux/window_input_test.c)
+endif()
 set(TB_ENGINE_SOURCES ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES} ${TB_JOBS_SOURCES}
-    ${TB_CODEC_SOURCES} ${TB_SERIALIZE_SOURCES} ${TB_VFS_SOURCES} ${TB_SETTINGS_SOURCES}
-    ${TB_WINDOW_SOURCES} ${TB_DXC_SOURCES} ${TB_GAME_SOURCES} ${TB_SHADER_SOURCES}
-    ${TB_RHI_SOURCES} ${TB_RENDER_SOURCES})
+    ${TB_CODEC_SOURCES} ${TB_SERIALIZE_SOURCES} ${TB_FONT_SOURCES} ${TB_VFS_SOURCES}
+    ${TB_SETTINGS_SOURCES} ${TB_WINDOW_SOURCES} ${TB_DXC_SOURCES} ${TB_GAME_SOURCES}
+    ${TB_SHADER_SOURCES} ${TB_RHI_SOURCES} ${TB_RENDER_SOURCES})
 
 # The arguments go to tb_add_tests.
 function(tb_add_internal_tests target)

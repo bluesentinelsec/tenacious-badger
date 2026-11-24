@@ -195,6 +195,14 @@ void tb_game_loop_inject(tb_game_loop *loop, const tb_window_event *event)
     case TB_WINDOW_EVENT_KEY_UP:
     case TB_WINDOW_EVENT_DISPLAYS_CHANGED:
     case TB_WINDOW_EVENT_WAKE:
+    case TB_WINDOW_EVENT_MOUSE_BUTTON_DOWN:
+    case TB_WINDOW_EVENT_MOUSE_BUTTON_UP:
+    case TB_WINDOW_EVENT_MOUSE_MOVED:
+    case TB_WINDOW_EVENT_MOUSE_RELATIVE_MOTION:
+    case TB_WINDOW_EVENT_MOUSE_WHEEL:
+    case TB_WINDOW_EVENT_MOUSE_ENTERED:
+    case TB_WINDOW_EVENT_MOUSE_LEFT:
+    case TB_WINDOW_EVENT_TEXT_INPUT:
         break;
     }
     if (loop->callbacks.event != NULL && loop->callbacks.event(loop->callbacks.context, event))

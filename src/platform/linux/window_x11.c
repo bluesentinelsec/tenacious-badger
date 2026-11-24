@@ -5,7 +5,12 @@
  * no X development headers. A window manager makes a window fullscreen
  * through _NET_WM_STATE; without one, as under a bare X server, the window
  * is also moved and sized to cover its monitor, which is what fullscreen
- * means there. */
+ * means there.
+ *
+ * Text comes from Xlib's input method, which composes dead keys and is the
+ * user's input method editor where one runs. Relative mouse mode grabs the
+ * pointer, hidden and confined to the window, and reads the mouse's raw
+ * motion from XInput2, in libXi.so.6, also loaded at run time. */
 #include "window_linux.h"
 
 #include "badger/assert.h"
@@ -13,6 +18,7 @@
 #include "badger/library.h"
 #include "badger/memory.h"
 #include "badger/str.h"
+#include "badger/utf8.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -29,16 +35,44 @@ enum
 {
     TB_X11_KEY_PRESS = 2,
     TB_X11_KEY_RELEASE = 3,
+    TB_X11_BUTTON_PRESS = 4,
+    TB_X11_BUTTON_RELEASE = 5,
+    TB_X11_MOTION_NOTIFY = 6,
+    TB_X11_ENTER_NOTIFY = 7,
+    TB_X11_LEAVE_NOTIFY = 8,
     TB_X11_FOCUS_IN = 9,
     TB_X11_FOCUS_OUT = 10,
     TB_X11_UNMAP_NOTIFY = 18,
     TB_X11_MAP_NOTIFY = 19,
     TB_X11_CONFIGURE_NOTIFY = 22,
-    TB_X11_CLIENT_MESSAGE = 33
+    TB_X11_CLIENT_MESSAGE = 33,
+    TB_X11_GENERIC_EVENT = 35
 };
 
 #define TB_X11_KEY_PRESS_MASK (1L << 0)
 #define TB_X11_KEY_RELEASE_MASK (1L << 1)
+#define TB_X11_BUTTON_PRESS_MASK (1L << 2)
+#define TB_X11_BUTTON_RELEASE_MASK (1L << 3)
+#define TB_X11_ENTER_WINDOW_MASK (1L << 4)
+#define TB_X11_LEAVE_WINDOW_MASK (1L << 5)
+#define TB_X11_POINTER_MOTION_MASK (1L << 6)
+/* The modifiers of an event's state. */
+#define TB_X11_SHIFT_MASK (1u << 0)
+#define TB_X11_CONTROL_MASK (1u << 2)
+#define TB_X11_MOD1_MASK (1u << 3) /* Alt */
+#define TB_X11_MOD4_MASK (1u << 6) /* Super */
+#define TB_X11_GRAB_MODE_ASYNC 1
+#define TB_X11_GRAB_SUCCESS 0
+#define TB_X11_CURRENT_TIME 0ul
+/* What Xutf8LookupString() found. */
+#define TB_X11_LOOKUP_CHARS 2
+#define TB_X11_LOOKUP_BOTH 4
+/* An input context that shows nothing of its own. */
+#define TB_X11_PREEDIT_NOTHING 0x0008L
+#define TB_X11_STATUS_NOTHING 0x0400L
+/* XInput2: every master device, and its raw motion. */
+#define TB_XI_ALL_MASTER_DEVICES 1
+#define TB_XI_RAW_MOTION 17
 #define TB_X11_STRUCTURE_NOTIFY_MASK (1L << 17)
 #define TB_X11_SUBSTRUCTURE_NOTIFY_MASK (1L << 19)
 #define TB_X11_SUBSTRUCTURE_REDIRECT_MASK (1L << 20)
@@ -84,6 +118,120 @@ typedef struct tb_x11_key_event
     tb_x11_bool same_screen;
 } tb_x11_key_event;
 
+/* XButtonEvent, XMotionEvent and XCrossingEvent begin as a key's does. */
+typedef struct tb_x11_button_event
+{
+    int type;
+    unsigned long serial;
+    tb_x11_bool send_event;
+    tb_x11_display *display;
+    tb_x11_id window;
+    tb_x11_id root;
+    tb_x11_id subwindow;
+    tb_x11_id time;
+    int x;
+    int y;
+    int x_root;
+    int y_root;
+    unsigned int state;
+    unsigned int button;
+    tb_x11_bool same_screen;
+} tb_x11_button_event;
+
+typedef struct tb_x11_motion_event
+{
+    int type;
+    unsigned long serial;
+    tb_x11_bool send_event;
+    tb_x11_display *display;
+    tb_x11_id window;
+    tb_x11_id root;
+    tb_x11_id subwindow;
+    tb_x11_id time;
+    int x;
+    int y;
+    int x_root;
+    int y_root;
+    unsigned int state;
+    char is_hint;
+    tb_x11_bool same_screen;
+} tb_x11_motion_event;
+
+typedef struct tb_x11_crossing_event
+{
+    int type;
+    unsigned long serial;
+    tb_x11_bool send_event;
+    tb_x11_display *display;
+    tb_x11_id window;
+    tb_x11_id root;
+    tb_x11_id subwindow;
+    tb_x11_id time;
+    int x;
+    int y;
+    int x_root;
+    int y_root;
+    int mode;
+    int detail;
+    tb_x11_bool same_screen;
+    tb_x11_bool focus;
+    unsigned int state;
+} tb_x11_crossing_event;
+
+/* XGenericEventCookie: an extension's event, whose data XGetEventData()
+ * reads. */
+typedef struct tb_x11_cookie
+{
+    int type;
+    unsigned long serial;
+    tb_x11_bool send_event;
+    tb_x11_display *display;
+    int extension;
+    int evtype;
+    unsigned int cookie;
+    void *data;
+} tb_x11_cookie;
+
+/* XIRawEvent: a device's motion before the server accelerates it. */
+typedef struct tb_xi_raw_event
+{
+    int type;
+    unsigned long serial;
+    tb_x11_bool send_event;
+    tb_x11_display *display;
+    int extension;
+    int evtype;
+    tb_x11_id time;
+    int deviceid;
+    int sourceid;
+    int detail;
+    int flags;
+    int mask_length; /* XIValuatorState */
+    unsigned char *mask;
+    double *values;
+    double *raw_values;
+} tb_xi_raw_event;
+
+typedef struct tb_xi_event_mask
+{
+    int deviceid;
+    int mask_length;
+    unsigned char *mask;
+} tb_xi_event_mask;
+
+typedef struct tb_x11_color
+{
+    unsigned long pixel;
+    unsigned short red;
+    unsigned short green;
+    unsigned short blue;
+    char flags;
+    char pad;
+} tb_x11_color;
+
+typedef struct tb_x11_im tb_x11_im; /* XIM */
+typedef struct tb_x11_ic tb_x11_ic; /* XIC */
+
 typedef struct tb_x11_configure_event
 {
     int type;
@@ -121,6 +269,10 @@ typedef union tb_x11_event {
     int type;
     tb_x11_any_event any;
     tb_x11_key_event key;
+    tb_x11_button_event button;
+    tb_x11_motion_event motion;
+    tb_x11_crossing_event crossing;
+    tb_x11_cookie cookie;
     tb_x11_configure_event configure;
     tb_x11_client_message client;
     long pad[24];
@@ -214,7 +366,44 @@ typedef struct tb_x11_api
     tb_x11_bool (*detectable_auto_repeat)(tb_x11_display *display, tb_x11_bool detectable,
                                           tb_x11_bool *supported);
     tb_x11_error_handler (*set_error_handler)(tb_x11_error_handler handler);
+    tb_x11_id (*create_font_cursor)(tb_x11_display *display, unsigned int shape);
+    int (*define_cursor)(tb_x11_display *display, tb_x11_id window, tb_x11_id cursor);
+    int (*free_cursor)(tb_x11_display *display, tb_x11_id cursor);
+    tb_x11_id (*create_bitmap_from_data)(tb_x11_display *display, tb_x11_id drawable,
+                                         const char *data, unsigned width, unsigned height);
+    tb_x11_id (*create_pixmap_cursor)(tb_x11_display *display, tb_x11_id source, tb_x11_id mask,
+                                      tb_x11_color *foreground, tb_x11_color *background,
+                                      unsigned x, unsigned y);
+    int (*free_pixmap)(tb_x11_display *display, tb_x11_id pixmap);
+    int (*grab_pointer)(tb_x11_display *display, tb_x11_id window, tb_x11_bool owner_events,
+                        unsigned int mask, int pointer_mode, int keyboard_mode,
+                        tb_x11_id confine_to, tb_x11_id cursor, tb_x11_id time);
+    int (*ungrab_pointer)(tb_x11_display *display, tb_x11_id time);
+    tb_x11_bool (*query_extension)(tb_x11_display *display, const char *name, int *opcode,
+                                   int *event_base, int *error_base);
+    tb_x11_bool (*get_event_data)(tb_x11_display *display, tb_x11_cookie *cookie);
+    void (*free_event_data)(tb_x11_display *display, tb_x11_cookie *cookie);
+    tb_x11_bool (*filter_event)(tb_x11_event *event, tb_x11_id window);
+    char *(*set_locale_modifiers)(const char *modifiers);
+    tb_x11_im *(*open_im)(tb_x11_display *display, void *database, char *name, char *class_name);
+    int (*close_im)(tb_x11_im *im);
+    tb_x11_ic *(*create_ic)(tb_x11_im *im, ...);
+    void (*destroy_ic)(tb_x11_ic *ic);
+    void (*set_ic_focus)(tb_x11_ic *ic);
+    void (*unset_ic_focus)(tb_x11_ic *ic);
+    int (*utf8_lookup_string)(tb_x11_ic *ic, tb_x11_key_event *event, char *buffer, int bytes,
+                              tb_x11_id *keysym, int *status);
+    int (*lookup_string)(tb_x11_key_event *event, char *buffer, int bytes, tb_x11_id *keysym,
+                         void *compose);
 } tb_x11_api;
+
+/* XInput2, from libXi.so.6, for the mouse's raw motion. */
+typedef struct tb_xi_api
+{
+    int (*query_version)(tb_x11_display *display, int *major, int *minor);
+    int (*select_events)(tb_x11_display *display, tb_x11_id window, tb_xi_event_mask *masks,
+                         int count);
+} tb_xi_api;
 
 typedef struct tb_randr_api
 {
@@ -251,11 +440,20 @@ typedef struct tb_x11_system
     tb_linux_waker waker;
     tb_x11_error_handler previous_handler;
     uint8_t keys_down[32]; /* A bit for each keycode held down. */
+    tb_library *xi_library;
+    tb_xi_api xi;
+    bool has_xi; /* XInput2 2.0 or later, for raw motion. */
+    int xi_opcode;
+    tb_x11_im *im; /* The input method, which composes text; NULL without one. */
+    tb_x11_id cursors[TB_CURSOR_COUNT];
+    tb_x11_id blank_cursor;
+    tb_window *grabbed; /* The window in relative mouse mode that holds the mouse. */
 } tb_x11_system;
 
 typedef struct tb_x11_window
 {
     tb_x11_id handle;
+    tb_x11_ic *ic; /* Its input context; NULL without an input method. */
 } tb_x11_window;
 
 static tb_x11_system *tb_x11_of(const tb_window_system *system)
@@ -317,6 +515,27 @@ static tb_window_result tb_x11_load(tb_x11_system *native, tb_window_error *erro
         "XGetGeometry",
         "XkbSetDetectableAutoRepeat",
         "XSetErrorHandler",
+        "XCreateFontCursor",
+        "XDefineCursor",
+        "XFreeCursor",
+        "XCreateBitmapFromData",
+        "XCreatePixmapCursor",
+        "XFreePixmap",
+        "XGrabPointer",
+        "XUngrabPointer",
+        "XQueryExtension",
+        "XGetEventData",
+        "XFreeEventData",
+        "XFilterEvent",
+        "XSetLocaleModifiers",
+        "XOpenIM",
+        "XCloseIM",
+        "XCreateIC",
+        "XDestroyIC",
+        "XSetICFocus",
+        "XUnsetICFocus",
+        "Xutf8LookupString",
+        "XLookupString",
     };
     enum
     {
@@ -384,6 +603,55 @@ static void tb_x11_load_randr(tb_x11_system *native)
     memcpy(&native->randr, functions, sizeof(native->randr));
     native->has_randr =
         native->randr.query_extension(native->display, &native->randr_event_base, &error_base) != 0;
+}
+
+/* XInput2, for relative mouse mode: without it, the mode is unavailable. */
+static void tb_x11_load_xi(tb_x11_system *native)
+{
+    static const char *const names[] = {"XIQueryVersion", "XISelectEvents"};
+    enum
+    {
+        COUNT = sizeof(names) / sizeof(names[0])
+    };
+    tb_library_function functions[COUNT] = {0};
+    tb_library_binding bindings[COUNT] = {0};
+    int event_base = 0;
+    int error_base = 0;
+    int major = 2;
+    int minor = 0;
+
+    TB_STATIC_ASSERT(sizeof(tb_xi_api) == COUNT * sizeof(tb_library_function),
+                     "the XInput2 table has a function for each name");
+    if (!native->x.query_extension(native->display, "XInputExtension", &native->xi_opcode,
+                                   &event_base, &error_base) ||
+        tb_library_open("libXi.so.6", TB_LIBRARY_SEARCH_SYSTEM, &native->xi_library, NULL) !=
+            TB_LIBRARY_OK)
+    {
+        /* coverage-off: every X server and desktop since 2009 has XInput2 */
+        return;
+        /* coverage-on */
+    }
+    for (size_t index = 0; index < COUNT; index++)
+    {
+        bindings[index] = (tb_library_binding){
+            .name = names[index], .function = &functions[index], .required = true};
+    }
+    if (tb_library_bind(native->xi_library, bindings, COUNT, NULL) != TB_LIBRARY_OK)
+    {
+        /* coverage-off: every libXi.so.6 exports these */
+        return;
+        /* coverage-on */
+    }
+    memcpy(&native->xi, functions, sizeof(native->xi));
+    native->has_xi = native->xi.query_version(native->display, &major, &minor) == TB_X11_SUCCESS;
+}
+
+/* The input method of the user's locale settings, which composes dead keys
+ * and, where one runs, is the input method editor's. */
+static void tb_x11_open_im(tb_x11_system *native)
+{
+    (void)native->x.set_locale_modifiers("");
+    native->im = native->x.open_im(native->display, NULL, NULL, NULL);
 }
 
 /* ---------------------------------------------------------------------------
@@ -692,9 +960,18 @@ static tb_window_result tb_x11_create(tb_window *window, tb_window_error *error)
         /* coverage-on */
     }
     window->native = record;
-    (void)native->x.select_input(native->display, record->handle,
-                                 TB_X11_KEY_PRESS_MASK | TB_X11_KEY_RELEASE_MASK |
-                                     TB_X11_STRUCTURE_NOTIFY_MASK | TB_X11_FOCUS_CHANGE_MASK);
+    (void)native->x.select_input(
+        native->display, record->handle,
+        TB_X11_KEY_PRESS_MASK | TB_X11_KEY_RELEASE_MASK | TB_X11_BUTTON_PRESS_MASK |
+            TB_X11_BUTTON_RELEASE_MASK | TB_X11_ENTER_WINDOW_MASK | TB_X11_LEAVE_WINDOW_MASK |
+            TB_X11_POINTER_MOTION_MASK | TB_X11_STRUCTURE_NOTIFY_MASK | TB_X11_FOCUS_CHANGE_MASK);
+    if (native->im != NULL)
+    {
+        record->ic = native->x.create_ic(
+            native->im, "inputStyle",
+            (unsigned long)(TB_X11_PREEDIT_NOTHING | TB_X11_STATUS_NOTHING), "clientWindow",
+            record->handle, "focusWindow", record->handle, (void *)NULL);
+    }
     (void)native->x.set_wm_protocols(native->display, record->handle, &native->delete_window, 1);
     tb_x11_set_title(window);
     tb_x11_apply(window, false);
@@ -711,7 +988,12 @@ static tb_window_result tb_x11_create(tb_window *window, tb_window_error *error)
 static void tb_x11_destroy(tb_window *window)
 {
     tb_x11_system *const native = tb_x11_of(window->system);
+    tb_x11_window *const record = window->native;
 
+    if (record->ic != NULL)
+    {
+        native->x.destroy_ic(record->ic);
+    }
     (void)native->x.destroy_window(native->display, tb_x11_handle(window));
     (void)native->x.flush(native->display);
     tb_free(window->native);
@@ -750,7 +1032,64 @@ static tb_window *tb_x11_find(tb_window_system *system, tb_x11_id handle)
     return NULL;
 }
 
-static void tb_x11_on_key(tb_window *window, const tb_x11_key_event *key)
+/* The modifiers of an event's state. */
+static uint32_t tb_x11_modifiers(unsigned int state)
+{
+    uint32_t modifiers = 0;
+
+    if ((state & TB_X11_SHIFT_MASK) != 0)
+    {
+        modifiers |= TB_MODIFIER_SHIFT;
+    }
+    if ((state & TB_X11_CONTROL_MASK) != 0)
+    {
+        modifiers |= TB_MODIFIER_CONTROL;
+    }
+    if ((state & TB_X11_MOD1_MASK) != 0)
+    {
+        modifiers |= TB_MODIFIER_ALT;
+    }
+    if ((state & TB_X11_MOD4_MASK) != 0)
+    {
+        modifiers |= TB_MODIFIER_SUPER;
+    }
+    return modifiers;
+}
+
+/* The text a key press types: from the input method, which composes dead
+ * keys, or, without one, from the key's Latin-1 character. */
+static void tb_x11_read_text(tb_window *window, tb_x11_key_event *key)
+{
+    tb_x11_system *const native = tb_x11_of(window->system);
+    const tb_x11_window *const record = window->native;
+    char buffer[64] = {0};
+    tb_x11_id keysym = 0;
+    int status = 0;
+    int length = 0;
+
+    if (record->ic != NULL)
+    {
+        length = native->x.utf8_lookup_string(record->ic, key, buffer, (int)sizeof(buffer) - 1,
+                                              &keysym, &status);
+        if ((status == TB_X11_LOOKUP_CHARS || status == TB_X11_LOOKUP_BOTH) && length > 0)
+        {
+            tb_window_text(window, buffer, (size_t)length);
+        }
+        return;
+    }
+    /* coverage-off: Xlib opens its own input method where no other runs */
+    length = native->x.lookup_string(key, buffer, (int)sizeof(buffer) - 1, &keysym, NULL);
+    for (int index = 0; index < length; index++)
+    {
+        char character[4] = {0};
+        const size_t size =
+            tb_utf8_encode((uint32_t)(unsigned char)buffer[index], character, sizeof(character));
+        tb_window_text(window, character, size);
+    }
+    /* coverage-on */
+}
+
+static void tb_x11_on_key(tb_window *window, tb_x11_key_event *key)
 {
     tb_x11_system *const native = tb_x11_of(window->system);
     const uint8_t bit = (uint8_t)(1u << (key->keycode & 7u));
@@ -761,7 +1100,295 @@ static void tb_x11_on_key(tb_window *window, const tb_x11_key_event *key)
     const uint32_t code = key->keycode >= 8u ? key->keycode - 8u : 0u;
 
     *held = down ? (uint8_t)(*held | bit) : (uint8_t)(*held & ~bit);
-    tb_window_key(window, tb_linux_key(code), code, down, repeat);
+    tb_window_key(window, tb_linux_key(code), code, down, repeat, tb_x11_modifiers(key->state));
+    if (down)
+    {
+        tb_x11_read_text(window, key);
+    }
+}
+
+/* X's buttons: 1 to 3 are left, middle, and right; 8 and 9 are the side
+ * buttons. */
+static tb_mouse_button tb_x11_button(unsigned int button)
+{
+    switch (button)
+    {
+    case 1:
+        return TB_MOUSE_BUTTON_LEFT;
+    case 2:
+        return TB_MOUSE_BUTTON_MIDDLE;
+    case 3:
+        return TB_MOUSE_BUTTON_RIGHT;
+    case 8:
+        return TB_MOUSE_BUTTON_X1;
+    case 9:
+        return TB_MOUSE_BUTTON_X2;
+    default:
+        return TB_MOUSE_BUTTON_NONE;
+    }
+}
+
+/* Buttons 4 to 7 are the wheel's notches: up, down, left, right. */
+static void tb_x11_on_button(tb_window *window, const tb_x11_button_event *button)
+{
+    const double x = (double)button->x;
+    const double y = (double)button->y;
+    const uint32_t modifiers = tb_x11_modifiers(button->state);
+    const bool down = button->type == TB_X11_BUTTON_PRESS;
+    double notches_x = 0.0;
+    double notches_y = 0.0;
+
+    switch (button->button)
+    {
+    case 4:
+        notches_y = 1.0;
+        break;
+    case 5:
+        notches_y = -1.0;
+        break;
+    case 6:
+        notches_x = -1.0;
+        break;
+    case 7:
+        notches_x = 1.0;
+        break;
+    default:
+        if (tb_x11_button(button->button) != TB_MOUSE_BUTTON_NONE)
+        {
+            tb_window_mouse_button(window, tb_x11_button(button->button), down, x, y, modifiers);
+        }
+        return;
+    }
+    if (down)
+    {
+        tb_window_mouse_wheel(window, notches_x, notches_y, x, y, modifiers);
+    }
+}
+
+/* ---------------------------------------------------------------------------
+ * The cursor and relative mouse mode.
+ * ------------------------------------------------------------------------- */
+
+/* The shapes of the cursor font, which a cursor theme draws where the
+ * desktop has one. */
+static const unsigned int tb_x11_cursor_shapes[TB_CURSOR_COUNT] = {
+    [TB_CURSOR_ARROW] = 68,                /* left_ptr */
+    [TB_CURSOR_TEXT] = 152,                /* xterm */
+    [TB_CURSOR_HAND] = 60,                 /* hand2 */
+    [TB_CURSOR_CROSSHAIR] = 34,            /* crosshair */
+    [TB_CURSOR_NOT_ALLOWED] = 24,          /* circle */
+    [TB_CURSOR_RESIZE_HORIZONTAL] = 108,   /* sb_h_double_arrow */
+    [TB_CURSOR_RESIZE_VERTICAL] = 116,     /* sb_v_double_arrow */
+    [TB_CURSOR_RESIZE_DIAGONAL_DOWN] = 14, /* bottom_right_corner */
+    [TB_CURSOR_RESIZE_DIAGONAL_UP] = 12,   /* bottom_left_corner */
+    [TB_CURSOR_RESIZE_ALL] = 52,           /* fleur */
+};
+
+/* A cursor of nothing: one transparent pixel. */
+static tb_x11_id tb_x11_blank_cursor(tb_x11_system *native)
+{
+    static const char empty[1] = {0};
+    tb_x11_color black = {0};
+    tb_x11_id pixmap = 0;
+
+    if (native->blank_cursor != 0)
+    {
+        return native->blank_cursor;
+    }
+    pixmap = native->x.create_bitmap_from_data(native->display, native->root, empty, 1, 1);
+    native->blank_cursor =
+        native->x.create_pixmap_cursor(native->display, pixmap, pixmap, &black, &black, 0, 0);
+    (void)native->x.free_pixmap(native->display, pixmap);
+    return native->blank_cursor;
+}
+
+static tb_x11_id tb_x11_cursor(tb_x11_system *native, tb_cursor shape)
+{
+    if (native->cursors[shape] == 0)
+    {
+        native->cursors[shape] =
+            native->x.create_font_cursor(native->display, tb_x11_cursor_shapes[shape]);
+    }
+    return native->cursors[shape];
+}
+
+static void tb_x11_update_cursor(tb_window *window)
+{
+    tb_x11_system *const native = tb_x11_of(window->system);
+    const bool hidden = window->cursor_hidden || window->state.relative_mouse;
+    const tb_x11_id cursor =
+        hidden ? tb_x11_blank_cursor(native) : tb_x11_cursor(native, window->cursor);
+
+    (void)native->x.define_cursor(native->display, tb_x11_handle(window), cursor);
+    (void)native->x.flush(native->display);
+}
+
+/* Hold the mouse in the window, hidden; false when another program holds
+ * it, or the window is not on the screen. */
+static bool tb_x11_grab(tb_window *window)
+{
+    tb_x11_system *const native = tb_x11_of(window->system);
+    const tb_x11_id handle = tb_x11_handle(window);
+    const unsigned int mask = (unsigned int)(TB_X11_BUTTON_PRESS_MASK | TB_X11_BUTTON_RELEASE_MASK |
+                                             TB_X11_POINTER_MOTION_MASK);
+
+    if (native->x.grab_pointer(native->display, handle, 1, mask, TB_X11_GRAB_MODE_ASYNC,
+                               TB_X11_GRAB_MODE_ASYNC, handle, tb_x11_blank_cursor(native),
+                               TB_X11_CURRENT_TIME) != TB_X11_GRAB_SUCCESS)
+    {
+        return false;
+    }
+    native->grabbed = window;
+    return true;
+}
+
+static void tb_x11_ungrab(tb_x11_system *native)
+{
+    if (native->grabbed == NULL)
+    {
+        return;
+    }
+    (void)native->x.ungrab_pointer(native->display, TB_X11_CURRENT_TIME);
+    (void)native->x.flush(native->display);
+    native->grabbed = NULL;
+}
+
+/* Ask for the raw motion of every mouse, which XInput2 sends to the root
+ * window only; or stop. */
+static void tb_x11_select_raw_motion(tb_x11_system *native, bool selected)
+{
+    unsigned char bits[4] = {0};
+    tb_xi_event_mask mask = {
+        .deviceid = TB_XI_ALL_MASTER_DEVICES, .mask_length = (int)sizeof(bits), .mask = bits};
+
+    if (selected)
+    {
+        bits[TB_XI_RAW_MOTION >> 3] = (unsigned char)(1u << (TB_XI_RAW_MOTION & 7));
+    }
+    (void)native->xi.select_events(native->display, native->root, &mask, 1);
+    (void)native->x.flush(native->display);
+}
+
+static tb_window_result tb_x11_set_relative_mouse(tb_window *window, bool relative,
+                                                  tb_window_error *error)
+{
+    tb_x11_system *const native = tb_x11_of(window->system);
+
+    if (!relative)
+    {
+        if (native->grabbed == window)
+        {
+            tb_x11_ungrab(native);
+        }
+        if (native->has_xi)
+        {
+            tb_x11_select_raw_motion(native, false);
+        }
+        return TB_WINDOW_OK;
+    }
+    if (!native->has_xi)
+    {
+        /* coverage-off: every X server and desktop since 2009 has XInput2 */
+        return tb_window_fail(error, TB_WINDOW_UNAVAILABLE,
+                              "the X server has no XInput2 for the mouse's motion");
+        /* coverage-on */
+    }
+    if (!tb_x11_grab(window))
+    {
+        return tb_window_fail(error, TB_WINDOW_SYSTEM_ERROR,
+                              "the X server would not give the window the mouse: another "
+                              "program holds it, or the window is not on the screen");
+    }
+    tb_x11_select_raw_motion(native, true);
+    return TB_WINDOW_OK;
+}
+
+/* XInput2's raw motion goes to the window that holds the mouse. */
+static void tb_x11_on_generic(tb_window_system *system, tb_x11_event *event)
+{
+    tb_x11_system *const native = tb_x11_of(system);
+    tb_x11_cookie *const cookie = &event->cookie;
+    double delta_x = 0.0;
+    double delta_y = 0.0;
+
+    if (!native->has_xi || cookie->extension != native->xi_opcode ||
+        cookie->evtype != TB_XI_RAW_MOTION || !native->x.get_event_data(native->display, cookie))
+    {
+        /* coverage-off: no other extension's events are asked for */
+        return;
+        /* coverage-on */
+    }
+    if (native->grabbed != NULL)
+    {
+        const tb_xi_raw_event *const raw = cookie->data;
+        tb_x11_raw_motion(raw->mask, raw->mask_length, raw->raw_values, &delta_x, &delta_y);
+        if (delta_x != 0.0 || delta_y != 0.0)
+        {
+            tb_window_mouse_relative(native->grabbed, delta_x, delta_y);
+        }
+    }
+    native->x.free_event_data(native->display, cookie);
+}
+
+void tb_x11_raw_motion(const unsigned char *mask, int mask_length, const double *raw_values,
+                       double *delta_x, double *delta_y)
+{
+    const int valuators = mask_length > 0 ? mask_length * 8 : 0;
+    size_t value = 0;
+
+    *delta_x = 0.0;
+    *delta_y = 0.0;
+    /* Valuator 0 is x and 1 is y; the values are those of the set bits, in
+     * order. */
+    for (int valuator = 0; valuator < valuators && valuator < 2; valuator++)
+    {
+        if ((mask[valuator >> 3] & (1u << (valuator & 7))) == 0)
+        {
+            continue;
+        }
+        if (valuator == 0)
+        {
+            *delta_x = raw_values[value];
+        }
+        else
+        {
+            *delta_y = raw_values[value];
+        }
+        value++;
+    }
+}
+
+/* Focus: the input context composes for the window with the keyboard, and
+ * a window in relative mouse mode holds the mouse while it has it. */
+static void tb_x11_on_focus(tb_window *window, bool focused)
+{
+    tb_x11_system *const native = tb_x11_of(window->system);
+    tb_x11_window *const record = window->native;
+
+    tb_window_focused(window, focused);
+    if (record->ic != NULL)
+    {
+        if (focused)
+        {
+            native->x.set_ic_focus(record->ic);
+        }
+        else
+        {
+            native->x.unset_ic_focus(record->ic);
+        }
+    }
+    if (!window->state.relative_mouse)
+    {
+        return;
+    }
+    if (focused)
+    {
+        (void)tb_x11_grab(window);
+    }
+    else if (native->grabbed == window)
+    {
+        tb_x11_ungrab(native);
+    }
 }
 
 static void tb_x11_handle_event(tb_window_system *system, tb_x11_event *event)
@@ -777,6 +1404,11 @@ static void tb_x11_handle_event(tb_window_system *system, tb_x11_event *event)
         tb_window_displays_changed(system);
         return;
     }
+    if (event->type == TB_X11_GENERIC_EVENT)
+    {
+        tb_x11_on_generic(system, event);
+        return;
+    }
     window = tb_x11_find(system, event->any.window);
     if (window == NULL)
     {
@@ -788,11 +1420,25 @@ static void tb_x11_handle_event(tb_window_system *system, tb_x11_event *event)
     case TB_X11_KEY_RELEASE:
         tb_x11_on_key(window, &event->key);
         break;
+    case TB_X11_BUTTON_PRESS:
+    case TB_X11_BUTTON_RELEASE:
+        tb_x11_on_button(window, &event->button);
+        break;
+    case TB_X11_MOTION_NOTIFY:
+        tb_window_mouse_moved(window, (double)event->motion.x, (double)event->motion.y,
+                              tb_x11_modifiers(event->motion.state));
+        break;
+    case TB_X11_ENTER_NOTIFY:
+        tb_window_mouse_crossed(window, true, (double)event->crossing.x, (double)event->crossing.y);
+        break;
+    case TB_X11_LEAVE_NOTIFY:
+        tb_window_mouse_crossed(window, false, 0.0, 0.0);
+        break;
     case TB_X11_FOCUS_IN:
-        tb_window_focused(window, true);
+        tb_x11_on_focus(window, true);
         break;
     case TB_X11_FOCUS_OUT:
-        tb_window_focused(window, false);
+        tb_x11_on_focus(window, false);
         break;
     case TB_X11_MAP_NOTIFY:
         tb_window_minimized(window, false);
@@ -826,8 +1472,13 @@ static bool tb_x11_read_events(tb_window_system *system)
     {
         tb_x11_event event = {0};
         (void)native->x.next_event(native->display, &event);
-        tb_x11_handle_event(system, &event);
         any = true;
+        /* What the input method takes, a dead key, is its own. */
+        if (native->x.filter_event(&event, 0))
+        {
+            continue;
+        }
+        tb_x11_handle_event(system, &event);
     }
     if (tb_linux_waker_drain(&native->waker))
     {
@@ -860,6 +1511,21 @@ static void tb_x11_release(tb_x11_system *native)
 {
     if (native->display != NULL)
     {
+        for (size_t index = 0; index < TB_CURSOR_COUNT; index++)
+        {
+            if (native->cursors[index] != 0)
+            {
+                (void)native->x.free_cursor(native->display, native->cursors[index]);
+            }
+        }
+        if (native->blank_cursor != 0)
+        {
+            (void)native->x.free_cursor(native->display, native->blank_cursor);
+        }
+        if (native->im != NULL)
+        {
+            (void)native->x.close_im(native->im);
+        }
         (void)native->x.close_display(native->display);
         (void)native->x.set_error_handler(native->previous_handler);
     }
@@ -867,6 +1533,7 @@ static void tb_x11_release(tb_x11_system *native)
     {
         tb_linux_waker_close(&native->waker);
     }
+    tb_library_close(native->xi_library);
     tb_library_close(native->randr_library);
     tb_library_close(native->xlib);
     tb_free(native);
@@ -886,6 +1553,8 @@ static const tb_window_ops tb_x11_ops = {
     .configure = tb_x11_configure,
     .native = tb_x11_native,
     .confirm = tb_linux_confirm,
+    .set_relative_mouse = tb_x11_set_relative_mouse,
+    .update_cursor = tb_x11_update_cursor,
 };
 
 static void tb_x11_intern_atoms(tb_x11_system *native)
@@ -934,7 +1603,10 @@ tb_window_result tb_x11_open(tb_window_system *system, tb_window_error *error)
     {
         native->randr.select_input(native->display, native->root, TB_RANDR_SCREEN_CHANGE_MASK);
     }
+    tb_x11_load_xi(native);
+    tb_x11_open_im(native);
     system->backend = TB_WINDOW_BACKEND_X11;
+    system->pointer_in_pixels = true;
     system->ops = &tb_x11_ops;
     system->native = native;
     tb_x11_read_displays(system);

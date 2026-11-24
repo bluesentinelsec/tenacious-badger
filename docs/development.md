@@ -51,6 +51,7 @@ The foundation layer so far, one public header per module under
 | `zip.h` | [ZIP archives](archives.md#zip): entries found by name and read as streams, and written stored or deflated |
 | `vfs.h` | [The virtual file system](vfs.md): directories, archive files, and archives in memory, mounted into one namespace |
 | `json.h` | [JSON](serialization.md): a reader of events, documents in arenas, and a writer |
+| `font.h` | [Fonts](fonts.md): TrueType fonts read from bytes: glyphs, outlines of lines and curves, advances, kerning, metrics, and names |
 | `stream.h` | [Streams](streams.md): one interface for reading and writing bytes, over memory, files, and ranges of other streams |
 | `window.h` | [Windows and displays](windows.md): windowed, borderless and fullscreen windows, displays and their scale, and window events |
 | `shader.h` | [Shaders](shaders.md): HLSL written once for every backend; virtual shader paths, includes and the preprocessor |
@@ -62,6 +63,8 @@ The foundation layer so far, one public header per module under
 
 What these headers do the same way, such as how a function reports failure,
 is in [the conventions of the public API](conventions.md).
+
+[`badger-sandbox`](sandbox.md) draws the engine's test scenes in a window, to look at by eye.
 
 `burrow` loads its [settings](settings.md#burrow), opens its
 [window](windows.md), and runs [the game loop](game-loop.md#burrow), with

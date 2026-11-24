@@ -7,6 +7,7 @@
 #include "badger/fmt.h"
 #include "badger/memory.h"
 #include "badger/str.h"
+#include "badger/utf8.h"
 
 #include <stdarg.h>
 #include <string.h>
@@ -251,16 +252,166 @@ void tb_window_minimized(tb_window *window, bool minimized)
     tb_window_push_about(window, minimized ? TB_WINDOW_EVENT_MINIMIZED : TB_WINDOW_EVENT_RESTORED);
 }
 
-void tb_window_key(tb_window *window, tb_key key, uint32_t scancode, bool down, bool repeat)
+void tb_window_key(tb_window *window, tb_key key, uint32_t scancode, bool down, bool repeat,
+                   uint32_t modifiers)
 {
     const tb_window_event event = {.type = down ? TB_WINDOW_EVENT_KEY_DOWN : TB_WINDOW_EVENT_KEY_UP,
                                    .window = window,
                                    .key = key,
                                    .scancode = scancode,
                                    .repeat = down && repeat,
+                                   .modifiers = modifiers,
                                    .state = window->state};
 
     tb_window_push(window->system, &event);
+}
+
+/* An event of the mouse at a position in the units the system reads it in. */
+static tb_window_event tb_window_mouse_event(tb_window *window, tb_window_event_type type, double x,
+                                             double y, uint32_t modifiers)
+{
+    const double scale = window->state.content_scale > 0.0 ? window->state.content_scale : 1.0;
+    tb_window_event event = {
+        .type = type, .window = window, .modifiers = modifiers, .state = window->state};
+
+    if (window->system->pointer_in_pixels)
+    {
+        event.pixel_x = x;
+        event.pixel_y = y;
+        event.x = x / scale;
+        event.y = y / scale;
+    }
+    else
+    {
+        event.x = x;
+        event.y = y;
+        event.pixel_x = x * scale;
+        event.pixel_y = y * scale;
+    }
+    return event;
+}
+
+void tb_window_mouse_button(tb_window *window, tb_mouse_button button, bool down, double x,
+                            double y, uint32_t modifiers)
+{
+    const tb_window_event_type type =
+        down ? TB_WINDOW_EVENT_MOUSE_BUTTON_DOWN : TB_WINDOW_EVENT_MOUSE_BUTTON_UP;
+    tb_window_event event = tb_window_mouse_event(window, type, x, y, modifiers);
+
+    event.button = button;
+    tb_window_push(window->system, &event);
+}
+
+void tb_window_mouse_moved(tb_window *window, double x, double y, uint32_t modifiers)
+{
+    tb_window_event event = {0};
+
+    if (window->state.relative_mouse)
+    {
+        return;
+    }
+    event = tb_window_mouse_event(window, TB_WINDOW_EVENT_MOUSE_MOVED, x, y, modifiers);
+    tb_window_push(window->system, &event);
+}
+
+void tb_window_mouse_wheel(tb_window *window, double notches_x, double notches_y, double x,
+                           double y, uint32_t modifiers)
+{
+    tb_window_event event =
+        tb_window_mouse_event(window, TB_WINDOW_EVENT_MOUSE_WHEEL, x, y, modifiers);
+
+    event.delta_x = notches_x;
+    event.delta_y = notches_y;
+    tb_window_push(window->system, &event);
+}
+
+void tb_window_mouse_relative(tb_window *window, double delta_x, double delta_y)
+{
+    const tb_window_event event = {.type = TB_WINDOW_EVENT_MOUSE_RELATIVE_MOTION,
+                                   .window = window,
+                                   .delta_x = delta_x,
+                                   .delta_y = delta_y,
+                                   .state = window->state};
+
+    if (!window->state.relative_mouse)
+    {
+        return;
+    }
+    tb_window_push(window->system, &event);
+}
+
+void tb_window_mouse_crossed(tb_window *window, bool inside, double x, double y)
+{
+    tb_window_event event = {0};
+
+    if (window->mouse_inside == inside)
+    {
+        return;
+    }
+    window->mouse_inside = inside;
+    if (inside)
+    {
+        event = tb_window_mouse_event(window, TB_WINDOW_EVENT_MOUSE_ENTERED, x, y, 0);
+    }
+    else
+    {
+        event = (tb_window_event){
+            .type = TB_WINDOW_EVENT_MOUSE_LEFT, .window = window, .state = window->state};
+    }
+    tb_window_push(window->system, &event);
+}
+
+/* Whether a character is a control character, which a key reports and text
+ * does not: C0, DEL, and C1. */
+static bool tb_window_is_control(uint32_t scalar)
+{
+    return scalar < 0x20u || (scalar >= 0x7Fu && scalar < 0xA0u);
+}
+
+static void tb_window_push_text(tb_window *window, const char *text, size_t length)
+{
+    tb_window_event event = {
+        .type = TB_WINDOW_EVENT_TEXT_INPUT, .window = window, .state = window->state};
+
+    memcpy(event.text, text, length);
+    event.text[length] = '\0';
+    tb_window_push(window->system, &event);
+}
+
+void tb_window_text(tb_window *window, const char *text, size_t length)
+{
+    char pending[TB_WINDOW_TEXT_CAPACITY] = {0};
+    size_t pending_length = 0;
+    size_t offset = 0;
+
+    while (offset < length)
+    {
+        uint32_t scalar = 0;
+        size_t next = 0;
+        size_t size = 0;
+        if (!tb_utf8_decode(text, length, offset, &scalar, &next))
+        {
+            /* A byte that begins no character is skipped. */
+            offset++;
+            continue;
+        }
+        size = next - offset;
+        if (!tb_window_is_control(scalar))
+        {
+            if (pending_length + size >= TB_WINDOW_TEXT_CAPACITY)
+            {
+                tb_window_push_text(window, pending, pending_length);
+                pending_length = 0;
+            }
+            memcpy(pending + pending_length, text + offset, size);
+            pending_length += size;
+        }
+        offset = next;
+    }
+    if (pending_length > 0)
+    {
+        tb_window_push_text(window, pending, pending_length);
+    }
 }
 
 void tb_window_displays_changed(tb_window_system *system)
@@ -473,6 +624,11 @@ void tb_window_destroy(tb_window *window)
         return;
     }
     system = window->system;
+    if (window->state.relative_mouse)
+    {
+        (void)system->ops->set_relative_mouse(window, false, NULL);
+        window->state.relative_mouse = false;
+    }
     system->ops->destroy(window);
     tb_window_forget_events(window);
     for (size_t index = 0; index < tb_array_length(system->windows); index++)
@@ -537,6 +693,46 @@ tb_window_result tb_window_confirm(tb_window *window, const char *title, const c
     TB_ASSERT(title != NULL && message != NULL);
     TB_ASSERT(confirmed != NULL);
     return window->system->ops->confirm(window, title, message, confirmed);
+}
+
+/* ---------------------------------------------------------------------------
+ * The mouse.
+ * ------------------------------------------------------------------------- */
+
+tb_window_result tb_window_set_relative_mouse(tb_window *window, bool relative,
+                                              tb_window_error *error)
+{
+    tb_window_result result = TB_WINDOW_OK;
+
+    TB_ASSERT(window != NULL);
+    tb_window_succeed(error);
+    if (window->state.relative_mouse == relative)
+    {
+        return TB_WINDOW_OK;
+    }
+    result = window->system->ops->set_relative_mouse(window, relative, error);
+    if (result != TB_WINDOW_OK)
+    {
+        return result;
+    }
+    window->state.relative_mouse = relative;
+    window->system->ops->update_cursor(window);
+    return TB_WINDOW_OK;
+}
+
+void tb_window_set_cursor(tb_window *window, tb_cursor cursor)
+{
+    TB_ASSERT(window != NULL);
+    TB_ASSERT_MSG((unsigned)cursor < TB_CURSOR_COUNT, "the cursor is a tb_cursor");
+    window->cursor = cursor;
+    window->system->ops->update_cursor(window);
+}
+
+void tb_window_show_cursor(tb_window *window, bool shown)
+{
+    TB_ASSERT(window != NULL);
+    window->cursor_hidden = !shown;
+    window->system->ops->update_cursor(window);
 }
 
 /* ---------------------------------------------------------------------------
@@ -636,4 +832,26 @@ const char *tb_key_name(tb_key key)
         return "unknown";
     }
     return names[key];
+}
+
+const char *tb_mouse_button_name(tb_mouse_button button)
+{
+    switch (button)
+    {
+    case TB_MOUSE_BUTTON_NONE:
+        return "none";
+    case TB_MOUSE_BUTTON_LEFT:
+        return "left";
+    case TB_MOUSE_BUTTON_RIGHT:
+        return "right";
+    case TB_MOUSE_BUTTON_MIDDLE:
+        return "middle";
+    case TB_MOUSE_BUTTON_X1:
+        return "x1";
+    case TB_MOUSE_BUTTON_X2:
+        return "x2";
+    case TB_MOUSE_BUTTON_COUNT:
+        break;
+    }
+    return "none";
 }

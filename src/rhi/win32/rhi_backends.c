@@ -1,23 +1,20 @@
-/* The backends Windows builds: Direct3D 12, and the null backend. The others
- * join this list in the changes that write them. */
+/* The backends of Windows, in the order `auto` tries them: Direct3D 12 first,
+ * then those still to be written. Each takes its table in the change that
+ * writes it. */
 #include "../rhi_backend.h"
 
-const tb_rhi_backend_table *tb_rhi_backend_table_of(tb_rhi_backend backend)
+static const tb_rhi_backend_entry tb_rhi_windows_backends[] = {
+    {TB_RHI_BACKEND_D3D12, &tb_rhi_d3d12_backend},
+    {TB_RHI_BACKEND_D3D11, NULL},
+    {TB_RHI_BACKEND_VULKAN, NULL},
+    {TB_RHI_BACKEND_OPENGL, NULL},
+    {TB_RHI_BACKEND_SOFTWARE, NULL}};
+
+static const tb_rhi_backend_list tb_rhi_windows = {"Windows", tb_rhi_windows_backends,
+                                                   sizeof(tb_rhi_windows_backends) /
+                                                       sizeof(tb_rhi_windows_backends[0])};
+
+const tb_rhi_backend_list *tb_rhi_platform_backends(void)
 {
-    switch (backend)
-    {
-    case TB_RHI_BACKEND_D3D12:
-        return &tb_rhi_d3d12_backend;
-    case TB_RHI_BACKEND_NULL:
-        return &tb_rhi_null_backend;
-    case TB_RHI_BACKEND_AUTOMATIC:
-    case TB_RHI_BACKEND_D3D11:
-    case TB_RHI_BACKEND_VULKAN:
-    case TB_RHI_BACKEND_OPENGL:
-    case TB_RHI_BACKEND_METAL:
-    case TB_RHI_BACKEND_SOFTWARE:
-    case TB_RHI_BACKEND_COUNT:
-        break;
-    }
-    return NULL;
+    return &tb_rhi_windows;
 }

@@ -300,8 +300,49 @@ TB_TEST(platform_window, another_thread_wakes_a_waiting_system)
     for_each_backend(another_thread_wakes_a_waiting_system_on);
 }
 
+/* Every windowing has the cursor's shapes and hides it; relative mouse mode
+ * is on where the system can do it, and unavailable where it cannot, as
+ * under a Wayland compositor without a mouse. */
+static void the_mouse_is_set_up_on(tb_window_system *system)
+{
+    tb_window *window = NULL;
+    tb_window_state state = {0};
+    tb_window_error error = TB_WINDOW_ERROR_INIT;
+    tb_window_result result = TB_WINDOW_OK;
+
+    TB_TEST_REQUIRE_UINT(tb_window_create(system, NULL, &window, NULL), ==, TB_WINDOW_OK);
+    for (int cursor = 0; cursor < TB_CURSOR_COUNT; cursor++)
+    {
+        tb_window_set_cursor(window, (tb_cursor)cursor);
+    }
+    tb_window_show_cursor(window, false);
+    tb_window_show_cursor(window, true);
+    result = tb_window_set_relative_mouse(window, true, &error);
+    tb_window_state_of(window, &state);
+    TB_TEST_EXPECT(result == TB_WINDOW_OK || result == TB_WINDOW_UNAVAILABLE);
+    TB_TEST_EXPECT(state.relative_mouse == (result == TB_WINDOW_OK));
+    TB_TEST_EXPECT(result == TB_WINDOW_OK || error.message[0] != '\0');
+    TB_TEST_EXPECT_UINT(tb_window_set_relative_mouse(window, false, NULL), ==, TB_WINDOW_OK);
+    tb_window_state_of(window, &state);
+    TB_TEST_EXPECT(!state.relative_mouse);
+    tb_window_destroy(window);
+}
+
+TB_TEST(platform_window, the_mouse_is_set_up)
+{
+    for_each_backend(the_mouse_is_set_up_on);
+}
+
 TB_TEST(platform_window, names_say_what_they_name)
 {
+    TB_TEST_EXPECT_STRING(tb_mouse_button_name(TB_MOUSE_BUTTON_LEFT), ==, "left");
+    TB_TEST_EXPECT_STRING(tb_mouse_button_name(TB_MOUSE_BUTTON_RIGHT), ==, "right");
+    TB_TEST_EXPECT_STRING(tb_mouse_button_name(TB_MOUSE_BUTTON_MIDDLE), ==, "middle");
+    TB_TEST_EXPECT_STRING(tb_mouse_button_name(TB_MOUSE_BUTTON_X1), ==, "x1");
+    TB_TEST_EXPECT_STRING(tb_mouse_button_name(TB_MOUSE_BUTTON_X2), ==, "x2");
+    TB_TEST_EXPECT_STRING(tb_mouse_button_name(TB_MOUSE_BUTTON_NONE), ==, "none");
+    TB_TEST_EXPECT_STRING(tb_mouse_button_name(TB_MOUSE_BUTTON_COUNT), ==, "none");
+    TB_TEST_EXPECT_STRING(tb_mouse_button_name((tb_mouse_button)99), ==, "none");
     TB_TEST_EXPECT_STRING(tb_window_backend_name(TB_WINDOW_BACKEND_WAYLAND), ==, "wayland");
     TB_TEST_EXPECT_STRING(tb_window_backend_name(TB_WINDOW_BACKEND_X11), ==, "x11");
     TB_TEST_EXPECT_STRING(tb_window_backend_name(TB_WINDOW_BACKEND_WIN32), ==, "win32");
