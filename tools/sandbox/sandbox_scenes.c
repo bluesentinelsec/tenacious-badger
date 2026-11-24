@@ -283,7 +283,7 @@ static void text_paragraphs(sandbox *box, float bottom, float t)
     static const tb_font_align aligns[] = {TB_FONT_ALIGN_LEFT, TB_FONT_ALIGN_CENTER,
                                            TB_FONT_ALIGN_RIGHT};
     const tb_font *const font = box->fonts[SANDBOX_FONT_ROBOTO];
-    const float width = 230.0f + 110.0f * sinf(t * 0.7f);
+    const float width = 210.0f + 100.0f * sinf(t * 0.7f - 1.2f);
     const tb_text text = TB_TEXT(text_paragraph);
     tb_font_layout_options options[3] = {0};
     float tallest = 0.0f;
@@ -325,14 +325,14 @@ static float text_pixel_line(sandbox *box, sandbox_font font, tb_text text, floa
  * against the right edge. */
 static void text_pixel_fonts(sandbox *box, float right, float y)
 {
-    y = text_pixel_line(box, SANDBOX_FONT_VGA, TB_TEXT("Px437 IBM VGA 8x16 at 16 px: C:\\> DIR /W"),
-                        16.0f, 16.0f, (tb_vec2){right, y}, (tb_vec4){0.65f, 1.0f, 0.65f, 1});
-    y = text_pixel_line(box, SANDBOX_FONT_VGA, TB_TEXT("Twice: 32 px"), 32.0f, 16.0f,
+    y = text_pixel_line(box, SANDBOX_FONT_VGA, TB_TEXT("Px437 IBM VGA 8x16: C:\\> DIR /W"), 16.0f,
+                        16.0f, (tb_vec2){right, y}, (tb_vec4){0.65f, 1.0f, 0.65f, 1});
+    y = text_pixel_line(box, SANDBOX_FONT_VGA, TB_TEXT("A whole multiple larger"), 32.0f, 16.0f,
                         (tb_vec2){right, y}, (tb_vec4){1.0f, 0.75f, 0.35f, 1});
-    y = text_pixel_line(box, SANDBOX_FONT_SILKSCREEN, TB_TEXT("SILKSCREEN AT 8 PX"), 8.0f, 8.0f,
+    y = text_pixel_line(box, SANDBOX_FONT_SILKSCREEN, TB_TEXT("SILKSCREEN"), 8.0f, 8.0f,
                         (tb_vec2){right, y + 8.0f}, (tb_vec4){1.0f, 0.55f, 0.8f, 1});
-    (void)text_pixel_line(box, SANDBOX_FONT_SILKSCREEN, TB_TEXT("AND AT 24, THREE TIMES"), 24.0f,
-                          8.0f, (tb_vec2){right, y}, (tb_vec4){1.0f, 0.55f, 0.8f, 1});
+    (void)text_pixel_line(box, SANDBOX_FONT_SILKSCREEN, TB_TEXT("AND LARGER, BY WHOLE PIXELS"),
+                          24.0f, 8.0f, (tb_vec2){right, y}, (tb_vec4){1.0f, 0.55f, 0.8f, 1});
 }
 
 static void text_draw(sandbox *box, void *state, const sandbox_frame *frame)
