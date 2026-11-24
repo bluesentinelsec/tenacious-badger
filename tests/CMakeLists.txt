@@ -158,6 +158,7 @@ set(TB_INTERNAL_TEST_CASE_SOURCES
     core/reserved_arena_failure_test.c
     codec/crc32_table_test.c
     jobs/deque_test.c
+    rhi/rhi_choice_test.c
     rhi/rhi_device_test.c
     shader/shader_check_test.c
     shader/shader_dxc_test.c

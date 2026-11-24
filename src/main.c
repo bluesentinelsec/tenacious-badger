@@ -29,6 +29,7 @@ static bool burrow_headless = false;
 static const char *burrow_settings_file = NULL;
 static const char *burrow_values[BURROW_MOST_VALUES] = {0};
 static size_t burrow_value_count = 0;
+static const char *burrow_renderer = NULL;
 
 static int burrow_load(burrow_settings *loaded)
 {
@@ -36,7 +37,8 @@ static int burrow_load(burrow_settings *loaded)
                                              .reset = burrow_reset,
                                              .player_file = burrow_settings_file,
                                              .values = burrow_values,
-                                             .value_count = burrow_value_count};
+                                             .value_count = burrow_value_count,
+                                             .renderer = burrow_renderer};
 
     return burrow_settings_load(&request, loaded);
 }
@@ -123,6 +125,12 @@ static const tb_cli_option burrow_options[] = {
      .count = &burrow_value_count,
      .help = "Give a setting a value for this session, over the settings files; may be given "
              "more than once. `burrow settings` lists them."},
+    {.long_name = "renderer",
+     .name = "NAME",
+     .text = &burrow_renderer,
+     .help = "The graphics API to draw through for this session: auto, d3d12, d3d11, vulkan, "
+             "opengl, metal, software, or null to draw nothing; the same as --set "
+             "graphics.renderer=NAME."},
     {.long_name = "reset-settings",
      .flag = &burrow_reset,
      .help = "Start from the default settings, setting the player's settings file aside as "

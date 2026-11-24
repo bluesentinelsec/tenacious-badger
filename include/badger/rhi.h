@@ -218,8 +218,10 @@ typedef struct tb_rhi_device_options
     uint32_t bindless_resources;
     /** Samplers that shaders reach by index at once; 0 is 2048. */
     uint32_t bindless_samplers;
-    /** Where the graphics API's validation messages go, in category "rhi";
-     * NULL drops them. Borrowed until the device is destroyed. */
+    /** Where the device says which backend it chose and why it passed over
+     * others, and where the graphics API's validation messages go, all in
+     * category "rhi"; NULL drops them. Borrowed until the device is
+     * destroyed. */
     struct tb_log *log;
 } tb_rhi_device_options;
 
@@ -631,13 +633,26 @@ typedef struct tb_rhi_texture_copy
 #define TB_RHI_CONSTANT_ALIGNMENT 256u
 
 /**
- * @brief Make a device.
+ * @brief Make a device on the backend the options name, as the
+ * `graphics.renderer` setting chooses it.
+ *
+ * #TB_RHI_BACKEND_AUTOMATIC tries the platform's backends in its order of
+ * preference (Windows: D3D12, D3D11, Vulkan, OpenGL, software; Linux: Vulkan,
+ * OpenGL, software; macOS: Metal, OpenGL, software), passes over any that is
+ * not written yet or is unavailable, and takes the first that makes a device.
+ * It never takes the null backend. A backend named outright is the only one
+ * tried. Either way, the options' log says which backend was used, and why
+ * each other was passed over.
+ *
  * @param options Required non-null.
  * @param device Required non-null; set to the device, or to NULL on failure.
  * @param error May be NULL; on failure, says why.
- * @return #TB_RHI_OK, or why there is no device. A backend this platform does
- * not build, or that is not written yet, is not a failure: it ends the
- * process, saying "not implemented" and what to run instead.
+ * @return #TB_RHI_OK, or why there is no device: #TB_RHI_UNAVAILABLE where
+ * the backend named, or every backend `auto` tried, is unavailable on this
+ * machine. A backend this platform does not build, or that is not written
+ * yet, named outright, is not a failure: it ends the process through
+ * tb_fatal(), saying "not implemented", the platform, and the next step:
+ * set `graphics.renderer` to `auto`, or run with `--renderer=auto`.
  * @par Threading Thread-safe.
  */
 TB_API tb_rhi_result tb_rhi_device_create(const tb_rhi_device_options *options,

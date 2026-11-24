@@ -3,7 +3,10 @@
  * buffers and textures copy through the GPU, triangles cover what they
  * should with depth, shaders reach textures, samplers and buffers by their
  * bindless indices, a swap chain presents, and validation's messages reach
- * the log. Each test reads its pixels back and checks them. */
+ * the log; `graphics.renderer` chooses D3D12, and Metal is not implemented
+ * on Windows. Each test reads its pixels back and checks them. */
+#include "badger/engine_settings.h"
+#include "badger/fatal.h"
 #include "badger/log.h"
 #include "badger/rhi.h"
 #include "badger/str.h"
@@ -751,4 +754,116 @@ TB_TEST(rhi_d3d12, validation_runs_with_a_log)
     TB_TEST_EXPECT_HEX(pixel(opened.device, &drawn, 3, 3), ==, 0xFF0000FFu);
     free_target(opened.device, &drawn);
     close_warp(&opened);
+}
+
+/* ------------------------------------------------------------------------- */
+
+/* The first record the log heard. */
+typedef struct first_record
+{
+    char text[256];
+} first_record;
+
+static bool remember_first(void *context, const tb_log_record *record)
+{
+    first_record *const first = context;
+    const size_t length =
+        record->length < sizeof(first->text) - 1 ? record->length : sizeof(first->text) - 1;
+
+    if (first->text[0] == '\0')
+    {
+        memcpy(first->text, record->message, length);
+        first->text[length] = '\0';
+    }
+    return true;
+}
+
+/* A device on WARP as the `graphics.renderer` setting chooses it, with the
+ * log's record of the choice; a skipped case where there is no WARP. */
+static tb_rhi_device *open_chosen(const char *renderer, first_record *first)
+{
+    tb_settings *const settings = tb_settings_create();
+    tb_engine_settings engine = {0};
+    tb_log *const log = tb_log_create();
+    tb_log_config config = TB_LOG_CONFIG_INIT;
+    tb_rhi_device_options options = {.adapter = TB_RHI_ADAPTER_SOFTWARE};
+    tb_rhi_error error = TB_RHI_ERROR_INIT;
+    tb_rhi_device *device = NULL;
+    tb_rhi_result result = TB_RHI_OK;
+
+    tb_engine_settings_add(settings, NULL, &engine);
+    TB_TEST_REQUIRE_UINT(
+        tb_settings_set(settings, TB_SETTING_LAYER_COMMAND_LINE, "graphics.renderer", renderer), ==,
+        TB_SETTING_OK);
+    tb_engine_settings_device_options(&engine, &options);
+    tb_settings_destroy(settings);
+    config.minimum = TB_LOG_INFO;
+    config.write_record = remember_first;
+    config.flush = NULL;
+    config.context = first;
+    TB_TEST_REQUIRE_UINT(tb_log_configure(log, &config), ==, TB_LOG_OK);
+    options.log = log;
+    result = tb_rhi_device_create(&options, &device, &error);
+    (void)tb_log_destroy(log);
+    if (result != TB_RHI_OK)
+    {
+        TB_TEST_SKIP("no WARP device: %s", error.message);
+    }
+    return device;
+}
+
+/* `auto` takes D3D12 first on Windows, and says so. */
+TB_TEST(rhi_d3d12, auto_chooses_d3d12_on_windows)
+{
+    first_record first = {0};
+    tb_rhi_device *const device = open_chosen("auto", &first);
+    tb_rhi_device_info info = {0};
+
+    tb_rhi_device_info_of(device, &info);
+    TB_TEST_EXPECT_UINT(info.backend, ==, TB_RHI_BACKEND_D3D12);
+    TB_TEST_EXPECT(tb_str_starts_with(first.text, "using d3d12 on "));
+    TB_TEST_EXPECT(tb_str_find(first.text, 0, TB_STR_END, ", as graphics.renderer auto chose") !=
+                   TB_STR_NOT_FOUND);
+    tb_rhi_device_destroy(device);
+}
+
+/* `graphics.renderer=d3d12` makes a D3D12 device. */
+TB_TEST(rhi_d3d12, the_renderer_setting_names_d3d12)
+{
+    first_record first = {0};
+    tb_rhi_device *const device = open_chosen("d3d12", &first);
+    tb_rhi_device_info info = {0};
+
+    tb_rhi_device_info_of(device, &info);
+    TB_TEST_EXPECT_UINT(info.backend, ==, TB_RHI_BACKEND_D3D12);
+    TB_TEST_EXPECT(tb_str_find(first.text, 0, TB_STR_END, ", as graphics.renderer d3d12 chose") !=
+                   TB_STR_NOT_FOUND);
+    tb_rhi_device_destroy(device);
+}
+
+/* A fatal condition, as a trap the case can expect. */
+static void trap_fatal(const tb_fatal_report *report, void *context)
+{
+    (void)context;
+    tb_test_trap(__FILE__, __LINE__, report->message);
+}
+
+static void create_metal(void *context)
+{
+    const tb_rhi_device_options options = {.backend = TB_RHI_BACKEND_METAL};
+    tb_rhi_device *device = NULL;
+
+    (void)context;
+    (void)tb_rhi_device_create(&options, &device, NULL);
+    tb_rhi_device_destroy(device);
+}
+
+/* Metal, which Windows never builds, is "not implemented" there. */
+TB_TEST(rhi_d3d12, metal_is_not_implemented_on_windows)
+{
+    tb_fatal_set_handler(trap_fatal, NULL);
+    TB_TEST_EXPECT_TRAP(create_metal, NULL,
+                        "the metal backend is not implemented on Windows, which does not build "
+                        "it; set graphics.renderer to auto, or run with --renderer=auto");
+    tb_fatal_set_handler(NULL, NULL);
 }

@@ -1,5 +1,5 @@
 """Check Burrow's settings from its command line: the layers, --set,
---reset-settings, --mode, and problems in a settings file.
+--renderer, --reset-settings, --mode, and problems in a settings file.
 
     python burrow_settings_test.py <burrow executable>
 
@@ -63,6 +63,21 @@ with tempfile.TemporaryDirectory(prefix='tb-burrow-settings-') as temporary:
         status, out, err = run(*common, '--set', value, 'settings')
         expect(status == 2, f'--set {value}: status {status}', err)
         expect(message in err, f'--set {value}: message', err)
+
+    # --renderer is --set graphics.renderer, after the --set values; a renderer
+    # the platform does not build is still a value, which the RHI reports.
+    status, out, err = run(*common, '--renderer=metal', 'settings')
+    expect(status == 0, f'--renderer: status {status}', err)
+    expect('graphics.renderer = metal  # command line' in out, '--renderer', out)
+    status, out, err = run(*common, '--set', 'graphics.renderer=null', '--renderer', 'd3d12',
+                           'settings')
+    expect('graphics.renderer = d3d12  # command line' in out, '--renderer wins', out)
+    status, out, err = run(*common, 'settings')
+    expect('graphics.renderer = auto  # built-in' in out, 'auto by default', out)
+    status, out, err = run(*common, '--renderer=directx', 'settings')
+    expect(status == 2, f'--renderer=directx: status {status}', err)
+    expect('--renderer=directx: not a renderer; the renderers are auto, d3d12, d3d11, vulkan, '
+           'opengl, metal, software, null' in err, '--renderer=directx: message', err)
 
     # Resetting sets the file aside and starts from the defaults.
     status, out, err = run(*common, '--reset-settings', 'settings')
