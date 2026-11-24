@@ -380,11 +380,11 @@ static void tb_text_upload(tb_renderer *renderer)
     tb_rhi_error error = TB_RHI_ERROR_INIT;
     size_t offset = 0;
 
-    if (count == 0)
-    {
-        return;
-    }
     tb_font_atlas_get_image(renderer->glyph_atlas, &image);
+    if (count == 0 || image.pixels == NULL)
+    {
+        return; /* nothing changed; an atlas always has its pixels */
+    }
     for (size_t index = 0; index < count; index++)
     {
         size = tb_text_align_offset(size) + tb_text_pitch(&rects[index]) * rects[index].height;
