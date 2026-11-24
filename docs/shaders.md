@@ -295,6 +295,36 @@ or a `uint`. Each step has a type of its own, named as DXC names it:
 `Texture2D<float>::mips_type`, then `Texture2D<float>::mips_slice_type`. A
 texel read so is read-only, except a writable texture's sample.
 
+**Descriptor heaps.** From Shader Model 6.6, the model a compile targets
+(`shader_model` of the request, 6.6 by default), `ResourceDescriptorHeap`
+and `SamplerDescriptorHeap` are declared, as DXC declares them, and the
+RHI's bindless binding (see [Binding](rhi.md#binding-bindless-with-one-layout))
+reaches every resource through them. Before 6.6 they are not declared, and
+their names are free for a shader's own use; from 6.6, declaring either name
+at namespace scope is a redefinition, though a local may hide it.
+
+```hlsl
+Texture2D<float4> image = ResourceDescriptorHeap[Draw.Texture];
+SamplerState sampler = SamplerDescriptorHeap[Draw.Sampler];
+```
+
+- Indexing a heap gives a descriptor (`const .Resource`, `const .Sampler`,
+  as DXC names them), which converts, where it initializes, is assigned, is
+  passed or is cast, to what the heap holds: from the resource heap, any
+  texture or buffer, writable or not, `ConstantBuffer<T>`, `TextureBuffer<T>`
+  and `RaytracingAccelerationStructure`; from the sampler heap,
+  `SamplerState` and `SamplerComparisonState`. Every resource converts at the
+  same cost, so `f(Texture2D)` and `f(Buffer<float4>)` are ambiguous for one.
+- The index is one component that converts to a `uint`, a float or a bool
+  among them, with `NonUniformResourceIndex()` around it where it varies
+  across a wave. A vector or a struct is an error.
+- A descriptor is no value of its own: it has no members, methods, operators
+  or size, converts to nothing else (`float4`, a struct, an array, a
+  `RayQuery`), and neither it nor a heap can be assigned or passed `out`.
+- A resource taken from the sampler heap, or a sampler from the resource
+  heap, is an error that names the heap it comes from. DXC 1.8 compiles
+  both, into a shader that reads the wrong kind of descriptor.
+
 **Not yet.** Templates come later, and so do these intrinsics: the
 tessellation factor functions, the packed 8-bit types and their `pack_` and
 `unpack_` functions, and the legacy `tex2D` family. The methods of
@@ -362,6 +392,11 @@ class, and the register and space `register(t3, space1)` gives it:
   a location (and a level or a sample), to what the resource holds there,
   which loads, stores and atomics take; a store to a resource that is not
   written is an error of the form;
+- `ResourceDescriptorHeap[i]` is `i` until it converts to a resource or a
+  sampler, which is a HEAP expression: the handle at that index of the
+  resource heap or the sampler heap, or for a constant or texture buffer the
+  struct it holds, as its global is. The heaps are globals of no space, and
+  bind nothing;
 - a method of a resource is an expression of the handle when it has no
   effect, and a call otherwise; a `RayQuery` is a local its methods change,
   so each of them is a call given a pointer to it.
@@ -472,8 +507,11 @@ if (tb_shader_compile(&request, arena, &compiled) == TB_SHADER_OK)
 
 - **Features:** what the shader needs beyond the portable core of raster and
   compute shaders, among wave operations, bindless resources (an array of no
-  size, or NonUniformResourceIndex()), 64-bit floats, integers and atomics,
-  ray queries, ray-tracing pipelines, mesh shaders and sampler feedback. A
+  size, or NonUniformResourceIndex()), indexing the resource descriptor heap
+  and the sampler descriptor heap (each named alone, as DXC's shader flags
+  name them), 64-bit floats, integers and atomics, ray queries, ray-tracing
+  pipelines, mesh shaders and sampler feedback. A resource or a sampler
+  taken from a heap has no binding, as in DXC. A
   backend that lacks one reports the shader unavailable, and the renderer
   falls back to what it can run, saying why. Only what the entry point
   reaches counts.
@@ -527,7 +565,9 @@ tb_dxc_close(dxc);
   compiles as a library (`lib_6_6`), every entry point of the source at once.
   The shader model is `TB_SHADER_MODEL(major, minor)`, 6.6 by default, the
   D3D12 baseline; a stage needs the model that brought it (6.5 for a mesh
-  shader), and DXC says so of one too old. A compile is optimized (`-O3`),
+  shader), and DXC says so of one too old. The compiler's own checking reads
+  the same model, so a shader that indexes a descriptor heap before 6.6 is
+  an error before DXC is asked. A compile is optimized (`-O3`),
   or with `TB_SHADER_COMPILE_DEBUG`, unoptimized with the debug information
   PIX reads embedded (`-Od -Zi -Qembed_debug`).
 - **What comes back.** A DXBC container, signed by DXC's `dxil.dll`, holding

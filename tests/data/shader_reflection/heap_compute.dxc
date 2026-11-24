@@ -1,0 +1,6 @@
+binding Indices cbuffer cb0 1
+buffer Indices 12
+feature resource_heap
+variable Indices.image_index 8
+variable Indices.source_index 0
+variable Indices.target_index 4
