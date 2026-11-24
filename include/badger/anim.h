@@ -40,8 +40,8 @@
  * clamped to its duration.
  *
  * **Blending** weighs poses by weights that need not sum to one: they are
- * divided by their sum. Rotations are blended as quaternions brought into the
- * hemisphere of the first weighted pose's, summed and normalized: the same rotation
+ * divided by their sum. Rotations are blended as quaternions, each brought
+ * into the hemisphere of the sum before it, summed and normalized: the same rotation
  * whichever sign each quaternion has. An additive pose adds what a pose
  * differs from a reference pose to a base pose.
  *

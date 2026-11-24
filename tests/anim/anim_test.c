@@ -244,6 +244,23 @@ TB_TEST(anim_blend, opposite_signs_of_one_rotation_blend_to_it)
     expect_rotation(a[0].rotation, turned);
 }
 
+/* Two signs of a half turn, each at right angles to a first rotation of
+ * almost no weight: brought into the hemisphere of the sum so far, the
+ * second joins the first instead of cancelling it. */
+TB_TEST(anim_blend, rotations_join_the_sum_so_far)
+{
+    tb_anim_transform faint[1] = {TB_ANIM_TRANSFORM_INIT};
+    tb_anim_transform half[1] = {TB_ANIM_TRANSFORM_INIT};
+    tb_anim_transform opposite[1] = {TB_ANIM_TRANSFORM_INIT};
+    const tb_anim_transform *const poses[3] = {faint, half, opposite};
+    tb_anim_transform result[1] = {0};
+
+    half[0].rotation = (tb_quat){1, 0, 0, 0};
+    opposite[0].rotation = (tb_quat){-1, 0, 0, 0};
+    tb_anim_blend(poses, (const float[3]){1e-7f, 0.5f, 0.5f}, 3, result, 1);
+    expect_rotation(result[0].rotation, half[0].rotation);
+}
+
 /* An additive pose adds its difference from the reference: none at weight
  * 0, all of it at 1, half of a turn at a half. */
 TB_TEST(anim_blend, an_additive_pose_adds_its_difference)

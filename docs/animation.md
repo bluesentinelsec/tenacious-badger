@@ -74,11 +74,12 @@ skeleton that has them; retargeting between skeletons is not done.
 `tb_anim_blend()` weighs poses joint by joint. Weights are divided by their
 sum, so `1, 3` is a quarter and three quarters; weights of sum 0 give the
 first pose. Translations and scales are summed. **Rotations** are summed as
-quaternions, each first brought into the hemisphere of the first weighted
-pose's (`q` and `−q` are one rotation, and summed they would cancel), then
+quaternions, each first brought into the hemisphere of the sum before it
+(`q` and `−q` are one rotation, and summed they would cancel), then
 normalized: the normalized linear blend, which for poses of one character is
-as good as slerp, works for any number of poses, and does not depend on
-their order.
+as good as slerp and works for any number of poses. The sum only grows as
+rotations are added, so it never comes to nothing, even for three poses
+whose rotations would cancel against the first's.
 
 `tb_anim_add()` is **additive** blending: it adds what a pose differs from a
 reference pose (its translation's difference, the rotation from the

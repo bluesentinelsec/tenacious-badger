@@ -154,9 +154,11 @@ TB_TEST(skinning_frame, a_frame_that_skins_a_lot_still_ends)
 {
     screen opened = {0};
     tb_skinned_mesh *strip = NULL;
-    tb_mat4 *const joints = tb_calloc(MANY_JOINTS, sizeof(*joints));
+    tb_mat4 *joints = NULL;
 
+    /* A case without windowing ends here, before anything is allocated. */
     open_screen(&opened);
+    joints = tb_calloc(MANY_JOINTS, sizeof(*joints));
     for (size_t joint = 0; joint < MANY_JOINTS; joint++)
     {
         joints[joint] = tb_mat4_identity();

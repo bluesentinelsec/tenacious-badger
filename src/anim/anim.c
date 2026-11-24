@@ -17,8 +17,6 @@
 /* Floats of a key of a rotation, and of a translation or a scale. */
 #define TB_ANIM_ROTATION_FLOATS 4u
 #define TB_ANIM_VECTOR_FLOATS 3u
-/* A squared length of a summed rotation at or below this is no rotation. */
-#define TB_ANIM_DEGENERATE_SQUARED 1e-12f
 
 struct tb_skeleton
 {
@@ -57,8 +55,6 @@ typedef struct tb_anim_sum
     tb_vec3 translation;
     tb_quat rotation;
     tb_vec3 scale;
-    tb_quat hemisphere; /* the first rotation summed, which the others are brought near */
-    bool started;
 } tb_anim_sum;
 
 /* ---------------------------------------------------------------------------
@@ -79,13 +75,10 @@ static void tb_anim_sum_add(tb_anim_sum *sum, const tb_anim_transform *transform
 {
     tb_quat rotation = transform->rotation;
 
-    if (!sum->started)
-    {
-        sum->hemisphere = rotation;
-        sum->started = true;
-    }
-    /* q and −q are the same rotation; summed, they would cancel. */
-    if (tb_quat_dot(sum->hemisphere, rotation) < 0.0f)
+    /* q and −q are the same rotation; summed, they would cancel. Each is
+     * brought into the hemisphere of the sum so far, which therefore only
+     * grows, and is never 0 once a rotation of length 1 has been added. */
+    if (tb_quat_dot(sum->rotation, rotation) < 0.0f)
     {
         rotation = (tb_quat){-rotation.x, -rotation.y, -rotation.z, -rotation.w};
     }
@@ -99,17 +92,7 @@ static void tb_anim_sum_add(tb_anim_sum *sum, const tb_anim_transform *transform
 
 static tb_anim_transform tb_anim_sum_result(const tb_anim_sum *sum)
 {
-    tb_anim_transform result = {sum->translation, sum->rotation, sum->scale};
-
-    if (tb_quat_dot(sum->rotation, sum->rotation) <= TB_ANIM_DEGENERATE_SQUARED)
-    {
-        result.rotation = sum->hemisphere;
-    }
-    else
-    {
-        result.rotation = tb_quat_normalize(sum->rotation);
-    }
-    return result;
+    return (tb_anim_transform){sum->translation, tb_quat_normalize(sum->rotation), sum->scale};
 }
 
 /* ---------------------------------------------------------------------------
