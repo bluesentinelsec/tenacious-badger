@@ -27,5 +27,11 @@ if(TB_BUILD_TESTS)
                 --frames 3 --capture "${CMAKE_CURRENT_BINARY_DIR}/sandbox_materials.bmp")
         set_tests_properties(sandbox.draws_materials_on_d3d12 PROPERTIES
             PASS_REGULAR_EXPRESSION "saved")
+        # A cube map's faces uploaded and mipmapped, drawn as the sky.
+        add_test(NAME sandbox.draws_a_cube_sky_on_d3d12
+            COMMAND badger-sandbox --renderer d3d12 --software --validation --scene sky_cube
+                --frames 3 --capture "${CMAKE_CURRENT_BINARY_DIR}/sandbox_sky_cube.bmp")
+        set_tests_properties(sandbox.draws_a_cube_sky_on_d3d12 PROPERTIES
+            PASS_REGULAR_EXPRESSION "saved")
     endif()
 endif()
