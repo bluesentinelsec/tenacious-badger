@@ -105,6 +105,7 @@ set(TB_TEST_CASE_SOURCES
     settings/settings_test.c
     shader/shader_compile_test.c
     ${TB_SHADER_REFLECTION_SOURCE}
+    render/canvas_test.c
     render/render_graph_test.c
     render/renderer_test.c
     rhi/rhi_test.c
@@ -144,7 +145,7 @@ if(WIN32)
     # DXIL that tools/make_rhi_test_shaders.py compiled from tests/data/rhi.
     tb_embed_test_data(TB_RHI_SHADER_SOURCE tb_rhi_shader_files rhi "*.dxil")
     list(APPEND TB_TEST_CASE_SOURCES rhi/rhi_d3d12_test.c ${TB_RHI_SHADER_SOURCE}
-        render/renderer_d3d12_test.c)
+        render/canvas_d3d12_test.c render/renderer_d3d12_test.c)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     list(APPEND TB_TEST_CASE_SOURCES platform/linux/window_x11_test.c)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
@@ -172,6 +173,7 @@ set(TB_INTERNAL_TEST_CASE_SOURCES
     core/reserved_arena_failure_test.c
     codec/crc32_table_test.c
     jobs/deque_test.c
+    render/canvas_batch_test.c
     rhi/rhi_choice_test.c
     rhi/rhi_device_test.c
     shader/shader_check_test.c

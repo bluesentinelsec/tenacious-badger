@@ -145,6 +145,14 @@ TB_API void tb_renderer_destroy(tb_renderer *renderer);
 /** @brief The renderer's device, for what draws through the RHI itself. */
 TB_API tb_rhi_device *tb_renderer_device(tb_renderer *renderer);
 
+/**
+ * @brief The size of the frames in pixels: the window's, as of the last
+ * tb_renderer_begin_frame() that drew, or the renderer's creation.
+ * @param width Required; receives the pixels across.
+ * @param height Required; receives the pixels down.
+ */
+TB_API void tb_renderer_size(const tb_renderer *renderer, uint32_t *width, uint32_t *height);
+
 /** @brief Wait for the display's refresh from the next frame on, or not. */
 TB_API void tb_renderer_set_vsync(tb_renderer *renderer, bool vsync);
 
