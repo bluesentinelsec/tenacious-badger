@@ -46,18 +46,18 @@ static tb_font *open_font(const char *name)
 static double contour_area(const tb_font_contour *contour)
 {
     double twice = 0.0;
-    double x0 = contour->start.x;
-    double y0 = contour->start.y;
+    double x0 = (double)contour->start.x;
+    double y0 = (double)contour->start.y;
     for (size_t index = 0; index < contour->segment_count; index++)
     {
         const tb_font_segment *segment = &contour->segments[index];
-        const double x1 = segment->end.x;
-        const double y1 = segment->end.y;
+        const double x1 = (double)segment->end.x;
+        const double y1 = (double)segment->end.y;
         twice += x0 * y1 - x1 * y0;
         if (segment->type == TB_FONT_QUADRATIC)
         {
-            const double cx = segment->control.x;
-            const double cy = segment->control.y;
+            const double cx = (double)segment->control.x;
+            const double cy = (double)segment->control.y;
             const double triangle = (cx - x0) * (y1 - y0) - (x1 - x0) * (cy - y0);
             twice += 2.0 / 3.0 * triangle;
         }
@@ -287,7 +287,7 @@ TB_TEST(font_raster, the_coverage_of_a_glyph_adds_up_to_the_area_of_its_outline)
     for (size_t index = 0; index < TB_TEST_COUNT_OF(cases); index++)
     {
         tb_font *font = open_font(cases[index].file);
-        const double scale = tb_font_scale(font, cases[index].size);
+        const double scale = (double)tb_font_scale(font, cases[index].size);
         for (uint32_t code_point = '!'; code_point <= '~'; code_point++)
         {
             TB_TEST_CONTEXT("%s at %g: U+%04X", cases[index].file, (double)cases[index].size,
@@ -371,13 +371,13 @@ static void reference_lines(reference *made, const tb_font_outline *outline)
     for (size_t contour_index = 0; contour_index < outline->contour_count; contour_index++)
     {
         const tb_font_contour *contour = &outline->contours[contour_index];
-        double x = contour->start.x;
-        double y = contour->start.y;
+        double x = (double)contour->start.x;
+        double y = (double)contour->start.y;
         for (size_t index = 0; index < contour->segment_count; index++)
         {
             const tb_font_segment *segment = &contour->segments[index];
-            const double end_x = segment->end.x;
-            const double end_y = segment->end.y;
+            const double end_x = (double)segment->end.x;
+            const double end_y = (double)segment->end.y;
             if (segment->type == TB_FONT_LINE)
             {
                 reference_add(made, x, y, end_x, end_y);
@@ -480,7 +480,7 @@ TB_TEST(font_raster, the_coverage_of_each_pixel_matches_a_reference_rasterizer)
     tb_arena *arena = tb_arena_create(0);
     for (size_t size = 0; size < TB_TEST_COUNT_OF(sizes); size++)
     {
-        const double scale = tb_font_scale(roboto, sizes[size]);
+        const double scale = (double)tb_font_scale(roboto, sizes[size]);
         for (uint32_t code_point = '!'; code_point <= '~'; code_point++)
         {
             TB_TEST_CONTEXT("U+%04X at %g", (unsigned)code_point, (double)sizes[size]);
