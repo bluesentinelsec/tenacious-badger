@@ -324,7 +324,8 @@ written as given.
 | `gbuffer` | base color (`R8G8B8A8_SRGB`), normal (`R16G16_FLOAT`, octahedral), surface (`R8G8B8A8_UNORM`: metallic, roughness, occlusion, lit), depth | meshes, materials' textures |
 | `lighting` | the scene's light (`R16G16B16A16_FLOAT`) | the G-buffer and depth; lights and constants from the frame's uploads |
 | `forward` | the scene's light, and depth | custom draws, then the sky |
-| `tonemap` | the swap chain's image | the scene's light |
+| `temporal anti-aliasing` | a history, at the output's size | the scene's light and depth, the last history |
+| `tonemap` | the swap chain's image | the history, or the scene's light without TAA |
 | `debug lines` | the swap chain's image | depth |
 | `canvas` | the swap chain's image | the frame's quads |
 
@@ -348,13 +349,95 @@ written as given.
   Unreal's translucency and sky are: the custom draws, with the scene's
   depth, and the sky behind everything.
 - **Debug lines** are drawn over the tone-mapped image, so that their
-  colors are as given and they are not blurred by what comes between. A
-  line tested against depth loads the scene's depth at its pixel and is
-  discarded where the scene is nearer.
+  colors are as given and they are neither jittered nor blurred by what
+  comes between. A line tested against depth loads the scene's depth at
+  its pixel, scaled to the render's size, and is discarded where the scene
+  is nearer.
 - **Without bindless resources**, there is no raster lighting mode: meshes
   are drawn in one pass straight into the swap chain, lit by the default
   light with a constant ambient, as before it, materials in their base
   color factor, with no sky and no output transform.
+
+## Resolution and anti-aliasing
+
+The scene renders at a share of the output's resolution, the render scale,
+and temporal anti-aliasing (TAA) upsamples it to the output's, as Unreal's
+TAAU does: the engine's own upscaler, always there, which vendors'
+upscalers will stand beside as plugins. The canvas and the debug lines are
+drawn at the output's resolution.
+
+```c
+tb_renderer_quality quality = TB_RENDERER_QUALITY_INIT; /* scale 1, TAA, 256 lights */
+tb_renderer_quality_from_settings(&engine, &quality);   /* or from the graphics settings */
+tb_renderer_set_quality(renderer, &quality);            /* from the next frame */
+
+tb_renderer_camera_cut(renderer); /* the next frame does not follow from this one */
+```
+
+**Jitter.** With TAA on, each frame's projection moves by a fraction of a
+pixel, the points of Halton's sequence of bases 2 and 3 from its second
+(its first is the pixel's corner), eight a cycle, as Unreal's default. The
+custom draws are given the jittered projection, so that they line up with
+the meshes; the lines are drawn without it.
+
+**The temporal pass** runs at the output's size after the lighting and
+the sky, before tone mapping, into one of two history textures
+(`R16G16B16A16_FLOAT`), which the next frame reads:
+
+- Each output pixel finds where its middle falls in the jittered frame,
+  and takes the frame's sample nearest it, weighed by its distance in
+  output pixels (a Gaussian fit of the Blackman-Harris window, Unreal's).
+  Over a cycle each pixel gathers samples from all over its area, which
+  smooths its edges and, from a frame rendered smaller, makes up the
+  output's detail.
+- **Motion** is the camera's alone: the pixel's place in the last frame
+  comes from the nearest depth of the 3x3 texels around it, through this
+  frame's unjittered clip transform and the last's. The renderer draws
+  meshes as they are given each frame, and keeps none of their last
+  transforms, so a moving mesh is reprojected as if it stood still; its
+  history is held in check by the clamp below. Per-object motion vectors
+  come with the renderer's own scene representation.
+- The history there is **clamped** to the box of the 3x3 neighbourhood's
+  colors in YCoCg (Karis 2014), which rejects what is not there any more,
+  and blended with the sample by weights over one plus luma, the sample's
+  weight 0.1 at most, which keeps bright pixels from flickering.
+- **The history is forgotten** when the output's size, the render scale,
+  the kind of projection or TAA itself changes, and on
+  `tb_renderer_camera_cut()`. A frame without a history takes the jittered
+  frame filtered bilinearly.
+
+**Without TAA** the scene is not jittered, and the tonemap pass filters it
+bilinearly up to the output's size.
+
+## Quality and profiles
+
+A `tb_renderer_quality` holds what the quality settings set, as Unreal's
+scalability groups set console variables: the render scale (0.25 to 2),
+TAA, the most lights shaded a frame (the directional lights first, then
+the nearest to the camera), and reflections of the sky (without, the
+specular takes the ambient light the surface faces).
+`tb_renderer_quality_from_settings()` reads them from the engine's
+settings:
+
+| Setting | Renderer value |
+| --- | --- |
+| `graphics.upscaler_mode` | the render scale: `native` 1, `quality` 2/3, `balanced` 0.58, `performance` 1/2, `ultra_performance` 1/3, `custom` `graphics.render_scale` |
+| `graphics.anti_aliasing` | TAA when `taa`, or whenever the render scale is below 1, since the engine's upscaler is TAA; `fxaa` is not yet, and is off |
+| `graphics.light_quality` | lights: 16, 64, 256 or 1024 |
+| `graphics.reflection_quality` | reflections, unless `low` |
+| `graphics.upscaler` | vendors' upscalers are not plugins yet: the engine's stands in |
+
+**Profiles.** The renderer takes what its profile allows of the quality
+asked. A device whose GPU runs on the CPU (WARP) takes the low
+profile by itself, as the author's CPU fallback: at most half the output's
+resolution, filtered up, with no TAA or reflections and 16 lights at most,
+so that a software adapter still draws a playable frame. A device without
+bindless resources is low too, without the raster lighting mode.
+`tb_renderer_options.profile` asks for full or low instead: tests of the
+full path on WARP ask for full. `tb_renderer_capabilities_of()` says which
+profile the renderer took, what it allows, and why; the renderer logs the
+same, at `info`, when it is made. None of it is fatal: a missing capability
+is reported and worked around, never an error.
 
 ## Debug drawing
 
@@ -577,6 +660,8 @@ the same way, but no library holds it.
   ambient occlusion textures.
 - Prefiltered image-based lighting, clouds and atmosphere.
 - Automatic exposure, `display.brightness`, and HDR output.
+- Per-object motion vectors, FXAA, sharpening, dynamic resolution, and the
+  vendors' upscalers as plugins.
 - Precomputed tangents, texture compression, and streaming of mip levels.
 - Debug drawing that lasts more than one frame.
 - Images with rounded or smoothed edges, gradients and polygons in 2D;

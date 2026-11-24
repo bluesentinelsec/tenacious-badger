@@ -244,6 +244,24 @@ static tb_rhi_result tb_renderer_pipelines(tb_renderer *renderer, tb_rhi_error *
  * Making and destroying.
  * ------------------------------------------------------------------------- */
 
+/* Say what a low profile leaves out, and why: never fatal, as a capability
+ * that is not there is not. */
+static void tb_renderer_report_profile(const tb_renderer *renderer)
+{
+    const tb_renderer_capabilities *const capabilities = &renderer->capabilities;
+
+    if (renderer->log == NULL || capabilities->profile != TB_RENDERER_PROFILE_LOW)
+    {
+        return;
+    }
+    (void)tb_log_printf(renderer->log, TB_LOG_INFO, "renderer",
+                        "low profile, as %s: render scale at most %.2f, %s temporal "
+                        "anti-aliasing, %u lights at most, %s reflections",
+                        capabilities->reason, (double)capabilities->max_render_scale,
+                        capabilities->temporal_aa ? "with" : "no", capabilities->max_lights,
+                        capabilities->reflections ? "with" : "no");
+}
+
 /* Where the device's shaders come from: its backend's library, the cache,
  * and DXC for D3D12. Without DXC, D3D12 draws only with what the library
  * holds; with no library either, it cannot draw, which is said at once. */
@@ -310,6 +328,9 @@ tb_rhi_result tb_renderer_create(const tb_renderer_options *options, tb_renderer
     }
     tb_rhi_device_info_of(renderer->device, &renderer->info);
     renderer->deferred = (renderer->info.features & TB_RHI_FEATURE_BINDLESS) != 0;
+    renderer->capabilities = tb_renderer_capabilities_for(&renderer->info, options->profile);
+    renderer->quality_asked = (tb_renderer_quality)TB_RENDERER_QUALITY_INIT;
+    tb_renderer_report_profile(renderer);
     result = tb_renderer_shader_sources(renderer, options, error);
     if (result != TB_RHI_OK)
     {
@@ -371,6 +392,16 @@ tb_rhi_result tb_renderer_create(const tb_renderer_options *options, tb_renderer
     {
         goto failed;
     }
+    result = tb_renderer_temporal_create(renderer, error);
+    if (result != TB_RHI_OK)
+    {
+        goto failed;
+    }
+    renderer->quality =
+        tb_renderer_quality_within(&renderer->quality_asked, &renderer->capabilities);
+    tb_render_size_of(renderer->width, renderer->height, renderer->quality.render_scale,
+                      renderer->info.max_texture_size, &renderer->render_width,
+                      &renderer->render_height);
     renderer->graph = tb_render_graph_create(renderer->device);
     *made = renderer;
     return TB_RHI_OK;
@@ -390,6 +421,7 @@ void tb_renderer_destroy(tb_renderer *renderer)
     {
         (void)tb_rhi_wait_idle(renderer->device);
         tb_render_graph_destroy(renderer->graph);
+        tb_renderer_temporal_destroy(renderer);
         tb_renderer_lighting_destroy(renderer);
         tb_renderer_skinning_destroy(renderer);
         tb_renderer_sky_destroy(renderer);
@@ -498,6 +530,7 @@ bool tb_renderer_begin_frame(tb_renderer *renderer, const tb_camera *camera, tb_
     tb_renderer_skinning_begin_frame(renderer);
     renderer->camera = *camera;
     renderer->clear = clear;
+    tb_renderer_quality_begin_frame(renderer);
     renderer->draw_count = 0;
     renderer->custom_count = 0;
     tb_canvas_batch_begin(&renderer->canvas, renderer->width, renderer->height);
@@ -591,10 +624,12 @@ typedef struct tb_renderer_recording
 {
     tb_renderer *renderer;
     tb_mat4 view;
-    tb_mat4 projection;
-    tb_mat4 clip;
-    uint64_t sky;      /* the sky's constants in the frame's uploads; UINT64_MAX for none */
-    uint64_t lighting; /* the lighting pass's; UINT64_MAX when they did not fit */
+    tb_mat4 projection;      /* jittered, as the scene is drawn */
+    tb_mat4 clip;            /* `projection * view` */
+    tb_mat4 unjittered_clip; /* what the lines and temporal anti-aliasing see through */
+    uint64_t sky;            /* the sky's constants in the frame's uploads; UINT64_MAX for none */
+    tb_temporal_recording temporal; /* its constants are UINT64_MAX without it */
+    uint64_t lighting;              /* the lighting pass's; UINT64_MAX when they did not fit */
     uint64_t lines_offset[2];
     tb_render_graph_buffer skinned; /* the frame's skinned vertices; none when none */
     tb_render_graph_texture gbuffer[TB_RENDERER_GBUFFER_TARGETS];
@@ -626,12 +661,24 @@ static void tb_renderer_upload_frame(tb_renderer *renderer, tb_renderer_recordin
     const float aspect = (float)renderer->width / (float)renderer->height;
     const tb_mat4 projection = tb_camera_projection_of(&renderer->camera, aspect);
     const tb_light light = tb_renderer_default_light(renderer);
+    tb_vec2 jitter = {0};
 
+    if (renderer->quality.temporal_aa)
+    {
+        jitter = tb_temporal_jitter(renderer->jitter_frame);
+        renderer->jitter_frame++;
+    }
     recording->renderer = renderer;
     recording->view = tb_camera_view(&renderer->camera);
-    recording->projection = projection;
-    recording->clip = tb_mat4_mul(projection, recording->view);
+    recording->unjittered_clip = tb_mat4_mul(projection, recording->view);
+    recording->projection =
+        tb_temporal_jittered(projection, jitter, renderer->render_width, renderer->render_height);
+    recording->clip = tb_mat4_mul(recording->projection, recording->view);
     recording->lighting = UINT64_MAX;
+    recording->temporal.constants =
+        renderer->deferred
+            ? tb_renderer_temporal_upload(renderer, jitter, recording->unjittered_clip)
+            : UINT64_MAX;
     for (size_t index = 0; index < renderer->draw_count; index++)
     {
         tb_renderer_draw *const draw = &renderer->draws[index];
@@ -668,7 +715,10 @@ static void tb_renderer_record_lines(tb_renderer_recording *recording,
 {
     tb_renderer *const renderer = recording->renderer;
     const tb_renderer_frame *const frame = &renderer->frames[renderer->slot];
-    tb_renderer_line_constants constants = {.clip = recording->clip, .scale = {1.0f, 1.0f}};
+    tb_renderer_line_constants constants = {
+        .clip = recording->unjittered_clip,
+        .scale = {(float)renderer->render_width / (float)renderer->width,
+                  (float)renderer->render_height / (float)renderer->height}};
     tb_rhi_pipeline pipeline = renderer->line_pipeline;
 
     if (recording->lines_offset[layer] == UINT64_MAX)
@@ -741,8 +791,8 @@ static void tb_renderer_record_customs(tb_renderer_recording *recording,
                                                   .view = recording->view,
                                                   .projection = recording->projection,
                                                   .clip = recording->clip,
-                                                  .width = renderer->width,
-                                                  .height = renderer->height,
+                                                  .width = renderer->render_width,
+                                                  .height = renderer->render_height,
                                                   .context = renderer->customs[index].context};
         renderer->customs[index].draw(&context);
     }
@@ -811,8 +861,11 @@ static void tb_renderer_record_tonemap(const tb_render_graph_pass_context *pass)
 {
     tb_renderer_recording *const recording = pass->context;
 
+    const tb_render_graph_texture source =
+        recording->temporal.constants != UINT64_MAX ? recording->temporal.output : recording->scene;
+
     tb_renderer_tonemap_record(recording->renderer, pass->list,
-                               tb_renderer_graph_index(pass, recording->scene));
+                               tb_renderer_graph_index(pass, source));
 }
 
 /* Both layers of lines over the tone-mapped output. */
@@ -827,8 +880,8 @@ static tb_render_graph_texture tb_renderer_target(tb_renderer *renderer, tb_rhi_
 {
     return tb_render_graph_create_texture(renderer->graph,
                                           &(tb_rhi_texture_desc){.format = format,
-                                                                 .width = renderer->width,
-                                                                 .height = renderer->height},
+                                                                 .width = renderer->render_width,
+                                                                 .height = renderer->render_height},
                                           name);
 }
 
@@ -935,10 +988,18 @@ static void tb_renderer_add_deferred_passes(tb_renderer *renderer, tb_renderer_r
         pass.depth = (tb_render_graph_depth){.texture = recording->depth, .load = TB_RHI_LOAD_KEEP};
         tb_render_graph_add_pass(renderer->graph, &pass);
     }
+    if (recording->temporal.constants != UINT64_MAX)
+    {
+        recording->temporal.scene = recording->scene;
+        recording->temporal.depth = recording->depth;
+        tb_renderer_temporal_record(renderer, &recording->temporal);
+    }
     pass = (tb_render_graph_pass){
         .name = "tonemap", .execute = tb_renderer_record_tonemap, .context = recording};
-    pass.accesses[0] =
-        (tb_render_graph_access){.texture = recording->scene, .state = TB_RHI_STATE_SHADER_READ};
+    pass.accesses[0] = (tb_render_graph_access){
+        .texture = recording->temporal.constants != UINT64_MAX ? recording->temporal.output
+                                                               : recording->scene,
+        .state = TB_RHI_STATE_SHADER_READ};
     pass.access_count = 1;
     pass.colors[0] = (tb_render_graph_color){.texture = image, .load = TB_RHI_LOAD_ANY};
     pass.color_count = 1;
@@ -1055,6 +1116,7 @@ tb_rhi_result tb_renderer_end_frame(tb_renderer *renderer)
     }
     submission = tb_render_graph_execute(renderer->graph);
     renderer->frames[renderer->slot].submission = submission;
+    tb_renderer_temporal_end_frame(renderer, recording.unjittered_clip);
     if (renderer->capture.generation != 0)
     {
         tb_renderer_keep_capture(renderer, submission, capturing.pitch);

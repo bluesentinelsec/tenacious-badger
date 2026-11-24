@@ -48,12 +48,20 @@ static void open_screen(screen *opened)
     options.window = opened->window;
     options.device = (tb_rhi_device_options){
         .backend = TB_RHI_BACKEND_D3D12, .adapter = TB_RHI_ADAPTER_SOFTWARE, .validation = true};
+    /* The full path at the output's resolution, without temporal
+     * anti-aliasing, so that each pixel is the scene where the camera puts
+     * it: WARP would take the low profile by itself. */
+    options.profile = TB_RENDERER_PROFILE_FULL;
     if (tb_renderer_create(&options, &opened->renderer, &error) != TB_RHI_OK)
     {
         tb_window_destroy(opened->window);
         tb_window_system_close(opened->system);
         TB_TEST_SKIP("no renderer: %s", error.message);
     }
+    tb_renderer_set_quality(opened->renderer, &(tb_renderer_quality){.render_scale = 1.0f,
+                                                                     .temporal_aa = false,
+                                                                     .max_lights = 256,
+                                                                     .reflections = true});
 }
 
 static void close_screen(screen *opened)

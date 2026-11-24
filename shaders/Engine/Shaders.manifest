@@ -24,5 +24,7 @@
 /Engine/Private/Skinning.hlsl            compute   MainCS
 /Engine/Private/Sky.hlsl                 vertex    MainVS
 /Engine/Private/Sky.hlsl                 pixel     MainPS
+/Engine/Private/TemporalAA.hlsl          vertex    MainVS
+/Engine/Private/TemporalAA.hlsl          pixel     MainPS
 /Engine/Private/Tonemap.hlsl             vertex    MainVS
 /Engine/Private/Tonemap.hlsl             pixel     MainPS

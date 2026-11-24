@@ -6,7 +6,9 @@
 // from the sky: a cube map's lower levels, or the colors of a procedural
 // sky (or of the ambient light without one), blended toward the average of
 // the half they face as a surface roughens; reflections are scaled by
-// Karis's analytical fit of the environment BRDF. Point and spot lights
+// Karis's analytical fit of the environment BRDF; without reflections, the
+// specular takes the ambient light the surface faces, so that metals do not
+// go black. Point and spot lights
 // fall off by the inverse square of their distance, windowed to nothing at
 // their range; a spot's cone fades between its angles, squared, as
 // Unreal's do.
@@ -165,11 +167,12 @@ float4 MainPS(VertexOut input) : SV_Target
                  radiance.rgb * attenuation;
     }
     const float occlusion = surface.b;
-    color += SkyLight(normal, 1.0) * diffuse * occlusion;
+    const float3 ambient = SkyLight(normal, 1.0);
+    float3 reflection = ambient;
     if ((Lighting.Lights.w & 1) != 0)
     {
-        const float3 reflected = reflect(-view, normal);
-        color += SkyLight(reflected, roughness) * EnvironmentBRDF(specular, roughness, n_dot_v) * occlusion;
+        reflection = SkyLight(reflect(-view, normal), roughness);
     }
+    color += (ambient * diffuse + reflection * EnvironmentBRDF(specular, roughness, n_dot_v)) * occlusion;
     return float4(color, 1);
 }

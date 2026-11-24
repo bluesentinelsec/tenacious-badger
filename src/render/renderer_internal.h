@@ -34,6 +34,9 @@ struct tb_shader_library;
 #define TB_RENDERER_NORMAL_FORMAT TB_RHI_FORMAT_R16G16_FLOAT
 #define TB_RENDERER_SURFACE_FORMAT TB_RHI_FORMAT_R8G8B8A8_UNORM
 #define TB_RENDERER_GBUFFER_TARGETS 3u
+/* The render scale's bounds. */
+#define TB_RENDERER_MIN_RENDER_SCALE 0.25f
+#define TB_RENDERER_MAX_RENDER_SCALE 2.0f
 
 struct tb_mesh
 {
@@ -173,6 +176,27 @@ struct tb_renderer
     size_t light_count;
     tb_vec3 ambient_sky; /* without a sky */
     tb_vec3 ambient_ground;
+
+    /* What the frames are made with, and what they may be. */
+    tb_renderer_capabilities capabilities;
+    tb_renderer_quality quality_asked;
+    tb_renderer_quality quality; /* in effect, within the capabilities */
+    uint32_t render_width;       /* the scene's, the output's times the render scale */
+    uint32_t render_height;
+
+    /* Temporal anti-aliasing (temporal.c). */
+    tb_rhi_pipeline temporal_pipeline;
+    tb_rhi_texture history[2];     /* at the output's size; one read, one written */
+    tb_rhi_state history_state[2]; /* where each was left */
+    uint32_t history_width;        /* of the history textures */
+    uint32_t history_height;
+    uint32_t history_written; /* which of `history` the next frame writes */
+    bool history_valid;       /* the one not written holds the last frame */
+    uint32_t jitter_frame;    /* frames jittered, for the Halton sequence */
+    tb_mat4 previous_clip;    /* the last frame's clip, unjittered */
+    tb_camera_projection previous_projection;
+    uint32_t previous_render_width; /* the last frame's render size */
+    uint32_t previous_render_height;
 
     tb_renderer_frame frames[TB_RENDERER_FRAMES];
     uint32_t slot;
@@ -343,9 +367,10 @@ typedef struct tb_renderer_gbuffer_indices
     uint32_t depth;
 } tb_renderer_gbuffer_indices;
 
-/* Write the lighting pass's constants, and the frame's lights, to its
- * uploads, for the frame's camera seen through `clip`: their offset, or
- * UINT64_MAX when there is no room. */
+/* Write the lighting pass's constants, and the frame's lights (at most the
+ * quality's, the directional first, then the nearest), to its uploads, for
+ * the frame's camera seen through `clip`: their offset, or UINT64_MAX when
+ * there is no room. */
 uint64_t tb_renderer_lighting_upload(tb_renderer *renderer, tb_mat4 clip);
 
 /* Light the G-buffer into the scene's color, inside the lighting pass. */
@@ -353,8 +378,66 @@ void tb_renderer_lighting_record(tb_renderer *renderer, tb_rhi_command_list *lis
                                  uint64_t constants, const tb_renderer_gbuffer_indices *gbuffer);
 
 /* Tone map the scene's color, by its bindless index, into the output,
- * inside the tonemap pass. */
+ * inside the tonemap pass, filtered bilinearly when its size is not the
+ * output's. */
 void tb_renderer_tonemap_record(tb_renderer *renderer, tb_rhi_command_list *list, uint32_t scene);
+
+/* The i-th point of Halton's sequence of a base: the radical inverse of i,
+ * from 0 to below 1 (temporal.c). */
+float tb_halton(uint32_t index, uint32_t base);
+
+/* A frame's sub-pixel jitter, from -0.5 to 0.5 of a pixel each way, x
+ * right and y down: Halton's sequence of bases 2 and 3 from its second
+ * point, eight points a cycle. */
+tb_vec2 tb_temporal_jitter(uint32_t frame);
+
+/* A projection moved by a jitter in pixels of a view of a size. */
+tb_mat4 tb_temporal_jittered(tb_mat4 projection, tb_vec2 jitter, uint32_t width, uint32_t height);
+
+/* The scene's size at a render scale of an output's: rounded, at least 1,
+ * and at most `largest`. */
+void tb_render_size_of(uint32_t width, uint32_t height, float scale, uint32_t largest,
+                       uint32_t *render_width, uint32_t *render_height);
+
+/* The capabilities of a device, as a profile asks (quality.c). */
+tb_renderer_capabilities tb_renderer_capabilities_for(const tb_rhi_device_info *info,
+                                                      tb_renderer_profile profile);
+
+/* A quality within capabilities. */
+tb_renderer_quality tb_renderer_quality_within(const tb_renderer_quality *asked,
+                                               const tb_renderer_capabilities *capabilities);
+
+/* Take the quality asked for and the output's size at the start of a
+ * frame: the render size, and whether the history still holds. */
+void tb_renderer_quality_begin_frame(tb_renderer *renderer);
+
+/* The temporal pass's pipeline and sampler (temporal.c). */
+tb_rhi_result tb_renderer_temporal_create(tb_renderer *renderer, tb_rhi_error *error);
+void tb_renderer_temporal_destroy(tb_renderer *renderer);
+
+/* A frame's temporal anti-aliasing, as it is recorded. */
+typedef struct tb_temporal_recording
+{
+    tb_renderer *renderer;
+    uint64_t constants;            /* in the frame's uploads; UINT64_MAX for none */
+    tb_render_graph_texture scene; /* what it reads */
+    tb_render_graph_texture depth;
+    tb_render_graph_texture history; /* the last frame's */
+    tb_render_graph_texture output;  /* what it writes, the next frame's history */
+} tb_temporal_recording;
+
+/* Write the temporal pass's constants for a frame whose jitter and
+ * unjittered clip are these: their offset in its uploads, or UINT64_MAX. */
+uint64_t tb_renderer_temporal_upload(tb_renderer *renderer, tb_vec2 jitter, tb_mat4 clip);
+
+/* Add the temporal pass, which reads `recording->scene` and `->depth`, to
+ * the frame's graph: `recording->output` is what it writes, at the
+ * output's size. `recording` lives until the graph is executed. */
+void tb_renderer_temporal_record(tb_renderer *renderer, tb_temporal_recording *recording);
+
+/* After the frame's graph is executed: the history written is the next
+ * frame's to read. */
+void tb_renderer_temporal_end_frame(tb_renderer *renderer, tb_mat4 clip);
 
 /* The skinning pipeline (skinning.c), or, where it cannot be made, why the
  * CPU skins instead; logged. A GPU that cannot skin is a capability

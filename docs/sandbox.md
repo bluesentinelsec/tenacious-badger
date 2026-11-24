@@ -74,11 +74,16 @@ when they differ. Each family can be restored to its defaults. Settings
 the device is made with, such as the renderer, take effect at the next
 start. A setting's description is its tooltip.
 
+The sandbox gives the renderer the quality the graphics settings
+describe (`tb_renderer_quality_from_settings()`): the upscaler's mode and
+the render scale, anti-aliasing, and the light and reflection quality.
+
 Its **Frame** window shows the frame times of the last 120 frames as a
 graph, their average and worst, the frames a second, the scene, the
-backend and adapter, where skinned meshes are skinned and why (the GPU's
-compute pass, or the CPU), with a switch that forces the CPU to compare the
-two, what the canvas drew in the last frame, and the
+backend and adapter, the renderer's profile (and why it is low), its render
+size and the quality it draws with, where skinned meshes are skinned and why
+(the GPU's compute pass, or the CPU), with a switch that forces the CPU to
+compare the two, what the canvas drew in the last frame, and the
 render graph's description of its passes and barriers
 (`tb_render_graph_dump()`), read again every half second. GPU timings wait
 for timestamp queries in the RHI.

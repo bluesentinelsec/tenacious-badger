@@ -7,6 +7,7 @@
 #include "badger/assert.h"
 #include "badger/memory.h"
 #include "badger/sky.h"
+#include "badger/sort.h"
 
 #include <math.h>
 
@@ -46,10 +47,20 @@ TB_STATIC_ASSERT(sizeof(tb_lighting_constants) <= 256u, "the lighting's constant
 /* What the tonemap shader reads, as its ToneConstants lays it out. */
 typedef struct tb_tonemap_constants
 {
-    uint32_t scene; /* the bindless index of the scene's color */
-    float exposure; /* what the scene's color is multiplied by first */
-    uint32_t unused[2];
+    uint32_t scene;   /* the bindless index of the scene's color */
+    float exposure;   /* what the scene's color is multiplied by first */
+    uint32_t sampler; /* the bindless index of a bilinear, clamped sampler */
+    uint32_t unused;  /* to the next 16 bytes */
+    float inverse[2]; /* one over the output's width and height */
+    float unused2[2]; /* to the next 16 bytes */
 } tb_tonemap_constants;
+
+/* A light of the scene, as the frame chooses which to shade. */
+typedef struct tb_light_choice
+{
+    float order; /* -1 for a directional light, else its distance squared */
+    uint32_t slot;
+} tb_light_choice;
 
 /* ---------------------------------------------------------------------------
  * Lights.
@@ -245,6 +256,54 @@ tb_light tb_renderer_default_light(const tb_renderer *renderer)
     return light;
 }
 
+static int tb_light_choice_compare(const void *left, const void *right, void *context)
+{
+    const tb_light_choice *const a = left;
+    const tb_light_choice *const b = right;
+
+    (void)context;
+    if (a->order != b->order)
+    {
+        return a->order < b->order ? -1 : 1;
+    }
+    return a->slot < b->slot ? -1 : (a->slot > b->slot ? 1 : 0);
+}
+
+/* Write the lights the frame shades when it has more than the quality
+ * allows: the directional first, then the nearest to the camera. */
+static uint64_t tb_lights_upload_nearest(tb_renderer *renderer, uint32_t *count)
+{
+    tb_light_choice *const choices = tb_calloc(renderer->light_count, sizeof(*choices));
+    size_t chosen = 0;
+    uint64_t offset = UINT64_MAX;
+
+    for (size_t slot = 0; slot < renderer->light_slots; slot++)
+    {
+        const tb_light *const light = &renderer->lights[slot].light;
+        if (!renderer->lights[slot].used)
+        {
+            continue;
+        }
+        choices[chosen].slot = (uint32_t)slot;
+        choices[chosen].order =
+            light->kind == TB_LIGHT_DIRECTIONAL
+                ? -1.0f
+                : tb_vec3_length_squared(tb_vec3_sub(light->position, renderer->camera.position));
+        chosen++;
+    }
+    tb_sort(choices, chosen, sizeof(*choices), tb_light_choice_compare, NULL);
+    for (size_t index = 0; index < renderer->quality.max_lights; index++)
+    {
+        const tb_packed_light packed = tb_light_pack(&renderer->lights[choices[index].slot].light);
+        const uint64_t at =
+            tb_renderer_upload(renderer, &packed, sizeof(packed), TB_PACKED_LIGHT_BYTES);
+        offset = index == 0 ? at : offset;
+    }
+    *count = renderer->quality.max_lights;
+    tb_free(choices);
+    return offset;
+}
+
 /* Write the frame's lights to its uploads, or its default light when it
  * has none: their offset, or UINT64_MAX when there is no room. */
 static uint64_t tb_lights_upload(tb_renderer *renderer, uint32_t *count)
@@ -264,6 +323,10 @@ static uint64_t tb_lights_upload(tb_renderer *renderer, uint32_t *count)
         const tb_packed_light packed = tb_light_pack(&light);
         *count = 1;
         return tb_renderer_upload(renderer, &packed, sizeof(packed), TB_PACKED_LIGHT_BYTES);
+    }
+    if (renderer->light_count > renderer->quality.max_lights)
+    {
+        return tb_lights_upload_nearest(renderer, count);
     }
     for (size_t slot = 0; slot < renderer->light_slots; slot++)
     {
@@ -325,13 +388,14 @@ uint64_t tb_renderer_lighting_upload(tb_renderer *renderer, tb_mat4 clip)
     constants.forward =
         tb_light_vec4(tb_quat_rotate(camera->orientation, (tb_vec3){0, 0, -1}), 0.0f);
     constants.clear = renderer->clear;
-    constants.size = (tb_vec4){(float)renderer->width, (float)renderer->height,
-                               1.0f / (float)renderer->width, 1.0f / (float)renderer->height};
+    constants.size =
+        (tb_vec4){(float)renderer->render_width, (float)renderer->render_height,
+                  1.0f / (float)renderer->render_width, 1.0f / (float)renderer->render_height};
     constants.lights[0] =
         tb_rhi_buffer_index(renderer->device, renderer->frames[renderer->slot].upload);
     constants.lights[1] = (uint32_t)lights;
     constants.lights[2] = count;
-    constants.lights[3] = TB_LIGHTING_SPECULAR_AMBIENT;
+    constants.lights[3] = renderer->quality.reflections ? TB_LIGHTING_SPECULAR_AMBIENT : 0u;
     tb_lighting_sky(renderer, &constants);
     return tb_renderer_upload(renderer, &constants, sizeof(constants), TB_RHI_CONSTANT_ALIGNMENT);
 }
@@ -351,7 +415,11 @@ void tb_renderer_lighting_record(tb_renderer *renderer, tb_rhi_command_list *lis
 
 void tb_renderer_tonemap_record(tb_renderer *renderer, tb_rhi_command_list *list, uint32_t scene)
 {
-    const tb_tonemap_constants constants = {.scene = scene, .exposure = 1.0f};
+    const tb_tonemap_constants constants = {
+        .scene = scene,
+        .exposure = 1.0f,
+        .sampler = tb_rhi_sampler_index(renderer->device, renderer->canvas_samplers[0]),
+        .inverse = {1.0f / (float)renderer->width, 1.0f / (float)renderer->height}};
 
     tb_rhi_cmd_pipeline(list, renderer->tonemap_pipeline);
     tb_rhi_cmd_push_constants(list, &constants, sizeof(constants));
