@@ -365,6 +365,110 @@ const tb_shader_object_info *tb_shader_object_info_of(tb_shader_object object)
     return NULL;
 }
 
+tb_shader_object tb_shader_descriptor_of(tb_shader_object object)
+{
+    switch (object)
+    {
+    case TB_SHADER_OBJECT_SAMPLER:
+    case TB_SHADER_OBJECT_SAMPLER_COMPARISON:
+        return TB_SHADER_OBJECT_SAMPLER_DESCRIPTOR;
+    case TB_SHADER_OBJECT_BUFFER:
+    case TB_SHADER_OBJECT_RW_BUFFER:
+    case TB_SHADER_OBJECT_RO_BUFFER:
+    case TB_SHADER_OBJECT_STRUCTURED_BUFFER:
+    case TB_SHADER_OBJECT_RW_STRUCTURED_BUFFER:
+    case TB_SHADER_OBJECT_RO_STRUCTURED_BUFFER:
+    case TB_SHADER_OBJECT_APPEND_STRUCTURED_BUFFER:
+    case TB_SHADER_OBJECT_CONSUME_STRUCTURED_BUFFER:
+    case TB_SHADER_OBJECT_BYTE_ADDRESS_BUFFER:
+    case TB_SHADER_OBJECT_RW_BYTE_ADDRESS_BUFFER:
+    case TB_SHADER_OBJECT_RO_BYTE_ADDRESS_BUFFER:
+    case TB_SHADER_OBJECT_TEXTURE1D:
+    case TB_SHADER_OBJECT_TEXTURE1D_ARRAY:
+    case TB_SHADER_OBJECT_TEXTURE2D:
+    case TB_SHADER_OBJECT_TEXTURE2D_ARRAY:
+    case TB_SHADER_OBJECT_TEXTURE2DMS:
+    case TB_SHADER_OBJECT_TEXTURE2DMS_ARRAY:
+    case TB_SHADER_OBJECT_TEXTURE3D:
+    case TB_SHADER_OBJECT_TEXTURE_CUBE:
+    case TB_SHADER_OBJECT_TEXTURE_CUBE_ARRAY:
+    case TB_SHADER_OBJECT_RW_TEXTURE1D:
+    case TB_SHADER_OBJECT_RW_TEXTURE1D_ARRAY:
+    case TB_SHADER_OBJECT_RW_TEXTURE2D:
+    case TB_SHADER_OBJECT_RW_TEXTURE2D_ARRAY:
+    case TB_SHADER_OBJECT_RW_TEXTURE2DMS:
+    case TB_SHADER_OBJECT_RW_TEXTURE2DMS_ARRAY:
+    case TB_SHADER_OBJECT_RW_TEXTURE3D:
+    case TB_SHADER_OBJECT_RO_TEXTURE1D:
+    case TB_SHADER_OBJECT_RO_TEXTURE1D_ARRAY:
+    case TB_SHADER_OBJECT_RO_TEXTURE2D:
+    case TB_SHADER_OBJECT_RO_TEXTURE2D_ARRAY:
+    case TB_SHADER_OBJECT_RO_TEXTURE3D:
+    case TB_SHADER_OBJECT_FEEDBACK_TEXTURE2D:
+    case TB_SHADER_OBJECT_FEEDBACK_TEXTURE2D_ARRAY:
+    case TB_SHADER_OBJECT_CONSTANT_BUFFER:
+    case TB_SHADER_OBJECT_TEXTURE_BUFFER:
+    case TB_SHADER_OBJECT_ACCELERATION_STRUCTURE:
+        return TB_SHADER_OBJECT_RESOURCE_DESCRIPTOR;
+    /* The legacy `texture` is an effect's, which DXC ignores. What a shader
+     * makes for itself (a RayQuery, a stream, a patch, a texture's members)
+     * and a state object's subobjects are in no heap: DXC fails inside when
+     * given one from a heap. */
+    case TB_SHADER_OBJECT_NONE:
+    case TB_SHADER_OBJECT_TEXTURE:
+    case TB_SHADER_OBJECT_RAY_QUERY:
+    case TB_SHADER_OBJECT_HIT_OBJECT:
+    case TB_SHADER_OBJECT_INPUT_PATCH:
+    case TB_SHADER_OBJECT_OUTPUT_PATCH:
+    case TB_SHADER_OBJECT_POINT_STREAM:
+    case TB_SHADER_OBJECT_LINE_STREAM:
+    case TB_SHADER_OBJECT_TRIANGLE_STREAM:
+    case TB_SHADER_OBJECT_STATE_OBJECT_CONFIG:
+    case TB_SHADER_OBJECT_GLOBAL_ROOT_SIGNATURE:
+    case TB_SHADER_OBJECT_LOCAL_ROOT_SIGNATURE:
+    case TB_SHADER_OBJECT_SUBOBJECT_TO_EXPORTS_ASSOCIATION:
+    case TB_SHADER_OBJECT_RAYTRACING_SHADER_CONFIG:
+    case TB_SHADER_OBJECT_RAYTRACING_PIPELINE_CONFIG:
+    case TB_SHADER_OBJECT_RAYTRACING_PIPELINE_CONFIG1:
+    case TB_SHADER_OBJECT_TRIANGLE_HIT_GROUP:
+    case TB_SHADER_OBJECT_PROCEDURAL_PRIMITIVE_HIT_GROUP:
+    case TB_SHADER_OBJECT_MIPS:
+    case TB_SHADER_OBJECT_MIPS_SLICE:
+    case TB_SHADER_OBJECT_SAMPLES:
+    case TB_SHADER_OBJECT_SAMPLES_SLICE:
+    case TB_SHADER_OBJECT_RESOURCE_HEAP:
+    case TB_SHADER_OBJECT_SAMPLER_HEAP:
+    case TB_SHADER_OBJECT_RESOURCE_DESCRIPTOR:
+    case TB_SHADER_OBJECT_SAMPLER_DESCRIPTOR:
+        break;
+    }
+    return TB_SHADER_OBJECT_NONE;
+}
+
+/* A descriptor heap or its element, named as DXC names it; NULL for any
+ * other object. */
+static const char *heap_name(tb_shader_object object)
+{
+    static const struct
+    {
+        tb_shader_object object;
+        const char *name;
+    } heaps[] = {
+        {TB_SHADER_OBJECT_RESOURCE_HEAP, ".Resource"},
+        {TB_SHADER_OBJECT_SAMPLER_HEAP, ".Sampler"},
+        {TB_SHADER_OBJECT_RESOURCE_DESCRIPTOR, "const .Resource"},
+        {TB_SHADER_OBJECT_SAMPLER_DESCRIPTOR, "const .Sampler"},
+    };
+    for (size_t index = 0; index < COUNT_OF(heaps); index++)
+    {
+        if (heaps[index].object == object)
+        {
+            return heaps[index].name;
+        }
+    }
+    return NULL;
+}
+
 /* A texture's member, named as DXC names it: `Texture2D<float4>::mips_type`. */
 static const char *member_name(tb_shader_types *types, const tb_shader_type *probe)
 {
@@ -395,22 +499,34 @@ static const char *object_name(tb_shader_types *types, const tb_shader_type *pro
     const tb_shader_object_info *const info = tb_shader_object_info_of(probe->object);
     if (info == NULL)
     {
-        return member_name(types, probe);
+        const char *const heap = heap_name(probe->object);
+        return heap != NULL ? heap : member_name(types, probe);
     }
+    /* An object whose template names an element always has one; without
+     * one, it is named as it is written alone. */
+    const char *const element = probe->element != NULL ? probe->element->name : NULL;
     switch (info->template_kind)
     {
     case TB_SHADER_TEMPLATE_NONE:
         return info->name;
     case TB_SHADER_TEMPLATE_ELEMENT:
     case TB_SHADER_TEMPLATE_STRUCTURE:
-        return tb_fmt_string(&types->allocator, "%s<%s>", info->name, probe->element->name);
+        if (element == NULL)
+        {
+            return info->name;
+        }
+        return tb_fmt_string(&types->allocator, "%s<%s>", info->name, element);
     case TB_SHADER_TEMPLATE_SAMPLES:
     case TB_SHADER_TEMPLATE_PATCH:
+        if (element == NULL)
+        {
+            return info->name;
+        }
         if (probe->length == 0)
         {
-            return tb_fmt_string(&types->allocator, "%s<%s>", info->name, probe->element->name);
+            return tb_fmt_string(&types->allocator, "%s<%s>", info->name, element);
         }
-        return tb_fmt_string(&types->allocator, "%s<%s, %u>", info->name, probe->element->name,
+        return tb_fmt_string(&types->allocator, "%s<%s, %u>", info->name, element,
                              (unsigned)probe->length);
     case TB_SHADER_TEMPLATE_FLAGS:
         if (probe->second_length == 0)
@@ -513,6 +629,15 @@ tb_shader_symbol *tb_shader_find_member(const tb_shader_type *type, tb_shader_na
         }
     }
     return NULL;
+}
+
+const tb_shader_type *tb_shader_heap_type(tb_shader_types *types, tb_shader_object heap)
+{
+    const tb_shader_object descriptor = heap == TB_SHADER_OBJECT_SAMPLER_HEAP
+                                            ? TB_SHADER_OBJECT_SAMPLER_DESCRIPTOR
+                                            : TB_SHADER_OBJECT_RESOURCE_DESCRIPTOR;
+    return tb_shader_object_type(types, heap, tb_shader_object_type(types, descriptor, NULL, 0, 0),
+                                 0, 0);
 }
 
 const tb_shader_type *tb_shader_ray_desc_type(tb_shader_types *types)

@@ -1,0 +1,4 @@
+feature resource_heap
+input OBJECT 0 uint 1 r1.x
+input POSITION 0 float 3 r0.x
+output SV_Position 0 float 4 r0.x

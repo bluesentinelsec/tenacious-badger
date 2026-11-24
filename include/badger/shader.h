@@ -412,7 +412,13 @@ typedef enum tb_shader_feature
     TB_SHADER_FEATURE_RAY_QUERY = 1u << 5,   /**< Inline ray tracing: RayQuery. */
     TB_SHADER_FEATURE_RAY_TRACING = 1u << 6, /**< A stage of a ray-tracing pipeline. */
     TB_SHADER_FEATURE_MESH_SHADER = 1u << 7, /**< A mesh or amplification shader. */
-    TB_SHADER_FEATURE_SAMPLER_FEEDBACK = 1u << 8 /**< FeedbackTexture2D. */
+    TB_SHADER_FEATURE_SAMPLER_FEEDBACK = 1u << 8, /**< FeedbackTexture2D. */
+    /** `ResourceDescriptorHeap[i]`: a resource taken from the descriptor heap
+     * by index (Shader Model 6.6), with no binding of its own. */
+    TB_SHADER_FEATURE_RESOURCE_HEAP = 1u << 9,
+    /** `SamplerDescriptorHeap[i]`: a sampler taken from the sampler heap by
+     * index (Shader Model 6.6), with no binding of its own. */
+    TB_SHADER_FEATURE_SAMPLER_HEAP = 1u << 10
 } tb_shader_feature;
 
 /** @brief What a stage takes, gives and binds: what a pipeline is built from. */
@@ -470,7 +476,9 @@ typedef struct tb_shader_compile_request
     tb_shader_stage stage;
     tb_shader_target target; /**< What to write; TB_SHADER_TARGET_NONE for the reflection only. */
     /** The shader model to write for, from TB_SHADER_MODEL(); 0 for
-     * TB_SHADER_MODEL_DEFAULT. DXIL takes 6.0 and later, as far as the DXC
+     * TB_SHADER_MODEL_DEFAULT. It decides what the source may use, for
+     * every target: from 6.6, `ResourceDescriptorHeap` and
+     * `SamplerDescriptorHeap`. DXIL takes 6.0 and later, as far as the DXC
      * loaded knows; a stage needs the model that brought it (6.5 for a
      * mesh shader, 6.3 for ray tracing), and DXC reports one too old. */
     unsigned shader_model;

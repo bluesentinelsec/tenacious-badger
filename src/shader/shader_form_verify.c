@@ -405,9 +405,32 @@ static bool verify_shapes(verifier *check, uint32_t index,
     case TB_SHADER_FORM_CALL_RESULT:
     case TB_SHADER_FORM_STRING_LITERAL:
     case TB_SHADER_FORM_TEXEL:
+    case TB_SHADER_FORM_HEAP:
         break;
     }
     return true;
+}
+
+/* `ResourceDescriptorHeap[i]` as a resource: a uint index into one of the
+ * heaps gives a resource's handle, or a constant buffer's struct; a sampler
+ * comes from the sampler heap, anything else from the resource heap. */
+static bool verify_heap(verifier *check, uint32_t index, const tb_shader_form_expression *heap)
+{
+    if (!is_scalar_of(check, expression_at(check, heap->operands[0])->type, is_integer))
+    {
+        return fail(check, "%%%u: a heap's index is an integer", index);
+    }
+    const tb_shader_form_type *const type = type_at(check, heap->type);
+    const bool is_sampler = type->kind == TB_SHADER_FORM_RESOURCE &&
+                            (type->object == TB_SHADER_OBJECT_SAMPLER ||
+                             type->object == TB_SHADER_OBJECT_SAMPLER_COMPARISON);
+    const bool is_resource =
+        (type->kind == TB_SHADER_FORM_RESOURCE &&
+         tb_shader_descriptor_of(type->object) == TB_SHADER_OBJECT_RESOURCE_DESCRIPTOR) ||
+        type->kind == TB_SHADER_FORM_STRUCT;
+    const bool matches = heap->index == TB_SHADER_FORM_HEAP_SAMPLER ? is_sampler : is_resource;
+    return (heap->index <= TB_SHADER_FORM_HEAP_SAMPLER && matches) ||
+           fail(check, "%%%u: not what that heap holds", index);
 }
 
 /* `t[p]`, `t.mips[m][p]`: a resource's handle, an integer location, and a
@@ -454,6 +477,7 @@ static uint32_t fixed_operand_count(tb_shader_form_expression_kind kind)
     case TB_SHADER_FORM_SPLAT:
     case TB_SHADER_FORM_UNARY:
     case TB_SHADER_FORM_CONVERT:
+    case TB_SHADER_FORM_HEAP:
         return 1;
     case TB_SHADER_FORM_ACCESS:
     case TB_SHADER_FORM_BINARY:
@@ -575,6 +599,8 @@ static bool verify_expression(verifier *check, uint32_t index)
                fail(check, "%%%u: operands past the end", index);
     case TB_SHADER_FORM_TEXEL:
         return verify_texel(check, index, expression);
+    case TB_SHADER_FORM_HEAP:
+        return verify_heap(check, index, expression);
     case TB_SHADER_FORM_LOAD:
     case TB_SHADER_FORM_SWIZZLE:
     case TB_SHADER_FORM_SPLAT:
