@@ -63,6 +63,10 @@ void tb_ui_paint_circle(tb_ui_paint *paint, int32_t layer, tb_canvas_rect clip, 
 void tb_ui_paint_line(tb_ui_paint *paint, int32_t layer, tb_canvas_rect clip, tb_vec2 from,
                       tb_vec2 to, float thickness, tb_vec4 color, tb_ui_id id);
 
+/* An image stretched over a rectangle and tinted. */
+void tb_ui_paint_image(tb_ui_paint *paint, int32_t layer, tb_canvas_rect clip,
+                       const tb_image *image, tb_canvas_rect rect, tb_vec4 tint, tb_ui_id id);
+
 /* Text and its measures, at `size` units to the em, measured at the
  * display's pixels (`scale` a unit) and turned back into units, so that a
  * line is as long in units as the glyphs the display draws for it. */

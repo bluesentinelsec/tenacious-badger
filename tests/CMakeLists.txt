@@ -112,6 +112,7 @@ set(TB_TEST_CASE_SOURCES
     game/game_loop_test.c
     gui/gui_choice_test.c
     gui/gui_combobox_test.c
+    gui/gui_dialog_test.c
     gui/gui_draw_test.c
     gui/gui_entry_test.c
     gui/gui_event_test.c
@@ -119,11 +120,13 @@ set(TB_TEST_CASE_SOURCES
     gui/gui_grid_test.c
     gui/gui_listbox_test.c
     gui/gui_menu_test.c
+    gui/gui_notebook_test.c
     gui/gui_popup_test.c
     gui/gui_range_test.c
     gui/gui_scale_test.c
     gui/gui_scroll_test.c
     gui/gui_tree_test.c
+    gui/gui_treeview_test.c
     gui/gui_var_test.c
     jobs/loop_test.c
     anim/anim_test.c

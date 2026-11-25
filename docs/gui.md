@@ -630,6 +630,85 @@ below the mouse as a passive popup. It hides when the mouse moves to
 another widget, a button is pressed, or a key goes down, and shows again
 only once the mouse has moved to another widget and back.
 
+### Trees
+
+A `treeview` is Tk's `ttk.Treeview`: items in a hierarchy, each with its
+text in the tree's column and a value in each column of values, under
+headings. Items are data with ids (`tb_tree_item`), never reused while the
+tree lives; `TB_TREE_ROOT` is the root.
+
+```c
+tb_widget tree = tb_treeview(pane, &(tb_treeview_desc){.heading = "Name", .command = on_pick});
+tb_treeview_add_column(tree, &(tb_treeview_column_desc){.heading = "Type", .width = 100});
+tb_tree_item lights = tb_treeview_insert(tree, TB_TREE_ROOT, SIZE_MAX,
+                                         &(tb_tree_item_desc){.text = "Lights", .open = true});
+tb_treeview_insert(tree, lights, SIZE_MAX,
+                   &(tb_tree_item_desc){.text = "Sun", .values = (const char *[]){"Light"},
+                                        .value_count = 1});
+```
+
+`tb_treeview_parent`, `_first_child`, and `_next_sibling` walk the items;
+`_text`, `_value`, and their setters read and change them; `_delete`
+deletes an item with every item in it. The rows are the items whose
+ancestors are open, kept in a list rebuilt when the tree changes, and only
+those seen are drawn. An item with children shows a mark: a press on it,
+or a double click on the row, opens or closes it, and the `open_command`
+is called. The selection follows the list's modes (`selectmode`), and its
+`command` is called when the user changes it. The arrows, Page Up and
+Down, Home, and End move the focus item; Right opens an item or goes into
+it, Left closes it or goes to its parent; Space chooses. A heading's right
+edge is dragged to resize its column, down to its `minwidth`.
+`tb_treeview_see` opens an item's ancestors and scrolls to it.
+
+### Notebooks and paned windows
+
+A `notebook` is a row of tabs over a page; each page is a child widget
+added with `tb_notebook_add`, placed in the notebook's grid, and shown
+only while its tab is chosen. A click on a tab chooses it; from a widget in
+the notebook with the focus, Control+Tab and Control+Shift+Tab, or
+Control+Page Down and Up, go around the tabs; with the focus on the
+notebook itself, Left and Right do. Its `command` is called when the user
+chooses another tab. A page destroyed takes its tab with it. Its natural
+size is its chosen page's.
+
+A `panedwindow` holds panes side by side (`TB_GUI_ORIENT_HORIZONTAL`) or
+one above another, with a sash between each two, dragged to share their
+space out (`tb_panedwindow_set_sash` does the same). It lays its panes out
+with its own grid: each pane in a row or column of one uniform group,
+weighted by its share, so that the grid keeps their sizes in proportion
+as the window is resized, and never below the pane's `minsize`; each sash a
+fixed row or column between them. A paned window is as large as it
+measures (its `width` and `height`, or its panes' natural sizes summed), so
+the panes' requests never widen it.
+
+### Message dialogs
+
+`tb_gui_message_box(gui, title, text, buttons, callback, user)` shows a
+dialog after Tk's `messagebox`: a title in the heading role's family, a
+message wrapped at 360 units, and a row of buttons of one width
+(`TB_MESSAGE_OK`, `_OK_CANCEL`, `_YES_NO`, `_YES_NO_CANCEL`,
+`_RETRY_CANCEL`). It is made of a frame, labels, and buttons in grids,
+gridded over every cell of the root's grid, and shown modally in their
+middle. The first button has the focus, so Enter or Space chooses it;
+Escape chooses Cancel, No, or OK, the last of them the dialog has.
+Choosing a button destroys the dialog, then calls the callback with the
+answer.
+
+### Images and canvases
+
+An `image` widget draws a canvas image (`tb_image_create`) by its `fit`,
+after CSS's `object-fit`: its own size (`none`), as large as it fits whole
+(`contain`), as small as it covers the widget, cut off (`cover`),
+stretched (`fill`), or as `contain` but never larger than itself
+(`scale_down`); placed by its `anchor` and tinted by its `tint`. Its size
+is its `width` and `height`, or the image's pixels as units.
+`tb_gui_fit_rect` is the same placement, for kinds of a game's own.
+
+A `canvas` widget's content is drawn by the caller: its callback is given
+the paint functions each update, clipped to the widget and its ancestors,
+and its input comes by bindings. It takes the focus on a click, so that a
+viewport has the keys. `tb_gui_paint_image` draws an image from any kind.
+
 ## Drawing and ownership
 
 `tb_gui_update` builds the frame's draw commands, `tb_ui_command`s in
@@ -654,10 +733,9 @@ thread that renders. GUIs are independent of one another.
 
 - A combo box typed in (Tk's editable `ttk.Combobox`), and a spin box of
   a list of values; undo in text.
-- Containers and overlays: trees, tabs, split panes, message dialogs, and
-  image and canvas widgets.
-- Menus' and lists' items in layout files, which have no type for a list
-  yet; a menu bar opened by Alt and its titles' mnemonics.
+- Menus', lists', trees', and tabs' items in layout files, which have no
+  type for a list yet, nor for an image or a draw callback; a menu bar
+  opened by Alt and its titles' mnemonics.
 - Style classes and theme files; the `style` property is kept for them.
 - Layout files in JSON, and finding widgets by path; the `name` property is
   kept for them.
@@ -678,12 +756,16 @@ destroyed from inside callbacks; scroll frames laid out, clipped, found
 through their offsets, and scrolled by the wheel, their bars, and `see`;
 popups placed, closed by presses and Escape, and given keys; tooltips;
 lists in each selection mode, and long ones drawing only what is seen;
-menus by the mouse and the keyboard; the stretch modes and text measured
+menus by the mouse and the keyboard; trees by the mouse and the keyboard,
+with headings resized; notebooks' tabs; paned windows' shares and sashes;
+message dialogs answered every way; images fitted; canvases drawn by their
+callbacks; the stretch modes and text measured
 at the display's pixels; and the commands each widget draws, drawn on the null
 backend's canvas. Variables are read and set across their types, their
 observers run in updates, and they follow settings and are followed by
 them, with the settings' checks; each kind that edits values is driven by
 the mouse and the keys, its variable kept in step with its twin's, its
 `CHANGED` events and commands counted, its properties set to what they
-read, and its size measured at scales 1, 1.5, and 2. The sandbox's `gui` scene shows a form by eye
+read, and its size measured at scales 1, 1.5, and 2. The sandbox's `gui` scene shows a form by eye, and its
+`gui_tool` scene an editor's shape
 ([sandbox](sandbox.md)), and the tests draw it on WARP at two scales.

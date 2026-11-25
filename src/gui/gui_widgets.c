@@ -461,4 +461,10 @@ void tb_gui_register_builtins(tb_gui *gui)
     tb_gui_register_listbox(gui);
     tb_gui_register_menu_kinds(gui);
     tb_gui_register_tooltip(gui);
+    tb_gui_register_treeview(gui);
+    tb_gui_register_notebook(gui);
+    tb_gui_register_panedwindow(gui);
+    tb_gui_register_message_box(gui);
+    tb_gui_register_image(gui);
+    tb_gui_register_canvas(gui);
 }
