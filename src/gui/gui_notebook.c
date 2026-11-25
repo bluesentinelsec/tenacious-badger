@@ -229,14 +229,17 @@ static bool tb_gui_notebook_key(tb_widget widget, tb_gui_notebook *notebook,
     const bool shift = (event->modifiers & TB_MODIFIER_SHIFT) != 0;
     const bool own = tb_widget_equal(event->target, widget);
 
-    if (control && event->key == TB_KEY_TAB)
+    if (control && (event->key == TB_KEY_TAB || event->key == TB_KEY_PAGE_DOWN ||
+                    event->key == TB_KEY_PAGE_UP))
     {
-        tb_gui_notebook_step(widget, notebook, !shift);
-        return true;
-    }
-    if (control && (event->key == TB_KEY_PAGE_DOWN || event->key == TB_KEY_PAGE_UP))
-    {
-        tb_gui_notebook_step(widget, notebook, event->key == TB_KEY_PAGE_DOWN);
+        const bool forward = event->key == TB_KEY_TAB ? !shift : event->key == TB_KEY_PAGE_DOWN;
+        tb_gui_notebook_step(widget, notebook, forward);
+        /* The page the focus was in is hidden: the focus goes to the tabs,
+         * from where the arrows go on into the page shown. */
+        if (!own)
+        {
+            (void)tb_widget_focus(widget);
+        }
         return true;
     }
     if (own && (event->key == TB_KEY_LEFT || event->key == TB_KEY_RIGHT))
@@ -287,6 +290,7 @@ static bool tb_gui_notebook_event(tb_widget widget, void *data, const tb_gui_eve
     case TB_GUI_EVENT_POPUP_CLOSE:
     case TB_GUI_EVENT_CHANGED:
     case TB_GUI_EVENT_VALIDATE:
+    case TB_GUI_EVENT_BACK:
     case TB_GUI_EVENT_COUNT:
         break;
     }

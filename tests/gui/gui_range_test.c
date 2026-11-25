@@ -205,11 +205,14 @@ TB_TEST(gui_range, a_slider_follows_the_mouse_and_the_keys)
     TB_TEST_EXPECT_FLOAT_NEAR(tb_var_get_float(volume), 0.5, 1e-6);
     TB_TEST_EXPECT_UINT(gui_log_count(&log, TB_GUI_EVENT_CHANGED, scale), ==, 3);
 
-    /* Left and Up toward `from`, Right and Down toward `to`, a page, the ends. */
+    /* Along it, Left toward `from` and Right toward `to`; Up and Down,
+     * across it, are left to navigation; a page, the ends. */
     gui_key(&fixture, TB_KEY_RIGHT, 0);
     TB_TEST_EXPECT_FLOAT_NEAR(tb_var_get_float(volume), 0.6, 1e-6);
     gui_key(&fixture, TB_KEY_UP, 0);
-    gui_key(&fixture, TB_KEY_UP, 0);
+    TB_TEST_EXPECT_FLOAT_NEAR(tb_var_get_float(volume), 0.6, 1e-6);
+    gui_key(&fixture, TB_KEY_LEFT, 0);
+    gui_key(&fixture, TB_KEY_LEFT, 0);
     TB_TEST_EXPECT_FLOAT_NEAR(tb_var_get_float(volume), 0.4, 1e-6);
     gui_key(&fixture, TB_KEY_PAGE_DOWN, 0);
     TB_TEST_EXPECT_FLOAT_NEAR(tb_var_get_float(volume), 0.5, 1e-6);

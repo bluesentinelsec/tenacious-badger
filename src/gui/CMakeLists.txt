@@ -16,6 +16,7 @@ set(TB_GUI_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/gui_listbox.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/gui_menu.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/gui_names.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/gui_navigation.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/gui_notebook.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/gui_paned.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/gui_path.c"

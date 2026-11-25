@@ -7,8 +7,9 @@
  * settings through variables (sandbox_gui_options.c), and below it a panel
  * is built from a layout file in the sandbox's resources, and built again
  * whenever the file is saved. The window events go to the GUI first, which
- * takes the mouse over the form and the keys while a button has the focus;
- * the fly camera has the rest. */
+ * takes the mouse over the form, the keys while a widget has the focus,
+ * and Tab and the arrows, which navigate it from the keyboard alone; the
+ * fly camera has the rest. */
 #include "sandbox.h"
 
 #include "badger/canvas.h"
@@ -153,12 +154,18 @@ static void gui_on_cancel(const tb_gui_event *event, void *user)
     gui_close_dialog(user, "Nothing was reset.");
 }
 
-static void gui_on_dialog_key(const tb_gui_event *event, void *user)
+/* Back, Escape or a gamepad's B, cancels. */
+static void gui_on_dialog_back(const tb_gui_event *event, void *user)
 {
-    if (event->key == TB_KEY_ESCAPE)
-    {
-        gui_close_dialog(user, "Nothing was reset.");
-    }
+    tb_gui_accept_event(event);
+    gui_close_dialog(user, "Nothing was reset.");
+}
+
+/* Mark the widget a screen gives the focus first. */
+static void gui_set_default_focus(tb_widget widget)
+{
+    const tb_gui_value yes = {TB_GUI_TYPE_BOOL, {.boolean = true}};
+    (void)tb_widget_set(widget, "default_focus", &yes);
 }
 
 static void gui_on_hello(const tb_gui_event *event, void *user)
@@ -238,6 +245,8 @@ static void gui_build_fields(gui_scene *scene, tb_widget form)
     (void)tb_grid(scene->name, &(tb_grid_options){.row = 2, .column = 1, .sticky = TB_STICKY_W});
     const tb_widget rename = gui_button(form, "Rename", gui_on_rename, scene, false);
     (void)tb_grid(rename, &(tb_grid_options){.row = 2, .column = 2, .sticky = TB_STICKY_EW});
+    /* The first arrow pressed with nothing focused comes here. */
+    gui_set_default_focus(rename);
 
     gui_field_label(form, 3, "Difficulty");
     const tb_widget difficulty =
@@ -278,7 +287,8 @@ static void gui_build_form(gui_scene *scene, tb_widget root, const tb_font_spec 
     const tb_widget paragraph = tb_label(
         form, &(tb_label_desc){.text = "A form laid out by grid. Resize the window: the middle "
                                        "column takes the extra width, and an empty row the extra "
-                                       "height. Tab moves the focus; Space presses.",
+                                       "height. The arrows and Tab move the focus, Enter or "
+                                       "Space presses, and Escape goes back.",
                                .wrap_length = GUI_WRAP});
     (void)tb_grid(paragraph, &(tb_grid_options){.row = 1,
                                                 .column_span = 3,
@@ -311,7 +321,7 @@ static void gui_build_dialog(gui_scene *scene, tb_widget root)
     /* Over the whole root, in the middle of it, shown only when asked. */
     (void)tb_grid(scene->dialog, &(tb_grid_options){.column_span = 2});
     tb_widget_set_visible(scene->dialog, false);
-    (void)tb_bind(scene->dialog, TB_GUI_EVENT_KEY, gui_on_dialog_key, scene);
+    (void)tb_bind(scene->dialog, TB_GUI_EVENT_BACK, gui_on_dialog_back, scene);
 
     const tb_widget question =
         tb_label(scene->dialog, &(tb_label_desc){.text = "Reset every setting to its default?",
@@ -320,6 +330,7 @@ static void gui_build_dialog(gui_scene *scene, tb_widget root)
     const tb_widget buttons = tb_frame(scene->dialog, NULL);
     (void)tb_grid(buttons, &(tb_grid_options){.row = 1, .sticky = TB_STICKY_E});
     const tb_widget cancel = gui_button(buttons, "Cancel", gui_on_cancel, scene, false);
+    gui_set_default_focus(cancel);
     const tb_widget reset = gui_button(buttons, "Reset", gui_on_reset, scene, true);
     (void)tb_grid(cancel, &(tb_grid_options){.column = 0, .sticky = TB_STICKY_EW});
     (void)tb_grid(reset, &(tb_grid_options){
@@ -439,8 +450,12 @@ bool gui_scene_event(sandbox *box, void *state, const tb_window_event *event)
     }
     if (type == TB_WINDOW_EVENT_KEY_DOWN)
     {
-        /* Tab moves the GUI's focus here, rather than the scene. */
-        return tb_gui_wants_keyboard(scene->gui) || event->key == TB_KEY_TAB;
+        /* Tab and the arrows move the GUI's focus here, rather than the
+         * scene: the form is used from the keyboard alone. */
+        const tb_gui_nav action = tb_gui_key_action(scene->gui, event->key, event->modifiers);
+        const bool moves = action == TB_GUI_NAV_UP || action == TB_GUI_NAV_DOWN ||
+                           action == TB_GUI_NAV_LEFT || action == TB_GUI_NAV_RIGHT;
+        return tb_gui_wants_keyboard(scene->gui) || event->key == TB_KEY_TAB || moves;
     }
     return false;
 }

@@ -77,7 +77,13 @@
  * name, and found by path (tb_widget_find()); a file is loaded again as it
  * changes (tb_gui_watch()).
  *
- * **Not done yet.** Style classes; focus moved by arrows or a gamepad.
+ * **Navigation.** The arrows, and a gamepad's actions the game feeds
+ * (tb_gui_feed_navigation()), move the focus to the nearest widget in their
+ * direction, or to a widget's neighbours; Accept activates and Back goes
+ * back. Keys are mapped to actions by data the game changes
+ * (tb_gui_map_key()). See #tb_gui_nav.
+ *
+ * **Not done yet.** Style classes.
  *
  * @par Threading
  * Externally synchronized: a GUI and its widgets are used by one thread at
@@ -579,7 +585,12 @@ typedef enum tb_gui_event_kind
      * proposed, and tb_gui_refuse_edit() keeps the old. */
     TB_GUI_EVENT_VALIDATE,
     TB_GUI_EVENT_POPUP_CLOSE, /**< It was closed as a popup: see tb_widget_popup(). */
-    TB_GUI_EVENT_COUNT        /**< How many there are; not a kind. */
+    /** Back was asked for, and nothing used it: no widget engaged, popup,
+     * or kind. Given to the widget with the focus, or else the modal widget
+     * in front or the root, then to its ancestors: bind it to go to the
+     * previous menu. See #TB_GUI_NAV_BACK. */
+    TB_GUI_EVENT_BACK,
+    TB_GUI_EVENT_COUNT /**< How many there are; not a kind. */
 } tb_gui_event_kind;
 
 /** @brief An event, as callbacks and kinds are given it. */
@@ -623,6 +634,15 @@ TB_API bool tb_bind(tb_widget widget, tb_gui_event_kind kind, tb_gui_callback *c
 TB_API size_t tb_unbind(tb_widget widget, tb_gui_event_kind kind, tb_gui_callback *callback,
                         void *user);
 
+/**
+ * @brief From a function bound to an event: the event is used, as Tk's
+ * `break` and Godot's `accept_event()`. The functions bound after it, the
+ * widget's kind, and its ancestors are not given it, and a key used so is
+ * not taken as navigation.
+ * @param event The event the function was given; required.
+ */
+TB_API void tb_gui_accept_event(const tb_gui_event *event);
+
 /** @brief Invoke a widget now, as clicking a button does: its #TB_GUI_EVENT_COMMAND
  * bindings, then its kind, which calls its `command`.
  * @return false for a stale handle, or a widget disabled. */
@@ -650,7 +670,12 @@ typedef enum tb_widget_class_flags
     /** Tab gives it the focus. */
     TB_WIDGET_CLASS_FOCUSABLE = 1u << 0,
     /** A press of the left button gives it the focus: a field to type in. */
-    TB_WIDGET_CLASS_FOCUS_ON_CLICK = 1u << 1
+    TB_WIDGET_CLASS_FOCUS_ON_CLICK = 1u << 1,
+    /** It keeps the keys of navigation only while it is engaged: a field
+     * to type in, or a list. Focus moved to it by navigation leaves it
+     * unengaged, and its arrows move the focus on; Accept engages it, and
+     * Back lets it go. See tb_widget_engaged(). */
+    TB_WIDGET_CLASS_ENGAGES = 1u << 2
 } tb_widget_class_flags;
 
 /** @brief Space between a widget's edges and the grid of its children, in units. */
@@ -805,10 +830,16 @@ TB_API tb_vec2 tb_widget_natural_size(tb_widget widget);
 /** @brief What a widget is doing now, for drawing it. */
 typedef enum tb_widget_state_flags
 {
-    TB_WIDGET_HOVERED = 1u << 0, /**< The mouse is over it. */
-    TB_WIDGET_PRESSED = 1u << 1, /**< A button went down on it and is held. */
-    TB_WIDGET_FOCUSED = 1u << 2, /**< It has the keyboard's focus. */
-    TB_WIDGET_DISABLED = 1u << 3 /**< It, or an ancestor, is disabled. */
+    TB_WIDGET_HOVERED = 1u << 0,  /**< The mouse is over it. */
+    TB_WIDGET_PRESSED = 1u << 1,  /**< A button went down on it and is held. */
+    TB_WIDGET_FOCUSED = 1u << 2,  /**< It has the keyboard's focus. */
+    TB_WIDGET_DISABLED = 1u << 3, /**< It, or an ancestor, is disabled. */
+    /** It has the focus, and the focus is shown: the keyboard or a gamepad
+     * moved it last, not the mouse, as CSS's `:focus-visible`. Draw the
+     * focus ring by this. */
+    TB_WIDGET_FOCUS_VISIBLE = 1u << 4,
+    /** It has the focus, and is engaged: see tb_widget_engaged(). */
+    TB_WIDGET_ENGAGED = 1u << 5
 } tb_widget_state_flags;
 
 /** @brief What a widget is doing: #tb_widget_state_flags. */
@@ -882,6 +913,178 @@ TB_API bool tb_widget_show_modal(tb_widget widget);
 
 /** @brief End a widget's being modal; the widget stays. */
 TB_API void tb_widget_end_modal(tb_widget widget);
+
+/* ---------------------------------------------------------------------------
+ * Navigation: the focus moved by the keyboard and a gamepad.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * @brief What a player asks of a menu with the keys or a gamepad, after
+ * Godot's `ui_*` actions and Unreal's navigation: a direction, Accept,
+ * Back, the next or previous widget, and the next or previous tab.
+ *
+ * Keys become actions through the GUI's key map (tb_gui_map_key()); a game
+ * feeds a gamepad's (tb_gui_feed_navigation()): the d-pad and the left
+ * stick for the directions, A or Cross for Accept, B or Circle for Back,
+ * and the shoulder buttons for the tabs.
+ *
+ * An action is first given to the widget with the focus as the key it
+ * stands for (Up, Down, Left, Right, Enter, Escape, Tab, Shift+Tab,
+ * Control+Tab, Control+Shift+Tab), then to its ancestors, as a key is, so
+ * that a kind that uses the arrows itself, as a slider does, uses a
+ * gamepad's too. What no kind uses is then done by the GUI:
+ *
+ * - a direction moves the focus to the widget's neighbour on that side, or
+ *   else the nearest widget that way (tb_gui_focus_direction());
+ * - Accept invokes the widget with the focus (tb_widget_invoke()), unless
+ *   its kind engages (#TB_WIDGET_CLASS_ENGAGES), which Accept engages
+ *   before it is given anything;
+ * - Back lets go of the widget engaged; or else closes the popup in front;
+ *   or else is sent as #TB_GUI_EVENT_BACK; or else hides the modal widget
+ *   in front;
+ * - the next and previous widget move the focus as Tab does.
+ *
+ * With nothing focused, a direction or Accept gives the focus to the
+ * default (tb_widget_focus_default()).
+ */
+typedef enum tb_gui_nav
+{
+    TB_GUI_NAV_NONE,         /**< No action: a key not mapped. */
+    TB_GUI_NAV_UP,           /**< Up: the arrow, the d-pad, the left stick. */
+    TB_GUI_NAV_DOWN,         /**< Down. */
+    TB_GUI_NAV_LEFT,         /**< Left. */
+    TB_GUI_NAV_RIGHT,        /**< Right. */
+    TB_GUI_NAV_ACCEPT,       /**< Enter, Space; A or Cross. */
+    TB_GUI_NAV_BACK,         /**< Escape; B or Circle. */
+    TB_GUI_NAV_NEXT,         /**< Tab: the next widget in the order of the tree. */
+    TB_GUI_NAV_PREVIOUS,     /**< Shift+Tab. */
+    TB_GUI_NAV_TAB_NEXT,     /**< A notebook's next tab: Control+Tab; the right shoulder. */
+    TB_GUI_NAV_TAB_PREVIOUS, /**< Its previous tab: Control+Shift+Tab; the left shoulder. */
+    TB_GUI_NAV_COUNT         /**< How many there are; not an action. */
+} tb_gui_nav;
+
+/** @brief The axes along which a container's navigation wraps around: its
+ * `focus_wrap` property. */
+typedef enum tb_gui_focus_wrap
+{
+    TB_GUI_WRAP_HORIZONTAL = 1u << 0, /**< Left from its first goes to its last, and back. */
+    TB_GUI_WRAP_VERTICAL = 1u << 1    /**< Up from its top goes to its bottom, and back. */
+} tb_gui_focus_wrap;
+
+/**
+ * @brief Give the GUI an action from a gamepad, or from anything else that
+ * is not a key, to be handled by the next tb_gui_update() in its order
+ * among the window events fed. A game repeats a direction held, as a key
+ * repeats.
+ * @param action Any but #TB_GUI_NAV_NONE and #TB_GUI_NAV_COUNT, which are
+ * ignored.
+ */
+TB_API void tb_gui_feed_navigation(tb_gui *gui, tb_gui_nav action);
+
+/**
+ * @brief Map a key, with exactly the modifiers held, to an action, in place
+ * of what it was mapped to: the keys a player rebinds. A GUI starts with
+ * the arrows for the directions, Enter and Space for Accept, Escape for
+ * Back, Tab and Shift+Tab for the next and previous widget, and
+ * Control+Tab, Control+Page Down and their Shift and Page Up for the tabs.
+ * @param modifiers #tb_modifier bits; a key with others held is another key.
+ * @param action #TB_GUI_NAV_NONE unmaps the key.
+ * @return false, changing nothing, for a key or action out of range.
+ */
+TB_API bool tb_gui_map_key(tb_gui *gui, tb_key key, uint32_t modifiers, tb_gui_nav action);
+
+/** @brief The action a key with exactly some modifiers is mapped to;
+ * #TB_GUI_NAV_NONE for none. */
+TB_API tb_gui_nav tb_gui_key_action(const tb_gui *gui, tb_key key, uint32_t modifiers);
+
+/** @brief Map the keys as a GUI starts: see tb_gui_map_key(). */
+TB_API void tb_gui_reset_key_map(tb_gui *gui);
+
+/** @brief Unmap every key: the GUI then navigates only by the actions fed. */
+TB_API void tb_gui_clear_key_map(tb_gui *gui);
+
+/**
+ * @brief Move the focus as a direction does, now: to the focused widget's
+ * neighbour on that side when it has one that takes the focus, or else to
+ * the nearest widget that takes the focus that way, by geometry, as Godot
+ * and Unreal choose it:
+ *
+ * - a widget is a candidate when it lies wholly past the focused widget's
+ *   edge on that side, within the popup or modal widget it is in, or the
+ *   GUI (Godot's rule);
+ * - a candidate in line with it, overlapping it across the direction, wins
+ *   over any that is not (Unreal's swept band);
+ * - among those, the nearest wins, by the shortest distance between the
+ *   two rectangles (Godot's), and a tie goes to the first in the order of
+ *   the tree;
+ * - when the nearest ancestor that wraps along that axis (`focus_wrap`)
+ *   has no candidate inside it, the search goes around: from its far
+ *   edge, among its own widgets.
+ *
+ * A widget that holds widgets that take the focus, as a notebook does its
+ * pages, is placed by its part outside them, its tabs. With nothing focused
+ * the focus goes to the default (tb_widget_focus_default()).
+ * @param direction #TB_GUI_NAV_UP, _DOWN, _LEFT, or _RIGHT.
+ * @return Whether the focus moved.
+ */
+TB_API bool tb_gui_focus_direction(tb_gui *gui, tb_gui_nav direction);
+
+/**
+ * @brief Name the widget the focus goes to from one, on a side, instead of
+ * the nearest by geometry: Godot's `focus_neighbor_*` and `focus_next`,
+ * Unreal's explicit navigation. A neighbour hidden, disabled, or stale is
+ * passed over, and the geometry decides.
+ *
+ * The same neighbours are the common properties `focus_up`, `focus_down`,
+ * `focus_left`, `focus_right`, `focus_next`, and `focus_previous`, as text:
+ * a widget's path (tb_widget_find()), looked up from the widget's parent,
+ * then from each ancestor up to the root, the nearest that has it; so a
+ * layout file names them. The last given wins, by handle or by path. A
+ * neighbour given by handle reads as its path from the root
+ * (tb_widget_path()), and so is saved; as none when it has no path.
+ * @param side #TB_GUI_NAV_UP, _DOWN, _LEFT, _RIGHT; or _NEXT and
+ * _PREVIOUS, for Tab and Shift+Tab.
+ * @param neighbor The widget; none to forget the side's.
+ * @return false for a stale handle, or another side.
+ */
+TB_API bool tb_widget_set_focus_neighbor(tb_widget widget, tb_gui_nav side, tb_widget neighbor);
+
+/** @brief A widget's neighbour on a side, as set; none when it has none or
+ * it is stale. */
+TB_API tb_widget tb_widget_focus_neighbor(tb_widget widget, tb_gui_nav side);
+
+/**
+ * @brief Give the focus to a screen's first widget: the first in the order
+ * of the tree, within a widget, whose `default_focus` property is true and
+ * that takes the focus; or else the first that takes the focus. A modal
+ * widget shown gives it to its default so, when it has one.
+ * @param container Where to look, itself included.
+ * @return false, changing nothing, when no widget there takes the focus.
+ */
+TB_API bool tb_widget_focus_default(tb_widget container);
+
+/**
+ * @brief Whether the widget with the focus is engaged: whether it has the
+ * keys of navigation to itself, as an entry has the arrows for its caret
+ * and a list for its items. Focus given by the mouse, by Tab, or by
+ * tb_widget_focus() engages it; focus moved by a direction, or given to a
+ * default, does not. A kind of #TB_WIDGET_CLASS_ENGAGES is given none of
+ * the keys mapped to actions while it is not engaged: Accept engages it,
+ * and any other key it uses, or text typed. Back lets it go.
+ * @return false for a widget without the focus.
+ */
+TB_API bool tb_widget_engaged(tb_widget widget);
+
+/** @brief Engage the widget with the focus, or let it go.
+ * @return false, changing nothing, for a widget without the focus. */
+TB_API bool tb_widget_engage(tb_widget widget, bool engaged);
+
+/** @brief Whether the focus is shown: true once the keyboard or a gamepad
+ * navigates, false once a mouse button is pressed (#TB_WIDGET_FOCUS_VISIBLE). */
+TB_API bool tb_gui_focus_visible(const tb_gui *gui);
+
+/** @brief Show the focus, or hide it, until the next input changes it. */
+TB_API void tb_gui_set_focus_visible(tb_gui *gui, bool visible);
 
 /* ---------------------------------------------------------------------------
  * The grid.
@@ -1451,8 +1654,8 @@ typedef struct tb_checkbutton_desc
     void *user;               /**< Given to the command. */
 } tb_checkbutton_desc;
 
-/** @brief Make a check button. A click, Space while it has the focus, or
- * tb_widget_invoke() toggles it: it sets its variable, sends
+/** @brief Make a check button. A click, Space or Enter while it has the
+ * focus, or tb_widget_invoke() toggles it: it sets its variable, sends
  * #TB_GUI_EVENT_CHANGED, and calls its command. @param desc Optional.
  * @return None when `parent` is stale. */
 TB_API tb_widget tb_checkbutton(tb_widget parent, const tb_checkbutton_desc *desc);
@@ -1470,9 +1673,10 @@ typedef struct tb_radiobutton_desc
 } tb_radiobutton_desc;
 
 /** @brief Make a radio button: chosen while its variable holds its value.
- * A click, Space, or tb_widget_invoke() chooses it; the arrow keys choose
- * the one before or after it among its siblings of its variable, and move
- * the focus there. @param desc Optional. @return None when `parent` is stale. */
+ * A click, Space, Enter, or tb_widget_invoke() chooses it; the arrow keys
+ * choose the one before or after it among its siblings of its variable, and
+ * move the focus there; past the first or the last, they move the focus on.
+ * @param desc Optional. @return None when `parent` is stale. */
 TB_API tb_widget tb_radiobutton(tb_widget parent, const tb_radiobutton_desc *desc);
 
 /* ---------------------------------------------------------------------------
@@ -1610,10 +1814,11 @@ typedef struct tb_scale_desc
 
 /**
  * @brief Make a slider. A press on its track moves its handle there and
- * gives it the focus, and a drag moves it; Left and Up step toward `from`,
- * Right and Down toward `to`, by its resolution (or a hundredth of the
- * range), Page Up and Page Down by its big increment, Home and End to its
- * ends. Each change sends #TB_GUI_EVENT_CHANGED.
+ * gives it the focus, and a drag moves it; the arrows along it, Left or Up
+ * toward `from`, Right or Down toward `to`, step by its resolution (or a
+ * hundredth of the range), and those across it move the focus on; Page Up
+ * and Page Down step by its big increment, Home and End to its ends. Each
+ * change sends #TB_GUI_EVENT_CHANGED.
  * @param desc Optional. @return None when `parent` is stale.
  */
 TB_API tb_widget tb_scale(tb_widget parent, const tb_scale_desc *desc);
@@ -1663,12 +1868,13 @@ typedef struct tb_combobox_desc
 } tb_combobox_desc;
 
 /**
- * @brief Make a combo box. A click, Space, or Alt+Down opens its list over
- * every widget; there the mouse or Up and Down pick a value, and a click,
- * Enter, or Space chooses it, and Escape, Alt+Up, a click outside, or the
- * loss of the focus closes it. Closed, Up and Down choose the value before
- * or after, and the wheel too while it has the focus. Each choice sends
- * #TB_GUI_EVENT_CHANGED.
+ * @brief Make a combo box. A click, Space, Enter, or Alt+Down opens its
+ * list over every widget; there the mouse or Up and Down pick a value, and
+ * a click, Enter, or Space chooses it, and Escape, Alt+Up, a click
+ * outside, or the loss of the focus closes it. Closed and engaged
+ * (tb_widget_engaged()), Up and Down choose the value before or after;
+ * reached by navigation, they move the focus on. The wheel chooses while
+ * it has the focus. Each choice sends #TB_GUI_EVENT_CHANGED.
  *
  * Its `values` property is its values as text, one a line.
  * @param desc Optional. @return None when `parent` is stale.

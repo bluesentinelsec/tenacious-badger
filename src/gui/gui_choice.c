@@ -140,7 +140,7 @@ static void tb_gui_checkbutton_draw(tb_widget widget, const void *data, tb_gui_p
         tb_gui_paint_line(paint, left, middle, side * TB_GUI_TICK_THICKNESS, mark);
         tb_gui_paint_line(paint, middle, right, side * TB_GUI_TICK_THICKNESS, mark);
     }
-    if ((state & TB_WIDGET_FOCUSED) != 0)
+    if ((state & TB_WIDGET_FOCUS_VISIBLE) != 0)
     {
         tb_gui_values_draw_focus(widget, paint, box);
     }
@@ -167,7 +167,7 @@ static void tb_gui_radiobutton_draw(tb_widget widget, const void *data, tb_gui_p
         tb_gui_paint_fill(paint, inner, dot * 0.5f,
                           theme->colors[disabled ? TB_UI_COLOR_TEXT_DIM : TB_UI_COLOR_ACCENT]);
     }
-    if ((state & TB_WIDGET_FOCUSED) != 0)
+    if ((state & TB_WIDGET_FOCUS_VISIBLE) != 0)
     {
         tb_gui_paint_outline(paint, circle, radius, 2.0f * theme->border,
                              theme->colors[TB_UI_COLOR_ACCENT]);
@@ -228,7 +228,7 @@ static bool tb_gui_radio_arrow(tb_widget widget, const tb_gui_choice *choice, tb
     next = tb_gui_radio_neighbour(widget, choice, after);
     if (!tb_widget_alive(next))
     {
-        return true;
+        return false;
     }
     (void)tb_widget_focus(next);
     (void)tb_widget_invoke(next);
@@ -247,7 +247,8 @@ static bool tb_gui_choice_event(tb_widget widget, tb_gui_choice *choice, const t
         }
         return true;
     case TB_GUI_EVENT_KEY:
-        if (event->key == TB_KEY_SPACE && !event->repeat && tb_gui_values_plain(event))
+        if ((event->key == TB_KEY_SPACE || event->key == TB_KEY_ENTER) && !event->repeat &&
+            tb_gui_values_plain(event))
         {
             (void)tb_widget_invoke(widget);
             return true;
@@ -286,6 +287,7 @@ static bool tb_gui_choice_event(tb_widget widget, tb_gui_choice *choice, const t
     case TB_GUI_EVENT_MOTION:
     case TB_GUI_EVENT_VALIDATE:
     case TB_GUI_EVENT_POPUP_CLOSE:
+    case TB_GUI_EVENT_BACK:
     case TB_GUI_EVENT_COUNT:
         break;
     }

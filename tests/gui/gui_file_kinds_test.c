@@ -375,14 +375,26 @@ TB_TEST(gui_file_kinds, every_registered_kind_comes_back_the_same)
     tb_var_set_name(tb_var_float(gui, 0.5), "var_float");
     tb_var_set_name(tb_var_string(gui, "Text"), "var_text");
     TB_TEST_REQUIRE_UINT(tb_gui_class_count(gui), >=, 11);
+    /* A widget named, for neighbours given by handle to be saved by path. */
+    const tb_widget target = gui_box_of(root, gui_focus_box_class(), 10.0f, 10.0f);
+    tb_widget_set_name(target, "target");
+    const tb_gui_value marked = tb_gui_bool(true);
+    const tb_gui_value wrapped = tb_gui_flags(TB_GUI_WRAP_VERTICAL);
+    const tb_gui_value below = tb_gui_text(TB_TEXT("menu/play"));
     for (size_t kind_index = 0; kind_index < tb_gui_class_count(gui); kind_index++)
     {
         const tb_widget_class *const kind = tb_gui_class_at(gui, kind_index);
         const tb_widget made = tb_widget_create(root, kind);
         size_t changed_count = 0;
         TB_TEST_REQUIRE(tb_grid(made, &(tb_grid_options){.row = 1, .sticky = TB_STICKY_EW}));
-        /* A common property changed on every kind, those with none of their own too. */
+        /* Common properties changed on every kind, those with none of their
+         * own too: the style, and navigation's, its neighbours by path and
+         * by handle. */
         tb_widget_set_style(made, "changed");
+        TB_TEST_REQUIRE(tb_widget_set(made, "default_focus", &marked));
+        TB_TEST_REQUIRE(tb_widget_set(made, "focus_wrap", &wrapped));
+        TB_TEST_REQUIRE(tb_widget_set(made, "focus_down", &below));
+        TB_TEST_REQUIRE(tb_widget_set_focus_neighbor(made, TB_GUI_NAV_NEXT, target));
         for (size_t index = 0; index < kind->property_count; index++)
         {
             const tb_gui_property *const property = &kind->properties[index];
@@ -413,6 +425,10 @@ TB_TEST(gui_file_kinds, every_registered_kind_comes_back_the_same)
         gui_update(&fixture);
         char *const second = saved_text(again);
         TB_TEST_EXPECT_STRING(second, ==, first);
+        /* The neighbour given by handle came back by its path, and finds it. */
+        TB_TEST_EXPECT(tb_widget_equal(tb_widget_focus_neighbor(again, TB_GUI_NAV_NEXT), target));
+        TB_TEST_EXPECT(tb_str_find(first, 0, TB_STR_END, "\"focus_down\": \"menu/play\"") !=
+                       TB_STR_NOT_FOUND);
         if (kind->property_count > 0)
         {
             TB_TEST_EXPECT_UINT(changed_count, >, 0);

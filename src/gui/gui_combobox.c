@@ -381,7 +381,7 @@ static void tb_gui_combo_draw(tb_widget widget, const void *data, tb_gui_paint *
     tb_gui_paint_fill(paint, rect, theme->frame_rounding, theme->colors[fill]);
     tb_gui_paint_outline(paint, rect, theme->frame_rounding, theme->border,
                          theme->colors[TB_UI_COLOR_BORDER]);
-    if ((state & TB_WIDGET_FOCUSED) != 0)
+    if ((state & TB_WIDGET_FOCUS_VISIBLE) != 0)
     {
         tb_gui_values_draw_focus(widget, paint, rect);
     }
@@ -469,12 +469,13 @@ static bool tb_gui_combo_key(tb_widget widget, tb_gui_combobox *box, const tb_gu
         }
         return tb_gui_values_plain(event) && tb_gui_combo_key_open(widget, box, key);
     }
-    if ((alt && key == TB_KEY_DOWN) || (key == TB_KEY_SPACE && tb_gui_values_plain(event)))
+    if ((alt && key == TB_KEY_DOWN) ||
+        ((key == TB_KEY_SPACE || key == TB_KEY_ENTER) && tb_gui_values_plain(event)))
     {
         tb_gui_combo_open(widget, box);
         return true;
     }
-    if (!tb_gui_values_plain(event))
+    if (!tb_gui_values_plain(event) || !tb_widget_engaged(widget))
     {
         return false;
     }
@@ -546,6 +547,7 @@ static bool tb_gui_combo_event(tb_widget widget, void *data, const tb_gui_event 
     case TB_GUI_EVENT_MOTION:
     case TB_GUI_EVENT_VALIDATE:
     case TB_GUI_EVENT_POPUP_CLOSE:
+    case TB_GUI_EVENT_BACK:
     case TB_GUI_EVENT_COUNT:
         break;
     }
@@ -623,6 +625,7 @@ static bool tb_gui_combo_list_event(tb_widget widget, void *data, const tb_gui_e
     case TB_GUI_EVENT_CHANGED:
     case TB_GUI_EVENT_MOTION:
     case TB_GUI_EVENT_VALIDATE:
+    case TB_GUI_EVENT_BACK:
     case TB_GUI_EVENT_COUNT:
         break;
     }

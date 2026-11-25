@@ -104,6 +104,10 @@ typedef struct tb_gui_popup_entry
 /* The variables, and the clipboard (gui_var.c). */
 typedef struct tb_gui_values tb_gui_values;
 
+/* Navigation's data: the key map, the actions fed, widgets' neighbours,
+ * and the focus to give back (gui_navigation.c). */
+typedef struct tb_gui_navigation tb_gui_navigation;
+
 /* A font opened from the catalog for a spec, or NULL when it has none. */
 typedef struct tb_gui_font_entry
 {
@@ -197,12 +201,18 @@ struct tb_gui
     tb_widget tooltip;  /* the tooltip shown, or none */
     bool tooltip_spent; /* a press or a key hid it: none until another widget is entered */
     uint32_t dispatch_depth;
+    bool event_accepted; /* a binding accepted the event being given */
+    bool focus_engaged;  /* the widget with the focus has the keys of navigation */
+    bool focus_visible;  /* the keyboard or a gamepad moved the focus last */
     bool wants_mouse;
     bool wants_keyboard;
     tb_cursor cursor;
 
     /* Variables, and the clipboard; made when first used. */
     tb_gui_values *values;
+
+    /* Navigation; made with the GUI. */
+    tb_gui_navigation *navigation;
 
     /* What tb_gui_draw() draws. */
     tb_arena *arena;
@@ -269,6 +279,64 @@ bool tb_gui_modal_contains(const tb_gui *gui, uint32_t index);
  * used it. */
 tb_gui_event tb_gui_event_for(tb_widget widget, tb_gui_event_kind kind);
 bool tb_gui_send(tb_widget widget, tb_gui_event *event);
+/* Give the focus to a widget, or none, engaged or not; forgets the focus
+ * waiting to be given back. */
+void tb_gui_give_focus(tb_gui *gui, tb_widget target, bool engaged);
+/* Whether a widget takes the focus now, by the flags of its kind: shown,
+ * enabled, and not behind a modal widget. */
+bool tb_gui_takes_focus(tb_gui *gui, tb_widget widget, uint32_t flags);
+/* The modal widget in front, or none. */
+tb_widget tb_gui_top_modal(const tb_gui *gui);
+/* The slot after one in the order of the tree, within a scope's subtree,
+ * into its children when `into`. */
+uint32_t tb_gui_walk_next(tb_gui *gui, uint32_t index, uint32_t scope, bool into);
+/* Whether a slot is walked for the focus within a scope: shown, and not a
+ * modal widget or a popup of its own. */
+bool tb_gui_focus_walks(tb_gui *gui, uint32_t index, uint32_t scope);
+
+/* gui_navigation.c: navigation by the keys and a gamepad. */
+void tb_gui_navigation_create(tb_gui *gui);
+void tb_gui_navigation_free(tb_gui *gui);
+/* Begin taking the actions fed before this update; take the next fed
+ * before the window event at a position, or after the last; and drop
+ * those taken once `events` window events were handled. */
+void tb_gui_actions_begin(tb_gui *gui);
+bool tb_gui_take_action(tb_gui *gui, size_t position, tb_gui_nav *action);
+void tb_gui_actions_end(tb_gui *gui, size_t events);
+/* The key and modifiers an action stands for: Enter for Accept. */
+tb_key tb_gui_action_key(tb_gui_nav action, uint32_t *modifiers);
+/* The neighbour a widget names on a side that takes the focus, or none. */
+tb_widget tb_gui_neighbor_taking_focus(tb_widget widget, tb_gui_nav side);
+/* The widget within a scope marked `default_focus` that takes the focus;
+ * or none. */
+tb_widget tb_gui_default_focus_in(tb_gui *gui, uint32_t scope);
+/* Remember the focus as a modal widget or a popup is shown, to give it
+ * back when it closes; and the widget closed: the focus to give back when
+ * the focus was in it or nowhere. */
+void tb_gui_remember_focus(tb_gui *gui, tb_widget holder);
+void tb_gui_holder_closed(tb_gui *gui, uint32_t holder);
+/* Give back the focus waiting to be given back, when it can be. */
+void tb_gui_restore_focus(tb_gui *gui);
+/* Forget the focus waiting to be given back. */
+void tb_gui_forget_restore(tb_gui *gui);
+/* The common properties `default_focus` and `focus_wrap`. */
+bool tb_gui_get_default_focus(tb_widget widget, const void *data, tb_gui_value *value);
+bool tb_gui_set_default_focus(tb_widget widget, void *data, const tb_gui_value *value);
+bool tb_gui_get_focus_wrap(tb_widget widget, const void *data, tb_gui_value *value);
+bool tb_gui_set_focus_wrap(tb_widget widget, void *data, const tb_gui_value *value);
+/* The common properties `focus_up` to `focus_previous`: neighbours by path. */
+bool tb_gui_get_focus_up(tb_widget widget, const void *data, tb_gui_value *value);
+bool tb_gui_set_focus_up(tb_widget widget, void *data, const tb_gui_value *value);
+bool tb_gui_get_focus_down(tb_widget widget, const void *data, tb_gui_value *value);
+bool tb_gui_set_focus_down(tb_widget widget, void *data, const tb_gui_value *value);
+bool tb_gui_get_focus_left(tb_widget widget, const void *data, tb_gui_value *value);
+bool tb_gui_set_focus_left(tb_widget widget, void *data, const tb_gui_value *value);
+bool tb_gui_get_focus_right(tb_widget widget, const void *data, tb_gui_value *value);
+bool tb_gui_set_focus_right(tb_widget widget, void *data, const tb_gui_value *value);
+bool tb_gui_get_focus_next(tb_widget widget, const void *data, tb_gui_value *value);
+bool tb_gui_set_focus_next(tb_widget widget, void *data, const tb_gui_value *value);
+bool tb_gui_get_focus_previous(tb_widget widget, const void *data, tb_gui_value *value);
+bool tb_gui_set_focus_previous(tb_widget widget, void *data, const tb_gui_value *value);
 
 /* gui_popup.c: popups. The level of the popup a slot is in, from 0 at the
  * back, passive ones counted only when `passive` is true; SIZE_MAX for
