@@ -18,8 +18,13 @@ directory; Linux uses `$ORIGIN/lib`. The shader libraries the build writes
 (`bin/Shaders/d3d12.tbsl` on Windows) travel in `Shaders/` beside the
 executable, or in `Burrow.app/Contents/Resources/Shaders` on macOS, where
 Burrow finds them: a Release build compiles no shaders at run time
-(`shaders.runtime_compile` is off), so it draws only with what they hold. The
-export's check requires each to match the build's. Exports contain no third-party packages,
+(`shaders.runtime_compile` is off), so it draws only with what they hold.
+Burrow's content, the menus' [layout files](gui.md#layout-files) and their
+theme (`bin/Content`), travels the same way, in `Content/` beside the
+executable or in `Burrow.app/Contents/Resources/Content`. The export's
+check requires each shader library and each file of the content to match
+the build's, and `burrow check` builds the menus from the export's own
+content. Exports contain no third-party packages,
 SDKs, tests, or sanitizer runtimes. macOS minimum deployment is 13; Linux records
 the build's libc baseline. See [release notes](release-notes.md) for current scope
 and signing limitations.

@@ -58,7 +58,10 @@ its own time.
 
 The options menu changes a setting with `tb_setting_set_boolean()` and the
 others of its kind, which set the runtime layer and refuse a value that does
-not fit, then calls `tb_settings_save_file()` when the player confirms. A menu
+not fit, then calls `tb_settings_save_file()` when the player confirms.
+A menu built with [the GUI](gui.md#changes-held-until-applied) binds its
+widgets' variables to the settings deferred, so that they change only when
+the player applies them; [Burrow's](burrow.md#the-menus) does. A menu
 that shows a display change for a few seconds before keeping it saves only
 once the player keeps it, so a mode the display cannot show is never saved.
 
@@ -351,6 +354,7 @@ the executable, then the player's file, then the command line.
 | `--set NAME=VALUE` | Gives a setting a value for this session; may be repeated |
 | `--renderer=NAME` | The same as `--set graphics.renderer=NAME`, given after every `--set` |
 | `--frames=COUNT` | The same as `--set developer.frame_count=COUNT`, given after every `--set`: stops after that many frames |
+| `--navigate=ACTIONS` | Gives the menus navigation actions, one a frame, as tests do, and writes each screen they show ([Burrow](burrow.md#testing)) |
 | `--reset-settings` | Sets the player's file aside and starts from the defaults |
 | `--settings-file FILE` | Uses another settings file in place of the player's |
 | `--mode developer` or `--mode release` | Takes a developer or a release build's defaults; each build defaults to its own |

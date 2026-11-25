@@ -117,7 +117,8 @@ static void fonts_choose(fonts_scene *scene, size_t index)
     }
     fonts_set_fact(scene, FONTS_FACT_PIXEL_SIZE, text);
     (void)tb_fmt_buffer(text, sizeof(text), "%s, %zu bytes",
-                        info.file[0] != '\0' ? info.file : "added by the game", info.length);
+                        info.file != NULL && info.file[0] != '\0' ? info.file : "added by the game",
+                        info.length);
     fonts_set_fact(scene, FONTS_FACT_FILE, text);
 }
 

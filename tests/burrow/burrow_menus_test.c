@@ -16,6 +16,12 @@
 
 #include <string.h>
 
+/* Burrow's content in the source tree, which the build names; from the
+ * tree's root otherwise, as a lint of this file alone compiles it. */
+#ifndef BURROW_TEST_CONTENT
+#define BURROW_TEST_CONTENT "resources/burrow"
+#endif
+
 /* Bytes of a path the tests make. */
 #define PATH_CAPACITY 4096
 
@@ -66,7 +72,7 @@ static void open_case(menus_case *made)
     tb_engine_settings_add(made->settings, &(tb_engine_settings_options){.developer = true},
                            &made->engine);
     (void)tb_settings_load_text(made->settings, TB_SETTING_LAYER_DEFAULT_FILE, burrow_defaults_text,
-                                strlen(burrow_defaults_text), NULL, NULL);
+                                tb_str_length(burrow_defaults_text), NULL, NULL);
     TB_TEST_REQUIRE_UINT(tb_fs_temp_directory((tb_path_view){0}, made->root, sizeof(made->root)),
                          ==, TB_FS_OK);
     join(made->root, "settings.cfg", made->player);
@@ -101,7 +107,7 @@ static void mount_copy(menus_case *made, const char *replaced, const char *text)
         join(ui, content_files[index], destination);
         if (replaced != NULL && tb_str_equal(replaced, content_files[index]))
         {
-            TB_TEST_REQUIRE_UINT(tb_fs_write_file(view(destination), text, strlen(text)), ==,
+            TB_TEST_REQUIRE_UINT(tb_fs_write_file(view(destination), text, tb_str_length(text)), ==,
                                  TB_FS_OK);
             continue;
         }
@@ -569,7 +575,7 @@ TB_TEST(burrow_menus, files_load_again_as_they_change)
 
     char path[PATH_CAPACITY] = {0};
     (void)tb_fmt_buffer(path, sizeof(path), "%s/Content/UI/pause_menu.json", made.root);
-    TB_TEST_REQUIRE_UINT(tb_fs_write_file(view(path), paused, strlen(paused)), ==, TB_FS_OK);
+    TB_TEST_REQUIRE_UINT(tb_fs_write_file(view(path), paused, tb_str_length(paused)), ==, TB_FS_OK);
     burrow_menus_update(made.menus, 1920, 1080, 1.0f, 1.0);
     TB_TEST_EXPECT(tb_widget_alive(find(&made, "pause/go")));
     TB_TEST_EXPECT(tb_widget_visible(find(&made, "pause")));
@@ -586,7 +592,7 @@ TB_TEST(burrow_menus, files_load_again_as_they_change)
     char theme[PATH_CAPACITY] = {0};
     (void)tb_fmt_buffer(theme, sizeof(theme), "%s/Content/UI/burrow.theme.json", made.root);
     static const char sizes[] = "{\"format\": \"badger-theme\", \"version\": 1, \"styles\": {}}";
-    TB_TEST_REQUIRE_UINT(tb_fs_write_file(view(theme), sizes, strlen(sizes)), ==, TB_FS_OK);
+    TB_TEST_REQUIRE_UINT(tb_fs_write_file(view(theme), sizes, tb_str_length(sizes)), ==, TB_FS_OK);
     burrow_menus_update(made.menus, 1920, 1080, 1.0f, 1.0);
     TB_TEST_REQUIRE_UINT(tb_fs_write_file(view(theme), "[", 1), ==, TB_FS_OK);
     burrow_menus_update(made.menus, 1920, 1080, 1.0f, 1.0);

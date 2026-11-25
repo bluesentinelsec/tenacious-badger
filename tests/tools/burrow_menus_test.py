@@ -37,7 +37,7 @@ with tempfile.TemporaryDirectory(prefix='tb-burrow-menus-') as temporary:
     player = Path(temporary) / 'settings.cfg'
     common = ['--settings-file', str(player), '--renderer=null', '--set',
               'display.window_mode=windowed', '--set', 'display.window_width=960', '--set',
-              'display.window_height=540']
+              'display.window_height=540', '--set', 'developer.quit_without_asking=true']
 
     # A word that is no action is refused before a window opens.
     status, out, err = run(*common, '--frames=3', '--navigate=down,jump')

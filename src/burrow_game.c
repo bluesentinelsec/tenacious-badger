@@ -293,7 +293,8 @@ static void burrow_frame(void *context, const tb_game_time *time)
     burrow_scene_draw(game->scene, game->renderer);
     if (game->menus == NULL || game->screen == BURROW_SCREEN_PLAYING)
     {
-        burrow_hud_draw(game->hud, game->renderer, game->engine, game->player.captured);
+        burrow_hud_draw(game->hud, game->renderer, game->engine, game->player.captured,
+                        game->menus != NULL);
     }
     else
     {

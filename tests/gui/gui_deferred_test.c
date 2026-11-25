@@ -183,9 +183,9 @@ TB_TEST(gui_deferred, revert_and_defaults)
     static const char player[] = "test.volume = 0.75\ntest.mode = fullscreen\n";
 
     (void)tb_settings_load_text(made.settings, TB_SETTING_LAYER_DEFAULT_FILE, game_defaults,
-                                strlen(game_defaults), NULL, NULL);
-    (void)tb_settings_load_text(made.settings, TB_SETTING_LAYER_PLAYER_FILE, player, strlen(player),
-                                NULL, NULL);
+                                tb_str_length(game_defaults), NULL, NULL);
+    (void)tb_settings_load_text(made.settings, TB_SETTING_LAYER_PLAYER_FILE, player,
+                                tb_str_length(player), NULL, NULL);
     TB_TEST_REQUIRE_UINT(
         tb_settings_set(made.settings, TB_SETTING_LAYER_COMMAND_LINE, "test.vsync", "false"), ==,
         TB_SETTING_OK);
@@ -329,7 +329,7 @@ TB_TEST(gui_deferred, a_file_declares_a_variable_deferred)
 
     TB_TEST_CONTEXT("%s", error.message);
     TB_TEST_REQUIRE_UINT(tb_gui_load(tb_gui_root(made.fixture.gui), deferred_file,
-                                     strlen(deferred_file), NULL, &form, &error),
+                                     tb_str_length(deferred_file), NULL, &form, &error),
                          ==, TB_GUI_FILE_OK);
     tb_test_context_clear();
     TB_TEST_EXPECT(tb_var_deferred(tb_gui_find_var(made.fixture.gui, "volume")));
@@ -350,9 +350,9 @@ TB_TEST(gui_deferred, a_file_declares_a_variable_deferred)
                                          "\"variables\": [%s], \"root\": {\"kind\": \"frame\"}}",
                                          wrong[index][0]);
         tb_widget none = TB_WIDGET_NONE;
-        TB_TEST_EXPECT_UINT(
-            tb_gui_load(tb_gui_root(made.fixture.gui), text, strlen(text), NULL, &none, &error), ==,
-            TB_GUI_FILE_INVALID);
+        TB_TEST_EXPECT_UINT(tb_gui_load(tb_gui_root(made.fixture.gui), text, tb_str_length(text),
+                                        NULL, &none, &error),
+                            ==, TB_GUI_FILE_INVALID);
         TB_TEST_EXPECT_STRING(error.reason, ==, wrong[index][1]);
         TB_TEST_EXPECT_STRING(error.path, ==, "$.variables[0].deferred");
         tb_str_free(NULL, text);
@@ -382,7 +382,7 @@ TB_TEST(gui_deferred, a_notebook_keeps_its_tabs_in_a_file)
     TB_TEST_EXPECT(tb_text_equal(value.text, TB_TEXT("Display\nGraphics\nAudio")));
     char *const first = saved_text(book);
     TB_TEST_CONTEXT("%s", first);
-    TB_TEST_REQUIRE_UINT(tb_gui_load(root, first, strlen(first), NULL, &again, &error), ==,
+    TB_TEST_REQUIRE_UINT(tb_gui_load(root, first, tb_str_length(first), NULL, &again, &error), ==,
                          TB_GUI_FILE_OK);
     TB_TEST_EXPECT_UINT(tb_notebook_tab_count(again), ==, 3);
     TB_TEST_EXPECT_UINT(tb_notebook_selected(again), ==, 1);
@@ -403,8 +403,8 @@ TB_TEST(gui_deferred, a_notebook_keeps_its_tabs_in_a_file)
         "\"properties\": {\"tabs\": \"First\"}, \"children\": [{\"kind\": \"frame\"}, "
         "{\"kind\": \"frame\", \"name\": \"second\"}]}}";
     tb_widget named = TB_WIDGET_NONE;
-    TB_TEST_REQUIRE_UINT(tb_gui_load(root, unnamed, strlen(unnamed), NULL, &named, &error), ==,
-                         TB_GUI_FILE_OK);
+    TB_TEST_REQUIRE_UINT(tb_gui_load(root, unnamed, tb_str_length(unnamed), NULL, &named, &error),
+                         ==, TB_GUI_FILE_OK);
     TB_TEST_REQUIRE(tb_widget_get(named, "tabs", &value));
     TB_TEST_EXPECT(tb_text_equal(value.text, TB_TEXT("First\nsecond")));
     TB_TEST_EXPECT_UINT(tb_notebook_selected(named), ==, 0);

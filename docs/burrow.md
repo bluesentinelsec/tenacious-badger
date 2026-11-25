@@ -3,14 +3,15 @@
 `burrow` is the engine's showcase game: a graybox first-person shooter,
 under construction. For now it is a room to fly through. It opens a window
 as [the display settings](settings.md#burrow) say, makes [a renderer](renderer.md)
-on it, and runs [the game loop](game-loop.md), which moves the player at
-fixed ticks and draws the room between them.
+on it, shows its main menu over the room, and runs [the game loop](game-loop.md),
+which moves the player at fixed ticks and draws the room between them.
 
 ```
 burrow                                  # play, on the platform's best renderer
 burrow --renderer=d3d12                 # on a renderer named outright
 burrow --renderer=null                  # in a window, drawing nothing: for tests
 burrow --frames=120                     # stop after 120 frames
+burrow --navigate=down,accept           # walk the menus, one action a frame: for tests
 burrow --headless --frames=30           # no window: the loop and the player alone
 burrow settings                         # every setting, and where its value comes from
 burrow check                            # say that it starts against its engine
@@ -25,10 +26,10 @@ burrow check                            # say that it starts against its engine
 | Space | Rise |
 | Ctrl or C | Sink |
 | Shift | Sprint: two and a half times as fast |
-| Escape | Frees the mouse; once it is free, quits (or asks first, in a release build) |
-| Left click | Captures the mouse again |
+| Escape | Pauses: the [pause menu](#the-menus) |
+| Left click | Captures the mouse again, should the system have let it go |
 
-The game starts with the mouse captured, in relative mouse mode
+Play captures the mouse, in relative mouse mode
 (`tb_window_set_relative_mouse()`): the cursor is hidden and held in the
 window, and the view turns by the mouse's own motion. The view looks up and
 down at most 89 degrees, short of straight up, where its yaw would lose its
@@ -40,6 +41,98 @@ collision yet (#313). Forward and sideways moves are level, relative to
 where the player faces, so looking down does not fly into the floor; rising
 and sinking are straight up and down. Moving diagonally is no faster than
 moving straight.
+
+## The menus
+
+Burrow's menus are built with the engine's [retained GUI](gui.md) from
+[layout files](gui.md#layout-files) in Burrow's content, and drawn in the
+[game theme](gui.md#the-built-in-themes): bronze buttons and slate panels
+of nine-slice images, headings in Source Sans 3 and text in Source Serif 4.
+They are laid out at 1920 by 1080 units with the keep-aspect stretch, so
+they look the same in any window, letterboxed where its shape is not 16:9.
+
+| Screen | Shows | Back |
+| --- | --- | --- |
+| Main menu | Burrow's title over the room, which a camera circles; Play, Options, and Quit | asks whether to quit |
+| Pause menu | Escape while playing, or the window losing the focus, over the room frozen and shaded; Resume, Options, Quit to menu, and Quit | resumes |
+| Options | A notebook of four tabs, Display, Graphics, Controls, and Audio; Defaults, Revert, Apply, and Back | goes back to the menu it was opened from |
+
+The game starts at the main menu, with the world paused and the mouse the
+menus'. Play captures the mouse and starts the world; a menu over it
+releases the mouse and pauses the world (`tb_game_loop_set_paused()`);
+Quit to menu ends the game under way, and the next Play starts afresh.
+Quit asks first, in a message dialog, unless
+`developer.quit_without_asking` says not to, as it does in developer
+builds; Back from the main menu always asks.
+
+**Navigation.** Every screen is used with the keyboard alone, or the
+actions a gamepad gives ([navigation](gui.md#navigation)): each screen
+gives its first widget the focus as it shows, the arrows move it, Enter
+or Space presses, Escape goes back, and Control+Tab or a gamepad's
+shoulders turn the options' tabs. The mouse works as well. Burrow reads no
+gamepad yet; `burrow_menus_navigate()` takes the actions it will give.
+
+**The options.** Each option edits an engine setting
+([settings](settings.md#the-engines-settings)) through a variable bound to
+it deferred (`tb_var_bind_setting_deferred()`): the widget shows the
+setting's value, and a change waits until it is applied, as players
+expect of an options menu.
+
+| Button | Does |
+| --- | --- |
+| Apply | The settings take every change, at their runtime layer, and the player's settings file is saved |
+| Revert | Every change is let go of: the widgets show the settings' values again |
+| Defaults | Every option shows its default, Burrow's own (`burrow_defaults.cfg`) or else the engine's, without the player's choices or the command line's; applied as any change is |
+| Back | With changes waiting, asks whether to keep them: Yes applies them, No lets go of them, Cancel stays |
+
+The status line says while changes wait. A display change takes effect
+when it is applied: the game loop applies the window's settings, and
+Burrow its renderer's and its camera's, at the next frame. The
+confirmation that reverts a display mode after fifteen seconds is still to
+come (#252).
+
+| Tab | Options |
+| --- | --- |
+| Display | Window mode, display (named as the system names them), vertical sync, frame limit, brightness; the crosshair, the HUD's opacity, the performance overlay, and pausing in the background |
+| Graphics | Field of view, upscaler and its quality, render scale, sharpening, anti-aliasing, texture filtering, motion blur |
+| Controls | The mouse's sensitivity, inverted look, and raw input; the gamepad's sensitivities, inverted look, and vibration |
+| Audio | The master, music, effects, voice, and interface volumes, muting in the background; subtitles, their size and their background |
+
+### Editing the menus
+
+The menus are four files in `resources/burrow/Content/UI/`, read through a
+[VFS](vfs.md) by their paths in Burrow's content:
+
+| File | Holds |
+| --- | --- |
+| `main_menu.json` | The main menu: its title, its buttons, and the engine's version |
+| `pause_menu.json` | The pause menu |
+| `options_menu.json` | The options: the variables bound to settings, and the notebook's pages |
+| `burrow.theme.json` | A [theme file](gui.md#theme-files) over the game theme: its fonts' sizes and paddings for 1920 by 1080 units, and the menus' own style classes (`Banner.Label`, `Tagline.Label`, `Field.Label`, `Hint.Label`, `Panel.Frame`) |
+
+Edit them as text, by the [format](gui.md#the-format). A developer build
+reads them from the source tree, and loads each again as it is saved,
+while the game runs ([hot reload](gui.md#hot-reload)): a file that fails
+to load is reported on standard error, and the menu stays as it was.
+
+What the files reach of the game, they reach by name:
+
+- **Commands.** A button's `command` is one Burrow registers: `play`,
+  `resume`, `options`, `quit_to_menu`, `quit`, `back`, `apply_options`,
+  `revert_options`, and `default_options`.
+- **Variables.** `options_menu.json` declares a variable for each option,
+  with the `setting` it edits and `"deferred": true`; a choice is an
+  integer variable, its index, which a combo box shows by its `values`
+  in the choices' order.
+- **Paths.** Code finds three widgets by their paths, and the files keep
+  them: `main/version`, the version's label; `options/panel/tabs/display/monitor`,
+  whose `values` it fills with the displays' names; and
+  `options/panel/bar/status`, the status line. Each screen's root is
+  named `main`, `pause`, or `options`, and gives its first widget
+  `default_focus`.
+
+A new option is a variable bound to its setting, a row of a page's grid,
+and nothing in C.
 
 ## The room
 
@@ -59,8 +152,9 @@ the walls lighter, the blocks blue, and the pillars and cover orange.
 
 ## The HUD
 
-Over the room, in the UI role's font of [the font catalog](fonts.md) and in
-logical units, so that it keeps its size on every display, the HUD shows:
+Over the room while playing, in the UI role's font of [the font catalog](fonts.md)
+and in logical units, so that it keeps its size on every display, the HUD
+shows:
 
 - the frame rate, as `interface.performance_overlay` asks: `frame_rate`
   (Burrow's default), `detailed` (with the frame's time), or `off`;
@@ -68,7 +162,8 @@ logical units, so that it keeps its size on every display, the HUD shows:
 - a crosshair, while `interface.crosshair` is on.
 
 `interface.hud_opacity` fades all of it; 0 hides it. A build of the engine
-that carries no fonts draws the crosshair alone.
+that carries no fonts draws the crosshair alone, and has no menus: the
+game plays at once, Escape frees the mouse, and Escape again quits.
 
 ## How it is made
 
@@ -82,8 +177,11 @@ each:
 | `burrow_player.c` | The player: the view's yaw and pitch and their basis, the field of view, the controls, flying at each tick, and where to draw between ticks |
 | `burrow_scene.c` | What the renderer draws: a mesh for each piece, the grid's texture, a material for each surface, and the sky |
 | `burrow_hud.c` | The frame rate's average, and the HUD drawn through the canvas |
-| `burrow_game.c` | The window, the renderer, and the game loop's callbacks |
+| `burrow_menu.c` | The menus as a state machine: the screen shown, what each choice leads to, and where Back goes; and the main menu's orbiting camera |
+| `burrow_menus.c` | The menus as screens: built from their files, commands by name, the options applied, reverted, and set to their defaults, and the questions asked |
+| `burrow_game.c` | The window, the renderer, the menus, and the game loop's callbacks |
 | `burrow_settings.c`, `main.c` | The settings and the command line |
+| `resources/burrow/Content/` | Burrow's content: the menus' files |
 
 Burrow draws through the renderer's public interface alone: meshes,
 materials, the sky and the canvas, with no shaders of its own. Whatever
@@ -95,19 +193,24 @@ with.
 any frame rate. Each frame draws the player's eye between where it was
 before the last tick and after it, as far as the loop's `alpha` says, so
 that motion is smooth at any frame rate. The view turns as each mouse event
-comes, not at the ticks, so that looking never waits for one.
+comes, not at the ticks, so that looking never waits for one. The menus
+run each frame, whether the world ticks or not.
 
 **Field of view.** `graphics.field_of_view` is horizontal degrees on a 16:9
 display (90 by default, about 59 degrees vertically). Burrow turns it into
 the vertical field of view the camera takes, and keeps that whatever the
 window's shape: a wider window sees more at the sides, a narrower one less.
 
-**Shaders.** Burrow gives the renderer the shader libraries the build
-writes, `Shaders/<backend>.tbsl`, from beside its executable, or from
-`Contents/Resources` in a macOS bundle. A developer build also compiles what
-they lack, keeping it in the user's shader cache; a Release build, with
-`shaders.runtime_compile` off, draws with the libraries alone, so its exports
-carry them ([releasing](releasing.md)).
+**Shaders and content.** Burrow finds its files beside its executable, or
+in `Contents/Resources` in a macOS bundle: the shader libraries the build
+writes, `Shaders/<backend>.tbsl`, and its content, `Content/`, which the
+build copies there from `resources/burrow/Content`. A developer build reads
+its content from the source tree before the copy, and compiles what the
+shader libraries lack, keeping it in the user's shader cache; a Release
+build, with `shaders.runtime_compile` off, draws with the libraries alone
+and reads the copy, so its exports carry both ([releasing](releasing.md)).
+`burrow check` builds the menus from the content, without a window, so an
+export that lacks a file, or carries a broken one, fails its check.
 
 **Windows and displays.** The renderer follows the window's size in pixels,
 and the HUD the display's scale, by themselves; the game loop applies
@@ -117,21 +220,36 @@ changed display settings to the window, and Burrow applies `display.vsync`,
 ## Testing
 
 `--frames=N` is the escape hatch that runs the game for a number of frames
-and quits: the same as `--set developer.frame_count=N`.
+and quits: the same as `--set developer.frame_count=N`. `--navigate=ACTIONS`
+gives the menus navigation actions, one a frame from the first (`up`,
+`down`, `left`, `right`, `accept`, `back`, `next`, `previous`, `tab_next`,
+`tab_previous`, or `wait`), and writes each screen they show, as
+`burrow: menu: options`.
 
-- `tb_burrow_tests` builds the game's room, grid, player and HUD with their
-  cases (`tests/burrow/`): the view's basis for a yaw and a pitch, the pitch's
-  limits, moving relative to the yaw, the field of view, the controls and
-  the mouse's capture, interpolating between ticks, the pieces' triangles
-  and texture coordinates, the room's layout, the grid's lines, and the
-  frame rate's average.
+- `tb_burrow_tests` builds the game's room, grid, player, HUD, and menus
+  with their cases (`tests/burrow/`): the view's basis for a yaw and a
+  pitch, the pitch's limits, moving relative to the yaw, the field of view,
+  the controls and the mouse's capture, interpolating between ticks, the
+  pieces' triangles and texture coordinates, the room's layout, the grid's
+  lines, the frame rate's average; the menus' state machine and their
+  camera; and the menus built from the files Burrow ships, without a
+  window: walked by navigation alone, the options applied, reverted, and
+  set to their defaults, Back's question answered every way, quitting, the
+  files' failures said, and the files loaded again as they change.
 - `burrow.plays_a_number_of_frames` runs Burrow without a window, then in
-  one with the null renderer, which takes every call that draws the room and
-  the HUD on every platform. Where there is no display it is skipped.
+  one with the null renderer, which takes every call that draws the room,
+  the HUD and the menus on every platform. Where there is no display it is
+  skipped.
+- `burrow.menus_are_driven_by_navigation` drives the menus in a window with
+  the null renderer by `--navigate`: playing, pausing, quitting to the menu
+  and quitting; the options from the pause menu; a change applied on the
+  way back, and saved in the player's file; and a change let go of.
 
 ## Not yet
 
 - Collision against the room, and walking with gravity (#313).
 - A renderer on Linux and macOS: their backends are not written yet, so
   `burrow` there runs only with `--renderer=null` or `--headless`.
-- Gamepads, rebinding, and a pause menu.
+- Gamepads (#338), and rebinding keys.
+- The fifteen seconds that revert a display change unless the player keeps
+  it (#252).

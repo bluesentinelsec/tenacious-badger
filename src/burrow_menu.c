@@ -55,9 +55,14 @@ static bool burrow_menu_choose_main(burrow_menu *menu, burrow_choice choice)
         return burrow_menu_open_options(menu);
     case BURROW_CHOICE_QUIT:
         return burrow_menu_quit(menu);
-    default:
-        return false;
+    case BURROW_CHOICE_PAUSE:
+    case BURROW_CHOICE_RESUME:
+    case BURROW_CHOICE_QUIT_TO_MENU:
+    case BURROW_CHOICE_BACK:
+    case BURROW_CHOICE_COUNT:
+        break;
     }
+    return false;
 }
 
 static bool burrow_menu_choose_pause(burrow_menu *menu, burrow_choice choice)
@@ -74,9 +79,12 @@ static bool burrow_menu_choose_pause(burrow_menu *menu, burrow_choice choice)
         return burrow_menu_go(menu, BURROW_SCREEN_MAIN);
     case BURROW_CHOICE_QUIT:
         return burrow_menu_quit(menu);
-    default:
-        return false;
+    case BURROW_CHOICE_PLAY:
+    case BURROW_CHOICE_PAUSE:
+    case BURROW_CHOICE_COUNT:
+        break;
     }
+    return false;
 }
 
 bool burrow_menu_choose(burrow_menu *menu, burrow_choice choice)
@@ -130,7 +138,7 @@ burrow_choice burrow_choice_named(const char *word)
 void burrow_orbit_view(double seconds, tb_vec3 *eye, float *yaw, float *pitch)
 {
     const double turns = fmod(seconds / BURROW_ORBIT_SECONDS, 1.0);
-    const float angle = (float)(turns * 2.0 * TB_PI);
+    const float angle = (float)(turns * 2.0 * (double)TB_PI);
     const float drop = BURROW_ORBIT_HEIGHT - BURROW_ORBIT_TARGET_HEIGHT;
 
     /* At angle 0 the eye is south of the middle (+Z), looking north (-Z),
