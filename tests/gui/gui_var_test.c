@@ -116,7 +116,7 @@ TB_TEST(gui_var, setting_converts_to_the_variables_type_or_refuses)
     TB_TEST_EXPECT(tb_var_set_float(count, 2.6));
     TB_TEST_EXPECT_INT(tb_var_get_int(count), ==, 3);
     TB_TEST_EXPECT(!tb_var_set_float(count, 1e12));
-    TB_TEST_EXPECT(!tb_var_set_float(number, INFINITY));
+    TB_TEST_EXPECT(!tb_var_set_float(number, (double)INFINITY));
     TB_TEST_EXPECT(tb_var_set_bool(count, true));
     TB_TEST_EXPECT_INT(tb_var_get_int(count), ==, 1);
     TB_TEST_EXPECT(tb_var_set_int(flag, 5));
