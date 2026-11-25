@@ -36,6 +36,23 @@ Time is counted exactly: the loop owes the simulation nanoseconds times the
 tick rate, so a tick of a sixtieth of a second, which is no whole number of
 nanoseconds, never drifts.
 
+## While the window is dragged
+
+While the player drags the window's border or title bar, Windows and macOS
+hold the thread in a loop of their own, and reading events does not return
+until the drag ends. The loop sets itself as the window system's refresh
+([Windows and displays](windows.md#live-resizing)), and runs frames from
+inside the system's loop: the events queued, settings, the ticks due, the
+frame at the window's new size, and pacing, as a frame between drags does.
+The picture follows the drag, and the simulation goes on. Each frame the
+renderer begins resizes its swap chain to the window and computes the display
+policy's viewport for the new size ([The renderer](renderer.md)), so the
+bars, the 3D view, the canvas and the interface keep their places.
+
+A refresh that comes while the loop is running a frame, as a window the
+settings reconfigure may send, runs no frame of its own. A minimized window
+renders nothing: the renderer begins no frame while its window has no size.
+
 ## Long frames and pausing
 
 A frame counts for at most `engine.max_frame_time` seconds. After a stall, a
@@ -111,8 +128,8 @@ engine, which the packaged exports run.
 
 ## Known gaps
 
-- On Windows, the game stops while the player drags or resizes its window,
-  because Windows runs a loop of its own for the drag. Running the game on a
-  thread of its own, with the window's thread forwarding events, is the fix
-  (#210).
+- The game runs on the window system's thread. A frame that takes long
+  makes a drag of the window feel heavy, as it makes the game feel heavy;
+  running the game on a thread of its own, with the window's thread
+  forwarding events, would part them (#210).
 - Vsync waits for a renderer's swap chain.

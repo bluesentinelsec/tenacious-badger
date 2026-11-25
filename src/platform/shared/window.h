@@ -61,6 +61,12 @@ struct tb_window_system
     /* The backend keeps a window's aspect while the player resizes it: all
      * but Wayland. */
     bool keeps_aspect;
+    /* What tb_window_refresh() calls, and with what; NULL for nothing. */
+    tb_window_refresh_function *refresh;
+    void *refresh_context;
+    /* Inside the refresh: polling and waiting read no messages, and another
+     * refresh is dropped. */
+    bool refreshing;
 };
 
 struct tb_window
@@ -213,6 +219,11 @@ void tb_window_mouse_crossed(tb_window *window, bool inside, double x, double y)
 /* Queue typed text, `length` bytes of UTF-8, in events of whole characters,
  * without its control characters or anything that is not UTF-8. */
 void tb_window_text(tb_window *window, const char *text, size_t length);
+
+/* Call the system's refresh, from inside a loop the system holds the
+ * thread in while a window is dragged or resized. Nothing without a
+ * refresh, or inside one already. */
+void tb_window_refresh(tb_window_system *system);
 
 /* Queue that the displays changed, after tb_window_set_displays(). */
 void tb_window_displays_changed(tb_window_system *system);

@@ -523,6 +523,12 @@ bool tb_window_system_poll(tb_window_system *system, tb_window_event *event)
     {
         return true;
     }
+    /* Inside a refresh, the system's own loop reads the messages: reading
+     * them here would run the refresh inside itself. */
+    if (system->refreshing)
+    {
+        return false;
+    }
     system->ops->pump(system, 0);
     return tb_window_take_event(system, event);
 }
@@ -530,7 +536,7 @@ bool tb_window_system_poll(tb_window_system *system, tb_window_event *event)
 void tb_window_system_wait(tb_window_system *system, uint64_t nanoseconds)
 {
     TB_ASSERT(system != NULL);
-    if (system->next_event < tb_array_length(system->events))
+    if (system->next_event < tb_array_length(system->events) || system->refreshing)
     {
         return;
     }
@@ -541,6 +547,25 @@ void tb_window_system_wake(tb_window_system *system)
 {
     TB_ASSERT(system != NULL);
     system->ops->wake(system);
+}
+
+void tb_window_system_set_refresh(tb_window_system *system, tb_window_refresh_function *refresh,
+                                  void *context)
+{
+    TB_ASSERT(system != NULL);
+    system->refresh = refresh;
+    system->refresh_context = context;
+}
+
+void tb_window_refresh(tb_window_system *system)
+{
+    if (system->refresh == NULL || system->refreshing)
+    {
+        return;
+    }
+    system->refreshing = true;
+    system->refresh(system->refresh_context);
+    system->refreshing = false;
 }
 
 /* ---------------------------------------------------------------------------

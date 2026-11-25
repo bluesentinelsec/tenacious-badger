@@ -1,7 +1,14 @@
 /* The D3D12 backend's swap chains: DXGI's flip model on a window's HWND,
  * presenting with vsync, or without it and tearing where the system allows,
  * as variable-refresh displays want. The window module owns fullscreen, so
- * DXGI's Alt+Enter is turned off. */
+ * DXGI's Alt+Enter is turned off.
+ *
+ * The images are shown unscaled, from the window's top-left corner. While
+ * the player drags the window's border, the window's size changes before
+ * the renderer resizes the images to it: a stretched picture would smear
+ * for that moment, where an unscaled one stays sharp, and what it does not
+ * cover is the window's black. A system that refuses unscaled images
+ * gets stretched ones. */
 #include "d3d12_internal.h"
 
 #include "badger/memory.h"
@@ -99,13 +106,22 @@ tb_rhi_result tb_d3d12_swap_chain_create(void *state, struct tb_window *window,
     chain_desc.SampleDesc.Count = 1;
     chain_desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     chain_desc.BufferCount = desc->images;
-    chain_desc.Scaling = DXGI_SCALING_STRETCH;
+    chain_desc.Scaling = DXGI_SCALING_NONE;
     chain_desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     chain_desc.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
     chain_desc.Flags = made->tearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0u;
     result =
         IDXGIFactory6_CreateSwapChainForHwnd(device->factory, (IUnknown *)device->queue,
                                              (HWND)native.window, &chain_desc, NULL, NULL, &chain1);
+    if (result == DXGI_ERROR_INVALID_CALL || result == E_INVALIDARG)
+    {
+        /* coverage-off: Windows 10 and later show unscaled images */
+        chain_desc.Scaling = DXGI_SCALING_STRETCH;
+        result = IDXGIFactory6_CreateSwapChainForHwnd(device->factory, (IUnknown *)device->queue,
+                                                      (HWND)native.window, &chain_desc, NULL, NULL,
+                                                      &chain1);
+        /* coverage-on */
+    }
     if (SUCCEEDED(result))
     {
         (void)IDXGIFactory6_MakeWindowAssociation(device->factory, (HWND)native.window,
