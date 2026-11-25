@@ -304,6 +304,12 @@ void tb_gui_register_scroll_kinds(tb_gui *gui);
 void tb_gui_register_listbox(tb_gui *gui);
 void tb_gui_register_menu_kinds(tb_gui *gui);
 void tb_gui_register_tooltip(tb_gui *gui);
+void tb_gui_register_treeview(tb_gui *gui);
+void tb_gui_register_notebook(tb_gui *gui);
+void tb_gui_register_panedwindow(tb_gui *gui);
+void tb_gui_register_message_box(tb_gui *gui);
+void tb_gui_register_image(tb_gui *gui);
+void tb_gui_register_canvas(tb_gui *gui);
 /* The size of a text, or of one empty line of its font. */
 tb_vec2 tb_gui_measure_block(tb_widget widget, const tb_gui_text_block *block);
 /* The height of a line of the theme's font, in units. */

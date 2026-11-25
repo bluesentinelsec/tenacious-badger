@@ -110,16 +110,19 @@ set(TB_TEST_CASE_SOURCES
     ${TB_JSON_SUITE_SOURCE}
     serialize/json_writer_test.c
     game/game_loop_test.c
+    gui/gui_dialog_test.c
     gui/gui_draw_test.c
     gui/gui_event_test.c
     gui/gui_fixture.c
     gui/gui_grid_test.c
     gui/gui_listbox_test.c
     gui/gui_menu_test.c
+    gui/gui_notebook_test.c
     gui/gui_popup_test.c
     gui/gui_scale_test.c
     gui/gui_scroll_test.c
     gui/gui_tree_test.c
+    gui/gui_treeview_test.c
     jobs/loop_test.c
     anim/anim_test.c
     platform/window_test.c

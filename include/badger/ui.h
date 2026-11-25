@@ -380,7 +380,8 @@ typedef enum tb_ui_command_type
     TB_UI_COMMAND_OUTLINE, /**< A rectangle's outline, `thickness` wide, rounded by `radius`. */
     TB_UI_COMMAND_CIRCLE,  /**< A filled circle in `rect`, of `radius`. */
     TB_UI_COMMAND_LINE,    /**< A line from `from` to `to`, `thickness` wide. */
-    TB_UI_COMMAND_TEXT     /**< Text, its box's top left at `rect`'s. */
+    TB_UI_COMMAND_TEXT,    /**< Text, its box's top left at `rect`'s. */
+    TB_UI_COMMAND_IMAGE    /**< An image stretched over `rect`, tinted by `color`. */
 } tb_ui_command_type;
 
 /** @brief Something to draw, in units, as tb_ui_draw() draws it. */
@@ -406,6 +407,8 @@ typedef struct tb_ui_command
     /** Text's bytes: the interface's, valid until the next frame begins. */
     tb_text text;
     tb_ui_id id; /**< The widget, or window, that drew it; 0 for none. */
+    /** An image's image: borrowed, alive until the frame that draws it ends. */
+    const tb_image *image;
 } tb_ui_command;
 
 /**
