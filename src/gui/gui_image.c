@@ -92,6 +92,11 @@ tb_canvas_rect tb_gui_fit_rect(tb_vec2 size, tb_canvas_rect rect, tb_image_fit f
                             rect.y + (rect.height - drawn.y) * down, drawn.x, drawn.y};
 }
 
+/* An image widget's style: a box behind its image, none in the tool
+ * themes. */
+static const tb_widget_style_desc tb_gui_image_style = {.name = "Image",
+                                                        .states = TB_WIDGET_DISABLED};
+
 static void tb_gui_image_draw(tb_widget widget, const void *data, tb_gui_paint *paint)
 {
     const tb_gui_image *const image = data;
@@ -99,6 +104,7 @@ static void tb_gui_image_draw(tb_widget widget, const void *data, tb_gui_paint *
     const bool disabled = (tb_widget_state(widget) & TB_WIDGET_DISABLED) != 0;
     tb_vec4 tint = image->tint;
 
+    tb_gui_paint_box(paint, rect, tb_style_of(widget));
     if (image->image == NULL)
     {
         return;
@@ -187,7 +193,8 @@ static const tb_widget_class tb_gui_image_kind = {.name = "image",
                                                   .mouse_filter = TB_GUI_MOUSE_PASS,
                                                   .init = tb_gui_image_init,
                                                   .measure = tb_gui_image_measure,
-                                                  .draw = tb_gui_image_draw};
+                                                  .draw = tb_gui_image_draw,
+                                                  .style = &tb_gui_image_style};
 
 static tb_gui_image *tb_gui_image_of(tb_widget widget)
 {

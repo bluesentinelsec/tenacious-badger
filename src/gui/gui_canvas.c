@@ -29,14 +29,17 @@ static tb_vec2 tb_gui_canvas_measure(tb_widget widget, const void *data)
     return (tb_vec2){canvas->width, canvas->height};
 }
 
+/* A canvas's style: its box, drawn when it has a background. */
+static const tb_widget_style_desc tb_gui_canvas_style = {
+    .name = "Canvas", .states = TB_WIDGET_FOCUSED | TB_WIDGET_DISABLED};
+
 static void tb_gui_canvas_draw(tb_widget widget, const void *data, tb_gui_paint *paint)
 {
     const tb_gui_canvas *const canvas = data;
-    const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
 
     if (canvas->background)
     {
-        tb_gui_paint_fill(paint, tb_gui_paint_rect(paint), 0.0f, theme->colors[TB_UI_COLOR_FRAME]);
+        tb_gui_paint_box(paint, tb_gui_paint_rect(paint), tb_style_of(widget));
     }
     if (canvas->draw != NULL)
     {
@@ -110,7 +113,8 @@ static const tb_widget_class tb_gui_canvas_kind = {.name = "canvas",
                                                    .flags = TB_WIDGET_CLASS_FOCUS_ON_CLICK,
                                                    .mouse_filter = TB_GUI_MOUSE_STOP,
                                                    .measure = tb_gui_canvas_measure,
-                                                   .draw = tb_gui_canvas_draw};
+                                                   .draw = tb_gui_canvas_draw,
+                                                   .style = &tb_gui_canvas_style};
 
 static tb_gui_canvas *tb_gui_canvas_of(tb_widget widget)
 {

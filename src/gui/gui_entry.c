@@ -25,15 +25,25 @@ typedef struct tb_gui_entry
 
 TB_STATIC_ASSERT(offsetof(tb_gui_entry, field) == 0, "a field is first in its kind's data");
 
-/* Between a field's edges and its text, as between a button's and its. */
+/* Their styles: a field's box, and the field's elements. */
+static const tb_style_element tb_gui_entry_elements[TB_GUI_FIELD_ELEMENTS] = {
+    TB_GUI_FIELD_STYLE_ELEMENTS};
+
+static const tb_widget_style_desc tb_gui_entry_style = {.name = "Entry",
+                                                        .states = TB_GUI_VALUES_STATES,
+                                                        .elements = tb_gui_entry_elements,
+                                                        .element_count = TB_GUI_FIELD_ELEMENTS};
+
+static const tb_widget_style_desc tb_gui_text_box_style = {.name = "Text",
+                                                           .states = TB_GUI_VALUES_STATES,
+                                                           .elements = tb_gui_entry_elements,
+                                                           .element_count = TB_GUI_FIELD_ELEMENTS};
+
+/* Between a field's edges and its text: its style's padding and border. */
 static tb_gui_edges tb_gui_entry_insets(tb_widget widget, const void *data)
 {
-    const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
-    const float across = theme->frame_padding.x + theme->border;
-    const float down = theme->frame_padding.y + theme->border;
-
     (void)data;
-    return (tb_gui_edges){across, down, across, down};
+    return tb_gui_values_insets(widget);
 }
 
 /* Where a field's text is: inside its insets. */
@@ -59,7 +69,7 @@ static void tb_gui_entry_draw(tb_widget widget, const void *data, tb_gui_paint *
     const tb_gui_entry *const entry = data;
     const tb_canvas_rect rect = tb_gui_paint_rect(paint);
 
-    tb_gui_values_draw_field(widget, paint, rect);
+    tb_gui_paint_box(paint, rect, tb_style_of(widget));
     tb_gui_field_draw(widget, &entry->field, paint, tb_gui_entry_text_rect(widget, rect),
                       tb_gui_field_shown_text(&entry->field));
 }
@@ -197,8 +207,8 @@ static tb_vec2 tb_gui_entry_measure(tb_widget widget, const void *data)
 {
     const tb_gui_entry *const entry = data;
 
-    return (tb_vec2){tb_gui_values_char_width(widget.gui, entry->width),
-                     tb_gui_values_measures(widget.gui).line_height};
+    return (tb_vec2){tb_gui_values_char_width(widget, entry->width),
+                     tb_gui_values_measures(widget).line_height};
 }
 
 static const tb_gui_property tb_gui_entry_properties[] = {
@@ -228,7 +238,8 @@ static const tb_widget_class tb_gui_entry_kind = {
     .measure = tb_gui_entry_measure,
     .insets = tb_gui_entry_insets,
     .draw = tb_gui_entry_draw,
-    .event = tb_gui_entry_event};
+    .event = tb_gui_entry_event,
+    .style = &tb_gui_entry_style};
 
 const tb_widget_class *tb_entry_class(void)
 {
@@ -287,8 +298,8 @@ static tb_vec2 tb_gui_text_box_measure(tb_widget widget, const void *data)
 {
     const tb_gui_entry *const box = data;
 
-    return (tb_vec2){tb_gui_values_char_width(widget.gui, box->width),
-                     tb_gui_values_measures(widget.gui).line_height * (float)box->height};
+    return (tb_vec2){tb_gui_values_char_width(widget, box->width),
+                     tb_gui_values_measures(widget).line_height * (float)box->height};
 }
 
 static bool tb_gui_text_box_get_height(tb_widget widget, const void *data, tb_gui_value *value)
@@ -364,7 +375,8 @@ static const tb_widget_class tb_gui_text_box_kind = {
     .measure = tb_gui_text_box_measure,
     .insets = tb_gui_entry_insets,
     .draw = tb_gui_entry_draw,
-    .event = tb_gui_entry_event};
+    .event = tb_gui_entry_event,
+    .style = &tb_gui_text_box_style};
 
 const tb_widget_class *tb_text_box_class(void)
 {

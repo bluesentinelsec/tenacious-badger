@@ -134,16 +134,32 @@ float tb_gui_bar_page(const tb_gui_bar *bar, tb_gui_bar_part part)
     return bar->offset;
 }
 
-void tb_gui_bar_draw(tb_gui_paint *paint, const tb_gui_bar *bar, bool hot)
+void tb_gui_bar_draw(tb_gui_paint *paint, const tb_gui_bar *bar, bool hot, const tb_style *style)
 {
-    const tb_ui_theme *const theme = tb_gui_theme(paint->gui);
-    const float inset = theme->border * 2.0f;
+    const float inset = tb_gui_style_number_named(style, "scrollbar_inset");
     const tb_canvas_rect thumb = tb_ui_rect_inset(tb_gui_bar_thumb(bar), inset, inset);
-    const tb_ui_color grab = hot ? TB_UI_COLOR_SCROLLBAR_GRAB_HOT : TB_UI_COLOR_SCROLLBAR_GRAB;
+    const char *const grab = hot ? "scrollbar_thumb_hot" : "scrollbar_thumb";
 
-    tb_gui_paint_fill(paint, bar->track, 0.0f, theme->colors[TB_UI_COLOR_SCROLLBAR]);
-    tb_gui_paint_fill(paint, thumb, fminf(thumb.width, thumb.height) * 0.5f, theme->colors[grab]);
+    tb_gui_paint_fill(paint, bar->track, 0.0f,
+                      tb_gui_style_color_named(style, "scrollbar_trough"));
+    tb_gui_paint_fill(paint, thumb, fminf(thumb.width, thumb.height) * 0.5f,
+                      tb_gui_style_color_named(style, grab));
 }
+
+float tb_gui_bar_width(tb_widget widget)
+{
+    return tb_gui_style_number_named(tb_style_in(widget, 0), "scrollbar_width");
+}
+
+/* A scroll bar's style: its bar's elements. */
+static const tb_style_element tb_gui_scrollbar_elements[TB_GUI_BAR_ELEMENTS] = {
+    TB_GUI_BAR_STYLE_ELEMENTS};
+
+static const tb_widget_style_desc tb_gui_scrollbar_style = {
+    .name = "Scrollbar",
+    .states = TB_WIDGET_DISABLED,
+    .elements = tb_gui_scrollbar_elements,
+    .element_count = TB_GUI_BAR_ELEMENTS};
 
 /* ---------------------------------------------------------------------------
  * The scrollbar kind.
@@ -183,7 +199,7 @@ static tb_gui_bar tb_gui_scrollbar_bar(tb_widget widget, const tb_gui_scrollbar 
 static tb_vec2 tb_gui_scrollbar_measure(tb_widget widget, const void *data)
 {
     const tb_gui_scrollbar *const scrollbar = data;
-    const float width = tb_gui_theme(widget.gui)->scrollbar_width;
+    const float width = tb_gui_bar_width(widget);
 
     if (scrollbar->orient == TB_GUI_ORIENT_VERTICAL)
     {
@@ -197,7 +213,7 @@ static void tb_gui_scrollbar_draw(tb_widget widget, const void *data, tb_gui_pai
     const tb_gui_scrollbar *const scrollbar = data;
     const tb_gui_bar bar = tb_gui_scrollbar_bar(widget, scrollbar);
 
-    tb_gui_bar_draw(paint, &bar, scrollbar->hot || scrollbar->dragging);
+    tb_gui_bar_draw(paint, &bar, scrollbar->hot || scrollbar->dragging, tb_style_of(widget));
 }
 
 /* Move the view to a first fraction, its length kept, and call the command. */
@@ -353,7 +369,8 @@ static const tb_widget_class tb_gui_scrollbar_kind = {
     .init = tb_gui_scrollbar_init,
     .measure = tb_gui_scrollbar_measure,
     .draw = tb_gui_scrollbar_draw,
-    .event = tb_gui_scrollbar_event};
+    .event = tb_gui_scrollbar_event,
+    .style = &tb_gui_scrollbar_style};
 
 const tb_widget_class *tb_scrollbar_class(void)
 {

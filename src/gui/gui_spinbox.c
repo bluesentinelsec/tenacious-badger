@@ -136,35 +136,52 @@ static void tb_gui_spinbox_step(tb_widget widget, tb_gui_spinbox *box, double st
  * Measures and drawing.
  * ------------------------------------------------------------------------- */
 
-static float tb_gui_spinbox_arrow_width(tb_gui *gui)
+/* Its style: a field's box and elements, and its arrows'. */
+enum
 {
-    return tb_gui_values_measures(gui).line_height;
+    TB_GUI_SPINBOX_PRESSED = TB_GUI_FIELD_ELEMENTS, /* an arrow held */
+    TB_GUI_SPINBOX_SEPARATOR,                       /* the line before the arrows */
+    TB_GUI_SPINBOX_MARK_WIDTH,                      /* units the arrows' lines are wide */
+    TB_GUI_SPINBOX_ELEMENTS
+};
+
+static const tb_style_element tb_gui_spinbox_elements[TB_GUI_SPINBOX_ELEMENTS] = {
+    TB_GUI_FIELD_STYLE_ELEMENTS,
+    [TB_GUI_SPINBOX_PRESSED] = {"arrow_pressed_color", TB_STYLE_COLOR},
+    [TB_GUI_SPINBOX_SEPARATOR] = {"separator_color", TB_STYLE_COLOR},
+    [TB_GUI_SPINBOX_MARK_WIDTH] = {"mark_width", TB_STYLE_NUMBER}};
+
+static const tb_widget_style_desc tb_gui_spinbox_style = {.name = "Spinbox",
+                                                          .states = TB_GUI_VALUES_STATES,
+                                                          .elements = tb_gui_spinbox_elements,
+                                                          .element_count = TB_GUI_SPINBOX_ELEMENTS};
+
+static float tb_gui_spinbox_arrow_width(tb_widget widget)
+{
+    return tb_gui_values_measures(widget).line_height;
 }
 
 static tb_gui_edges tb_gui_spinbox_insets(tb_widget widget, const void *data)
 {
-    const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
-    const float across = theme->frame_padding.x + theme->border;
-    const float down = theme->frame_padding.y + theme->border;
-
     (void)data;
-    return (tb_gui_edges){across, down, across, down};
+    return tb_gui_values_insets(widget);
 }
 
 static tb_vec2 tb_gui_spinbox_measure(tb_widget widget, const void *data)
 {
     const tb_gui_spinbox *const box = data;
 
-    return (tb_vec2){tb_gui_values_char_width(widget.gui, box->width) +
-                         tb_gui_spinbox_arrow_width(widget.gui),
-                     tb_gui_values_measures(widget.gui).line_height};
+    return (tb_vec2){tb_gui_values_char_width(widget, box->width) +
+                         tb_gui_spinbox_arrow_width(widget),
+                     tb_gui_values_measures(widget).line_height};
 }
 
-/* Its arrows' column, at the right edge. */
+/* Its arrows' column, at the right edge, as wide as a line and its
+ * padding at the right. */
 static tb_canvas_rect tb_gui_spinbox_arrows(tb_widget widget, tb_canvas_rect rect)
 {
-    const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
-    const float width = tb_gui_spinbox_arrow_width(widget.gui) + theme->frame_padding.x;
+    const float width =
+        tb_gui_spinbox_arrow_width(widget) + tb_style_in(widget, 0)->padding.right;
 
     return (tb_canvas_rect){rect.x + rect.width - width, rect.y, width, rect.height};
 }
@@ -172,7 +189,7 @@ static tb_canvas_rect tb_gui_spinbox_arrows(tb_widget widget, tb_canvas_rect rec
 static tb_canvas_rect tb_gui_spinbox_text_rect(tb_widget widget, tb_canvas_rect rect)
 {
     const tb_gui_edges insets = tb_gui_spinbox_insets(widget, NULL);
-    const float arrows = tb_gui_spinbox_arrow_width(widget.gui);
+    const float arrows = tb_gui_spinbox_arrow_width(widget);
 
     return (tb_canvas_rect){rect.x + insets.left, rect.y + insets.top,
                             rect.width - insets.left - insets.right - arrows,
@@ -199,27 +216,26 @@ static void tb_gui_chevron(tb_gui_paint *paint, tb_canvas_rect rect, bool up, tb
 static void tb_gui_spinbox_draw(tb_widget widget, const void *data, tb_gui_paint *paint)
 {
     const tb_gui_spinbox *const box = data;
-    const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
+    const tb_style *const style = tb_style_of(widget);
     const tb_canvas_rect rect = tb_gui_paint_rect(paint);
     const tb_canvas_rect arrows = tb_gui_spinbox_arrows(widget, rect);
     const float half = arrows.height * 0.5f;
     const tb_canvas_rect up = {arrows.x, arrows.y, arrows.width, half};
     const tb_canvas_rect down = {arrows.x, arrows.y + half, arrows.width, half};
-    const bool disabled = (tb_widget_state(widget) & TB_WIDGET_DISABLED) != 0;
-    const tb_vec4 mark = theme->colors[disabled ? TB_UI_COLOR_TEXT_DIM : TB_UI_COLOR_TEXT];
+    const float mark_width = tb_style_number(style, TB_GUI_SPINBOX_MARK_WIDTH);
     char buffer[TB_GUI_NUMBER_CAPACITY] = {0};
 
-    tb_gui_values_draw_field(widget, paint, rect);
+    tb_gui_paint_box(paint, rect, style);
     if (box->held != TB_GUI_NO_ARROW)
     {
         tb_gui_paint_fill(paint, box->held == TB_GUI_ARROW_UP ? up : down, 0.0f,
-                          theme->colors[TB_UI_COLOR_BUTTON_ACTIVE]);
+                          tb_style_color(style, TB_GUI_SPINBOX_PRESSED));
     }
     tb_gui_paint_line(paint, (tb_vec2){arrows.x, arrows.y},
-                      (tb_vec2){arrows.x, arrows.y + arrows.height}, theme->border,
-                      theme->colors[TB_UI_COLOR_BORDER]);
-    tb_gui_chevron(paint, up, true, mark, theme->border * 1.5f);
-    tb_gui_chevron(paint, down, false, mark, theme->border * 1.5f);
+                      (tb_vec2){arrows.x, arrows.y + arrows.height}, style->border_width,
+                      tb_style_color(style, TB_GUI_SPINBOX_SEPARATOR));
+    tb_gui_chevron(paint, up, true, style->text_color, mark_width);
+    tb_gui_chevron(paint, down, false, style->text_color, mark_width);
     tb_gui_field_draw(widget, &box->field, paint, tb_gui_spinbox_text_rect(widget, rect),
                       box->field.dirty ? tb_gui_field_text(&box->field)
                                        : tb_gui_spinbox_written(box, buffer));
@@ -571,7 +587,8 @@ static const tb_widget_class tb_gui_spinbox_kind = {
     .measure = tb_gui_spinbox_measure,
     .insets = tb_gui_spinbox_insets,
     .draw = tb_gui_spinbox_draw,
-    .event = tb_gui_spinbox_event};
+    .event = tb_gui_spinbox_event,
+    .style = &tb_gui_spinbox_style};
 
 const tb_widget_class *tb_spinbox_class(void)
 {

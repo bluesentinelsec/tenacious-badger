@@ -529,6 +529,7 @@ void tb_gui_arrange(tb_gui *gui, uint32_t index, tb_canvas_rect rect)
 
 void tb_gui_layout(tb_gui *gui)
 {
+    tb_gui_styles_refresh(gui);
     if (!gui->layout_dirty)
     {
         return;

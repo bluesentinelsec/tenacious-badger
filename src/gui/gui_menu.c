@@ -20,7 +20,7 @@
 /* The part of a row's height the check, radio mark, and cascade arrow take. */
 #define TB_GUI_MENU_MARK 0.3f
 /* Units below the capitals' baseline a mnemonic is underlined at. */
-#define TB_GUI_MENU_UNDERLINE 2.0f
+#define TB_GUI_MENU_UNDERLINE_GAP 2.0f
 
 /* ---------------------------------------------------------------------------
  * Labels and their mnemonics.
@@ -83,14 +83,58 @@ static char tb_gui_key_letter(tb_key key)
     return 0;
 }
 
+/* A menu's style: its box, and its items'. Its padding is each item's:
+ * the room above and below a line, and at the ends of a separator. */
+enum
+{
+    TB_GUI_MENU_SELECTION,   /* the active item */
+    TB_GUI_MENU_ACCELERATOR, /* an accelerator's text */
+    TB_GUI_MENU_SEPARATOR,   /* a separator's line */
+    TB_GUI_MENU_MARK_WIDTH,  /* units a check's lines are wide; a cascade's are half */
+    TB_GUI_MENU_UNDERLINE,   /* units a mnemonic's underline is wide */
+    TB_GUI_MENU_ELEMENTS
+};
+
+static const tb_style_element tb_gui_menu_elements[TB_GUI_MENU_ELEMENTS] = {
+    [TB_GUI_MENU_SELECTION] = {"selection", TB_STYLE_COLOR},
+    [TB_GUI_MENU_ACCELERATOR] = {"accelerator_color", TB_STYLE_COLOR},
+    [TB_GUI_MENU_SEPARATOR] = {"separator_color", TB_STYLE_COLOR},
+    [TB_GUI_MENU_MARK_WIDTH] = {"mark_width", TB_STYLE_NUMBER},
+    [TB_GUI_MENU_UNDERLINE] = {"underline_width", TB_STYLE_NUMBER}};
+
+static const tb_widget_style_desc tb_gui_menu_style = {.name = "Menu",
+                                                       .states = TB_WIDGET_DISABLED,
+                                                       .elements = tb_gui_menu_elements,
+                                                       .element_count = TB_GUI_MENU_ELEMENTS};
+
+/* A menu bar's: its box, and its titles'. Its padding is each title's. */
+enum
+{
+    TB_GUI_MENUBAR_SELECTION, /* the title whose menu is open */
+    TB_GUI_MENUBAR_HOT,       /* the title under the mouse */
+    TB_GUI_MENUBAR_UNDERLINE, /* units a mnemonic's underline is wide */
+    TB_GUI_MENUBAR_ELEMENTS
+};
+
+static const tb_style_element tb_gui_menubar_elements[TB_GUI_MENUBAR_ELEMENTS] = {
+    [TB_GUI_MENUBAR_SELECTION] = {"selection", TB_STYLE_COLOR},
+    [TB_GUI_MENUBAR_HOT] = {"hot_color", TB_STYLE_COLOR},
+    [TB_GUI_MENUBAR_UNDERLINE] = {"underline_width", TB_STYLE_NUMBER}};
+
+static const tb_widget_style_desc tb_gui_menubar_style = {.name = "Menubar",
+                                                          .states = TB_WIDGET_DISABLED,
+                                                          .elements = tb_gui_menubar_elements,
+                                                          .element_count =
+                                                              TB_GUI_MENUBAR_ELEMENTS};
+
 /* Draw a label at the left of a rectangle, its mnemonic underlined. */
 static void tb_gui_menu_draw_label(tb_gui_paint *paint, const tb_gui_menu_label *label,
-                                   tb_canvas_rect rect, tb_vec4 color)
+                                   tb_canvas_rect rect, tb_vec4 color, float underline)
 {
     tb_gui *const gui = paint->gui;
     const tb_text text = tb_gui_string_text(&label->text);
     const tb_gui_text_block block = {.text = text, .anchor = TB_GUI_ANCHOR_W};
-    const tb_gui_resolved_font resolved = tb_gui_resolve_font(gui, (tb_font_spec){0});
+    const tb_gui_resolved_font resolved = tb_gui_widget_font(paint->widget, (tb_font_spec){0});
     tb_ui_font_measures measures = {0};
 
     tb_gui_paint_text(paint, &block, rect, color);
@@ -100,24 +144,25 @@ static void tb_gui_menu_draw_label(tb_gui_paint *paint, const tb_gui_menu_label 
     }
     const tb_gui_text_block before = {.text = tb_text_make(text.bytes, label->mnemonic_at)};
     const tb_gui_text_block through = {.text = tb_text_make(text.bytes, label->mnemonic_at + 1)};
-    const float start = rect.x + tb_gui_measure_text(gui, &before).x;
-    const float end = rect.x + tb_gui_measure_text(gui, &through).x;
+    const float start = rect.x + tb_widget_measure_text(paint->widget, &before).x;
+    const float end = rect.x + tb_widget_measure_text(paint->widget, &through).x;
     tb_ui_font_measures_of(resolved.font, resolved.size, gui->view.scale, &measures);
     const float y =
-        rect.y + rect.height * 0.5f + measures.cap_height * 0.5f + TB_GUI_MENU_UNDERLINE;
-    tb_gui_paint_line(paint, (tb_vec2){start, y}, (tb_vec2){end, y}, tb_gui_theme(gui)->border,
-                      color);
+        rect.y + rect.height * 0.5f + measures.cap_height * 0.5f + TB_GUI_MENU_UNDERLINE_GAP;
+    tb_gui_paint_line(paint, (tb_vec2){start, y}, (tb_vec2){end, y}, underline, color);
 }
 
-static float tb_gui_menu_row_height(tb_gui *gui)
+/* A row of a menu, or a menu bar: a line, and its padding above and below. */
+static float tb_gui_menu_row_height(tb_widget widget)
 {
-    return tb_gui_line_height(gui) + tb_gui_theme(gui)->frame_padding.y * 2.0f;
+    const tb_style *const style = tb_style_in(widget, 0);
+    return tb_gui_line_height(widget) + style->padding.top + style->padding.bottom;
 }
 
-static float tb_gui_label_width(tb_gui *gui, const tb_gui_string *text)
+static float tb_gui_label_width(tb_widget widget, const tb_gui_string *text)
 {
     const tb_gui_text_block block = {.text = tb_gui_string_text(text)};
-    return tb_gui_measure_text(gui, &block).x;
+    return tb_widget_measure_text(widget, &block).x;
 }
 
 /* ---------------------------------------------------------------------------
@@ -172,28 +217,29 @@ static bool tb_gui_menu_selectable(const tb_gui_menu_item *item)
     return item->kind != TB_MENU_ITEM_SEPARATOR && !item->disabled;
 }
 
-static float tb_gui_menu_item_height(tb_gui *gui, const tb_gui_menu_item *item)
+static float tb_gui_menu_item_height(tb_widget widget, const tb_gui_menu_item *item)
 {
     if (item->kind == TB_MENU_ITEM_SEPARATOR)
     {
-        return tb_gui_theme(gui)->frame_padding.y * 2.0f + tb_gui_theme(gui)->border;
+        const tb_style *const style = tb_style_in(widget, 0);
+        return style->padding.top + style->padding.bottom + style->border_width;
     }
-    return tb_gui_menu_row_height(gui);
+    return tb_gui_menu_row_height(widget);
 }
 
 /* An item's rectangle, in units of the GUI. */
 static tb_canvas_rect tb_gui_menu_item_rect(tb_widget widget, const tb_gui_menu *menu, size_t index)
 {
     const tb_canvas_rect rect = tb_widget_rect(widget);
-    const float border = tb_gui_theme(widget.gui)->border;
+    const float border = tb_style_in(widget, 0)->border_width;
     float top = rect.y + border;
 
     for (size_t at = 0; at < index; at++)
     {
-        top += tb_gui_menu_item_height(widget.gui, &menu->items[at]);
+        top += tb_gui_menu_item_height(widget, &menu->items[at]);
     }
     return (tb_canvas_rect){rect.x + border, top, rect.width - 2.0f * border,
-                            tb_gui_menu_item_height(widget.gui, &menu->items[index])};
+                            tb_gui_menu_item_height(widget, &menu->items[index])};
 }
 
 static size_t tb_gui_menu_item_at(tb_widget widget, const tb_gui_menu *menu, tb_vec2 point)
@@ -211,36 +257,35 @@ static size_t tb_gui_menu_item_at(tb_widget widget, const tb_gui_menu *menu, tb_
 static tb_vec2 tb_gui_menu_measure(tb_widget widget, const void *data)
 {
     const tb_gui_menu *const menu = data;
-    tb_gui *const gui = widget.gui;
-    const tb_ui_theme *const theme = tb_gui_theme(gui);
-    const float row = tb_gui_menu_row_height(gui);
+    const tb_style *const style = tb_style_in(widget, 0);
+    const float row = tb_gui_menu_row_height(widget);
     float labels = 0.0f;
     float accelerators = 0.0f;
-    float height = 2.0f * theme->border;
+    float height = 2.0f * style->border_width;
 
     for (size_t index = 0; index < menu->count; index++)
     {
         const tb_gui_menu_item *const item = &menu->items[index];
-        labels = fmaxf(labels, tb_gui_label_width(gui, &item->label.text));
-        accelerators = fmaxf(accelerators, tb_gui_label_width(gui, &item->accelerator));
-        height += tb_gui_menu_item_height(gui, item);
+        labels = fmaxf(labels, tb_gui_label_width(widget, &item->label.text));
+        accelerators = fmaxf(accelerators, tb_gui_label_width(widget, &item->accelerator));
+        height += tb_gui_menu_item_height(widget, item);
     }
     if (accelerators > 0.0f)
     {
-        accelerators += theme->font_size * TB_GUI_MENU_ACCELERATOR_GAP;
+        accelerators += tb_gui_widget_font(widget, (tb_font_spec){0}).size *
+                        TB_GUI_MENU_ACCELERATOR_GAP;
     }
     /* A column for checks on the left, and for cascades' arrows on the right. */
-    return (tb_vec2){2.0f * row + labels + accelerators + 2.0f * theme->frame_padding.x +
-                         2.0f * theme->border,
+    return (tb_vec2){2.0f * row + labels + accelerators + style->padding.left +
+                         style->padding.right + 2.0f * style->border_width,
                      height};
 }
 
 static void tb_gui_menu_draw_mark(tb_gui_paint *paint, const tb_gui_menu_item *item,
-                                  tb_canvas_rect rect, tb_vec4 color)
+                                  tb_canvas_rect rect, tb_vec4 color, float thickness)
 {
     const float size = rect.height * TB_GUI_MENU_MARK;
     const tb_vec2 middle = {rect.x + rect.height * 0.5f, rect.y + rect.height * 0.5f};
-    const float thickness = tb_gui_theme(paint->gui)->border * 2.0f;
 
     if (item->kind == TB_MENU_ITEM_CHECK && item->checked)
     {
@@ -272,48 +317,48 @@ static void tb_gui_menu_draw_item(tb_widget widget, const tb_gui_menu *menu, tb_
                                   size_t index)
 {
     const tb_gui_menu_item *const item = &menu->items[index];
-    const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
+    /* A disabled item is drawn as the menu is when disabled. */
+    const tb_style *const style =
+        tb_style_in(widget, tb_widget_state(widget) | (item->disabled ? TB_WIDGET_DISABLED : 0u));
     const tb_canvas_rect rect = tb_gui_menu_item_rect(widget, menu, index);
-    const tb_vec4 color = theme->colors[item->disabled ? TB_UI_COLOR_TEXT_DIM : TB_UI_COLOR_TEXT];
-    const float row = tb_gui_menu_row_height(widget.gui);
+    const tb_vec4 color = style->text_color;
+    const float row = tb_gui_menu_row_height(widget);
 
     if (item->kind == TB_MENU_ITEM_SEPARATOR)
     {
         const float y = rect.y + rect.height * 0.5f;
-        tb_gui_paint_line(paint, (tb_vec2){rect.x + theme->frame_padding.x, y},
-                          (tb_vec2){rect.x + rect.width - theme->frame_padding.x, y}, theme->border,
-                          theme->colors[TB_UI_COLOR_BORDER]);
+        tb_gui_paint_line(paint, (tb_vec2){rect.x + style->padding.left, y},
+                          (tb_vec2){rect.x + rect.width - style->padding.right, y},
+                          style->border_width, tb_style_color(style, TB_GUI_MENU_SEPARATOR));
         return;
     }
     if (index == menu->active && !item->disabled)
     {
-        tb_gui_paint_fill(paint, rect, 0.0f, theme->colors[TB_UI_COLOR_SELECTION]);
+        tb_gui_paint_fill(paint, rect, 0.0f, tb_style_color(style, TB_GUI_MENU_SELECTION));
     }
-    tb_gui_menu_draw_mark(paint, item, rect, color);
+    tb_gui_menu_draw_mark(paint, item, rect, color, tb_style_number(style, TB_GUI_MENU_MARK_WIDTH));
     const tb_canvas_rect text = {rect.x + row, rect.y,
-                                 fmaxf(rect.width - 2.0f * row - theme->frame_padding.x, 0.0f),
+                                 fmaxf(rect.width - 2.0f * row - style->padding.right, 0.0f),
                                  rect.height};
-    tb_gui_menu_draw_label(paint, &item->label, text, color);
+    tb_gui_menu_draw_label(paint, &item->label, text, color,
+                           tb_style_number(style, TB_GUI_MENU_UNDERLINE));
     if (item->accelerator.length > 0)
     {
         const tb_gui_text_block block = {.text = tb_gui_string_text(&item->accelerator),
                                          .anchor = TB_GUI_ANCHOR_E};
-        tb_gui_paint_text(paint, &block, text, theme->colors[TB_UI_COLOR_TEXT_DIM]);
+        tb_gui_paint_text(paint, &block, text, tb_style_color(style, TB_GUI_MENU_ACCELERATOR));
     }
 }
 
 static void tb_gui_menu_draw(tb_widget widget, const void *data, tb_gui_paint *paint)
 {
     const tb_gui_menu *const menu = data;
-    const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
-    const tb_canvas_rect rect = tb_gui_paint_rect(paint);
 
-    tb_gui_paint_fill(paint, rect, 0.0f, theme->colors[TB_UI_COLOR_POPUP]);
+    tb_gui_paint_box(paint, tb_gui_paint_rect(paint), tb_style_of(widget));
     for (size_t index = 0; index < menu->count; index++)
     {
         tb_gui_menu_draw_item(widget, menu, paint, index);
     }
-    tb_gui_paint_outline(paint, rect, 0.0f, theme->border, theme->colors[TB_UI_COLOR_BORDER]);
 }
 
 /* The popup level a menu is shown at; SIZE_MAX when it is not shown. */
@@ -544,7 +589,8 @@ static const tb_widget_class tb_gui_menu_kind = {.name = "menu",
                                                  .destroy = tb_gui_menu_destroy,
                                                  .measure = tb_gui_menu_measure,
                                                  .draw = tb_gui_menu_draw,
-                                                 .event = tb_gui_menu_event};
+                                                 .event = tb_gui_menu_event,
+                                                 .style = &tb_gui_menu_style};
 
 static tb_gui_menu *tb_gui_menu_of(tb_widget widget)
 {
@@ -701,9 +747,11 @@ static void tb_gui_menubar_destroy(tb_widget widget, void *data)
     tb_free(bar->entries);
 }
 
-static float tb_gui_menubar_entry_width(tb_gui *gui, const tb_gui_menubar_entry *entry)
+static float tb_gui_menubar_entry_width(tb_widget widget, const tb_gui_menubar_entry *entry)
 {
-    return tb_gui_label_width(gui, &entry->label.text) + 2.0f * tb_gui_theme(gui)->frame_padding.x;
+    const tb_style *const style = tb_style_in(widget, 0);
+    return tb_gui_label_width(widget, &entry->label.text) + style->padding.left +
+           style->padding.right;
 }
 
 static tb_canvas_rect tb_gui_menubar_entry_rect(tb_widget widget, const tb_gui_menubar *bar,
@@ -714,10 +762,10 @@ static tb_canvas_rect tb_gui_menubar_entry_rect(tb_widget widget, const tb_gui_m
 
     for (size_t at = 0; at < index; at++)
     {
-        left += tb_gui_menubar_entry_width(widget.gui, &bar->entries[at]);
+        left += tb_gui_menubar_entry_width(widget, &bar->entries[at]);
     }
-    return (tb_canvas_rect){
-        left, rect.y, tb_gui_menubar_entry_width(widget.gui, &bar->entries[index]), rect.height};
+    return (tb_canvas_rect){left, rect.y, tb_gui_menubar_entry_width(widget, &bar->entries[index]),
+                            rect.height};
 }
 
 static size_t tb_gui_menubar_entry_at(tb_widget widget, const tb_gui_menubar *bar, tb_vec2 point)
@@ -769,33 +817,32 @@ static tb_vec2 tb_gui_menubar_measure(tb_widget widget, const void *data)
 
     for (size_t index = 0; index < bar->count; index++)
     {
-        width += tb_gui_menubar_entry_width(widget.gui, &bar->entries[index]);
+        width += tb_gui_menubar_entry_width(widget, &bar->entries[index]);
     }
-    return (tb_vec2){width, tb_gui_menu_row_height(widget.gui)};
+    return (tb_vec2){width, tb_gui_menu_row_height(widget)};
 }
 
 static void tb_gui_menubar_draw(tb_widget widget, const void *data, tb_gui_paint *paint)
 {
     const tb_gui_menubar *const bar = data;
-    const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
+    const tb_style *const style = tb_style_of(widget);
     const size_t open = tb_gui_menubar_open_entry(bar);
-    const bool disabled = (tb_widget_state(widget) & TB_WIDGET_DISABLED) != 0;
-    const tb_vec4 color = theme->colors[disabled ? TB_UI_COLOR_TEXT_DIM : TB_UI_COLOR_TEXT];
 
-    tb_gui_paint_fill(paint, tb_gui_paint_rect(paint), 0.0f, theme->colors[TB_UI_COLOR_HEADER]);
+    tb_gui_paint_box(paint, tb_gui_paint_rect(paint), style);
     for (size_t index = 0; index < bar->count; index++)
     {
         const tb_canvas_rect rect = tb_gui_menubar_entry_rect(widget, bar, index);
         if (index == open)
         {
-            tb_gui_paint_fill(paint, rect, 0.0f, theme->colors[TB_UI_COLOR_SELECTION]);
+            tb_gui_paint_fill(paint, rect, 0.0f, tb_style_color(style, TB_GUI_MENUBAR_SELECTION));
         }
         else if (index == bar->hot)
         {
-            tb_gui_paint_fill(paint, rect, 0.0f, theme->colors[TB_UI_COLOR_HEADER_HOT]);
+            tb_gui_paint_fill(paint, rect, 0.0f, tb_style_color(style, TB_GUI_MENUBAR_HOT));
         }
         tb_gui_menu_draw_label(paint, &bar->entries[index].label,
-                               tb_ui_rect_inset(rect, theme->frame_padding.x, 0.0f), color);
+                               tb_ui_rect_inset(rect, style->padding.left, 0.0f), style->text_color,
+                               tb_style_number(style, TB_GUI_MENUBAR_UNDERLINE));
     }
 }
 
@@ -876,7 +923,8 @@ static const tb_widget_class tb_gui_menubar_kind = {.name = "menubar",
                                                     .destroy = tb_gui_menubar_destroy,
                                                     .measure = tb_gui_menubar_measure,
                                                     .draw = tb_gui_menubar_draw,
-                                                    .event = tb_gui_menubar_event};
+                                                    .event = tb_gui_menubar_event,
+                                                    .style = &tb_gui_menubar_style};
 
 static tb_gui_menubar *tb_gui_menubar_of(tb_widget widget)
 {

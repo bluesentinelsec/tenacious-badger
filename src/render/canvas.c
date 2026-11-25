@@ -321,6 +321,32 @@ void tb_canvas_draw_sprite(tb_renderer *renderer, const tb_canvas_sprite *sprite
     tb_canvas_add(renderer, &shape);
 }
 
+void tb_canvas_draw_nine_slice(tb_renderer *renderer, const tb_canvas_nine_slice *slice,
+                               tb_canvas_rect rect, tb_vec4 tint)
+{
+    tb_canvas_slice slices[TB_CANVAS_NINE_SLICES] = {0};
+
+    tb_canvas_check_frame(renderer);
+    TB_ASSERT(slice != NULL);
+    if (slice->image == NULL)
+    {
+        return;
+    }
+    const size_t count =
+        tb_canvas_nine_slice_layout(slice, slice->image->width, slice->image->height, rect,
+                                    renderer->canvas.view.scale, slices);
+    for (size_t index = 0; index < count; index++)
+    {
+        tb_canvas_draw_sprite(
+            renderer, &(tb_canvas_sprite){.image = slice->image,
+                                          .source = slices[index].source,
+                                          .position = {slices[index].rect.x, slices[index].rect.y},
+                                          .size = {slices[index].rect.width,
+                                                   slices[index].rect.height},
+                                          .tint = tint});
+    }
+}
+
 void tb_canvas_stats_of(const tb_renderer *renderer, tb_canvas_stats *stats)
 {
     TB_ASSERT(renderer != NULL && stats != NULL);

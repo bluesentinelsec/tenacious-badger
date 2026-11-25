@@ -125,6 +125,8 @@ set(TB_TEST_CASE_SOURCES
     gui/gui_range_test.c
     gui/gui_scale_test.c
     gui/gui_scroll_test.c
+    gui/gui_style_test.c
+    gui/gui_theme_file_test.c
     gui/gui_tree_test.c
     gui/gui_treeview_test.c
     gui/gui_var_test.c
@@ -136,6 +138,7 @@ set(TB_TEST_CASE_SOURCES
     shader/shader_cache_test.c
     shader/shader_compile_test.c
     ${TB_SHADER_REFLECTION_SOURCE}
+    render/canvas_slice_test.c
     render/canvas_test.c
     render/light_test.c
     render/material_test.c
@@ -190,10 +193,11 @@ if(WIN32)
     # Frames the renderer drew on WARP, looked at by eye (see docs/testing.md).
     tb_embed_test_data(TB_GOLDEN_SOURCE tb_golden_files golden "*.bmp")
     list(APPEND TB_TEST_CASE_SOURCES rhi/rhi_d3d12_test.c ${TB_RHI_SHADER_SOURCE}
-        render/canvas_d3d12_test.c render/lighting_d3d12_test.c ${TB_GOLDEN_SOURCE}
+        render/canvas_d3d12_test.c render/golden.c render/lighting_d3d12_test.c ${TB_GOLDEN_SOURCE}
         render/material_d3d12_test.c
         render/renderer_d3d12_test.c render/skinning_d3d12_test.c render/sky_d3d12_test.c
-        render/text_d3d12_test.c shader/shader_library_d3d12_test.c gui/gui_d3d12_test.c)
+        render/text_d3d12_test.c shader/shader_library_d3d12_test.c gui/gui_d3d12_test.c
+        gui/gui_look_d3d12_test.c)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     list(APPEND TB_TEST_CASE_SOURCES platform/linux/window_x11_test.c)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")

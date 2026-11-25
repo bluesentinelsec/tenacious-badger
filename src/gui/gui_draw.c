@@ -19,9 +19,10 @@ static tb_ui_id tb_gui_id_of(tb_widget widget)
  * Text.
  * ------------------------------------------------------------------------- */
 
-static bool tb_gui_run_of(tb_gui *gui, const tb_gui_text_block *block, tb_ui_text_run *run)
+/* A text block's run in a widget's font. */
+static bool tb_gui_run_of(tb_widget widget, const tb_gui_text_block *block, tb_ui_text_run *run)
 {
-    const tb_gui_resolved_font resolved = tb_gui_resolve_font(gui, block->font);
+    const tb_gui_resolved_font resolved = tb_gui_widget_font(widget, block->font);
 
     if (resolved.font == NULL)
     {
@@ -34,17 +35,22 @@ static bool tb_gui_run_of(tb_gui *gui, const tb_gui_text_block *block, tb_ui_tex
     return true;
 }
 
-tb_vec2 tb_gui_measure_text(tb_gui *gui, const tb_gui_text_block *block)
+tb_vec2 tb_widget_measure_text(tb_widget widget, const tb_gui_text_block *block)
 {
     tb_ui_text_run run = {0};
 
-    TB_ASSERT(gui != NULL);
     TB_ASSERT(block != NULL);
-    if (block->text.length == 0 || !tb_gui_run_of(gui, block, &run))
+    if (block->text.length == 0 || !tb_widget_alive(widget) || !tb_gui_run_of(widget, block, &run))
     {
         return (tb_vec2){0};
     }
-    return tb_ui_measure_text(&run, gui->view.scale, block->text);
+    return tb_ui_measure_text(&run, widget.gui->view.scale, block->text);
+}
+
+tb_vec2 tb_gui_measure_text(tb_gui *gui, const tb_gui_text_block *block)
+{
+    TB_ASSERT(gui != NULL);
+    return tb_widget_measure_text(tb_gui_root(gui), block);
 }
 
 static float tb_gui_justify_fraction(tb_font_align align)
@@ -69,7 +75,7 @@ void tb_gui_paint_text(tb_gui_paint *paint, const tb_gui_text_block *block, tb_c
     tb_ui_font_measures measures = {0};
 
     TB_ASSERT(block != NULL);
-    if (block->text.length == 0 || !tb_gui_run_of(gui, block, &run))
+    if (block->text.length == 0 || !tb_gui_run_of(paint->widget, block, &run))
     {
         return;
     }
@@ -185,8 +191,15 @@ static void tb_gui_draw_node(tb_gui *gui, uint32_t index, tb_canvas_rect clip, i
 void tb_gui_build_commands(tb_gui *gui)
 {
     const tb_canvas_rect all = {0.0f, 0.0f, gui->view.size.x, gui->view.size.y};
+    tb_vec4 shade = {0};
 
     tb_gui_layout(gui);
+    /* The shade behind modal widgets is the root's. */
+    const tb_style_value *const shaded = tb_style_find(tb_style_in(tb_gui_root(gui), 0), "shade");
+    if (shaded != NULL && shaded->type == TB_STYLE_COLOR)
+    {
+        shade = shaded->color;
+    }
     tb_arena_reset(gui->arena);
     tb_ui_paint_reset(&gui->paint, gui->view.scale);
     tb_gui_draw_node(gui, 0, all, gui->layer);
@@ -198,8 +211,7 @@ void tb_gui_build_commands(tb_gui *gui)
         {
             continue;
         }
-        tb_ui_paint_fill(&gui->paint, layer, all, all, 0.0f, gui->theme.colors[TB_UI_COLOR_SHADOW],
-                         0);
+        tb_ui_paint_fill(&gui->paint, layer, all, all, 0.0f, shade, 0);
         tb_gui_draw_node(gui, modal.index, all, layer);
     }
     for (size_t index = 0; index < gui->popup_count; index++)

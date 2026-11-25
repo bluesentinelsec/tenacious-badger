@@ -61,25 +61,50 @@ static void tb_gui_choice_set(tb_gui_choice *choice, bool selected, bool radio)
  * Measures and drawing.
  * ------------------------------------------------------------------------- */
 
-static float tb_gui_indicator_side(tb_gui *gui)
+/* The elements of a check button's and a radio button's styles. Their box
+ * is their indicator's. */
+enum
 {
-    return tb_gui_values_measures(gui).line_height * TB_GUI_INDICATOR_LINES;
+    TB_GUI_CHOICE_MARK,    /* a check button's tick, a radio button's dot */
+    TB_GUI_CHOICE_SPACING, /* units between the indicator and the text */
+    TB_GUI_CHOICE_ELEMENTS
+};
+
+static const tb_style_element tb_gui_choice_elements[TB_GUI_CHOICE_ELEMENTS] = {
+    [TB_GUI_CHOICE_MARK] = {"mark_color", TB_STYLE_COLOR},
+    [TB_GUI_CHOICE_SPACING] = {"spacing", TB_STYLE_NUMBER}};
+
+static const tb_widget_style_desc tb_gui_checkbutton_style = {
+    .name = "Checkbutton",
+    .states = TB_GUI_VALUES_STATES | TB_WIDGET_SELECTED,
+    .elements = tb_gui_choice_elements,
+    .element_count = TB_GUI_CHOICE_ELEMENTS};
+
+static const tb_widget_style_desc tb_gui_radiobutton_style = {
+    .name = "Radiobutton",
+    .states = TB_GUI_VALUES_STATES | TB_WIDGET_SELECTED,
+    .elements = tb_gui_choice_elements,
+    .element_count = TB_GUI_CHOICE_ELEMENTS};
+
+static float tb_gui_indicator_side(tb_widget widget)
+{
+    return tb_gui_values_measures(widget).line_height * TB_GUI_INDICATOR_LINES;
 }
 
 /* The gap between an indicator and its text. */
-static float tb_gui_indicator_gap(tb_gui *gui)
+static float tb_gui_indicator_gap(tb_widget widget)
 {
-    return tb_gui_theme(gui)->frame_padding.x;
+    return tb_style_number(tb_style_in(widget, 0), TB_GUI_CHOICE_SPACING);
 }
 
 static tb_vec2 tb_gui_choice_measure(tb_widget widget, const void *data)
 {
     const tb_gui_choice *const choice = data;
     const tb_gui_text_block block = {.text = tb_gui_string_text(&choice->text)};
-    const float side = tb_gui_indicator_side(widget.gui);
-    const float line = tb_gui_values_measures(widget.gui).line_height;
-    const tb_vec2 text = tb_gui_measure_text(widget.gui, &block);
-    const float gap = text.x > 0.0f ? tb_gui_indicator_gap(widget.gui) : 0.0f;
+    const float side = tb_gui_indicator_side(widget);
+    const float line = tb_gui_values_measures(widget).line_height;
+    const tb_vec2 text = tb_widget_measure_text(widget, &block);
+    const float gap = text.x > 0.0f ? tb_gui_indicator_gap(widget) : 0.0f;
 
     return (tb_vec2){side + gap + text.x, text.y > line ? text.y : line};
 }
@@ -87,47 +112,38 @@ static tb_vec2 tb_gui_choice_measure(tb_widget widget, const void *data)
 /* The indicator's square: at the left, in the middle of the height. */
 static tb_canvas_rect tb_gui_indicator_rect(tb_widget widget, tb_canvas_rect rect)
 {
-    const float side = tb_gui_indicator_side(widget.gui);
+    const float side = tb_gui_indicator_side(widget);
 
     return (tb_canvas_rect){rect.x, rect.y + (rect.height - side) * 0.5f, side, side};
 }
 
 static void tb_gui_choice_draw_text(tb_widget widget, const tb_gui_choice *choice,
-                                    tb_gui_paint *paint, tb_canvas_rect rect, bool disabled)
+                                    tb_gui_paint *paint, tb_canvas_rect rect,
+                                    const tb_style *style)
 {
-    const float offset = tb_gui_indicator_side(widget.gui) + tb_gui_indicator_gap(widget.gui);
+    const float offset = tb_gui_indicator_side(widget) + tb_gui_indicator_gap(widget);
     const tb_gui_text_block block = {.text = tb_gui_string_text(&choice->text),
                                      .anchor = TB_GUI_ANCHOR_W};
     const tb_canvas_rect text = {rect.x + offset, rect.y, rect.width - offset, rect.height};
 
-    tb_gui_paint_text(
-        paint, &block, text,
-        tb_gui_values_color(widget, disabled ? TB_UI_COLOR_TEXT_DIM : TB_UI_COLOR_TEXT));
+    tb_gui_paint_text(paint, &block, text, style->text_color);
 }
 
-static tb_ui_color tb_gui_indicator_fill(uint32_t state)
+/* A choice's style in its state, chosen or not. */
+static const tb_style *tb_gui_choice_style(tb_widget widget, const tb_gui_choice *choice)
 {
-    if ((state & TB_WIDGET_PRESSED) != 0 && (state & TB_WIDGET_HOVERED) != 0)
-    {
-        return TB_UI_COLOR_FRAME_ACTIVE;
-    }
-    return (state & TB_WIDGET_HOVERED) != 0 ? TB_UI_COLOR_FRAME_HOT : TB_UI_COLOR_FRAME;
+    const uint32_t selected = tb_gui_choice_selected(choice) ? TB_WIDGET_SELECTED : 0u;
+    return tb_style_in(widget, tb_widget_state(widget) | selected);
 }
 
 static void tb_gui_checkbutton_draw(tb_widget widget, const void *data, tb_gui_paint *paint)
 {
     const tb_gui_choice *const choice = data;
-    const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
-    const uint32_t state = tb_widget_state(widget);
-    const bool disabled = (state & TB_WIDGET_DISABLED) != 0;
+    const tb_style *const style = tb_gui_choice_style(widget, choice);
     const tb_canvas_rect rect = tb_gui_paint_rect(paint);
     const tb_canvas_rect box = tb_gui_indicator_rect(widget, rect);
-    const tb_vec4 mark = theme->colors[disabled ? TB_UI_COLOR_TEXT_DIM : TB_UI_COLOR_TEXT];
 
-    tb_gui_paint_fill(paint, box, theme->frame_rounding,
-                      theme->colors[tb_gui_indicator_fill(state)]);
-    tb_gui_paint_outline(paint, box, theme->frame_rounding, theme->border,
-                         theme->colors[TB_UI_COLOR_BORDER]);
+    tb_gui_paint_box(paint, box, style);
     if (tb_gui_choice_selected(choice))
     {
         const float side = box.width;
@@ -135,44 +151,32 @@ static void tb_gui_checkbutton_draw(tb_widget widget, const void *data, tb_gui_p
         const tb_vec2 middle = {box.x + side * TB_GUI_TICK_MIDDLE_X,
                                 box.y + side * TB_GUI_TICK_MIDDLE_Y};
         const tb_vec2 right = {box.x + side * TB_GUI_TICK_RIGHT, box.y + side * TB_GUI_TICK_TOP};
-        tb_gui_paint_fill(paint, box, theme->frame_rounding,
-                          theme->colors[disabled ? TB_UI_COLOR_FRAME : TB_UI_COLOR_ACCENT]);
+        const tb_vec4 mark = tb_style_color(style, TB_GUI_CHOICE_MARK);
         tb_gui_paint_line(paint, left, middle, side * TB_GUI_TICK_THICKNESS, mark);
         tb_gui_paint_line(paint, middle, right, side * TB_GUI_TICK_THICKNESS, mark);
     }
-    if ((state & TB_WIDGET_FOCUSED) != 0)
-    {
-        tb_gui_values_draw_focus(widget, paint, box);
-    }
-    tb_gui_choice_draw_text(widget, choice, paint, rect, disabled);
+    tb_gui_choice_draw_text(widget, choice, paint, rect, style);
 }
 
 static void tb_gui_radiobutton_draw(tb_widget widget, const void *data, tb_gui_paint *paint)
 {
     const tb_gui_choice *const choice = data;
-    const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
-    const uint32_t state = tb_widget_state(widget);
-    const bool disabled = (state & TB_WIDGET_DISABLED) != 0;
+    const tb_style *const style = tb_gui_choice_style(widget, choice);
     const tb_canvas_rect rect = tb_gui_paint_rect(paint);
     const tb_canvas_rect circle = tb_gui_indicator_rect(widget, rect);
-    const float radius = circle.width * 0.5f;
+    tb_style round = *style;
 
-    tb_gui_paint_fill(paint, circle, radius, theme->colors[tb_gui_indicator_fill(state)]);
-    tb_gui_paint_outline(paint, circle, radius, theme->border, theme->colors[TB_UI_COLOR_BORDER]);
+    /* A radio button's indicator is a circle, whatever its corners. */
+    round.radius = circle.width * 0.5f;
+    tb_gui_paint_box(paint, circle, &round);
     if (tb_gui_choice_selected(choice))
     {
         const float dot = circle.width * TB_GUI_DOT;
         const tb_canvas_rect inner = {circle.x + (circle.width - dot) * 0.5f,
                                       circle.y + (circle.height - dot) * 0.5f, dot, dot};
-        tb_gui_paint_fill(paint, inner, dot * 0.5f,
-                          theme->colors[disabled ? TB_UI_COLOR_TEXT_DIM : TB_UI_COLOR_ACCENT]);
+        tb_gui_paint_fill(paint, inner, dot * 0.5f, tb_style_color(style, TB_GUI_CHOICE_MARK));
     }
-    if ((state & TB_WIDGET_FOCUSED) != 0)
-    {
-        tb_gui_paint_outline(paint, circle, radius, 2.0f * theme->border,
-                             theme->colors[TB_UI_COLOR_ACCENT]);
-    }
-    tb_gui_choice_draw_text(widget, choice, paint, rect, disabled);
+    tb_gui_choice_draw_text(widget, choice, paint, rect, style);
 }
 
 /* ---------------------------------------------------------------------------
@@ -403,7 +407,8 @@ static const tb_widget_class tb_gui_checkbutton_kind = {
     .init = tb_gui_checkbutton_init,
     .measure = tb_gui_choice_measure,
     .draw = tb_gui_checkbutton_draw,
-    .event = tb_gui_checkbutton_event};
+    .event = tb_gui_checkbutton_event,
+    .style = &tb_gui_checkbutton_style};
 
 static const tb_widget_class tb_gui_radiobutton_kind = {
     .name = "radiobutton",
@@ -414,7 +419,8 @@ static const tb_widget_class tb_gui_radiobutton_kind = {
     .mouse_filter = TB_GUI_MOUSE_STOP,
     .measure = tb_gui_choice_measure,
     .draw = tb_gui_radiobutton_draw,
-    .event = tb_gui_radiobutton_event};
+    .event = tb_gui_radiobutton_event,
+    .style = &tb_gui_radiobutton_style};
 
 const tb_widget_class *tb_checkbutton_class(void)
 {

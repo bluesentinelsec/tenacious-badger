@@ -257,6 +257,7 @@ static void tb_gui_release(tb_gui *gui, uint32_t index)
         }
     }
     tb_free(node->data);
+    tb_gui_style_release(gui, index);
     tb_gui_string_free(&node->name);
     tb_gui_string_free(&node->style);
     tb_free(node->bindings);
@@ -325,6 +326,7 @@ tb_gui *tb_gui_create(const tb_gui_options *options)
     gui->paint.scale = 1.0f;
     gui->view = tb_gui_compute_view(gui);
     tb_gui_register_builtins(gui);
+    tb_gui_styles_init(gui, chosen->style_theme);
 
     root = tb_gui_take_slot(gui);
     TB_ASSERT(root == 0);
@@ -343,6 +345,7 @@ void tb_gui_destroy(tb_gui *gui)
     }
     tb_gui_flush_deferred(gui);
     tb_gui_vars_free(gui);
+    tb_gui_theme_watches_free(gui);
     for (size_t index = 0; index < gui->node_count; index++)
     {
         if (gui->nodes[index].in_use)
@@ -350,6 +353,7 @@ void tb_gui_destroy(tb_gui *gui)
             tb_gui_release(gui, (uint32_t)index);
         }
     }
+    tb_gui_styles_free(gui);
     for (size_t index = 0; index < gui->font_count; index++)
     {
         tb_font_close(gui->fonts[index].font);
@@ -373,7 +377,7 @@ void tb_gui_set_theme(tb_gui *gui, const tb_ui_theme *theme)
     TB_ASSERT(gui != NULL);
     TB_ASSERT(theme != NULL);
     gui->theme = *theme;
-    tb_gui_mark_layout(gui);
+    tb_gui_styles_palette_changed(gui);
 }
 
 const tb_ui_theme *tb_gui_theme(const tb_gui *gui)
@@ -436,6 +440,7 @@ void tb_gui_update(tb_gui *gui, double delta_seconds)
     TB_ASSERT(gui != NULL);
     TB_ASSERT_MSG(gui->dispatch_depth == 0, "a GUI updated from one of its callbacks");
     gui->time += delta_seconds;
+    tb_gui_theme_watches_update(gui);
     tb_gui_vars_update(gui);
     tb_gui_layout(gui);
     tb_gui_dispatch_resized(gui);
@@ -700,14 +705,24 @@ static const tb_font *tb_gui_catalog_font(tb_gui *gui, tb_font_spec spec)
     return font;
 }
 
-tb_gui_resolved_font tb_gui_resolve_font(tb_gui *gui, tb_font_spec spec)
+tb_gui_resolved_font tb_gui_resolve_font(tb_gui *gui, tb_font_spec base, tb_font_spec spec)
 {
-    tb_gui_resolved_font resolved = {.font = gui->theme.fonts[TB_UI_FONT_REGULAR],
-                                     .size = spec.size > 0.0f ? spec.size : gui->theme.font_size};
+    const tb_font_spec face = spec.weight != 0 ? spec : base;
+    float size = gui->theme.font_size;
+    tb_gui_resolved_font resolved = {0};
 
-    if (spec.weight != 0 && gui->catalog != NULL)
+    if (spec.size > 0.0f)
     {
-        const tb_font *const font = tb_gui_catalog_font(gui, spec);
+        size = spec.size;
+    }
+    else if (base.size > 0.0f)
+    {
+        size = base.size;
+    }
+    resolved = (tb_gui_resolved_font){.font = gui->theme.fonts[TB_UI_FONT_REGULAR], .size = size};
+    if (face.weight != 0 && gui->catalog != NULL)
+    {
+        const tb_font *const font = tb_gui_catalog_font(gui, face);
         if (font != NULL)
         {
             resolved.font = font;

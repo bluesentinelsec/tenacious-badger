@@ -62,9 +62,28 @@ static bool tb_gui_paned_across(const tb_gui_paned *paned)
     return paned->orient == TB_GUI_ORIENT_HORIZONTAL;
 }
 
-static float tb_gui_sash_width(tb_gui *gui)
+/* A paned window's style: its sashes'. */
+enum
 {
-    return tb_gui_theme(gui)->item_spacing.x;
+    TB_GUI_SASH_WIDTH,  /* units a sash is wide */
+    TB_GUI_SASH_COLOR,  /* a sash */
+    TB_GUI_SASH_ACTIVE, /* a sash dragged */
+    TB_GUI_PANED_ELEMENTS
+};
+
+static const tb_style_element tb_gui_paned_elements[TB_GUI_PANED_ELEMENTS] = {
+    [TB_GUI_SASH_WIDTH] = {"sash_width", TB_STYLE_NUMBER},
+    [TB_GUI_SASH_COLOR] = {"sash_color", TB_STYLE_COLOR},
+    [TB_GUI_SASH_ACTIVE] = {"sash_active_color", TB_STYLE_COLOR}};
+
+static const tb_widget_style_desc tb_gui_paned_style = {.name = "Panedwindow",
+                                                        .states = TB_WIDGET_DISABLED,
+                                                        .elements = tb_gui_paned_elements,
+                                                        .element_count = TB_GUI_PANED_ELEMENTS};
+
+static float tb_gui_sash_width(tb_widget widget)
+{
+    return tb_style_number(tb_style_in(widget, 0), TB_GUI_SASH_WIDTH);
 }
 
 /* A pane's or sash's rectangle, from the grid's last layout: track
@@ -149,7 +168,7 @@ static void tb_gui_paned_move(tb_widget widget, tb_gui_paned *paned, size_t sash
 static tb_vec2 tb_gui_paned_measure(tb_widget widget, const void *data)
 {
     const tb_gui_paned *const paned = data;
-    const float sash = tb_gui_sash_width(widget.gui);
+    const float sash = tb_gui_sash_width(widget);
     float along = 0.0f;
     float across = 0.0f;
 
@@ -179,14 +198,14 @@ static tb_gui_viewport tb_gui_paned_viewport(tb_widget widget, void *data, tb_ca
 static void tb_gui_paned_draw(tb_widget widget, const void *data, tb_gui_paint *paint)
 {
     const tb_gui_paned *const paned = data;
-    const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
+    const tb_style *const style = tb_style_of(widget);
 
+    tb_gui_paint_fill(paint, tb_gui_paint_rect(paint), style->radius, style->background);
     for (size_t sash = 0; sash + 1 < paned->count; sash++)
     {
         const tb_canvas_rect rect = tb_gui_paned_track(widget, paned, 2 * sash + 1);
-        const tb_ui_color color =
-            sash == paned->dragging ? TB_UI_COLOR_ACCENT : TB_UI_COLOR_SEPARATOR;
-        tb_gui_paint_fill(paint, rect, 0.0f, theme->colors[color]);
+        const size_t color = sash == paned->dragging ? TB_GUI_SASH_ACTIVE : TB_GUI_SASH_COLOR;
+        tb_gui_paint_fill(paint, rect, 0.0f, tb_style_color(style, color));
     }
 }
 
@@ -351,7 +370,8 @@ static const tb_widget_class tb_gui_paned_kind = {.name = "panedwindow",
                                                   .measure = tb_gui_paned_measure,
                                                   .draw = tb_gui_paned_draw,
                                                   .event = tb_gui_paned_event,
-                                                  .viewport = tb_gui_paned_viewport};
+                                                  .viewport = tb_gui_paned_viewport,
+                                                  .style = &tb_gui_paned_style};
 
 static tb_gui_paned *tb_gui_paned_of(tb_widget widget)
 {
@@ -407,7 +427,7 @@ size_t tb_panedwindow_add(tb_widget panedwindow, tb_widget pane, const tb_pane_o
     tb_gui_paned_configure(panedwindow, paned, index, chosen.weight > 0.0f ? chosen.weight : 1.0f);
     if (index > 0)
     {
-        const tb_grid_track sash = {.minsize = tb_gui_sash_width(panedwindow.gui)};
+        const tb_grid_track sash = {.minsize = tb_gui_sash_width(panedwindow)};
         if (across)
         {
             (void)tb_grid_column_configure(panedwindow, 2 * index - 1, &sash);

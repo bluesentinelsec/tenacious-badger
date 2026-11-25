@@ -68,6 +68,38 @@ tb_ui_theme tb_ui_theme_dark(void)
     return theme;
 }
 
+tb_ui_theme tb_ui_theme_light(void)
+{
+    tb_ui_theme theme = tb_ui_theme_dark();
+    const tb_vec4 accent = {0.0f, 0.40f, 0.80f, 1.0f};
+
+    theme.colors[TB_UI_COLOR_TEXT] = tb_ui_gray(0.10f, 1.0f);
+    theme.colors[TB_UI_COLOR_TEXT_DIM] = tb_ui_gray(0.48f, 1.0f);
+    theme.colors[TB_UI_COLOR_WINDOW] = tb_ui_gray(0.94f, 1.0f);
+    theme.colors[TB_UI_COLOR_BORDER] = tb_ui_gray(0.66f, 1.0f);
+    theme.colors[TB_UI_COLOR_TITLE] = tb_ui_gray(0.86f, 1.0f);
+    theme.colors[TB_UI_COLOR_TITLE_ACTIVE] = tb_ui_gray(0.80f, 1.0f);
+    theme.colors[TB_UI_COLOR_FRAME] = tb_ui_gray(1.0f, 1.0f);
+    theme.colors[TB_UI_COLOR_FRAME_HOT] = tb_ui_gray(0.975f, 1.0f);
+    theme.colors[TB_UI_COLOR_FRAME_ACTIVE] = tb_ui_gray(0.90f, 1.0f);
+    theme.colors[TB_UI_COLOR_BUTTON] = tb_ui_gray(0.86f, 1.0f);
+    theme.colors[TB_UI_COLOR_BUTTON_HOT] = tb_ui_gray(0.80f, 1.0f);
+    theme.colors[TB_UI_COLOR_BUTTON_ACTIVE] = tb_ui_gray(0.72f, 1.0f);
+    theme.colors[TB_UI_COLOR_HEADER] = tb_ui_gray(0.88f, 1.0f);
+    theme.colors[TB_UI_COLOR_HEADER_HOT] = tb_ui_gray(0.82f, 1.0f);
+    theme.colors[TB_UI_COLOR_ACCENT] = accent;
+    theme.colors[TB_UI_COLOR_ACCENT_HOT] = (tb_vec4){0.10f, 0.50f, 0.92f, 1.0f};
+    theme.colors[TB_UI_COLOR_SELECTION] = (tb_vec4){accent.x, accent.y, accent.z, 0.30f};
+    theme.colors[TB_UI_COLOR_SCROLLBAR] = tb_ui_gray(0.0f, 0.06f);
+    theme.colors[TB_UI_COLOR_SCROLLBAR_GRAB] = tb_ui_gray(0.70f, 1.0f);
+    theme.colors[TB_UI_COLOR_SCROLLBAR_GRAB_HOT] = tb_ui_gray(0.55f, 1.0f);
+    theme.colors[TB_UI_COLOR_SEPARATOR] = tb_ui_gray(0.80f, 1.0f);
+    theme.colors[TB_UI_COLOR_POPUP] = tb_ui_gray(0.985f, 1.0f);
+    theme.colors[TB_UI_COLOR_TABLE_ROW_ALTERNATE] = tb_ui_gray(0.0f, 0.035f);
+    theme.colors[TB_UI_COLOR_SHADOW] = tb_ui_gray(0.0f, 0.25f);
+    return theme;
+}
+
 /* Open the font of a spec; NULL when the catalog has none. */
 static tb_font *tb_ui_open_spec(const tb_font_catalog *catalog, tb_font_spec spec)
 {

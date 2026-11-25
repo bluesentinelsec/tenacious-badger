@@ -13,15 +13,9 @@ static const char *const tb_gui_justify_names[] = {"left", "center", "right"};
 static const char *const tb_gui_anchor_names[] = {"center", "n",  "ne", "e", "se",
                                                   "s",      "sw", "w",  "nw"};
 
-static tb_vec4 tb_gui_theme_color(tb_widget widget, tb_ui_color color)
-{
-    return tb_gui_theme(widget.gui)->colors[color];
-}
-
-static bool tb_gui_disabled(tb_widget widget)
-{
-    return (tb_widget_state(widget) & TB_WIDGET_DISABLED) != 0;
-}
+/* The states a kind's look follows. */
+#define TB_GUI_DRAWN_STATES                                                                        \
+    (TB_WIDGET_HOVERED | TB_WIDGET_PRESSED | TB_WIDGET_FOCUSED | TB_WIDGET_DISABLED)
 
 /* ---------------------------------------------------------------------------
  * Frames.
@@ -76,29 +70,51 @@ static bool tb_gui_frame_get_background(tb_widget widget, const void *data, tb_g
     return true;
 }
 
+/* A frame's padding, and its style's padding while it draws its
+ * background, and its border's width while it draws its border: a frame
+ * that only lays others out takes no room of its style's. */
 static tb_gui_edges tb_gui_frame_insets(tb_widget widget, const void *data)
 {
     const tb_gui_frame *const frame = data;
-    const float edge = frame->padding + (frame->border ? tb_gui_theme(widget.gui)->border : 0.0f);
+    const tb_style *const style = tb_style_in(widget, 0);
+    const float border = frame->border ? style->border_width : 0.0f;
+    const tb_gui_edges padding = frame->background ? style->padding : (tb_gui_edges){0};
+    const float edge = frame->padding + border;
 
-    return (tb_gui_edges){edge, edge, edge, edge};
+    return (tb_gui_edges){edge + padding.left, edge + padding.top, edge + padding.right,
+                          edge + padding.bottom};
 }
 
 static void tb_gui_frame_draw(tb_widget widget, const void *data, tb_gui_paint *paint)
 {
     const tb_gui_frame *const frame = data;
+    const tb_style *const style = tb_style_of(widget);
     const tb_canvas_rect rect = tb_gui_paint_rect(paint);
 
-    if (frame->background)
+    if (frame->background && style->image.slice.image != NULL)
     {
-        tb_gui_paint_fill(paint, rect, 0.0f, tb_gui_theme_color(widget, TB_UI_COLOR_WINDOW));
+        tb_gui_paint_nine_slice(paint, &style->image.slice, rect, style->image.tint);
+    }
+    else if (frame->background)
+    {
+        tb_gui_paint_fill(paint, rect, style->radius, style->background);
     }
     if (frame->border)
     {
-        tb_gui_paint_outline(paint, rect, 0.0f, tb_gui_theme(widget.gui)->border,
-                             tb_gui_theme_color(widget, TB_UI_COLOR_BORDER));
+        tb_gui_paint_outline(paint, rect, style->radius, style->border_width,
+                             style->border_color);
     }
 }
+
+/* A frame's style's elements: the root's shade is what modal widgets are
+ * shown over. */
+static const tb_style_element tb_gui_frame_elements[] = {{"shade", TB_STYLE_COLOR}};
+
+static const tb_widget_style_desc tb_gui_frame_style = {
+    .name = "Frame",
+    .states = TB_WIDGET_DISABLED,
+    .elements = tb_gui_frame_elements,
+    .element_count = TB_GUI_COUNT_OF(tb_gui_frame_elements)};
 
 static const tb_gui_property tb_gui_frame_properties[] = {
     {.name = "padding",
@@ -123,7 +139,8 @@ static const tb_widget_class tb_gui_frame_kind = {.name = "frame",
                                                       TB_GUI_COUNT_OF(tb_gui_frame_properties),
                                                   .mouse_filter = TB_GUI_MOUSE_PASS,
                                                   .insets = tb_gui_frame_insets,
-                                                  .draw = tb_gui_frame_draw};
+                                                  .draw = tb_gui_frame_draw,
+                                                  .style = &tb_gui_frame_style};
 
 const tb_widget_class *tb_frame_class(void)
 {
@@ -169,12 +186,12 @@ static tb_gui_text_block tb_gui_label_block(const tb_gui_label *label)
 tb_vec2 tb_gui_measure_block(tb_widget widget, const tb_gui_text_block *block)
 {
     tb_gui *const gui = widget.gui;
-    const tb_gui_resolved_font resolved = tb_gui_resolve_font(gui, block->font);
+    const tb_gui_resolved_font resolved = tb_gui_widget_font(widget, block->font);
     tb_ui_font_measures measures = {0};
 
     if (block->text.length > 0)
     {
-        return tb_gui_measure_text(gui, block);
+        return tb_widget_measure_text(widget, block);
     }
     if (resolved.font == NULL)
     {
@@ -184,16 +201,16 @@ tb_vec2 tb_gui_measure_block(tb_widget widget, const tb_gui_text_block *block)
     return (tb_vec2){0.0f, measures.line_height};
 }
 
-float tb_gui_line_height(tb_gui *gui)
+float tb_gui_line_height(tb_widget widget)
 {
-    const tb_gui_resolved_font resolved = tb_gui_resolve_font(gui, (tb_font_spec){0});
+    const tb_gui_resolved_font resolved = tb_gui_widget_font(widget, (tb_font_spec){0});
     tb_ui_font_measures measures = {0};
 
     if (resolved.font == NULL)
     {
         return resolved.size;
     }
-    tb_ui_font_measures_of(resolved.font, resolved.size, gui->view.scale, &measures);
+    tb_ui_font_measures_of(resolved.font, resolved.size, widget.gui->view.scale, &measures);
     return measures.line_height;
 }
 
@@ -203,13 +220,34 @@ static tb_vec2 tb_gui_label_measure(tb_widget widget, const void *data)
     return tb_gui_measure_block(widget, &block);
 }
 
+/* A label's style's padding, inside its box. */
+static tb_gui_edges tb_gui_label_insets(tb_widget widget, const void *data)
+{
+    const tb_style *const style = tb_style_in(widget, 0);
+    const float border = style->border_width;
+
+    (void)data;
+    return (tb_gui_edges){style->padding.left + border, style->padding.top + border,
+                          style->padding.right + border, style->padding.bottom + border};
+}
+
 static void tb_gui_label_draw(tb_widget widget, const void *data, tb_gui_paint *paint)
 {
     const tb_gui_text_block block = tb_gui_label_block(data);
-    const tb_ui_color color = tb_gui_disabled(widget) ? TB_UI_COLOR_TEXT_DIM : TB_UI_COLOR_TEXT;
+    const tb_style *const style = tb_style_of(widget);
+    const tb_canvas_rect rect = tb_gui_paint_rect(paint);
+    const tb_gui_edges insets = tb_gui_label_insets(widget, data);
 
-    tb_gui_paint_text(paint, &block, tb_gui_paint_rect(paint), tb_gui_theme_color(widget, color));
+    tb_gui_paint_box(paint, rect, style);
+    tb_gui_paint_text(paint, &block,
+                      (tb_canvas_rect){rect.x + insets.left, rect.y + insets.top,
+                                       rect.width - insets.left - insets.right,
+                                       rect.height - insets.top - insets.bottom},
+                      style->text_color);
 }
+
+static const tb_widget_style_desc tb_gui_label_style = {.name = "Label",
+                                                        .states = TB_WIDGET_DISABLED};
 
 static bool tb_gui_label_set_wrap(tb_widget widget, void *data, const tb_gui_value *value)
 {
@@ -266,7 +304,9 @@ static const tb_widget_class tb_gui_label_kind = {.name = "label",
                                                       TB_GUI_COUNT_OF(tb_gui_label_properties),
                                                   .mouse_filter = TB_GUI_MOUSE_PASS,
                                                   .measure = tb_gui_label_measure,
-                                                  .draw = tb_gui_label_draw};
+                                                  .insets = tb_gui_label_insets,
+                                                  .draw = tb_gui_label_draw,
+                                                  .style = &tb_gui_label_style};
 
 const tb_widget_class *tb_label_class(void)
 {
@@ -313,56 +353,48 @@ static tb_vec2 tb_gui_button_measure(tb_widget widget, const void *data)
     return tb_gui_measure_block(widget, &block);
 }
 
+/* A button's style's elements. */
+enum
+{
+    TB_GUI_BUTTON_DEFAULT_COLOR, /* the ring of a dialog's default button */
+    TB_GUI_BUTTON_ELEMENTS
+};
+
+static const tb_style_element tb_gui_button_elements[TB_GUI_BUTTON_ELEMENTS] = {
+    [TB_GUI_BUTTON_DEFAULT_COLOR] = {"default_color", TB_STYLE_COLOR}};
+
+static const tb_widget_style_desc tb_gui_button_style = {.name = "Button",
+                                                         .states = TB_GUI_DRAWN_STATES,
+                                                         .elements = tb_gui_button_elements,
+                                                         .element_count = TB_GUI_BUTTON_ELEMENTS};
+
 static tb_gui_edges tb_gui_button_insets(tb_widget widget, const void *data)
 {
-    const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
-    const float across = theme->frame_padding.x + theme->border;
-    const float down = theme->frame_padding.y + theme->border;
+    const tb_style *const style = tb_style_in(widget, 0);
+    const float border = style->border_width;
 
     (void)data;
-    return (tb_gui_edges){across, down, across, down};
-}
-
-static tb_ui_color tb_gui_button_fill(uint32_t state)
-{
-    const bool hovered = (state & TB_WIDGET_HOVERED) != 0;
-    const bool pressed = (state & TB_WIDGET_PRESSED) != 0;
-
-    if (pressed && hovered)
-    {
-        return TB_UI_COLOR_BUTTON_ACTIVE;
-    }
-    if (hovered || pressed)
-    {
-        return TB_UI_COLOR_BUTTON_HOT;
-    }
-    return TB_UI_COLOR_BUTTON;
+    return (tb_gui_edges){style->padding.left + border, style->padding.top + border,
+                          style->padding.right + border, style->padding.bottom + border};
 }
 
 static void tb_gui_button_draw(tb_widget widget, const void *data, tb_gui_paint *paint)
 {
     const tb_gui_button *const button = data;
-    const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
     const uint32_t state = tb_widget_state(widget);
+    const tb_style *const style = tb_style_in(widget, state);
     const tb_canvas_rect rect = tb_gui_paint_rect(paint);
     const tb_gui_text_block block = tb_gui_button_block(button);
-    const bool disabled = (state & TB_WIDGET_DISABLED) != 0;
-    const tb_ui_color text = disabled ? TB_UI_COLOR_TEXT_DIM : TB_UI_COLOR_TEXT;
+    const bool plain = (state & (TB_WIDGET_FOCUSED | TB_WIDGET_DISABLED)) == 0;
 
-    tb_gui_paint_fill(paint, rect, theme->frame_rounding, theme->colors[tb_gui_button_fill(state)]);
-    tb_gui_paint_outline(paint, rect, theme->frame_rounding, theme->border,
-                         theme->colors[TB_UI_COLOR_BORDER]);
-    if ((state & TB_WIDGET_FOCUSED) != 0)
+    tb_gui_paint_box(paint, rect, style);
+    /* A dialog's default button is ringed thinly, but for the focus's ring. */
+    if (button->is_default && plain)
     {
-        tb_gui_paint_outline(paint, rect, theme->frame_rounding, 2.0f * theme->border,
-                             theme->colors[TB_UI_COLOR_ACCENT]);
+        tb_gui_paint_outline(paint, rect, style->radius, style->border_width,
+                             tb_style_color(style, TB_GUI_BUTTON_DEFAULT_COLOR));
     }
-    else if (button->is_default && !disabled)
-    {
-        tb_gui_paint_outline(paint, rect, theme->frame_rounding, theme->border,
-                             theme->colors[TB_UI_COLOR_ACCENT]);
-    }
-    tb_gui_paint_text(paint, &block, rect, theme->colors[text]);
+    tb_gui_paint_text(paint, &block, rect, style->text_color);
 }
 
 static bool tb_gui_button_event(tb_widget widget, void *data, const tb_gui_event *event)
@@ -429,7 +461,8 @@ static const tb_widget_class tb_gui_button_kind = {.name = "button",
                                                    .measure = tb_gui_button_measure,
                                                    .insets = tb_gui_button_insets,
                                                    .draw = tb_gui_button_draw,
-                                                   .event = tb_gui_button_event};
+                                                   .event = tb_gui_button_event,
+                                                   .style = &tb_gui_button_style};
 
 const tb_widget_class *tb_button_class(void)
 {

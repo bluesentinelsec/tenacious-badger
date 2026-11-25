@@ -21,11 +21,14 @@ typedef struct tb_gui_tooltip
     float delay;
 } tb_gui_tooltip;
 
+static const tb_widget_style_desc tb_gui_tooltip_style = {.name = "Tooltip"};
+
 static tb_gui_text_block tb_gui_tooltip_block(tb_widget widget, const tb_gui_tooltip *tooltip)
 {
+    const float em = tb_gui_widget_font(widget, (tb_font_spec){0}).size;
+
     return (tb_gui_text_block){.text = tb_gui_string_text(&tooltip->text),
-                               .wrap_length =
-                                   tb_gui_theme(widget.gui)->font_size * TB_GUI_TOOLTIP_WRAP_EMS,
+                               .wrap_length = em * TB_GUI_TOOLTIP_WRAP_EMS,
                                .anchor = TB_GUI_ANCHOR_NW};
 }
 
@@ -37,28 +40,26 @@ static tb_vec2 tb_gui_tooltip_measure(tb_widget widget, const void *data)
 
 static tb_gui_edges tb_gui_tooltip_insets(tb_widget widget, const void *data)
 {
-    const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
-    const float across = theme->frame_padding.x * 0.75f + theme->border;
-    const float down = theme->frame_padding.y + theme->border;
+    const tb_style *const style = tb_style_in(widget, 0);
+    const float border = style->border_width;
 
     (void)data;
-    return (tb_gui_edges){across, down, across, down};
+    return (tb_gui_edges){style->padding.left + border, style->padding.top + border,
+                          style->padding.right + border, style->padding.bottom + border};
 }
 
 static void tb_gui_tooltip_draw(tb_widget widget, const void *data, tb_gui_paint *paint)
 {
     const tb_gui_text_block block = tb_gui_tooltip_block(widget, data);
-    const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
+    const tb_style *const style = tb_style_of(widget);
     const tb_canvas_rect rect = tb_gui_paint_rect(paint);
     const tb_gui_edges insets = tb_gui_tooltip_insets(widget, data);
     const tb_canvas_rect inner = {rect.x + insets.left, rect.y + insets.top,
                                   rect.width - insets.left - insets.right,
                                   rect.height - insets.top - insets.bottom};
 
-    tb_gui_paint_fill(paint, rect, theme->frame_rounding, theme->colors[TB_UI_COLOR_POPUP]);
-    tb_gui_paint_outline(paint, rect, theme->frame_rounding, theme->border,
-                         theme->colors[TB_UI_COLOR_BORDER]);
-    tb_gui_paint_text(paint, &block, inner, theme->colors[TB_UI_COLOR_TEXT]);
+    tb_gui_paint_box(paint, rect, style);
+    tb_gui_paint_text(paint, &block, inner, style->text_color);
 }
 
 static bool tb_gui_tooltip_set_delay(tb_widget widget, void *data, const tb_gui_value *value)
@@ -102,7 +103,8 @@ static const tb_widget_class tb_gui_tooltip_kind = {.name = "tooltip",
                                                     .mouse_filter = TB_GUI_MOUSE_IGNORE,
                                                     .measure = tb_gui_tooltip_measure,
                                                     .insets = tb_gui_tooltip_insets,
-                                                    .draw = tb_gui_tooltip_draw};
+                                                    .draw = tb_gui_tooltip_draw,
+                                                    .style = &tb_gui_tooltip_style};
 
 const tb_widget_class *tb_tooltip_class(void)
 {

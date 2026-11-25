@@ -60,29 +60,42 @@ bool tb_gui_read_number(tb_text text, double *value);
  * What kinds draw by (gui_values.c).
  * ------------------------------------------------------------------------- */
 
-/* The theme's font's measures at the view's scale, in units. */
-tb_ui_font_measures tb_gui_values_measures(tb_gui *gui);
+/* A widget's font's measures at the view's scale, in units. */
+tb_ui_font_measures tb_gui_values_measures(tb_widget widget);
 
-/* Characters of "0" wide, in units. */
-float tb_gui_values_char_width(tb_gui *gui, int32_t characters);
+/* Characters of "0" wide in a widget's font, in units. */
+float tb_gui_values_char_width(tb_widget widget, int32_t characters);
 
-/* A theme's color. */
-tb_vec4 tb_gui_values_color(tb_widget widget, tb_ui_color color);
+/* The space between a widget's edges and its content: its style's padding
+ * and border, at rest. */
+tb_gui_edges tb_gui_values_insets(tb_widget widget);
 
-/* A field's frame, as an entry's: filled, outlined, and ringed by the
- * accent with the focus. */
-void tb_gui_values_draw_field(tb_widget widget, tb_gui_paint *paint, tb_canvas_rect rect);
-
-/* The ring a widget with the focus is drawn with. */
-void tb_gui_values_draw_focus(tb_widget widget, tb_gui_paint *paint, tb_canvas_rect rect);
-
-/* One line of text with its left edge at `x`, its capitals centered in a
- * rectangle's height, clipped to `clip`. */
+/* One line of text in a paint's widget's font, with its left edge at `x`,
+ * its capitals centered in a rectangle's height, clipped to `clip`. */
 void tb_gui_values_paint_line(tb_gui_paint *paint, tb_text text, float x, tb_canvas_rect rect,
                               tb_canvas_rect clip, tb_vec4 color);
 
-/* The top of a line of text whose capitals are centered in a rectangle. */
-float tb_gui_values_line_top(tb_gui *gui, tb_canvas_rect rect);
+/* The top of a line of a widget's text whose capitals are centered in a
+ * rectangle. */
+float tb_gui_values_line_top(tb_widget widget, tb_canvas_rect rect);
+
+/* The elements of the style of a kind that edits text in a field, first in
+ * its elements, in this order. */
+enum
+{
+    TB_GUI_FIELD_SELECTION,   /* selected text's background */
+    TB_GUI_FIELD_PLACEHOLDER, /* the placeholder's color */
+    TB_GUI_FIELD_CARET,       /* the caret's color */
+    TB_GUI_FIELD_ELEMENTS
+};
+#define TB_GUI_FIELD_STYLE_ELEMENTS                                                                \
+    [TB_GUI_FIELD_SELECTION] = {"selection", TB_STYLE_COLOR},                                      \
+    [TB_GUI_FIELD_PLACEHOLDER] = {"placeholder_color", TB_STYLE_COLOR},                            \
+    [TB_GUI_FIELD_CARET] = {"caret_color", TB_STYLE_COLOR}
+
+/* The states the look of a kind follows. */
+#define TB_GUI_VALUES_STATES                                                                       \
+    (TB_WIDGET_HOVERED | TB_WIDGET_PRESSED | TB_WIDGET_FOCUSED | TB_WIDGET_DISABLED)
 
 /* Whether a key event is a press of a key with none of Control, Alt, or
  * Command held. */

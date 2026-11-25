@@ -136,6 +136,49 @@ typedef struct tb_canvas_sprite
     tb_vec4 tint;   /**< Multiplies the image's colors; zero alpha draws nothing. */
 } tb_canvas_sprite;
 
+/**
+ * @brief A nine-slice panel: an image cut by four insets into corners
+ * drawn at their size, edges stretched along their length, and a middle
+ * stretched both ways, so that a frame or a button of any size keeps its
+ * borders, as Godot's `StyleBoxTexture` and Unity's sliced sprites do.
+ * Zero-initialize, then set what differs.
+ *
+ * The borders are drawn `inset * scale` units wide, so that they keep their
+ * size in units at any view's scale. With `whole_pixels`, each texel of a
+ * border is drawn as a whole number of pixels, at least one, the nearest
+ * below `scale` units: pixel art stays sharp and even. Borders wider than
+ * the rectangle are shrunk together to fit it. Every edge of a slice is
+ * placed on a whole pixel, so slices meet with neither gap nor overlap.
+ *
+ * An image filtered linearly blends a slice's edge texels with its
+ * neighbour's; give pixel art #TB_IMAGE_NEAREST, or keep slices that differ
+ * a texel apart.
+ */
+typedef struct tb_canvas_nine_slice
+{
+    const tb_image *image; /**< The image; NULL for none, which draws nothing. */
+    /** The image's texels the panel is cut from; a zero size is the whole
+     * image. Several panels share one image, as a sprite sheet's frames do. */
+    tb_rhi_rect source;
+    uint32_t left;     /**< Texels of the source in the left corners and edge. */
+    uint32_t top;      /**< Texels in the top corners and edge. */
+    uint32_t right;    /**< Texels in the right corners and edge. */
+    uint32_t bottom;   /**< Texels in the bottom corners and edge. */
+    float scale;       /**< Units a texel of a border is drawn; 0 is 1. */
+    bool whole_pixels; /**< Each border texel a whole number of pixels: for pixel art. */
+    bool hollow;       /**< The middle is not drawn: a frame around something. */
+} tb_canvas_nine_slice;
+
+/** @brief One slice of a nine-slice panel: the texels drawn, and where. */
+typedef struct tb_canvas_slice
+{
+    tb_rhi_rect source;  /**< Texels of the image. */
+    tb_canvas_rect rect; /**< Where they are drawn, in units. */
+} tb_canvas_slice;
+
+/** @brief The most slices a nine-slice panel is drawn in. */
+#define TB_CANVAS_NINE_SLICES 9u
+
 /** @brief What the canvas drew in the last frame that ended. */
 typedef struct tb_canvas_stats
 {
@@ -258,6 +301,34 @@ TB_API void tb_canvas_draw_image(tb_renderer *renderer, const tb_image *image, t
 /** @brief A sprite.
  * @param sprite Required; copied. Its image, if any, alive until the frame ends. */
 TB_API void tb_canvas_draw_sprite(tb_renderer *renderer, const tb_canvas_sprite *sprite);
+
+/**
+ * @brief Cut a nine-slice panel into the slices that draw it over a
+ * rectangle at a view's scale: what tb_canvas_draw_nine_slice() draws, for
+ * interfaces that build their own commands, and for tests. Slices of no
+ * size, and the middle of a hollow panel, are left out.
+ * @param slice Required. Its image is not read: its size is given.
+ * @param image_width The image's pixels across (tb_image_size()).
+ * @param image_height Its pixels down.
+ * @param rect Where the panel is drawn, in units.
+ * @param pixels_per_unit The view's scale, more than 0: the slices' edges
+ * are placed on its whole pixels.
+ * @param[out] slices Required; room for #TB_CANVAS_NINE_SLICES.
+ * @return How many slices were written, row by row from the top left.
+ * @par Threading Thread-safe.
+ */
+TB_API size_t tb_canvas_nine_slice_layout(const tb_canvas_nine_slice *slice, uint32_t image_width,
+                                          uint32_t image_height, tb_canvas_rect rect,
+                                          float pixels_per_unit, tb_canvas_slice *slices);
+
+/**
+ * @brief A nine-slice panel over a rectangle, at the current view's scale.
+ * @param slice Required; copied. Its image, if any, alive until the frame
+ * ends; none draws nothing.
+ * @param tint Multiplies its colors.
+ */
+TB_API void tb_canvas_draw_nine_slice(tb_renderer *renderer, const tb_canvas_nine_slice *slice,
+                                      tb_canvas_rect rect, tb_vec4 tint);
 
 /**
  * @brief Text, laid out by tb_font_layout_text() and drawn with its box's

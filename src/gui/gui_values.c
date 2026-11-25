@@ -175,9 +175,9 @@ bool tb_gui_read_number(tb_text text, double *value)
  * What kinds draw by.
  * ------------------------------------------------------------------------- */
 
-tb_ui_font_measures tb_gui_values_measures(tb_gui *gui)
+tb_ui_font_measures tb_gui_values_measures(tb_widget widget)
 {
-    const tb_gui_resolved_font resolved = tb_gui_resolve_font(gui, (tb_font_spec){0});
+    const tb_gui_resolved_font resolved = tb_gui_widget_font(widget, (tb_font_spec){0});
     tb_ui_font_measures measures = {0};
 
     if (resolved.font == NULL)
@@ -187,54 +187,34 @@ tb_ui_font_measures tb_gui_values_measures(tb_gui *gui)
         measures.cap_height = resolved.size * TB_GUI_FALLBACK_CAPS;
         return measures;
     }
-    tb_ui_font_measures_of(resolved.font, resolved.size, gui->view.scale, &measures);
+    tb_ui_font_measures_of(resolved.font, resolved.size, widget.gui->view.scale, &measures);
     return measures;
 }
 
-float tb_gui_values_char_width(tb_gui *gui, int32_t characters)
+float tb_gui_values_char_width(tb_widget widget, int32_t characters)
 {
     const tb_gui_text_block block = {.text = tb_text_from_cstr("0")};
-    float width = tb_gui_measure_text(gui, &block).x;
+    float width = tb_widget_measure_text(widget, &block).x;
 
     if (!(width > 0.0f))
     {
-        width = tb_gui_resolve_font(gui, (tb_font_spec){0}).size * TB_GUI_FALLBACK_CHAR;
+        width = tb_gui_widget_font(widget, (tb_font_spec){0}).size * TB_GUI_FALLBACK_CHAR;
     }
     return width * (float)characters;
 }
 
-tb_vec4 tb_gui_values_color(tb_widget widget, tb_ui_color color)
+tb_gui_edges tb_gui_values_insets(tb_widget widget)
 {
-    return tb_gui_theme(widget.gui)->colors[color];
+    const tb_style *const style = tb_style_in(widget, 0);
+    const float border = style->border_width;
+
+    return (tb_gui_edges){style->padding.left + border, style->padding.top + border,
+                          style->padding.right + border, style->padding.bottom + border};
 }
 
-void tb_gui_values_draw_focus(tb_widget widget, tb_gui_paint *paint, tb_canvas_rect rect)
+float tb_gui_values_line_top(tb_widget widget, tb_canvas_rect rect)
 {
-    const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
-
-    tb_gui_paint_outline(paint, rect, theme->frame_rounding, 2.0f * theme->border,
-                         theme->colors[TB_UI_COLOR_ACCENT]);
-}
-
-void tb_gui_values_draw_field(tb_widget widget, tb_gui_paint *paint, tb_canvas_rect rect)
-{
-    const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
-    const uint32_t state = tb_widget_state(widget);
-    const bool hot = (state & (TB_WIDGET_HOVERED | TB_WIDGET_FOCUSED)) != 0;
-
-    tb_gui_paint_fill(paint, rect, theme->frame_rounding,
-                      theme->colors[hot ? TB_UI_COLOR_FRAME_HOT : TB_UI_COLOR_FRAME]);
-    tb_gui_paint_outline(paint, rect, theme->frame_rounding, theme->border,
-                         theme->colors[TB_UI_COLOR_BORDER]);
-    if ((state & TB_WIDGET_FOCUSED) != 0)
-    {
-        tb_gui_values_draw_focus(widget, paint, rect);
-    }
-}
-
-float tb_gui_values_line_top(tb_gui *gui, tb_canvas_rect rect)
-{
-    const tb_ui_font_measures measures = tb_gui_values_measures(gui);
+    const tb_ui_font_measures measures = tb_gui_values_measures(widget);
 
     /* Capitals are centered: they are what the eye lines up. */
     return rect.y + rect.height * 0.5f + measures.cap_height * 0.5f - measures.ascent;
@@ -244,7 +224,7 @@ void tb_gui_values_paint_line(tb_gui_paint *paint, tb_text text, float x, tb_can
                               tb_canvas_rect clip, tb_vec4 color)
 {
     tb_gui *const gui = paint->gui;
-    const tb_gui_resolved_font resolved = tb_gui_resolve_font(gui, (tb_font_spec){0});
+    const tb_gui_resolved_font resolved = tb_gui_widget_font(paint->widget, (tb_font_spec){0});
     const tb_ui_text_run run = {.font = resolved.font, .size = resolved.size};
 
     if (resolved.font == NULL || text.length == 0)
@@ -252,7 +232,7 @@ void tb_gui_values_paint_line(tb_gui_paint *paint, tb_text text, float x, tb_can
         return;
     }
     tb_ui_paint_text(&gui->paint, paint->layer, tb_ui_rect_intersect(paint->clip, clip), &run, text,
-                     (tb_vec2){x, tb_gui_values_line_top(gui, rect)}, color,
+                     (tb_vec2){x, tb_gui_values_line_top(paint->widget, rect)}, color,
                      (tb_ui_id)paint->widget.index + 1u);
 }
 

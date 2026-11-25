@@ -162,9 +162,46 @@ static void tb_gui_combo_choose(tb_widget widget, tb_gui_combobox *box, int32_t 
  * The list.
  * ------------------------------------------------------------------------- */
 
-static float tb_gui_combo_item_height(tb_gui *gui)
+/* A combo box's style: a button's box, and its arrow's. Its list's is a
+ * style of its own, whose padding is each row's. */
+enum
 {
-    return tb_gui_values_measures(gui).line_height + tb_gui_theme(gui)->frame_padding.y;
+    TB_GUI_COMBO_MARK_WIDTH, /* units its arrow's lines are wide */
+    TB_GUI_COMBO_ELEMENTS
+};
+
+static const tb_style_element tb_gui_combo_elements[TB_GUI_COMBO_ELEMENTS] = {
+    [TB_GUI_COMBO_MARK_WIDTH] = {"mark_width", TB_STYLE_NUMBER}};
+
+static const tb_widget_style_desc tb_gui_combo_style = {.name = "Combobox",
+                                                        .states = TB_GUI_VALUES_STATES,
+                                                        .elements = tb_gui_combo_elements,
+                                                        .element_count = TB_GUI_COMBO_ELEMENTS};
+
+enum
+{
+    TB_GUI_COMBO_LIST_HOT,       /* the row under the mouse, or picked */
+    TB_GUI_COMBO_LIST_SELECTION, /* the row of the value chosen */
+    TB_GUI_COMBO_LIST_THUMB,     /* its scroll bar's thumb */
+    TB_GUI_COMBO_LIST_ELEMENTS
+};
+
+static const tb_style_element tb_gui_combo_list_elements[TB_GUI_COMBO_LIST_ELEMENTS] = {
+    [TB_GUI_COMBO_LIST_HOT] = {"hot_color", TB_STYLE_COLOR},
+    [TB_GUI_COMBO_LIST_SELECTION] = {"selection", TB_STYLE_COLOR},
+    [TB_GUI_COMBO_LIST_THUMB] = {"thumb_color", TB_STYLE_COLOR}};
+
+static const tb_widget_style_desc tb_gui_combo_list_style = {
+    .name = "ComboboxList",
+    .states = 0,
+    .elements = tb_gui_combo_list_elements,
+    .element_count = TB_GUI_COMBO_LIST_ELEMENTS};
+
+/* A row of the list: a line of its font, and its padding above and below. */
+static float tb_gui_combo_item_height(tb_widget list)
+{
+    const tb_style *const style = tb_style_in(list, 0);
+    return tb_gui_values_measures(list).line_height + style->padding.top + style->padding.bottom;
 }
 
 static int32_t tb_gui_combo_rows(const tb_gui_combobox *box)
@@ -189,9 +226,11 @@ static tb_canvas_rect tb_gui_combo_list_rect(const tb_gui_combobox *box)
 static int32_t tb_gui_combo_item_at(tb_widget widget, const tb_gui_combobox *box, tb_vec2 point,
                                     tb_canvas_rect list)
 {
-    const float border = tb_gui_theme(widget.gui)->border;
-    const float item = tb_gui_combo_item_height(widget.gui);
+    const float border = tb_style_in(box->list, 0)->border_width;
+    const float item = tb_gui_combo_item_height(box->list);
     int32_t row = 0;
+
+    (void)widget;
 
     if (!tb_ui_rect_contains(list, point))
     {
@@ -226,9 +265,10 @@ static void tb_gui_combo_reveal(tb_gui_combobox *box, int32_t index)
 static void tb_gui_combo_draw_list(tb_widget widget, const void *data, tb_gui_paint *paint)
 {
     const tb_gui_combobox *const box = data;
-    const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
+    const tb_style *const style = tb_style_of(box->list);
+    const float border = style->border_width;
     const tb_canvas_rect list = tb_gui_paint_rect(paint);
-    const float item = tb_gui_combo_item_height(widget.gui);
+    const float item = tb_gui_combo_item_height(box->list);
     const int32_t rows = tb_gui_combo_rows(box);
     const int32_t count = tb_gui_combo_count(box);
     const tb_gui *const gui = widget.gui;
@@ -238,39 +278,37 @@ static void tb_gui_combo_draw_list(tb_widget widget, const void *data, tb_gui_pa
     {
         lit = tb_gui_combo_item_at(widget, box, gui->mouse, list);
     }
-    tb_gui_paint_fill(paint, list, theme->frame_rounding, theme->colors[TB_UI_COLOR_POPUP]);
+    tb_gui_paint_box(paint, list, style);
     for (int32_t row = 0; row < rows; row++)
     {
         const int32_t index = box->top + row;
-        const tb_canvas_rect line = {list.x + theme->border,
-                                     list.y + theme->border + (float)row * item,
-                                     list.width - 2.0f * theme->border, item};
-        const tb_canvas_rect text = {line.x + theme->frame_padding.x, line.y,
-                                     line.width - 2.0f * theme->frame_padding.x, line.height};
+        const tb_canvas_rect line = {list.x + border, list.y + border + (float)row * item,
+                                     list.width - 2.0f * border, item};
+        const tb_canvas_rect text = {line.x + style->padding.left, line.y,
+                                     line.width - style->padding.left - style->padding.right,
+                                     line.height};
         const tb_gui_text_block block = {.text = tb_gui_combo_value(box, index),
                                          .anchor = TB_GUI_ANCHOR_W};
         if (index == lit)
         {
-            tb_gui_paint_fill(paint, line, 0.0f, theme->colors[TB_UI_COLOR_HEADER_HOT]);
+            tb_gui_paint_fill(paint, line, 0.0f, tb_style_color(style, TB_GUI_COMBO_LIST_HOT));
         }
         else if (index == tb_gui_combo_current(box))
         {
-            tb_gui_paint_fill(paint, line, 0.0f, theme->colors[TB_UI_COLOR_SELECTION]);
+            tb_gui_paint_fill(paint, line, 0.0f,
+                              tb_style_color(style, TB_GUI_COMBO_LIST_SELECTION));
         }
-        tb_gui_paint_text(paint, &block, text, theme->colors[TB_UI_COLOR_TEXT]);
+        tb_gui_paint_text(paint, &block, text, style->text_color);
     }
     if (count > rows)
     {
-        const float track = list.height - 2.0f * theme->border;
-        const tb_canvas_rect grab = {list.x + list.width - theme->border - TB_GUI_COMBO_BAR,
-                                     list.y + theme->border +
-                                         track * (float)box->top / (float)count,
+        const float track = list.height - 2.0f * border;
+        const tb_canvas_rect grab = {list.x + list.width - border - TB_GUI_COMBO_BAR,
+                                     list.y + border + track * (float)box->top / (float)count,
                                      TB_GUI_COMBO_BAR, track * (float)rows / (float)count};
         tb_gui_paint_fill(paint, grab, TB_GUI_COMBO_BAR * 0.5f,
-                          theme->colors[TB_UI_COLOR_SCROLLBAR_GRAB]);
+                          tb_style_color(style, TB_GUI_COMBO_LIST_THUMB));
     }
-    tb_gui_paint_outline(paint, list, theme->frame_rounding, theme->border,
-                         theme->colors[TB_UI_COLOR_BORDER]);
 }
 
 static const tb_widget_class *tb_gui_combo_list_class(void);
@@ -321,23 +359,19 @@ bool tb_combobox_open(tb_widget widget)
 
 static tb_gui_edges tb_gui_combo_insets(tb_widget widget, const void *data)
 {
-    const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
-    const float across = theme->frame_padding.x + theme->border;
-    const float down = theme->frame_padding.y + theme->border;
-
     (void)data;
-    return (tb_gui_edges){across, down, across, down};
+    return tb_gui_values_insets(widget);
 }
 
 static tb_vec2 tb_gui_combo_measure(tb_widget widget, const void *data)
 {
     const tb_gui_combobox *const box = data;
-    const float line = tb_gui_values_measures(widget.gui).line_height;
-    float width = tb_gui_values_char_width(widget.gui, TB_GUI_COMBO_LEAST_WIDTH);
+    const float line = tb_gui_values_measures(widget).line_height;
+    float width = tb_gui_values_char_width(widget, TB_GUI_COMBO_LEAST_WIDTH);
 
     if (box->width > 0)
     {
-        width = tb_gui_values_char_width(widget.gui, box->width);
+        width = tb_gui_values_char_width(widget, box->width);
     }
     else
     {
@@ -345,46 +379,32 @@ static tb_vec2 tb_gui_combo_measure(tb_widget widget, const void *data)
         for (int32_t index = 0; index < count; index++)
         {
             const tb_gui_text_block block = {.text = tb_gui_combo_value(box, index)};
-            width = fmaxf(width, tb_gui_measure_text(widget.gui, &block).x);
+            width = fmaxf(width, tb_widget_measure_text(widget, &block).x);
         }
     }
-    return (tb_vec2){width + tb_gui_theme(widget.gui)->frame_padding.x + line, line};
+    return (tb_vec2){width + tb_style_in(widget, 0)->padding.right + line, line};
 }
 
 static void tb_gui_combo_draw(tb_widget widget, const void *data, tb_gui_paint *paint)
 {
     const tb_gui_combobox *const box = data;
-    const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
-    const uint32_t state = tb_widget_state(widget);
-    const bool disabled = (state & TB_WIDGET_DISABLED) != 0;
     const bool open = tb_gui_combo_is_open(box);
+    /* Open, it is drawn pressed. */
+    const tb_style *const style =
+        tb_style_in(widget, tb_widget_state(widget) | (open ? TB_WIDGET_PRESSED : 0u));
     const tb_canvas_rect rect = tb_gui_paint_rect(paint);
     const tb_gui_edges insets = tb_gui_combo_insets(widget, data);
-    const float line = tb_gui_values_measures(widget.gui).line_height;
+    const float line = tb_gui_values_measures(widget).line_height;
     const tb_canvas_rect arrow = {rect.x + rect.width - insets.right - line,
                                   rect.y + (rect.height - line) * 0.5f, line, line};
     const tb_canvas_rect text = {rect.x + insets.left, rect.y,
-                                 arrow.x - rect.x - insets.left - theme->frame_padding.x,
+                                 arrow.x - rect.x - insets.left - style->padding.right,
                                  rect.height};
     const tb_gui_text_block block = {.text = tb_gui_combo_text(box), .anchor = TB_GUI_ANCHOR_W};
-    const tb_vec4 mark = theme->colors[disabled ? TB_UI_COLOR_TEXT_DIM : TB_UI_COLOR_TEXT];
-    tb_ui_color fill = TB_UI_COLOR_BUTTON;
+    const tb_vec4 mark = style->text_color;
+    const float mark_width = tb_style_number(style, TB_GUI_COMBO_MARK_WIDTH);
 
-    if (open || (state & TB_WIDGET_PRESSED) != 0)
-    {
-        fill = TB_UI_COLOR_BUTTON_ACTIVE;
-    }
-    else if ((state & TB_WIDGET_HOVERED) != 0)
-    {
-        fill = TB_UI_COLOR_BUTTON_HOT;
-    }
-    tb_gui_paint_fill(paint, rect, theme->frame_rounding, theme->colors[fill]);
-    tb_gui_paint_outline(paint, rect, theme->frame_rounding, theme->border,
-                         theme->colors[TB_UI_COLOR_BORDER]);
-    if ((state & TB_WIDGET_FOCUSED) != 0)
-    {
-        tb_gui_values_draw_focus(widget, paint, rect);
-    }
+    tb_gui_paint_box(paint, rect, style);
     tb_gui_paint_text(paint, &block, text, mark);
     const float half_width = arrow.width * TB_GUI_COMBO_CHEVRON_WIDTH * 0.5f;
     const float half_height = arrow.height * TB_GUI_COMBO_CHEVRON_HEIGHT;
@@ -393,9 +413,9 @@ static void tb_gui_combo_draw(tb_widget widget, const void *data, tb_gui_paint *
     const float tip = open ? middle_y - half_height : middle_y + half_height;
     const float base = open ? middle_y + half_height : middle_y - half_height;
     tb_gui_paint_line(paint, (tb_vec2){middle_x - half_width, base}, (tb_vec2){middle_x, tip},
-                      theme->border * 1.5f, mark);
+                      mark_width, mark);
     tb_gui_paint_line(paint, (tb_vec2){middle_x, tip}, (tb_vec2){middle_x + half_width, base},
-                      theme->border * 1.5f, mark);
+                      mark_width, mark);
 }
 
 /* Its list follows it when it is laid out again: the popups are placed
@@ -560,10 +580,10 @@ static tb_vec2 tb_gui_combo_list_measure(tb_widget widget, const void *data)
 {
     const tb_widget owner = tb_widget_parent(widget);
     const tb_gui_combobox *const box = tb_widget_data(owner);
-    const float border = tb_gui_theme(widget.gui)->border;
+    const float border = tb_style_in(widget, 0)->border_width;
 
     (void)data;
-    return (tb_vec2){0.0f, (float)tb_gui_combo_rows(box) * tb_gui_combo_item_height(widget.gui) +
+    return (tb_vec2){0.0f, (float)tb_gui_combo_rows(box) * tb_gui_combo_item_height(widget) +
                                2.0f * border};
 }
 
@@ -633,7 +653,8 @@ static const tb_widget_class tb_gui_combo_list_kind = {.name = "combobox_list",
                                                        .mouse_filter = TB_GUI_MOUSE_STOP,
                                                        .measure = tb_gui_combo_list_measure,
                                                        .draw = tb_gui_combo_list_draw,
-                                                       .event = tb_gui_combo_list_event};
+                                                       .event = tb_gui_combo_list_event,
+                                                       .style = &tb_gui_combo_list_style};
 
 static const tb_widget_class *tb_gui_combo_list_class(void)
 {
@@ -782,7 +803,8 @@ static const tb_widget_class tb_gui_combo_kind = {
     .insets = tb_gui_combo_insets,
     .arrange = tb_gui_combo_arrange,
     .draw = tb_gui_combo_draw,
-    .event = tb_gui_combo_event};
+    .event = tb_gui_combo_event,
+    .style = &tb_gui_combo_style};
 
 const tb_widget_class *tb_combobox_class(void)
 {
