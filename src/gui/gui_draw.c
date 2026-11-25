@@ -184,6 +184,15 @@ void tb_gui_build_commands(tb_gui *gui)
                          0);
         tb_gui_draw_node(gui, modal.index, all, layer);
     }
+    if (tb_widget_alive(gui->popup) && tb_gui_node_at(gui, gui->popup.index)->shown)
+    {
+        tb_gui_paint paint = {.gui = gui,
+                              .widget = gui->popup,
+                              .rect = gui->popup_rect,
+                              .clip = all,
+                              .layer = gui->layer + 1 + (int32_t)gui->modal_count};
+        gui->popup_draw(gui->popup, tb_gui_node_at(gui, gui->popup.index)->data, &paint);
+    }
 }
 
 const tb_ui_command *tb_gui_commands(const tb_gui *gui, size_t *count)
