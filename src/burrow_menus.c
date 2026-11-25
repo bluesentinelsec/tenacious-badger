@@ -10,6 +10,7 @@
 #include "badger/str.h"
 #include "badger/version.h"
 
+#include <math.h>
 #include <string.h>
 
 /* Where each screen's widgets are, under its own. */
@@ -464,12 +465,8 @@ burrow_menus *burrow_menus_create(const burrow_menus_options *options,
         return NULL;
     }
     tb_ui_theme_set_fonts(&palette, &menus->fonts);
-    menus->gui =
-        tb_gui_create(&(tb_gui_options){.theme = &palette,
-                                        .catalog = options->catalog,
-                                        .reference_size = {BURROW_MENU_WIDTH, BURROW_MENU_HEIGHT},
-                                        .stretch = TB_GUI_STRETCH_KEEP_ASPECT,
-                                        .style_theme = options->theme});
+    menus->gui = tb_gui_create(&(tb_gui_options){
+        .theme = &palette, .catalog = options->catalog, .style_theme = options->theme});
     tb_gui_set_settings(menus->gui, options->settings);
     burrow_menus_register_commands(menus);
     menus->sizes = tb_theme_create();
@@ -561,10 +558,19 @@ static void burrow_menus_show_pending(burrow_menus *menus)
     menus->pending_shown = pending;
 }
 
-void burrow_menus_update(burrow_menus *menus, uint32_t width, uint32_t height, float display_scale,
-                         double delta_seconds)
+void burrow_menus_update(burrow_menus *menus, const tb_viewport *viewport, double delta_seconds)
 {
-    tb_gui_resize(menus->gui, width, height, display_scale);
+    /* The menus were designed at 1920 by 1080 units: they are scaled to fit
+     * that within the viewport's units, so that a design size of another
+     * scale, or none, lays them out as designed. */
+    const float fit =
+        fminf(viewport->size.x / BURROW_MENU_WIDTH, viewport->size.y / BURROW_MENU_HEIGHT);
+
+    if (fit > 0.0f)
+    {
+        tb_gui_set_scale(menus->gui, fit);
+    }
+    tb_gui_set_viewport(menus->gui, viewport);
     tb_gui_update(menus->gui, delta_seconds);
     burrow_menus_show_pending(menus);
 }

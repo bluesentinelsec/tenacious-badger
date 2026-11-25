@@ -340,10 +340,8 @@ tb_gui *tb_gui_create(const tb_gui_options *options)
     gui->theme = chosen->theme != NULL ? *chosen->theme : tb_ui_theme_dark();
     gui->catalog = chosen->catalog;
     gui->layer = chosen->layer != 0 ? chosen->layer : TB_GUI_DEFAULT_LAYER;
-    gui->reference_size = chosen->reference_size;
-    gui->stretch = chosen->stretch;
+    gui->viewport = (tb_viewport){.scale = {1.0f, 1.0f}};
     gui->zoom = chosen->scale > 0.0f ? chosen->scale : 1.0f;
-    gui->display_scale = 1.0f;
     gui->cursor = TB_CURSOR_ARROW;
     gui->arena = tb_arena_create(TB_GUI_ARENA_CHUNK);
     gui->paint.arena = gui->arena;
@@ -431,21 +429,29 @@ static void tb_gui_update_view(tb_gui *gui)
     }
 }
 
-void tb_gui_resize(tb_gui *gui, uint32_t width, uint32_t height, float display_scale)
+void tb_gui_set_viewport(tb_gui *gui, const tb_viewport *viewport)
 {
-    TB_ASSERT(gui != NULL);
-    gui->frame_width = width;
-    gui->frame_height = height;
-    gui->display_scale = display_scale > 0.0f ? display_scale : 1.0f;
+    TB_ASSERT(gui != NULL && viewport != NULL);
+    TB_ASSERT_MSG(viewport->scale.x > 0.0f && viewport->scale.y > 0.0f, "a viewport of some scale");
+    gui->viewport = *viewport;
     tb_gui_update_view(gui);
 }
 
-void tb_gui_set_stretch(tb_gui *gui, tb_vec2 reference_size, tb_gui_stretch stretch)
+tb_viewport tb_gui_viewport_of(const tb_gui *gui)
 {
     TB_ASSERT(gui != NULL);
-    gui->reference_size = reference_size;
-    gui->stretch = stretch;
-    tb_gui_update_view(gui);
+    return gui->viewport;
+}
+
+void tb_gui_resize(tb_gui *gui, uint32_t width, uint32_t height, float display_scale)
+{
+    const tb_viewport_policy logical = TB_VIEWPORT_POLICY_LOGICAL;
+
+    TB_ASSERT(gui != NULL);
+    const tb_viewport viewport = tb_viewport_compute(
+        &logical,
+        &(tb_viewport_frame){.width = width, .height = height, .display_scale = display_scale});
+    tb_gui_set_viewport(gui, &viewport);
 }
 
 void tb_gui_set_scale(tb_gui *gui, float scale)

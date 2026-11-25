@@ -19,6 +19,12 @@
 #define TB_ENGINE_MOST_PIXELS ((int64_t)16384)
 #define TB_ENGINE_MOST_HERTZ ((int64_t)1000)
 
+/* The display policy's built-in design size, and the longest bar color,
+ * `#rrggbb`. */
+#define TB_ENGINE_DESIGN_WIDTH ((int64_t)1920)
+#define TB_ENGINE_DESIGN_HEIGHT ((int64_t)1080)
+#define TB_ENGINE_COLOR_LIMIT ((size_t)7)
+
 static const tb_settings_family tb_engine_families[] = {
     {.name = "gameplay",
      .title = "Gameplay",
@@ -84,6 +90,12 @@ static const char *const tb_engine_quality[] = {"low", "medium", "high", "ultra"
 static const char *const tb_engine_anisotropy[] = {"off", "2x", "4x", "8x", "16x"};
 static const char *const tb_engine_aspect_ratios[] = {"auto", "16_9", "16_10",
                                                       "21_9", "32_9", "4_3"};
+/* The display policy's choices, in the order of tb_viewport_aspect,
+ * tb_viewport_scale_mode and tb_viewport_render_mode. */
+static const char *const tb_engine_stretch_aspects[] = {"keep", "keep_width", "keep_height",
+                                                        "expand", "ignore"};
+static const char *const tb_engine_stretch_scale_modes[] = {"fractional", "integer"};
+static const char *const tb_engine_stretch_render_modes[] = {"canvas", "viewport"};
 static const char *const tb_engine_upscaler_modes[] = {
     "native", "quality", "balanced", "performance", "ultra_performance", "custom"};
 static const char *const tb_engine_motion_blur[] = {"off", "low", "medium", "high"};
@@ -194,6 +206,16 @@ static tb_setting *tb_engine_text(tb_settings *settings, const char *name, const
                                                     .text = {.default_value = "", .limit = limit}});
 }
 
+static tb_setting *tb_engine_text_of(tb_settings *settings, const char *name,
+                                     const char *description, const char *value, size_t limit)
+{
+    return tb_settings_add(
+        settings, &(tb_setting_definition){.name = name,
+                                           .description = description,
+                                           .type = TB_SETTING_TEXT,
+                                           .text = {.default_value = value, .limit = limit}});
+}
+
 #define TB_ENGINE_CHOICE(settings, name, description, choices, value)                              \
     tb_engine_choice((settings), (name), (description), (choices), TB_COUNT_OF(choices), (value))
 
@@ -264,6 +286,43 @@ static void tb_engine_add_display(tb_settings *settings, const tb_engine_setting
                          "How bright the picture is; 1 is as the game was made.", 1.0, 0.5, 2.0);
     engine->display.hdr = tb_engine_boolean(
         settings, "display.hdr", "Output high dynamic range, where the display has it.", false);
+}
+
+/* The display policy (badger/viewport.h): what an app gives in its default
+ * file, after Godot's stretch settings. */
+static void tb_engine_add_display_policy(tb_settings *settings, tb_engine_settings *engine)
+{
+    engine->display.design_width =
+        tb_engine_integer(settings, "display.design_width",
+                          "The width the game is designed at, in its own units; 0, with the "
+                          "height, for none: units are then the display's logical pixels.",
+                          TB_ENGINE_DESIGN_WIDTH, 0, TB_ENGINE_MOST_PIXELS);
+    engine->display.design_height = tb_engine_integer(
+        settings, "display.design_height",
+        "The height the game is designed at, in its own units; 0, with the width, for none.",
+        TB_ENGINE_DESIGN_HEIGHT, 0, TB_ENGINE_MOST_PIXELS);
+    engine->display.stretch_aspect = TB_ENGINE_CHOICE(
+        settings, "display.stretch_aspect",
+        "When the window's shape is not the design's: keep fits it whole between bars, "
+        "keep_width and keep_height keep one axis and show more of the other, expand shows more "
+        "of either, ignore stretches it.",
+        tb_engine_stretch_aspects, 0);
+    engine->display.stretch_scale_mode = TB_ENGINE_CHOICE(
+        settings, "display.stretch_scale_mode",
+        "Fractional scales the design as large as the window allows; integer by whole pixels, "
+        "for pixel art.",
+        tb_engine_stretch_scale_modes, 0);
+    engine->display.stretch_render_mode = TB_ENGINE_CHOICE(
+        settings, "display.stretch_render_mode",
+        "Canvas draws at the window's own pixels, so text stays crisp; viewport renders at the "
+        "design size and upscales.",
+        tb_engine_stretch_render_modes, 0);
+    engine->display.stretch_scale = tb_engine_number(
+        settings, "display.stretch_scale",
+        "A factor on the design's scale: 2 draws everything twice as large.", 1.0, 0.25, 8.0);
+    engine->display.bar_color = tb_engine_text_of(
+        settings, "display.bar_color", "The color of the bars beside the design, as #rrggbb.",
+        "#000000", TB_ENGINE_COLOR_LIMIT);
 }
 
 static void tb_engine_add_graphics(tb_settings *settings, tb_engine_settings *engine)
@@ -541,6 +600,7 @@ void tb_engine_settings_add(tb_settings *settings, const tb_engine_settings_opti
     }
     tb_engine_add_gameplay(settings, engine);
     tb_engine_add_display(settings, options, engine);
+    tb_engine_add_display_policy(settings, engine);
     tb_engine_add_graphics(settings, engine);
     tb_engine_add_audio(settings, engine);
     tb_engine_add_controls(settings, engine);

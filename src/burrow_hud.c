@@ -195,18 +195,21 @@ void burrow_hud_draw(burrow_hud *hud, tb_renderer *renderer, const tb_engine_set
                      bool captured, bool escape_pauses)
 {
     const float opacity = (float)tb_setting_number(engine->user_interface.hud_opacity);
-    const tb_canvas_view view = tb_canvas_view_logical(renderer);
+    const tb_viewport viewport = tb_renderer_viewport(renderer);
     const char *const controls = burrow_hud_controls(captured, escape_pauses);
-    uint32_t width = 0;
-    uint32_t height = 0;
+    /* In logical units, at the display's scale, but in the viewport, off
+     * its bars: the crosshair at the middle of the scene. */
+    tb_canvas_view view = tb_canvas_view_logical(renderer);
     tb_vec2 extent = {0};
 
     if (opacity <= 0.0f)
     {
         return;
     }
-    tb_renderer_size(renderer, &width, &height);
-    extent = (tb_vec2){(float)width / view.scale, (float)height / view.scale};
+    view.origin = (tb_vec2){(float)viewport.x, (float)viewport.y};
+    view.clip =
+        (tb_rhi_rect){(int32_t)viewport.x, (int32_t)viewport.y, viewport.width, viewport.height};
+    extent = (tb_vec2){(float)viewport.width / view.scale, (float)viewport.height / view.scale};
     tb_canvas_set_view(renderer, &view);
     tb_canvas_set_layer(renderer, BURROW_HUD_LAYER);
     if (tb_setting_boolean(engine->user_interface.crosshair))

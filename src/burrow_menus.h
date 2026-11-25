@@ -33,7 +33,9 @@
 #define BURROW_OPTIONS_MENU_PATH "Content/UI/options_menu.json"
 #define BURROW_MENU_THEME_PATH "Content/UI/burrow.theme.json"
 
-/* The size the menus are laid out at, in units. */
+/* The size the menus are laid out at, in units: whatever the display
+ * policy's design size, the menus are scaled to show this much of the
+ * viewport. */
 #define BURROW_MENU_WIDTH 1920.0f
 #define BURROW_MENU_HEIGHT 1080.0f
 
@@ -95,10 +97,9 @@ bool burrow_menus_event(burrow_menus *menus, const tb_window_event *event);
  * Back pauses, as Escape does. */
 void burrow_menus_navigate(burrow_menus *menus, tb_gui_nav action);
 
-/* Lay the menus out for a frame of `width` by `height` pixels at the
- * display's scale, and handle the input given since the last update. */
-void burrow_menus_update(burrow_menus *menus, uint32_t width, uint32_t height, float display_scale,
-                         double delta_seconds);
+/* Lay the menus out in the renderer's viewport (tb_renderer_viewport()),
+ * and handle the input given since the last update. */
+void burrow_menus_update(burrow_menus *menus, const tb_viewport *viewport, double delta_seconds);
 
 /* Draw the menus, over everything else, between the renderer's begin and
  * end. Nothing shows while playing. */

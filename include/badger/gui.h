@@ -23,7 +23,8 @@
  * tb_gui_feed_event(gui, &event);
  *
  * // each frame
- * tb_gui_resize(gui, width, height, tb_canvas_view_logical(renderer).scale);
+ * const tb_viewport viewport = tb_renderer_viewport(renderer);
+ * tb_gui_set_viewport(gui, &viewport);
  * tb_gui_update(gui, delta_seconds);
  * tb_gui_draw(gui, renderer); // between tb_renderer_begin_frame() and tb_renderer_end_frame()
  * @endcode
@@ -52,11 +53,14 @@
  * take the size their widgets want; extra space goes to them by weight, or
  * the grid is placed by its anchor. See tb_grid().
  *
- * **Units and scaling.** Everything is laid out in units. A tool's
- * interface is in logical pixels at the display's scale. A game's is
- * designed at a reference size and stretched to the frame
- * (#tb_gui_stretch). Edges land on whole pixels at any scale; text is
- * measured and drawn at the frame's own pixels.
+ * **Units and scaling.** Everything is laid out in units, in the viewport
+ * that the app's display policy gives the frame (badger/viewport.h): the
+ * renderer's (tb_gui_set_viewport()), so that the GUI, the 3D scene and the
+ * canvas agree. A tool's units are logical pixels at the display's scale; a
+ * game's are its design units, fitted to the frame as the policy says.
+ * Edges land on whole pixels at any scale; text is measured and drawn at
+ * the frame's own pixels. The mouse over the viewport's bars reaches no
+ * widget.
  *
  * **Events.** Window events are fed as they come (tb_gui_feed_event()) and
  * handled in tb_gui_update(), in order: the mouse finds the widget under
@@ -194,26 +198,16 @@ typedef struct tb_theme tb_theme;
  * Scaling.
  * ------------------------------------------------------------------------- */
 
-/** @brief How a GUI designed at a reference size fills the frame, after
- * Godot's `content_scale` modes. */
-typedef enum tb_gui_stretch
-{
-    /** Units are logical pixels: a unit is the display's scale in pixels,
-     * times tb_gui_options::scale. The root is as large as the frame. For
-     * tools. */
-    TB_GUI_STRETCH_NONE,
-    /** The reference size scaled to fit the frame, as large as it fits, and
-     * centered: the frame's rest is left empty (letterboxed). */
-    TB_GUI_STRETCH_KEEP_ASPECT,
-    /** Scaled as the reference size fits, by the smaller of the two axes;
-     * the other axis's extra is given to the root, whose grid lays it out. */
-    TB_GUI_STRETCH_EXPAND,
-    /** As keep-aspect, by a whole number of pixels a unit, at least 1, on
-     * whole pixels: pixel art stays sharp and even. */
-    TB_GUI_STRETCH_INTEGER
-} tb_gui_stretch;
-
-/** @brief How a GUI's units are placed on the frame. */
+/**
+ * @brief How a GUI's units are placed on the frame: its viewport's
+ * (tb_gui_set_viewport()), times the GUI's own scale
+ * (tb_gui_options::scale).
+ *
+ * The scale is the same both ways. In a viewport stretched by the `ignore`
+ * aspect, it is the smaller of the viewport's two, so that text is never
+ * squashed, and the root still fills the viewport: it has more units along
+ * the axis stretched more.
+ */
 typedef struct tb_gui_view
 {
     tb_vec2 origin; /**< The pixel of the frame where unit (0, 0) is: whole pixels. */
@@ -241,11 +235,8 @@ typedef struct tb_gui_options
      * opened from (#tb_font_spec). Borrowed for the GUI's life. NULL draws
      * every text in the theme's font. */
     const tb_font_catalog *catalog;
-    /** The size the GUI is designed at, in units; zero for none, which is
-     * #TB_GUI_STRETCH_NONE whatever `stretch` says. */
-    tb_vec2 reference_size;
-    tb_gui_stretch stretch; /**< How the reference size fills the frame. */
-    /** A factor on top of the stretch: 2 draws every unit twice as large,
+    /** A factor on top of the viewport's scale, this GUI's alone, as an
+     * options menu's interface scale: 2 draws every unit twice as large,
      * and gives the root half as many units. 0 is 1. */
     float scale;
     int32_t layer; /**< The canvas layer; 0 is #TB_GUI_DEFAULT_LAYER. */
@@ -256,7 +247,7 @@ typedef struct tb_gui_options
 
 /**
  * @brief Make a GUI, with its root: a frame with no padding, as large as
- * the frame of pixels (tb_gui_resize()).
+ * its viewport (tb_gui_set_viewport()).
  * @param options Optional; NULL is every default.
  * @return The GUI; never NULL. Running out of memory ends the process.
  */
@@ -279,25 +270,32 @@ TB_API void tb_gui_set_theme(tb_gui *gui, const tb_ui_theme *theme);
 TB_API const tb_ui_theme *tb_gui_theme(const tb_gui *gui);
 
 /**
- * @brief Give the GUI the frame it fills, in pixels, and the display's
- * scale; called each frame, before tb_gui_update(). The widgets are laid
- * out again when the view changes.
- * @param width Pixels across (tb_renderer_size()).
+ * @brief Give the GUI the viewport it fills: the renderer's
+ * (tb_renderer_viewport()), so that the GUI and the 3D scene agree; called
+ * each frame, before tb_gui_update(). Its units are the viewport's, the
+ * root is as large as it, and the mouse outside it reaches no widget. The
+ * widgets are laid out again when the view changes.
+ * @param viewport Required; copied.
+ */
+TB_API void tb_gui_set_viewport(tb_gui *gui, const tb_viewport *viewport);
+
+/** @brief The viewport the GUI fills (tb_gui_set_viewport()); before one is
+ * given, a viewport of no size. */
+TB_API tb_viewport tb_gui_viewport_of(const tb_gui *gui);
+
+/**
+ * @brief Give the GUI a whole frame in logical pixels, without a renderer:
+ * tb_gui_set_viewport() with the viewport of #TB_VIEWPORT_POLICY_LOGICAL,
+ * for tests and tools that have no design size.
+ * @param width Pixels across.
  * @param height Pixels down.
- * @param display_scale The display's scale (tb_canvas_view_logical()); 0 is 1.
+ * @param display_scale The display's scale; 0 is 1.
  */
 TB_API void tb_gui_resize(tb_gui *gui, uint32_t width, uint32_t height, float display_scale);
 
-/**
- * @brief Design the GUI at another reference size, or stretch it another
- * way; laid out again.
- * @param reference_size Units; zero for none.
- * @param stretch How it fills the frame.
- */
-TB_API void tb_gui_set_stretch(tb_gui *gui, tb_vec2 reference_size, tb_gui_stretch stretch);
-
-/** @brief Set the factor on top of the stretch (tb_gui_options::scale): an
- * options menu's interface scale. @param scale More than 0. */
+/** @brief Set the factor on top of the viewport's scale
+ * (tb_gui_options::scale): an options menu's interface scale.
+ * @param scale More than 0. */
 TB_API void tb_gui_set_scale(tb_gui *gui, float scale);
 
 /** @brief How the GUI's units are placed on the frame now. */

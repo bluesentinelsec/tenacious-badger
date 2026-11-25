@@ -45,6 +45,23 @@ TB_TEST(canvas_batch, a_quad_lands_where_its_view_and_pivot_put_it)
     TB_TEST_EXPECT_FLOAT(quad.clip[3], ==, 50.0f);
 }
 
+/* A stretched view places a quad's corner and edges by its scale each
+ * way, and keeps its radii and outlines at the view's scale. */
+TB_TEST(canvas_batch, a_stretched_view_stretches_edges_but_not_radii)
+{
+    const tb_canvas_view view = {.origin = {0, 0}, .scale = 1.0f, .stretch = {2.0f, 1.0f}};
+    tb_canvas_shape shape = solid((tb_vec2){10, 20}, (tb_vec2){4, 2}, (tb_vec4){1, 1, 1, 1});
+    tb_canvas_quad quad = {0};
+
+    shape.radius = 1.5f;
+    quad = tb_canvas_quad_of(&shape, &view, 100, 50);
+    TB_TEST_EXPECT_FLOAT(quad.corner[0], ==, 20.0f);
+    TB_TEST_EXPECT_FLOAT(quad.corner[1], ==, 20.0f);
+    TB_TEST_EXPECT_FLOAT(quad.axis_x[0], ==, 8.0f);
+    TB_TEST_EXPECT_FLOAT(quad.axis_y[1], ==, 2.0f);
+    TB_TEST_EXPECT_FLOAT(quad.radius, ==, 1.5f);
+}
+
 /* A quarter turn is clockwise on the screen: the top edge points down and
  * the left edge points left, around the pivot. */
 TB_TEST(canvas_batch, a_positive_rotation_turns_clockwise_on_the_screen)

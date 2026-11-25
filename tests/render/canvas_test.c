@@ -63,6 +63,47 @@ TB_TEST(canvas_view, points_map_to_pixels_and_back)
     TB_TEST_EXPECT_UINT(pixels.clip.width, ==, 0);
 }
 
+/* The design's view is over the viewport, in its units, clipped to it; a
+ * viewport stretched by `ignore` stretches the view each way, its scale
+ * the smaller, which text is drawn at. */
+TB_TEST(canvas_view, a_view_of_the_viewport_is_in_the_designs_units)
+{
+    const tb_viewport_policy keep = TB_VIEWPORT_POLICY_INIT;
+    tb_viewport_policy ignore = TB_VIEWPORT_POLICY_INIT;
+    const tb_viewport kept =
+        tb_viewport_compute(&keep, &(tb_viewport_frame){.width = 1920, .height = 1200});
+    tb_canvas_view view = tb_canvas_view_viewport(&kept);
+
+    TB_TEST_EXPECT_FLOAT(view.origin.x, ==, 0.0f);
+    TB_TEST_EXPECT_FLOAT(view.origin.y, ==, 60.0f);
+    TB_TEST_EXPECT_FLOAT(view.scale, ==, 1.0f);
+    TB_TEST_EXPECT_FLOAT(view.stretch.x, ==, 0.0f);
+    TB_TEST_EXPECT_INT(view.clip.y, ==, 60);
+    TB_TEST_EXPECT_UINT(view.clip.height, ==, 1080);
+    tb_vec2 pixel = tb_canvas_view_to_pixels(&view, (tb_vec2){960, 540});
+    TB_TEST_EXPECT_FLOAT(pixel.y, ==, 600.0f);
+
+    ignore.aspect = TB_VIEWPORT_ASPECT_IGNORE;
+    const tb_viewport stretched =
+        tb_viewport_compute(&ignore, &(tb_viewport_frame){.width = 960, .height = 1080});
+    view = tb_canvas_view_viewport(&stretched);
+    TB_TEST_EXPECT_FLOAT(view.scale, ==, 0.5f);
+    TB_TEST_EXPECT_FLOAT(view.stretch.x, ==, 0.5f);
+    TB_TEST_EXPECT_FLOAT(view.stretch.y, ==, 1.0f);
+    pixel = tb_canvas_view_to_pixels(&view, (tb_vec2){1920, 1080});
+    TB_TEST_EXPECT_FLOAT(pixel.x, ==, 960.0f);
+    TB_TEST_EXPECT_FLOAT(pixel.y, ==, 1080.0f);
+    const tb_vec2 point = tb_canvas_view_from_pixels(&view, (tb_vec2){480, 540});
+    TB_TEST_EXPECT_FLOAT(point.x, ==, 960.0f);
+    TB_TEST_EXPECT_FLOAT(point.y, ==, 540.0f);
+
+    /* A viewport of no size clips nothing away, as the whole frame. */
+    const tb_viewport empty =
+        tb_viewport_compute(&keep, &(tb_viewport_frame){.width = 0, .height = 0});
+    view = tb_canvas_view_viewport(&empty);
+    TB_TEST_EXPECT_UINT(view.clip.width, ==, 0);
+}
+
 /* ---------------------------------------------------------------------------
  * Pixels made in memory.
  * ------------------------------------------------------------------------- */

@@ -393,15 +393,13 @@ bool gui_fonts_scene_event(sandbox *box, void *state, const tb_window_event *eve
 void gui_fonts_scene_draw(sandbox *box, void *state, const sandbox_frame *frame)
 {
     fonts_scene *const scene = state;
-    uint32_t width = 0;
-    uint32_t height = 0;
 
     if (scene->gui == NULL)
     {
         return;
     }
-    tb_renderer_size(box->renderer, &width, &height);
-    tb_gui_resize(scene->gui, width, height, tb_canvas_view_logical(box->renderer).scale);
+    const tb_viewport viewport = tb_renderer_viewport(box->renderer);
+    tb_gui_set_viewport(scene->gui, &viewport);
     tb_gui_update(scene->gui, frame->delta_seconds);
     tb_gui_draw(scene->gui, box->renderer);
     tb_window_set_cursor(box->window, tb_gui_cursor(scene->gui));

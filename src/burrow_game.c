@@ -173,6 +173,12 @@ static void burrow_apply_settings(burrow_game *game)
     }
     tb_renderer_set_anisotropy(game->renderer, tb_engine_settings_anisotropy(game->engine));
     game->camera.vertical_fov = burrow_vertical_fov(fov);
+    /* The display policy, from Burrow's default file, and the player's
+     * aspect ratio. */
+    tb_viewport_policy policy = TB_VIEWPORT_POLICY_INIT;
+    tb_viewport_policy_from_settings(game->engine, &policy);
+    tb_renderer_set_viewport_policy(game->renderer, &policy,
+                                    tb_viewport_aspect_ratio_from_settings(game->engine));
 }
 
 /* ---------------------------------------------------------------------------
@@ -223,17 +229,13 @@ static void burrow_navigate(burrow_game *game)
 
 static void burrow_update_menus(burrow_game *game, const tb_game_time *time)
 {
-    uint32_t width = 0;
-    uint32_t height = 0;
-
     if (game->menus == NULL)
     {
         return;
     }
     burrow_navigate(game);
-    tb_renderer_size(game->renderer, &width, &height);
-    burrow_menus_update(game->menus, width, height, tb_canvas_view_logical(game->renderer).scale,
-                        time->frame_seconds);
+    const tb_viewport viewport = tb_renderer_viewport(game->renderer);
+    burrow_menus_update(game->menus, &viewport, time->frame_seconds);
     burrow_follow_menus(game);
     if (game->screen != BURROW_SCREEN_PLAYING)
     {
