@@ -775,6 +775,10 @@ void tb_gui_process_input(tb_gui *gui)
         tb_gui_dispatch_resized(gui);
         tb_gui_handle_event(gui, &event);
     }
+    if (count == 0)
+    {
+        return;
+    }
     memmove(gui->queue, gui->queue + count, (gui->queue_count - count) * sizeof(*gui->queue));
     gui->queue_count -= count;
 }
