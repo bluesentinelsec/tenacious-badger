@@ -53,6 +53,11 @@ lays itself out in logical units, so text is as large on a 4K monitor at 200%
 as on a 1080p one at 100%. Moving a window to a display of another scale
 sends `TB_WINDOW_EVENT_SCALE_CHANGED` with the new pixels.
 
+Where in its pixels an app draws is the [display policy's](display.md):
+a game's design resolution is fitted to the window's pixels, kept whole
+between bars or expanded, whatever the window's size and shape. The window
+itself is not resized or placed by it.
+
 Each display reports its physical size where the system knows it. The Steam
 Deck reports a scale of 1 for a 7-inch 1280x800 screen, so an interface that
 uses only the scale would be small there; the physical size lets it be

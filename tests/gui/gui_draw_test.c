@@ -319,7 +319,6 @@ TB_TEST(gui_draw, commands_become_quads_on_the_canvas)
     TB_TEST_REQUIRE_UINT(tb_renderer_create(&options, &renderer, &error), ==, TB_RHI_OK);
 
     gui_fixture_open(&fixture, 1.0f);
-    tb_gui_set_stretch(fixture.gui, (tb_vec2){400.0f, 300.0f}, TB_GUI_STRETCH_KEEP_ASPECT);
     gui_resize(&fixture, 400, 300, 1.0f);
     const tb_widget frame =
         tb_frame(tb_gui_root(fixture.gui), &(tb_frame_desc){.padding = 8.0f, .background = true});

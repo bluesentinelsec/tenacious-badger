@@ -31,10 +31,16 @@
  * is drawn with a transform and a color, lit or flat, or with a material of
  * textures (badger/material.h).
  *
- * **Resolution and quality.** The scene renders at a share of the output's
- * resolution, the render scale, and temporal anti-aliasing upsamples it to
- * the output's, as Unreal's TAAU does; the canvas and the debug lines are
- * drawn at the output's. A tb_renderer_quality holds what the quality
+ * **The viewport.** The 3D scene is drawn into the viewport that the
+ * display policy gives the frame (badger/viewport.h): a rectangle of the
+ * swap chain, with bars of the policy's color beside it. The camera
+ * projects at the viewport's aspect. Until a policy is set
+ * (tb_renderer_set_viewport_policy()), the viewport is the whole frame.
+ *
+ * **Resolution and quality.** The scene renders at a share of the
+ * viewport's resolution, the render scale, and temporal anti-aliasing
+ * upsamples it to the viewport's, as Unreal's TAAU does; the canvas and the
+ * debug lines are drawn at the output's. A tb_renderer_quality holds what the quality
  * settings set (tb_renderer_quality_from_settings()). On a software
  * adapter, or a device without what the full path needs, the renderer
  * takes a low profile: a lower render scale and the costly features off
@@ -72,6 +78,7 @@
 #include "badger/math.h"
 #include "badger/rhi.h"
 #include "badger/text.h"
+#include "badger/viewport.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -277,6 +284,36 @@ TB_API const struct tb_render_graph *tb_renderer_graph(const tb_renderer *render
 TB_API void tb_renderer_set_vsync(tb_renderer *renderer, bool vsync);
 
 /**
+ * @brief Place the 3D scene by a display policy from now on: the viewport
+ * of each frame follows from it, the frame's size, the display's scale, and
+ * the player's aspect ratio. A renderer begins with
+ * #TB_VIEWPORT_POLICY_LOGICAL, whose viewport is the whole frame; an app
+ * gives the policy its settings describe (tb_viewport_policy_from_settings()).
+ *
+ * The viewport render mode is not drawn yet: it is drawn as the canvas
+ * mode, which the renderer logs once.
+ *
+ * @param policy Required; copied.
+ * @param aspect_ratio The player's, width over height, from
+ * tb_viewport_aspect_ratio_from_settings(); 0 for none.
+ */
+TB_API void tb_renderer_set_viewport_policy(tb_renderer *renderer, const tb_viewport_policy *policy,
+                                            float aspect_ratio);
+
+/** @brief The display policy in use (tb_renderer_set_viewport_policy()).
+ * @param policy Required; receives it. */
+TB_API void tb_renderer_viewport_policy(const tb_renderer *renderer, tb_viewport_policy *policy);
+
+/**
+ * @brief The viewport: where the 3D scene is drawn, and where an app's units
+ * are, for the canvas (tb_canvas_view_viewport()), the GUI
+ * (tb_gui_set_viewport()) and the mouse. Of the frame's size as of the last
+ * tb_renderer_begin_frame() that drew, or the renderer's creation, and the
+ * policy set since.
+ */
+TB_API tb_viewport tb_renderer_viewport(const tb_renderer *renderer);
+
+/**
  * @brief Ask for a quality from the next frame on. The renderer takes what
  * its profile allows of it (tb_renderer_quality_of()); a change of the
  * render scale or of temporal anti-aliasing starts its history again.
@@ -301,7 +338,7 @@ TB_API void tb_renderer_capabilities_of(const tb_renderer *renderer,
                                         tb_renderer_capabilities *capabilities);
 
 /**
- * @brief The size the scene renders at, in pixels: the output's times the
+ * @brief The size the scene renders at, in pixels: the viewport's times the
  * render scale in effect, at least 1. As of the last tb_renderer_begin_frame()
  * that drew, or the renderer's creation.
  * @param width Required; receives the pixels across.
@@ -312,7 +349,7 @@ TB_API void tb_renderer_render_size(const tb_renderer *renderer, uint32_t *width
 /**
  * @brief Say that the next frame does not follow from the last: a cut to
  * another camera, or a teleport. Temporal anti-aliasing then forgets its
- * history, which would otherwise ghost. A change of the output's size, of
+ * history, which would otherwise ghost. A change of the viewport's size, of
  * the render scale or of the camera's projection forgets it by itself.
  */
 TB_API void tb_renderer_camera_cut(tb_renderer *renderer);
@@ -335,7 +372,8 @@ TB_API void tb_renderer_quality_from_settings(const struct tb_engine_settings *e
 /**
  * @brief Begin a frame seen through a camera.
  * @param camera Required; copied.
- * @param clear The color behind everything.
+ * @param clear The color behind everything in the viewport; the bars beside
+ * it are the policy's color.
  * @return true to draw the frame and end it; false when the window shows
  * nothing, as when it is minimized: then draw nothing and do not end it.
  */

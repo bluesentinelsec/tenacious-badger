@@ -126,6 +126,15 @@ typedef struct tb_engine_settings
         tb_setting *background_frame_limit; /**< The same without the focus; 0 for no limit. */
         tb_setting *brightness;             /**< Brightness, 1 as the game was made. */
         tb_setting *hdr; /**< High dynamic range output, where the display has it. */
+        /** The app's design width in units; 0, with the height, for none
+         * (badger/viewport.h). */
+        tb_setting *design_width;
+        tb_setting *design_height;       /**< The app's design height in units; 0 for none. */
+        tb_setting *stretch_aspect;      /**< keep, keep_width, keep_height, expand or ignore. */
+        tb_setting *stretch_scale_mode;  /**< fractional or integer. */
+        tb_setting *stretch_render_mode; /**< canvas or viewport. */
+        tb_setting *stretch_scale;       /**< A factor on the design's scale, 1 as designed. */
+        tb_setting *bar_color;           /**< The bars' color, `#rrggbb`. */
     } display;
     /** Family `graphics`. */
     struct

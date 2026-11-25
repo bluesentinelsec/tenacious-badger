@@ -460,36 +460,44 @@ TB_TEST(gui_deferred, text_is_drawn_in_a_font_of_the_callers)
 }
 
 /* ---------------------------------------------------------------------------
- * A menu's modal
- * dialog in a letterboxed frame.
- *
+ * A menu's modal dialog in a letterboxed viewport.
  * ------------------------------------------------------------------------- */
 
-/* The shade behind a modal widget covers the whole frame, the bars beside
- * a keep-aspect root
- * included, not the root alone. */
-TB_TEST(gui_deferred, the_modal_shade_covers_the_bars_beside_the_root)
+/* The shade behind a modal widget covers the whole viewport, the root, and
+ * stops at its edges: the bars beside it are the renderer's, cleared to the
+ * policy's color, and not the GUI's to shade. */
+TB_TEST(gui_deferred, the_modal_shade_covers_the_viewport_and_not_its_bars)
 {
-    tb_gui *const gui = tb_gui_create(&(tb_gui_options){.reference_size = {160.0f, 90.0f},
-                                                        .stretch = TB_GUI_STRETCH_KEEP_ASPECT});
+    const tb_viewport_policy policy = {.design_width = 160u,
+                                       .design_height = 90u,
+                                       .aspect = TB_VIEWPORT_ASPECT_KEEP,
+                                       .scale = 1.0f};
+    tb_gui *const gui = tb_gui_create(NULL);
     const tb_widget dialog = tb_frame(tb_gui_root(gui), NULL);
     size_t count = 0;
     bool covered = false;
 
     TB_TEST_REQUIRE(tb_grid(dialog, NULL));
     TB_TEST_REQUIRE(tb_widget_show_modal(dialog));
-    /* Twice as wide as the reference's aspect: bars of 80 units each side. */
-    tb_gui_resize(gui, 640, 180, 1.0f);
+    /* Twice as wide as the design's aspect: bars of 160 pixels each side. */
+    const tb_viewport viewport =
+        tb_viewport_compute(&policy, &(tb_viewport_frame){.width = 640, .height = 180});
+    TB_TEST_EXPECT_UINT(viewport.x, ==, 160u);
+    tb_gui_set_viewport(gui, &viewport);
     tb_gui_update(gui, 1.0 / 60.0);
     const tb_ui_command *const commands = tb_gui_commands(gui, &count);
     for (size_t index = 0; index < count; index++)
     {
         const tb_canvas_rect rect = commands[index].rect;
-        if (commands[index].layer == TB_GUI_DEFAULT_LAYER + 1 && rect.x == -80.0f &&
-            rect.width == 320.0f && rect.height == 90.0f)
+        if (commands[index].layer != TB_GUI_DEFAULT_LAYER + 1 ||
+            commands[index].type != TB_UI_COMMAND_RECT)
         {
-            covered = true;
+            continue;
         }
+        TB_TEST_EXPECT_FLOAT(rect.x, >=, 0.0f);
+        TB_TEST_EXPECT_FLOAT(rect.x + rect.width, <=, 160.0f);
+        covered = covered || (rect.x == 0.0f && rect.y == 0.0f && rect.width == 160.0f &&
+                              rect.height == 90.0f);
     }
     TB_TEST_EXPECT(covered);
     tb_gui_destroy(gui);

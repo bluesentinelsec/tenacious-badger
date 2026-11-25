@@ -97,6 +97,37 @@ TB_TEST(render_temporal, the_render_size_is_the_scale_of_the_output)
     TB_TEST_EXPECT_UINT(height, ==, 200);
 }
 
+/* A viewport of another size starts the history again, even where the
+ * render size rounds to the same: the history is the viewport's size, and
+ * a frame of another shape does not follow from it. */
+TB_TEST(render_temporal, a_viewport_of_another_size_starts_the_history_again)
+{
+    tb_renderer renderer = {0};
+    const tb_rhi_device_info info = {.features = TB_RHI_FEATURE_BINDLESS};
+
+    renderer.deferred = true;
+    renderer.info.max_texture_size = 16384;
+    renderer.capabilities = tb_renderer_capabilities_for(&info, TB_RENDERER_PROFILE_FULL);
+    renderer.quality_asked = (tb_renderer_quality)TB_RENDERER_QUALITY_INIT;
+    renderer.quality_asked.render_scale = 0.5f;
+    renderer.quality.temporal_aa = true;
+    renderer.viewport = (tb_viewport){.width = 101, .height = 100, .scale = {1, 1}};
+    renderer.history_width = 101;
+    renderer.history_height = 100;
+    renderer.previous_render_width = 51;
+    renderer.previous_render_height = 50;
+    renderer.history_valid = true;
+    tb_renderer_quality_begin_frame(&renderer);
+    TB_TEST_EXPECT(renderer.history_valid);
+    TB_TEST_EXPECT_UINT(renderer.render_width, ==, 51u);
+
+    /* One pixel wider: the same render size, but another viewport. */
+    renderer.viewport.width = 102;
+    tb_renderer_quality_begin_frame(&renderer);
+    TB_TEST_EXPECT_UINT(renderer.render_width, ==, 51u);
+    TB_TEST_EXPECT(!renderer.history_valid);
+}
+
 /* A software adapter takes the low profile by itself, unless the full one
  * is asked for; a GPU takes the full one; a device without bindless
  * resources has no raster lighting mode, and is low whatever is asked. */

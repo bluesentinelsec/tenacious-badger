@@ -180,16 +180,29 @@ Games add their own, such as difficulty.
 | `display.window_aspect_height` | integer, 0 to 16384 | `0`, any aspect | [the window](windows.md#limits-on-resizing) |
 | `display.fullscreen_width` | integer, 0 to 16384 | `0`, the display's own | [the window](windows.md) |
 | `display.fullscreen_height` | integer, 0 to 16384 | `0`, the display's own | [the window](windows.md) |
-| `display.aspect_ratio` | `auto`, `16_9`, `16_10`, `21_9`, `32_9`, `4_3` | `auto`, the display's own | the renderer and the options menu, to come |
+| `display.aspect_ratio` | `auto`, `16_9`, `16_10`, `21_9`, `32_9`, `4_3` | `auto`, the display's own | [the display policy](display.md#the-players-aspect-ratio), through `tb_viewport_aspect_ratio_from_settings()` |
 | `display.refresh_rate` | integer, 0 to 1000 | `0`, the display's own | [the window](windows.md) |
 | `display.vsync` | `off`, `on`, `adaptive` | `on` | the renderer, to come |
 | `display.frame_limit` | integer, 0 to 1000 | `0`, no limit | [the game loop](game-loop.md) |
 | `display.background_frame_limit` | integer, 0 to 1000 | `30` | [the game loop](game-loop.md) |
 | `display.brightness` | number, 0.5 to 2 | `1.0` | the renderer, to come |
 | `display.hdr` | boolean | `false` | the renderer, to come |
+| `display.design_width` | integer, 0 to 16384 | `1920` | [the display policy](display.md), through `tb_viewport_policy_from_settings()` |
+| `display.design_height` | integer, 0 to 16384 | `1080` | [the display policy](display.md) |
+| `display.stretch_aspect` | `keep`, `keep_width`, `keep_height`, `expand`, `ignore` | `keep` | [the display policy](display.md#aspects) |
+| `display.stretch_scale_mode` | `fractional`, `integer` | `fractional` | [the display policy](display.md#scale-modes) |
+| `display.stretch_render_mode` | `canvas`, `viewport` | `canvas` | [the display policy](display.md#render-modes): `viewport` is drawn as `canvas` until it comes |
+| `display.stretch_scale` | number, 0.25 to 8 | `1.0` | [the display policy](display.md) |
+| `display.bar_color` | text, `#rrggbb` | `"#000000"` | [the renderer's bars](display.md); any other text is black |
 
 Exclusive fullscreen exists only where the platform has it; elsewhere the
 window falls back to borderless and says so.
+
+The `design_*` and `stretch_*` settings and the bar color are the app's
+[display policy](display.md), after Godot's `display/window/stretch/*`: an
+app gives them in its default file, as Burrow does, rather than a player in
+an options menu. `display.aspect_ratio` is the player's own, which narrows
+the frame before the policy places the design in it.
 
 The least size and the aspect are the game's to choose, in its default file:
 a game designed for 16:9 sets `display.window_aspect_width = 16` and

@@ -88,6 +88,53 @@ static uint32_t pixel_at(const uint8_t *pixels, uint32_t width, uint32_t x, uint
            (uint32_t)bgra[3] << 24;
 }
 
+/* A design twice as wide as it is tall, kept in the 4:3 window: the scene
+ * is letterboxed to the window's width and half that height, centered, and
+ * the bars above and below are the policy's color, as written; the cube is
+ * in the middle of the viewport, and the clear color at its corner. */
+TB_TEST(renderer_frame, the_scene_is_letterboxed_between_bars_on_d3d12)
+{
+    screen opened = {0};
+    tb_mesh *cube = NULL;
+    const uint8_t *pixels = NULL;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    tb_viewport_policy policy = TB_VIEWPORT_POLICY_INIT;
+
+    open_screen(&opened, TB_RHI_BACKEND_D3D12);
+    policy.design_width = 320;
+    policy.design_height = 160;
+    TB_TEST_REQUIRE(tb_viewport_parse_color("#204060", &policy.bar_color));
+    tb_renderer_set_viewport_policy(opened.renderer, &policy, 0.0f);
+    cube = tb_mesh_create_shape(opened.renderer, TB_MESH_CUBE, 0);
+    tb_renderer_capture_next_frame(opened.renderer);
+    draw_frame(opened.renderer, cube);
+    pixels = tb_renderer_captured(opened.renderer, &width, &height);
+    TB_TEST_REQUIRE(pixels != NULL);
+    const tb_viewport viewport = tb_renderer_viewport(opened.renderer);
+    TB_TEST_REQUIRE_UINT(viewport.width, ==, width);
+    TB_TEST_REQUIRE_UINT(viewport.height, ==, width / 2u);
+    TB_TEST_REQUIRE_UINT(viewport.y, ==, (height - viewport.height) / 2u);
+    TB_TEST_REQUIRE_UINT(viewport.y, >, 1u);
+    const uint32_t top = viewport.y;
+    const uint32_t bottom = viewport.y + viewport.height;
+    /* The bars, every pixel of their first and last rows. */
+    for (uint32_t x = 0; x < width; x++)
+    {
+        TB_TEST_REQUIRE_HEX(pixel_at(pixels, width, x, 0), ==, 0xFF204060u);
+        TB_TEST_REQUIRE_HEX(pixel_at(pixels, width, x, top - 1u), ==, 0xFF204060u);
+        TB_TEST_REQUIRE_HEX(pixel_at(pixels, width, x, bottom), ==, 0xFF204060u);
+        TB_TEST_REQUIRE_HEX(pixel_at(pixels, width, x, height - 1u), ==, 0xFF204060u);
+    }
+    /* The scene: the cube in the middle, the clear color at the viewport's
+     * corner. */
+    TB_TEST_EXPECT_HEX(pixel_at(pixels, width, width / 2u, top + viewport.height / 2u), ==,
+                       0xFF000000u | display_rgb(1, 0, 0));
+    TB_TEST_EXPECT_HEX(pixel_at(pixels, width, 1, bottom - 2u), ==, 0xFF000000u);
+    tb_mesh_destroy(opened.renderer, cube);
+    close_screen(&opened);
+}
+
 /* On D3D12, the cube is red in the middle, as the output transform shows
  * it; the line on top is green over everything, as given, since lines are
  * drawn over the tone-mapped frame; and the corners are the clear color. */

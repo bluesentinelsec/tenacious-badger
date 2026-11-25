@@ -2,10 +2,11 @@
 // curve to each channel, with the 0.6 he scales its input by to match
 // ACES's reference (a middle gray of 0.18 shows as about 0.41 in sRGB),
 // then sRGB's encoding, since the swap chain is UNORM and the display reads
-// it as sRGB.
+// it as sRGB. It is drawn into the viewport's rectangle of the swap chain,
+// whose top left is Origin.
 struct ToneConstants
 {
-    uint Scene; float Exposure; uint Sampler; uint Unused; float2 Inverse; float2 Unused2;
+    uint Scene; float Exposure; uint Sampler; uint Unused; float2 Inverse; float2 Origin;
 };
 ConstantBuffer<ToneConstants> Tone : register(b0);
 struct VertexOut { float4 Position : SV_Position; };
@@ -29,7 +30,7 @@ float4 MainPS(VertexOut input) : SV_Target
 {
     Texture2D<float4> scene = ResourceDescriptorHeap[Tone.Scene];
     SamplerState filter = SamplerDescriptorHeap[Tone.Sampler];
-    const float2 uv = input.Position.xy * Tone.Inverse;
+    const float2 uv = (input.Position.xy - Tone.Origin) * Tone.Inverse;
     const float3 color = max(scene.SampleLevel(filter, uv, 0).rgb, 0.0);
     return float4(ToSRGB(FilmicACES(color * Tone.Exposure)), 1);
 }

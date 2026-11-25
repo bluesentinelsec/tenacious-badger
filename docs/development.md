@@ -61,6 +61,7 @@ The foundation layer so far, one public header per module under
 | `shader_cache.h`, `shader_library.h` | [The shader cache and shader libraries](shader-cache.md): keys of what a compile writes, compiled shaders kept on disk, and the libraries a game ships |
 | `rhi.h` | [The render hardware interface](rhi.md): one interface to every graphics API, with bindless resources, command lists and submissions |
 | `renderer.h` | [The renderer](renderer.md): frames from a camera, meshes and generated shapes, and debug drawing |
+| `viewport.h` | [The display policy](display.md): an app's design resolution placed on a frame of any size and shape, and the viewport it gives |
 | `ui.h` | [The interface](ui.md): an immediate-mode GUI of windows, layout, and widgets, drawn through the canvas |
 | `gui.h` | [The GUI](gui.md): a retained GUI in the manner of Tkinter, widgets made once and laid out by grid, with kinds and properties a game extends |
 | `light.h` | [Lighting](renderer.md#lighting): directional, point and spot lights by handle, and the ambient light, for the raster lighting mode |

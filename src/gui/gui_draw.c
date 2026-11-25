@@ -191,15 +191,9 @@ static void tb_gui_draw_node(tb_gui *gui, uint32_t index, tb_canvas_rect clip, i
 
 void tb_gui_build_commands(tb_gui *gui)
 {
+    /* The root, over the whole viewport, which the shade behind a modal
+     * widget covers; the bars beside it are the renderer's. */
     const tb_canvas_rect all = {0.0f, 0.0f, gui->view.size.x, gui->view.size.y};
-    /* The whole frame, in units: in keep-aspect stretch, the root and the
-     * bars beside it, which the shade behind a modal widget covers too. */
-    const float scale = gui->view.scale > 0.0f ? gui->view.scale : 1.0f;
-    const bool framed = gui->frame_width > 0 && gui->frame_height > 0;
-    const tb_canvas_rect frame =
-        framed ? (tb_canvas_rect){-gui->view.origin.x / scale, -gui->view.origin.y / scale,
-                                  (float)gui->frame_width / scale, (float)gui->frame_height / scale}
-               : all;
     tb_vec4 shade = {0};
 
     tb_gui_layout(gui);
@@ -220,7 +214,7 @@ void tb_gui_build_commands(tb_gui *gui)
         {
             continue;
         }
-        tb_ui_paint_fill(&gui->paint, layer, frame, frame, 0.0f, shade, 0);
+        tb_ui_paint_fill(&gui->paint, layer, all, all, 0.0f, shade, 0);
         tb_gui_draw_node(gui, modal.index, all, layer);
     }
     for (size_t index = 0; index < gui->popup_count; index++)

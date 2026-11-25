@@ -45,6 +45,43 @@ false. `tb_renderer_set_vsync()` takes effect at the next frame.
 `tb_renderer_captured()` then gives: what golden-image tests and
 screenshots read.
 
+## The viewport
+
+The 3D scene is drawn into the viewport that the app's
+[display policy](display.md) gives the frame: a rectangle of whole pixels
+of the swap chain, beside which are bars of the policy's color.
+`tb_renderer_set_viewport_policy()` sets the policy and the player's aspect
+ratio, and the renderer computes the viewport at each
+`tb_renderer_begin_frame()`, from the swap chain's size and the display's
+scale; `tb_renderer_viewport()` gives it, for the canvas, the GUI and the
+mouse. A renderer begins with `TB_VIEWPORT_POLICY_LOGICAL`, whose viewport
+is the whole frame, so a renderer an app gives no policy fills its window
+as before.
+
+```c
+tb_viewport_policy policy = TB_VIEWPORT_POLICY_INIT;
+tb_viewport_policy_from_settings(engine, &policy);
+tb_renderer_set_viewport_policy(renderer, &policy, tb_viewport_aspect_ratio_from_settings(engine));
+```
+
+- **The camera** projects at the viewport's aspect
+  (`tb_viewport_aspect_of()`): the rectangle's, or in `ignore` the design's,
+  stretched to the rectangle.
+- **The scene's targets**, the G-buffer, its depth and its light, are the
+  viewport's pixels times the render scale; temporal anti-aliasing writes
+  its history at the viewport's size, and the tone mapping pass draws it
+  into the rectangle.
+- **The bars** are cleared to the policy's color, written to the swap
+  chain as it is given (sRGB), by the tone mapping pass, which clears the
+  whole image and then draws only the rectangle.
+- **Debug lines and labels** are drawn in the rectangle, from the same
+  camera.
+- **The canvas** draws over the whole frame, in any of its views; the
+  design's view (`tb_canvas_view_viewport()`) is in the rectangle.
+
+Without bindless resources, meshes are drawn straight into the swap
+chain's rectangle; its clear, of the clear color, covers the bars too.
+
 ## Cameras
 
 A `tb_camera` is a position, an orientation, and a projection: perspective,
@@ -360,11 +397,11 @@ written as given.
 
 ## Resolution and anti-aliasing
 
-The scene renders at a share of the output's resolution, the render scale,
-and temporal anti-aliasing (TAA) upsamples it to the output's, as Unreal's
-TAAU does: the engine's own upscaler, always there, which vendors'
-upscalers will stand beside as plugins. The canvas and the debug lines are
-drawn at the output's resolution.
+The scene renders at a share of the [viewport's](#the-viewport)
+resolution, the render scale, and temporal anti-aliasing (TAA) upsamples it
+to the viewport's, as Unreal's TAAU does: the engine's own upscaler, always
+there, which vendors' upscalers will stand beside as plugins. The canvas
+and the debug lines are drawn at the output's resolution.
 
 ```c
 tb_renderer_quality quality = TB_RENDERER_QUALITY_INIT; /* scale 1, TAA, 256 lights */
@@ -380,7 +417,7 @@ pixel, the points of Halton's sequence of bases 2 and 3 from its second
 custom draws are given the jittered projection, so that they line up with
 the meshes; the lines are drawn without it.
 
-**The temporal pass** runs at the output's size after the lighting and
+**The temporal pass** runs at the viewport's size after the lighting and
 the sky, before tone mapping, into one of two history textures
 (`R16G16B16A16_FLOAT`), which the next frame reads:
 
@@ -401,13 +438,13 @@ the sky, before tone mapping, into one of two history textures
   colors in YCoCg (Karis 2014), which rejects what is not there any more,
   and blended with the sample by weights over one plus luma, the sample's
   weight 0.1 at most, which keeps bright pixels from flickering.
-- **The history is forgotten** when the output's size, the render scale,
+- **The history is forgotten** when the viewport's size, the render scale,
   the kind of projection or TAA itself changes, and on
   `tb_renderer_camera_cut()`. A frame without a history takes the jittered
   frame filtered bilinearly.
 
 **Without TAA** the scene is not jittered, and the tonemap pass filters it
-bilinearly up to the output's size.
+bilinearly up to the viewport's size.
 
 ## Quality and profiles
 
@@ -515,11 +552,15 @@ them.
 | --- | --- | --- |
 | `tb_canvas_view_pixels()` | a pixel | tools, pixel-exact work |
 | `tb_canvas_view_logical(renderer)` | the window's content scale in pixels (1.5 at 150%) | interfaces, which keep their size on every display |
+| `tb_canvas_view_viewport(&viewport)` | the [display policy's](display.md) design unit, in the viewport, clipped to it | an app's own drawing, which follows its design resolution |
 | `tb_canvas_view_fit(w, h, 320, 180, true)` | a whole number of pixels, letterboxed in the middle | pixel art at a fixed resolution |
 | `tb_canvas_view_fit(w, h, 1920, 1080, false)` | any scale that fits, letterboxed | a 2D game at a design resolution |
 
 `tb_canvas_view_from_pixels()` goes the other way, from the mouse to the
-canvas. `tb_renderer_size()` gives the frame's pixels.
+canvas. `tb_renderer_size()` gives the frame's pixels. A view stretched one
+way more than the other, as `ignore` stretches the design's units, gives
+its pixels a unit each way in `stretch`; text, and the radii and widths of
+shapes, keep `scale`, so text is never squashed.
 
 **Layers.** `tb_canvas_set_layer()` sets the layer of what is drawn after,
 any `int32_t`; higher layers are over lower ones, and within a layer, later

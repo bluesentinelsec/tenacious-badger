@@ -13,6 +13,7 @@
 #include "badger/renderer.h"
 #include "badger/sky.h"
 #include "badger/thread.h"
+#include "badger/viewport.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -157,6 +158,13 @@ struct tb_renderer
     tb_render_graph *graph;
     uint32_t width; /* of the swap chain, in pixels */
     uint32_t height;
+
+    /* The display policy, the player's aspect ratio, and the viewport they
+     * give the swap chain: the 3D scene's rectangle of it. */
+    tb_viewport_policy viewport_policy;
+    float aspect_ratio;
+    tb_viewport viewport;
+    bool viewport_mode_said; /* the viewport render mode's absence was logged */
     bool vsync;
     bool vsync_wanted;
     bool vsync_changed;
@@ -181,12 +189,12 @@ struct tb_renderer
     tb_renderer_capabilities capabilities;
     tb_renderer_quality quality_asked;
     tb_renderer_quality quality; /* in effect, within the capabilities */
-    uint32_t render_width;       /* the scene's, the output's times the render scale */
+    uint32_t render_width;       /* the scene's, the viewport's times the render scale */
     uint32_t render_height;
 
     /* Temporal anti-aliasing (temporal.c). */
     tb_rhi_pipeline temporal_pipeline;
-    tb_rhi_texture history[2];     /* at the output's size; one read, one written */
+    tb_rhi_texture history[2];     /* at the viewport's size; one read, one written */
     tb_rhi_state history_state[2]; /* where each was left */
     uint32_t history_width;        /* of the history textures */
     uint32_t history_height;
@@ -377,9 +385,9 @@ uint64_t tb_renderer_lighting_upload(tb_renderer *renderer, tb_mat4 clip);
 void tb_renderer_lighting_record(tb_renderer *renderer, tb_rhi_command_list *list,
                                  uint64_t constants, const tb_renderer_gbuffer_indices *gbuffer);
 
-/* Tone map the scene's color, by its bindless index, into the output,
- * inside the tonemap pass, filtered bilinearly when its size is not the
- * output's. */
+/* Tone map the scene's color, by its bindless index, into the viewport's
+ * rectangle of the output, inside the tonemap pass, filtered bilinearly
+ * when its size is not the viewport's. */
 void tb_renderer_tonemap_record(tb_renderer *renderer, tb_rhi_command_list *list, uint32_t scene);
 
 /* The i-th point of Halton's sequence of a base: the radical inverse of i,
@@ -407,9 +415,16 @@ tb_renderer_capabilities tb_renderer_capabilities_for(const tb_rhi_device_info *
 tb_renderer_quality tb_renderer_quality_within(const tb_renderer_quality *asked,
                                                const tb_renderer_capabilities *capabilities);
 
-/* Take the quality asked for and the output's size at the start of a
+/* Take the quality asked for and the viewport's size at the start of a
  * frame: the render size, and whether the history still holds. */
 void tb_renderer_quality_begin_frame(tb_renderer *renderer);
+
+/* The viewport of the swap chain's size, as the policy gives it. */
+void tb_renderer_update_viewport(tb_renderer *renderer);
+
+/* Draw only into the viewport's rectangle of the swap chain's image, in a
+ * pass that draws into it. */
+void tb_renderer_cmd_viewport(const tb_renderer *renderer, tb_rhi_command_list *list);
 
 /* The temporal pass's pipeline and sampler (temporal.c). */
 tb_rhi_result tb_renderer_temporal_create(tb_renderer *renderer, tb_rhi_error *error);

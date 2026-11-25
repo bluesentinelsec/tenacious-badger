@@ -27,8 +27,9 @@
  * Rotations are in radians, clockwise on the screen. A view
  * (#tb_canvas_view) turns the canvas's units into the frame's pixels:
  * pixels themselves, the window's logical units at its display scale (what
- * interfaces want), or a game's own resolution scaled to fit, by whole
- * pixels when pixel art wants them.
+ * interfaces want), the app's design units over the viewport its display
+ * policy gives (tb_canvas_view_viewport(), badger/viewport.h), or a game's
+ * own resolution scaled to fit, by whole pixels when pixel art wants them.
  *
  * **Layers.** Each quad has the layer that was current when it was drawn
  * (tb_canvas_set_layer()); a higher layer is drawn over a lower one, and
@@ -69,6 +70,7 @@
 #include "badger/math.h"
 #include "badger/renderer.h"
 #include "badger/rhi.h"
+#include "badger/viewport.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -90,12 +92,20 @@ typedef struct tb_canvas_rect
 /**
  * @brief How the canvas's units become the frame's pixels: a pixel is
  * `origin + scale * unit`. Draws outside `clip` are not seen.
+ *
+ * A view stretched one way more than the other, as a display policy's
+ * `ignore` stretches its units, gives its pixels a unit each way in
+ * `stretch`; text and the radii and widths of shapes keep `scale`, so text
+ * is never squashed.
  */
 typedef struct tb_canvas_view
 {
     tb_vec2 origin;   /**< The pixel where the canvas's (0, 0) is drawn. */
     float scale;      /**< Pixels per unit; more than 0. */
     tb_rhi_rect clip; /**< Pixels drawn into; a zero size is the whole frame. */
+    /** Pixels per unit across and down, where they differ; zero is `scale`
+     * both ways. */
+    tb_vec2 stretch;
 } tb_canvas_view;
 
 /** @brief How an image is read between its pixels. */
@@ -226,6 +236,16 @@ TB_API tb_canvas_view tb_canvas_view_logical(const tb_renderer *renderer);
  */
 TB_API tb_canvas_view tb_canvas_view_fit(uint32_t frame_width, uint32_t frame_height, float width,
                                          float height, bool whole_pixels);
+
+/**
+ * @brief A view in an app's design units, over the viewport its display
+ * policy gives the frame (tb_renderer_viewport()): unit (0, 0) at the
+ * viewport's top left, its scale the viewport's, and what is drawn clipped
+ * to it, off the bars. In `ignore`, stretched as the viewport is.
+ * @param viewport Required.
+ * @par Threading Thread-safe.
+ */
+TB_API tb_canvas_view tb_canvas_view_viewport(const tb_viewport *viewport);
 
 /**
  * @brief The pixel of the frame where a point of the canvas is drawn.

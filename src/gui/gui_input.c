@@ -644,7 +644,7 @@ static tb_widget tb_gui_find(tb_gui *gui)
     const tb_canvas_rect all = tb_gui_node_at(gui, 0)->rect;
     uint32_t found = TB_GUI_NO_NODE;
 
-    if (!gui->mouse_inside)
+    if (!gui->mouse_inside || !gui->mouse_on_viewport)
     {
         return TB_WIDGET_NONE;
     }
@@ -703,9 +703,15 @@ static void tb_gui_move_mouse(tb_gui *gui, const tb_window_event *event)
 {
     const tb_gui_view view = gui->view;
 
-    gui->mouse = (tb_vec2){((float)event->pixel_x - view.origin.x) / view.scale,
-                           ((float)event->pixel_y - view.origin.y) / view.scale};
+    const tb_vec2 pixel = {(float)event->pixel_x, (float)event->pixel_y};
+    const bool sized = gui->viewport.width > 0 && gui->viewport.height > 0;
+
+    gui->mouse =
+        (tb_vec2){(pixel.x - view.origin.x) / view.scale, (pixel.y - view.origin.y) / view.scale};
     gui->mouse_inside = true;
+    /* The bars beside the viewport are not the GUI's: a press there reaches
+     * no widget. A viewport not given yet has none. */
+    gui->mouse_on_viewport = !sized || tb_viewport_contains(&gui->viewport, pixel);
     gui->modifiers = event->modifiers;
     tb_gui_refresh_hover(gui);
 }

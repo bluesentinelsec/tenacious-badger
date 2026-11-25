@@ -32,9 +32,10 @@
 typedef struct tb_renderer_line_constants
 {
     tb_mat4 clip;
-    uint32_t depth; /* the scene depth's bindless index */
-    uint32_t test;  /* 1 to test against it */
-    float scale[2]; /* from the output's pixels to the depth's */
+    uint32_t depth;  /* the scene depth's bindless index */
+    uint32_t test;   /* 1 to test against it */
+    float scale[2];  /* from the viewport's pixels to the depth's */
+    float origin[2]; /* the viewport's top left in the output's pixels */
 } tb_renderer_line_constants;
 
 static tb_rhi_result tb_renderer_fail(tb_rhi_error *error, tb_rhi_result result, const char *format,
@@ -330,6 +331,7 @@ tb_rhi_result tb_renderer_create(const tb_renderer_options *options, tb_renderer
     renderer->deferred = (renderer->info.features & TB_RHI_FEATURE_BINDLESS) != 0;
     renderer->capabilities = tb_renderer_capabilities_for(&renderer->info, options->profile);
     renderer->quality_asked = (tb_renderer_quality)TB_RENDERER_QUALITY_INIT;
+    renderer->viewport_policy = (tb_viewport_policy)TB_VIEWPORT_POLICY_LOGICAL;
     tb_renderer_report_profile(renderer);
     result = tb_renderer_shader_sources(renderer, options, error);
     if (result != TB_RHI_OK)
@@ -347,6 +349,7 @@ tb_rhi_result tb_renderer_create(const tb_renderer_options *options, tb_renderer
     tb_rhi_texture_desc_of(renderer->device, tb_rhi_swap_chain_current(renderer->chain), &image);
     renderer->width = image.width;
     renderer->height = image.height;
+    tb_renderer_update_viewport(renderer);
     result = tb_renderer_pipelines(renderer, error);
     if (result != TB_RHI_OK)
     {
@@ -399,9 +402,9 @@ tb_rhi_result tb_renderer_create(const tb_renderer_options *options, tb_renderer
     }
     renderer->quality =
         tb_renderer_quality_within(&renderer->quality_asked, &renderer->capabilities);
-    tb_render_size_of(renderer->width, renderer->height, renderer->quality.render_scale,
-                      renderer->info.max_texture_size, &renderer->render_width,
-                      &renderer->render_height);
+    tb_render_size_of(renderer->viewport.width, renderer->viewport.height,
+                      renderer->quality.render_scale, renderer->info.max_texture_size,
+                      &renderer->render_width, &renderer->render_height);
     renderer->graph = tb_render_graph_create(renderer->device);
     *made = renderer;
     return TB_RHI_OK;
@@ -476,6 +479,61 @@ void tb_renderer_set_vsync(tb_renderer *renderer, bool vsync)
 }
 
 /* ---------------------------------------------------------------------------
+ * The viewport.
+ * ------------------------------------------------------------------------- */
+
+void tb_renderer_update_viewport(tb_renderer *renderer)
+{
+    tb_window_state state = {0};
+
+    tb_window_state_of(renderer->window, &state);
+    renderer->viewport =
+        tb_viewport_compute(&renderer->viewport_policy,
+                            &(tb_viewport_frame){.width = renderer->width,
+                                                 .height = renderer->height,
+                                                 .display_scale = (float)state.content_scale,
+                                                 .aspect_ratio = renderer->aspect_ratio});
+}
+
+void tb_renderer_set_viewport_policy(tb_renderer *renderer, const tb_viewport_policy *policy,
+                                     float aspect_ratio)
+{
+    TB_ASSERT(renderer != NULL && policy != NULL);
+    renderer->viewport_policy = *policy;
+    renderer->aspect_ratio = aspect_ratio;
+    if (policy->render_mode == TB_VIEWPORT_RENDER_VIEWPORT && !renderer->viewport_mode_said &&
+        renderer->log != NULL)
+    {
+        (void)tb_log_printf(renderer->log, TB_LOG_INFO, "renderer",
+                            "the viewport render mode is not drawn yet; drawing the canvas mode");
+        renderer->viewport_mode_said = true;
+    }
+    tb_renderer_update_viewport(renderer);
+}
+
+void tb_renderer_viewport_policy(const tb_renderer *renderer, tb_viewport_policy *policy)
+{
+    TB_ASSERT(renderer != NULL && policy != NULL);
+    *policy = renderer->viewport_policy;
+}
+
+tb_viewport tb_renderer_viewport(const tb_renderer *renderer)
+{
+    TB_ASSERT(renderer != NULL);
+    return renderer->viewport;
+}
+
+void tb_renderer_cmd_viewport(const tb_renderer *renderer, tb_rhi_command_list *list)
+{
+    const tb_viewport *const viewport = &renderer->viewport;
+
+    tb_rhi_cmd_viewport(list, (float)viewport->x, (float)viewport->y, (float)viewport->width,
+                        (float)viewport->height, 0.0f, 1.0f);
+    tb_rhi_cmd_scissor(list, (tb_rhi_rect){(int32_t)viewport->x, (int32_t)viewport->y,
+                                           viewport->width, viewport->height});
+}
+
+/* ---------------------------------------------------------------------------
  * Frames.
  * ------------------------------------------------------------------------- */
 
@@ -530,6 +588,7 @@ bool tb_renderer_begin_frame(tb_renderer *renderer, const tb_camera *camera, tb_
     tb_renderer_skinning_begin_frame(renderer);
     renderer->camera = *camera;
     renderer->clear = clear;
+    tb_renderer_update_viewport(renderer);
     tb_renderer_quality_begin_frame(renderer);
     renderer->draw_count = 0;
     renderer->custom_count = 0;
@@ -658,7 +717,7 @@ static uint64_t tb_renderer_forward_upload(tb_renderer *renderer, const tb_rende
 
 static void tb_renderer_upload_frame(tb_renderer *renderer, tb_renderer_recording *recording)
 {
-    const float aspect = (float)renderer->width / (float)renderer->height;
+    const float aspect = tb_viewport_aspect_of(&renderer->viewport);
     const tb_mat4 projection = tb_camera_projection_of(&renderer->camera, aspect);
     const tb_light light = tb_renderer_default_light(renderer);
     tb_vec2 jitter = {0};
@@ -717,8 +776,9 @@ static void tb_renderer_record_lines(tb_renderer_recording *recording,
     const tb_renderer_frame *const frame = &renderer->frames[renderer->slot];
     tb_renderer_line_constants constants = {
         .clip = recording->unjittered_clip,
-        .scale = {(float)renderer->render_width / (float)renderer->width,
-                  (float)renderer->render_height / (float)renderer->height}};
+        .scale = {(float)renderer->render_width / (float)renderer->viewport.width,
+                  (float)renderer->render_height / (float)renderer->viewport.height},
+        .origin = {(float)renderer->viewport.x, (float)renderer->viewport.y}};
     tb_rhi_pipeline pipeline = renderer->line_pipeline;
 
     if (recording->lines_offset[layer] == UINT64_MAX)
@@ -806,6 +866,7 @@ static void tb_renderer_record_scene(const tb_render_graph_pass_context *pass)
 {
     tb_renderer_recording *const recording = pass->context;
 
+    tb_renderer_cmd_viewport(recording->renderer, pass->list);
     tb_renderer_record_draws(recording, pass, recording->renderer->mesh_pipeline);
     tb_renderer_record_customs(recording, pass);
     tb_renderer_record_lines(recording, pass, 0);
@@ -813,6 +874,9 @@ static void tb_renderer_record_scene(const tb_render_graph_pass_context *pass)
 
 static void tb_renderer_record_overlay(const tb_render_graph_pass_context *pass)
 {
+    const tb_renderer_recording *const recording = pass->context;
+
+    tb_renderer_cmd_viewport(recording->renderer, pass->list);
     tb_renderer_record_lines(pass->context, pass, 1);
 }
 
@@ -868,9 +932,12 @@ static void tb_renderer_record_tonemap(const tb_render_graph_pass_context *pass)
                                tb_renderer_graph_index(pass, source));
 }
 
-/* Both layers of lines over the tone-mapped output. */
+/* Both layers of lines over the tone-mapped output, in the viewport. */
 static void tb_renderer_record_output_lines(const tb_render_graph_pass_context *pass)
 {
+    const tb_renderer_recording *const recording = pass->context;
+
+    tb_renderer_cmd_viewport(recording->renderer, pass->list);
     tb_renderer_record_lines(pass->context, pass, 0);
     tb_renderer_record_lines(pass->context, pass, 1);
 }
@@ -888,7 +955,9 @@ static tb_render_graph_texture tb_renderer_target(tb_renderer *renderer, tb_rhi_
 /* coverage-off: only a device without bindless resources draws this way, and no
  * backend that tests run on lacks them */
 /* Without bindless resources: the scene pass straight into the swap
- * chain's image, and the lines on top. */
+ * chain's image, in the viewport, and the lines on top. Its depth is the
+ * image's size, as a pass's targets are one size; its clear covers the
+ * bars too, as nothing without bindless resources draws them apart. */
 static void tb_renderer_add_forward_passes(tb_renderer *renderer, tb_renderer_recording *recording,
                                            tb_render_graph_texture image)
 {
@@ -904,7 +973,12 @@ static void tb_renderer_add_forward_passes(tb_renderer *renderer, tb_renderer_re
     pass.colors[0] = (tb_render_graph_color){.texture = image, .load = TB_RHI_LOAD_CLEAR};
     memcpy(pass.colors[0].clear, &renderer->clear, sizeof(pass.colors[0].clear));
     pass.color_count = 1;
-    recording->depth = tb_renderer_target(renderer, TB_RENDERER_DEPTH_FORMAT, "depth");
+    recording->depth =
+        tb_render_graph_create_texture(renderer->graph,
+                                       &(tb_rhi_texture_desc){.format = TB_RENDERER_DEPTH_FORMAT,
+                                                              .width = renderer->width,
+                                                              .height = renderer->height},
+                                       "depth");
     pass.depth = (tb_render_graph_depth){.texture = recording->depth, .load = TB_RHI_LOAD_CLEAR};
     tb_render_graph_add_pass(renderer->graph, &pass);
     if (recording->lines_offset[1] != UINT64_MAX)
@@ -1001,7 +1075,10 @@ static void tb_renderer_add_deferred_passes(tb_renderer *renderer, tb_renderer_r
                                                                : recording->scene,
         .state = TB_RHI_STATE_SHADER_READ};
     pass.access_count = 1;
-    pass.colors[0] = (tb_render_graph_color){.texture = image, .load = TB_RHI_LOAD_ANY};
+    /* The bars beside the viewport are cleared to the policy's color. */
+    pass.colors[0] = (tb_render_graph_color){.texture = image, .load = TB_RHI_LOAD_CLEAR};
+    memcpy(pass.colors[0].clear, &renderer->viewport_policy.bar_color,
+           sizeof(pass.colors[0].clear));
     pass.color_count = 1;
     tb_render_graph_add_pass(renderer->graph, &pass);
     if (recording->lines_offset[0] != UINT64_MAX || recording->lines_offset[1] != UINT64_MAX)

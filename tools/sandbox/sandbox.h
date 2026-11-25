@@ -59,7 +59,11 @@ typedef struct sandbox_frame
 /* A scene: made when it is chosen, drawn each frame between the renderer's
  * begin and end, released when another is chosen. `state` is the scene's.
  * `event`, when a scene has one, sees each window event first, and returns
- * true to take it from the sandbox's keys and fly camera. */
+ * true to take it from the sandbox's keys and fly camera.
+ *
+ * Every scene takes the display policy from the settings (docs/display.md),
+ * as a game does; a tool's scene overrides it, as an app would in its
+ * default file. */
 typedef struct sandbox_scene
 {
     const char *name;
@@ -69,6 +73,12 @@ typedef struct sandbox_scene
     void (*draw)(sandbox *box, void *state, const sandbox_frame *frame);
     void (*destroy)(sandbox *box, void *state);
     bool (*event)(sandbox *box, void *state, const tb_window_event *event);
+    /* A tool's: no design size, whatever the settings say, so that its
+     * units are logical pixels over the whole window. */
+    bool logical_units;
+    /* The scene takes F1 to F12 before the inspector, which the backquote
+     * then shows and hides alone. */
+    bool function_keys;
 } sandbox_scene;
 
 extern const sandbox_scene sandbox_scenes[];
@@ -135,6 +145,14 @@ bool gui_fonts_scene_create(sandbox *box, void **state);
 void gui_fonts_scene_draw(sandbox *box, void *state, const sandbox_frame *frame);
 void gui_fonts_scene_destroy(sandbox *box, void *state);
 bool gui_fonts_scene_event(sandbox *box, void *state, const tb_window_event *event);
+
+/* The display policy and its viewport, shown and changed by hotkeys: a lit
+ * scene in the viewport, the design's border, corners and grid, a GUI
+ * panel, and what the viewport is (sandbox_display.c). */
+bool display_scene_create(sandbox *box, void **state);
+void display_scene_draw(sandbox *box, void *state, const sandbox_frame *frame);
+void display_scene_destroy(sandbox *box, void *state);
+bool display_scene_event(sandbox *box, void *state, const tb_window_event *event);
 
 /* Make a shader for the device's backend from HLSL in memory: compiled to
  * DXIL through DXC for D3D12; the text itself for the null backend, which

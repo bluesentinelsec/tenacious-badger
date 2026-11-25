@@ -150,6 +150,7 @@ set(TB_TEST_CASE_SOURCES
     render/material_test.c
     render/quality_test.c
     render/text_test.c
+    render/viewport_test.c
     render/render_graph_test.c
     render/renderer_test.c
     render/skinning_test.c

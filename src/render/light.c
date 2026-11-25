@@ -51,8 +51,8 @@ typedef struct tb_tonemap_constants
     float exposure;   /* what the scene's color is multiplied by first */
     uint32_t sampler; /* the bindless index of a bilinear, clamped sampler */
     uint32_t unused;  /* to the next 16 bytes */
-    float inverse[2]; /* one over the output's width and height */
-    float unused2[2]; /* to the next 16 bytes */
+    float inverse[2]; /* one over the viewport's width and height */
+    float origin[2];  /* the viewport's top left in the output's pixels */
 } tb_tonemap_constants;
 
 /* A light of the scene, as the frame chooses which to shade. */
@@ -419,8 +419,11 @@ void tb_renderer_tonemap_record(tb_renderer *renderer, tb_rhi_command_list *list
         .scene = scene,
         .exposure = 1.0f,
         .sampler = tb_rhi_sampler_index(renderer->device, renderer->canvas_samplers[0]),
-        .inverse = {1.0f / (float)renderer->width, 1.0f / (float)renderer->height}};
+        .inverse = {1.0f / (float)renderer->viewport.width,
+                    1.0f / (float)renderer->viewport.height},
+        .origin = {(float)renderer->viewport.x, (float)renderer->viewport.y}};
 
+    tb_renderer_cmd_viewport(renderer, list);
     tb_rhi_cmd_pipeline(list, renderer->tonemap_pipeline);
     tb_rhi_cmd_push_constants(list, &constants, sizeof(constants));
     tb_rhi_cmd_draw(list, 3, 1, 0, 0);

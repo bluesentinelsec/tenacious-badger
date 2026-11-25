@@ -169,6 +169,48 @@ TB_TEST(renderer_quality, the_full_profile_takes_the_quality_asked_for)
     close_screen(&opened);
 }
 
+/* The scene renders at the viewport's size, not the window's: a design of
+ * 16:9 kept in the 2:1 window is pillarboxed to 178 by 100 pixels, and the
+ * render scale is of that. A renderer begins with the whole frame. */
+TB_TEST(renderer_quality, the_render_size_is_the_viewports)
+{
+    screen opened = {0};
+    tb_viewport_policy policy = TB_VIEWPORT_POLICY_INIT;
+    tb_viewport_policy kept = {0};
+    tb_renderer_quality quality = TB_RENDERER_QUALITY_INIT;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    uint32_t output_width = 0;
+    uint32_t output_height = 0;
+
+    open_screen(&opened, TB_RENDERER_PROFILE_FULL);
+    tb_renderer_size(opened.renderer, &output_width, &output_height);
+    tb_viewport viewport = tb_renderer_viewport(opened.renderer);
+    TB_TEST_EXPECT_UINT(viewport.width, ==, output_width);
+    TB_TEST_EXPECT_UINT(viewport.height, ==, output_height);
+    quality.temporal_aa = false;
+    tb_renderer_set_quality(opened.renderer, &quality);
+    policy.bar_color = (tb_vec4){0.2f, 0.4f, 0.6f, 1.0f};
+    policy.render_mode = TB_VIEWPORT_RENDER_VIEWPORT;
+    tb_renderer_set_viewport_policy(opened.renderer, &policy, 0.0f);
+    tb_renderer_viewport_policy(opened.renderer, &kept);
+    TB_TEST_EXPECT_FLOAT(kept.bar_color.y, ==, 0.4f);
+    draw_frame(&opened);
+    viewport = tb_renderer_viewport(opened.renderer);
+    TB_TEST_EXPECT_UINT(viewport.height, ==, output_height);
+    TB_TEST_EXPECT_UINT(viewport.width, <, output_width);
+    TB_TEST_EXPECT_UINT(viewport.x, ==, (output_width - viewport.width) / 2u);
+    tb_renderer_render_size(opened.renderer, &width, &height);
+    TB_TEST_EXPECT_UINT(width, ==, viewport.width);
+    TB_TEST_EXPECT_UINT(height, ==, viewport.height);
+    /* The player's 4:3 narrows the window first. */
+    tb_renderer_set_viewport_policy(opened.renderer, &policy, 4.0f / 3.0f);
+    draw_frame(&opened);
+    viewport = tb_renderer_viewport(opened.renderer);
+    TB_TEST_EXPECT_UINT(viewport.width, <=, (output_height * 4u + 2u) / 3u);
+    close_screen(&opened);
+}
+
 /* The low profile, asked for, caps the quality: half the output's
  * resolution, no temporal anti-aliasing, 16 lights, no reflections; and
  * says why. */

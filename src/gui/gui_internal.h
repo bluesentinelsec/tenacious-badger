@@ -170,12 +170,8 @@ struct tb_gui
     size_t font_capacity;
     int32_t layer;
 
-    /* The view. */
-    uint32_t frame_width;
-    uint32_t frame_height;
-    float display_scale;
-    tb_vec2 reference_size;
-    tb_gui_stretch stretch;
+    /* The view: the viewport given, and the GUI's own factor on it. */
+    tb_viewport viewport;
     float zoom;
     tb_gui_view view;
 
@@ -210,6 +206,7 @@ struct tb_gui
     double time;
     tb_vec2 mouse; /* in units */
     bool mouse_inside;
+    bool mouse_on_viewport; /* not over its bars */
     uint32_t modifiers;
     tb_widget hovered;
     tb_widget pressed;
