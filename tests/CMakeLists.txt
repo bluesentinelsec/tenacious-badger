@@ -110,6 +110,12 @@ set(TB_TEST_CASE_SOURCES
     ${TB_JSON_SUITE_SOURCE}
     serialize/json_writer_test.c
     game/game_loop_test.c
+    gui/gui_draw_test.c
+    gui/gui_event_test.c
+    gui/gui_fixture.c
+    gui/gui_grid_test.c
+    gui/gui_scale_test.c
+    gui/gui_tree_test.c
     jobs/loop_test.c
     anim/anim_test.c
     platform/window_test.c
@@ -175,7 +181,7 @@ if(WIN32)
         render/canvas_d3d12_test.c render/lighting_d3d12_test.c ${TB_GOLDEN_SOURCE}
         render/material_d3d12_test.c
         render/renderer_d3d12_test.c render/skinning_d3d12_test.c render/sky_d3d12_test.c
-        render/text_d3d12_test.c shader/shader_library_d3d12_test.c)
+        render/text_d3d12_test.c shader/shader_library_d3d12_test.c gui/gui_d3d12_test.c)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     list(APPEND TB_TEST_CASE_SOURCES platform/linux/window_x11_test.c)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
@@ -237,7 +243,7 @@ set(TB_ENGINE_SOURCES ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES} ${TB_JOBS_SOURCE
     ${TB_VFS_SOURCES}
     ${TB_SETTINGS_SOURCES} ${TB_WINDOW_SOURCES} ${TB_DXC_SOURCES} ${TB_GAME_SOURCES}
     ${TB_SHADER_SOURCES} ${TB_RHI_SOURCES} ${TB_RENDER_SOURCES} ${TB_ANIM_SOURCES}
-    ${TB_UI_SOURCES})
+    ${TB_UI_SOURCES} ${TB_GUI_SOURCES})
 
 # The arguments go to tb_add_tests.
 function(tb_add_internal_tests target)

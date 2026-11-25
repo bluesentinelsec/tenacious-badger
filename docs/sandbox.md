@@ -16,6 +16,7 @@ badger-sandbox --set display.vsync=off
 badger-sandbox --renderer null       # no GPU at all
 badger-sandbox --frames 120 --capture shapes.bmp   # stop after 120 frames, saving the last
 badger-sandbox --scene ui --ui-scale 150             # the interface half as large again
+badger-sandbox --scene gui --ui-scale 200            # the GUI twice as large, laid out again
 badger-sandbox --inspector                           # start with the inspector shown
 badger-sandbox --scene skinning --cpu-skinning       # skin on the CPU, as a weaker device does
 ```
@@ -37,6 +38,7 @@ bottom left corner of every scene, and printed every two seconds.
 | `text` | Text over the shapes in the font roles at their own sizes: a heading, a line of monospace, the UI font at sizes from 10 to 48, a paragraph of body text wrapping in three panels (left, centered and right) whose width changes over time, the pixel font at its size and twice it, and labels in the world naming the shapes |
 | `skinning` | A row of tentacles, each a tapered cylinder skinned to a chain of seven joints, played by two clips made in code, a wave that runs up the tentacle and a curl toward the viewer, blended by a weight that drifts at each tentacle's own phase (labeled under it); evaluated on the job system, skinned by the GPU's compute pass (or on the CPU, with `--cpu-skinning` or the inspector's switch), the middle one with a checkered material, and their bones drawn over them |
 | `ui` | [The interface](ui.md) over the shapes: an inspector of every widget (headers, checkboxes, combos, sliders, dragged numbers, a color, text fields, radio buttons, a swatch, a progress bar, buttons with tooltips, and a tree) and a window of statistics (a heading, wrapped text, a table, and a panel that scrolls) |
+| `gui` | [The GUI](gui.md) over the shapes: a form laid out by grid that follows the window as it is resized (a title in the heading font, a wrapped paragraph, fields with their labels, rows of buttons of one width in nested grids, a status line at the bottom) and a modal dialog that asks to confirm |
 | `triangle` | A triangle of three colored corners, turning, drawn through the RHI itself inside the renderer's scene pass |
 | `textured` | A checkerboard made in memory, sampled through the texture's and sampler's bindless indices |
 | `clear` | The swap chain cleared to a plain color |
@@ -100,3 +102,11 @@ there, rather than to the next scene. `--ui-scale` draws the interface at
 a share of the display's scale, to look at it larger or smaller; it
 zooms the inspector too.
 
+## The gui scene
+
+In the `gui` scene the GUI sees the window's events first, as the
+interface does in the `ui` scene: it takes the mouse over the form, the
+keys while a button has the focus, and Tab, and the fly camera has the
+rest. Resizing the window lays the form out again: its middle column takes
+the extra width, and an empty row the extra height. `--ui-scale` is the
+GUI's factor on top of the display's scale.

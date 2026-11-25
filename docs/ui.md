@@ -53,7 +53,9 @@ The interface never touches a window or a renderer. A frame's drawing is a
 list of commands (`tb_ui_commands`): rectangles, rounded or not, outlines,
 circles, lines, and text, each with its clip and its canvas layer.
 `tb_ui_draw` hands them to a renderer's canvas ([renderer](renderer.md#2d-the-canvas));
-another backend could draw them as well.
+another backend could draw them as well. The retained [GUI](gui.md) draws
+through the same commands, its theme is a `tb_ui_theme`, and both measure
+text the same way: the layer beneath them is one, in `src/ui/ui_paint.c`.
 
 ## Units and scale
 

@@ -109,6 +109,12 @@ void ui_scene_draw(sandbox *box, void *state, const sandbox_frame *frame);
 void ui_scene_destroy(sandbox *box, void *state);
 bool ui_scene_event(sandbox *box, void *state, const tb_window_event *event);
 
+/* The retained GUI: a form laid out by grid over the shapes (sandbox_gui.c). */
+bool gui_scene_create(sandbox *box, void **state);
+void gui_scene_draw(sandbox *box, void *state, const sandbox_frame *frame);
+void gui_scene_destroy(sandbox *box, void *state);
+bool gui_scene_event(sandbox *box, void *state, const tb_window_event *event);
+
 /* Make a shader for the device's backend from HLSL in memory: compiled to
  * DXIL through DXC for D3D12; the text itself for the null backend, which
  * accepts anything. Errors are printed. */
