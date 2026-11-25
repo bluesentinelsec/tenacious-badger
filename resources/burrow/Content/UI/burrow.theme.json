@@ -1,0 +1,67 @@
+{
+  "format": "badger-theme",
+  "version": 1,
+  "name": "Burrow",
+  "styles": {
+    ".": {
+      "font": {"role": "body", "weight": 400, "size": 26}
+    },
+    "Button": {
+      "font": {"role": "heading", "weight": 400, "size": 30},
+      "padding": [40, 12],
+      "focus_width:focus_visible": 3
+    },
+    "Combobox": {
+      "font": {"role": "body", "weight": 400, "size": 26},
+      "padding": [18, 8]
+    },
+    "ComboboxList": {
+      "padding": [16, 6]
+    },
+    "Entry": {
+      "padding": [14, 8]
+    },
+    "Spinbox": {
+      "padding": [14, 8]
+    },
+    "Checkbutton": {
+      "spacing": 14
+    },
+    "Notebook": {
+      "font": {"role": "heading", "weight": 400, "size": 30},
+      "tab_padding": [36, 10],
+      "tab_line_width": 3
+    },
+    "Banner.Label": {
+      "font": {"role": "heading", "weight": 300, "size": 150},
+      "text_color": "#ffcc4d"
+    },
+    "Tagline.Label": {
+      "font": {"role": "body", "weight": 400, "italic": true, "size": 30},
+      "text_color": "#eedfb8"
+    },
+    "Title.Label": {
+      "font": {"role": "heading", "weight": 400, "size": 56},
+      "text_color": "#ffcc4d"
+    },
+    "Heading.Label": {
+      "font": {"role": "heading", "weight": 400, "size": 32},
+      "text_color": "#ffcc4d"
+    },
+    "Field.Label": {
+      "text_color": "#eedfb8"
+    },
+    "Hint.Label": {
+      "font": {"role": "body", "weight": 400, "italic": true, "size": 22},
+      "text_color": "#b7aa8c"
+    },
+    "Panel.Frame": {
+      "padding": [48, 40]
+    },
+    "Messagebox": {
+      "frame_padding": 40,
+      "spacing": 24,
+      "button_spacing": 16
+    }
+  }
+}

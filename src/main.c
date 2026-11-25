@@ -31,6 +31,7 @@ static const char *burrow_values[BURROW_MOST_VALUES] = {0};
 static size_t burrow_value_count = 0;
 static const char *burrow_renderer = NULL;
 static int64_t burrow_frames = 0;
+static const char *burrow_navigation = NULL;
 
 static int burrow_load(burrow_settings *loaded)
 {
@@ -68,13 +69,16 @@ static int burrow_run(const tb_cli_outcome *outcome, void *context)
     {
         return status;
     }
-    status = burrow_play(&loaded, burrow_headless);
+    const burrow_play_options options = {
+        .headless = burrow_headless, .developer = burrow_mode == 0, .navigate = burrow_navigation};
+    status = burrow_play(&loaded, &options);
     burrow_settings_release(&loaded);
     return status;
 }
 
 /* `burrow check`: the bootstrap's check that it runs against the engine, with
- * its settings loaded, which a packaged export runs to prove it starts. */
+ * its settings loaded and its menus built from its content, which a
+ * packaged export runs to prove it starts and carries its files. */
 static int burrow_run_check(const tb_cli_outcome *outcome, void *context)
 {
     burrow_settings loaded = {0};
@@ -88,7 +92,12 @@ static int burrow_run_check(const tb_cli_outcome *outcome, void *context)
     {
         return status;
     }
+    status = burrow_check_content(&loaded, burrow_mode == 0);
     burrow_settings_release(&loaded);
+    if (status != EXIT_SUCCESS)
+    {
+        return status;
+    }
     /* coverage-off: 2 + 3 cannot overflow; the result of a fallible function is checked all the
      * same */
     if (!tb_sum_i32(2, 3, &sum))
@@ -140,6 +149,12 @@ static const tb_cli_option burrow_options[] = {
      .maximum = INT64_MAX,
      .help = "Stop after this many frames, as tests do; the same as --set "
              "developer.frame_count=COUNT."},
+    {.long_name = "navigate",
+     .name = "ACTIONS",
+     .text = &burrow_navigation,
+     .help = "Give the menus these navigation actions, one a frame, as tests do: up, down, "
+             "left, right, accept, back, next, previous, tab_next, tab_previous, or wait, joined "
+             "by commas; each screen shown is then written out."},
     {.long_name = "reset-settings",
      .flag = &burrow_reset,
      .help = "Start from the default settings, setting the player's settings file aside as "
@@ -174,8 +189,8 @@ static const tb_cli_command burrow = {
     .version = TB_VERSION_STRING,
     .description = "The showcase game of the Tenacious Badger engine: a graybox first-person "
                    "shooter, under construction. Fly through its room with the mouse and WASD, "
-                   "Space and Ctrl to rise and sink, and Shift to sprint; Escape frees the mouse, "
-                   "and a click takes it back.",
+                   "Space and Ctrl to rise and sink, and Shift to sprint; Escape pauses, and its "
+                   "menu has the options.",
     .options = burrow_options,
     .option_count = TB_CLI_COUNT_OF(burrow_options),
     .commands = burrow_commands,

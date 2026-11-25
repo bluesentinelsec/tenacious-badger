@@ -23,12 +23,13 @@ static tb_ui_id tb_gui_id_of(tb_widget widget)
 static bool tb_gui_run_of(tb_widget widget, const tb_gui_text_block *block, tb_ui_text_run *run)
 {
     const tb_gui_resolved_font resolved = tb_gui_widget_font(widget, block->font);
+    const tb_font *const font = block->face != NULL ? block->face : resolved.font;
 
-    if (resolved.font == NULL)
+    if (font == NULL)
     {
         return false;
     }
-    *run = (tb_ui_text_run){.font = resolved.font,
+    *run = (tb_ui_text_run){.font = font,
                             .size = resolved.size,
                             .wrap_width = block->wrap_length > 0.0f ? block->wrap_length : 0.0f,
                             .align = block->justify};

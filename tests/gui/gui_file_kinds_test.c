@@ -500,9 +500,12 @@ TB_TEST(gui_file_kinds, content_files_cannot_hold_yet_fails_rather_than_vanish)
     (void)tb_treeview_insert(items, TB_TREE_ROOT, SIZE_MAX, &(tb_tree_item_desc){.text = "a"});
     expect_unsaved(items, "$.root", "tree items");
 
+    /* A notebook's tabs are its children, so a child that is no tab has no
+     * place in a file. */
     const tb_widget notebook = tb_notebook(root, NULL);
     (void)tb_notebook_add(notebook, tb_frame(notebook, NULL), "Page");
-    expect_unsaved(notebook, "$.root", "notebook tabs");
+    (void)tb_frame(notebook, NULL);
+    expect_unsaved(notebook, "$.root", "notebook children that are not its tabs");
 
     const tb_widget paned = tb_panedwindow(root, NULL);
     (void)tb_panedwindow_add(paned, tb_frame(paned, NULL), NULL);

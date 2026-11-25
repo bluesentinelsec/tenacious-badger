@@ -65,6 +65,8 @@ typedef struct tb_gui_var_slot
     tb_setting *setting;
     uint64_t setting_version; /* the setting's, as the variable last matched it */
     bool accepted;
+    bool deferred; /* the setting takes its value only when it is applied */
+    bool held;     /* deferred, and holding a value its setting does not */
 } tb_gui_var_slot;
 
 struct tb_gui_values
@@ -504,6 +506,168 @@ static void tb_gui_take_setting(tb_gui_var_slot *slot)
     tb_free(buffer);
     slot->setting_version = tb_setting_version(slot->setting);
     slot->accepted = true;
+    slot->held = false;
+}
+
+/* Whether a variable holds its setting's value, in the variable's type. */
+static bool tb_gui_matches_setting(const tb_gui_var_slot *slot)
+{
+    char *buffer = NULL;
+    const tb_gui_var_value setting = tb_gui_setting_value(slot->setting, slot->type, &buffer);
+    const tb_gui_var_value held = tb_gui_slot_value(slot);
+    const bool equal = tb_gui_values_equal(&held, &setting);
+
+    tb_free(buffer);
+    return equal;
+}
+
+/* Whether a setting would take a value, without giving it: the checks it
+ * makes of a value set at its runtime layer, its range, its choices, and its
+ * length. */
+static bool tb_gui_setting_accepts(const tb_setting *setting, const tb_gui_var_value *value)
+{
+    const bool text = value->type == TB_GUI_TYPE_TEXT;
+    int32_t integer = value->integer;
+    double number = value->type == TB_GUI_TYPE_INT ? (double)value->integer : value->number;
+    int64_t least = 0;
+    int64_t most = 0;
+    double lowest = 0.0;
+    double highest = 0.0;
+    bool boolean = false;
+
+    switch (tb_setting_type_of(setting))
+    {
+    case TB_SETTING_BOOLEAN:
+        return !text || tb_gui_read_bool(value->text, &boolean);
+    case TB_SETTING_INTEGER:
+        if (text && !tb_gui_read_int(value->text, &integer))
+        {
+            return false;
+        }
+        if (value->type == TB_GUI_TYPE_FLOAT && !tb_gui_round_int(value->number, &integer))
+        {
+            return false;
+        }
+        tb_setting_integer_range(setting, &least, &most);
+        return integer >= least && integer <= most;
+    case TB_SETTING_NUMBER:
+        if (text && !tb_gui_read_float(value->text, &number))
+        {
+            return false;
+        }
+        tb_setting_number_range(setting, &lowest, &highest);
+        return isfinite(number) && number >= lowest && number <= highest;
+    case TB_SETTING_CHOICE: {
+        if (!text)
+        {
+            return integer >= 0 && (size_t)integer < tb_setting_choice_count(setting);
+        }
+        char *const name = tb_malloc(value->text.length + 1);
+        if (value->text.length > 0)
+        {
+            memcpy(name, value->text.bytes, value->text.length);
+        }
+        name[value->text.length] = '\0';
+        const bool found = tb_setting_find_choice(setting, name) < tb_setting_choice_count(setting);
+        tb_free(name);
+        return found;
+    }
+    case TB_SETTING_TEXT:
+        break;
+    }
+    return value->text.length <= tb_setting_text_limit(setting);
+}
+
+/* Hold a value in a deferred variable, for its setting to take when it is
+ * applied: refused as its setting would refuse it, but for text, which is
+ * kept as typed. */
+static bool tb_gui_hold(tb_gui_var_slot *slot, const tb_gui_var_value *value)
+{
+    const bool acceptable = tb_gui_setting_accepts(slot->setting, value);
+
+    if (!acceptable && slot->type != TB_GUI_TYPE_TEXT)
+    {
+        return false;
+    }
+    tb_gui_store(slot, value);
+    slot->accepted = acceptable;
+    slot->held = !tb_gui_matches_setting(slot);
+    return true;
+}
+
+/* Take the escapes out of a text setting's value as a file writes it,
+ * quoted, in place: what is left is the text. */
+static tb_text tb_gui_unquote(char *written, size_t length)
+{
+    size_t kept = 0;
+
+    if (length < 2 || written[0] != '"' || written[length - 1] != '"')
+    {
+        return tb_text_make(written, length);
+    }
+    for (size_t at = 1; at + 1 < length; at++)
+    {
+        char letter = written[at];
+        if (letter == '\\' && at + 2 < length)
+        {
+            at++;
+            letter = written[at];
+            if (letter == 'n')
+            {
+                letter = '\n';
+            }
+            else if (letter == 'r')
+            {
+                letter = '\r';
+            }
+            else if (letter == 't')
+            {
+                letter = '\t';
+            }
+        }
+        written[kept] = letter;
+        kept++;
+    }
+    written[kept] = '\0';
+    return tb_text_make(written, kept);
+}
+
+/* A setting's value without the game's own choices: its default file's,
+ * or else its definition's; a choice in a variable's type, any other as
+ * the text a file writes, for the caller to convert. Its text is in
+ * `buffer` (the caller's, freed with tb_free()). */
+static tb_gui_var_value tb_gui_setting_default(const tb_setting *setting, tb_gui_type type,
+                                               char **buffer)
+{
+    const tb_setting_type kind = tb_setting_type_of(setting);
+    const tb_setting_layer layer = tb_setting_has_layer(setting, TB_SETTING_LAYER_DEFAULT_FILE)
+                                       ? TB_SETTING_LAYER_DEFAULT_FILE
+                                       : TB_SETTING_LAYER_BUILT_IN;
+    /* A text setting's text, each byte escaped at worst, and its quotes. */
+    const size_t capacity =
+        kind == TB_SETTING_TEXT ? tb_setting_text_limit(setting) * 2u + 3u : TB_GUI_SETTING_TEXT;
+    tb_gui_var_value value = {.type = TB_GUI_TYPE_TEXT};
+    size_t length = 0;
+
+    *buffer = tb_calloc(capacity, 1);
+    length = tb_setting_format(setting, layer, *buffer, capacity);
+    if (length >= capacity)
+    {
+        length = 0;
+        (*buffer)[0] = '\0';
+    }
+    if (kind == TB_SETTING_TEXT)
+    {
+        value.text = tb_gui_unquote(*buffer, length);
+        return value;
+    }
+    value.text = tb_text_make(*buffer, length);
+    if (kind == TB_SETTING_CHOICE && type != TB_GUI_TYPE_TEXT)
+    {
+        value.type = TB_GUI_TYPE_INT;
+        value.integer = tb_gui_clamp_int((int64_t)tb_setting_find_choice(setting, *buffer));
+    }
+    return value;
 }
 
 /* Set a variable to a value of any type, through its setting. */
@@ -521,6 +685,10 @@ static bool tb_gui_var_assign(tb_var var, const tb_gui_var_value *given)
     {
         tb_gui_store(slot, &value);
         return true;
+    }
+    if (slot->deferred)
+    {
+        return tb_gui_hold(slot, &value);
     }
     const bool taken = tb_gui_write_setting(slot->setting, &value);
     if (slot->type == TB_GUI_TYPE_TEXT)
@@ -919,6 +1087,8 @@ bool tb_var_bind_setting(tb_var var, tb_setting *setting)
     {
         slot->setting = NULL;
         slot->accepted = true;
+        slot->deferred = false;
+        slot->held = false;
         return true;
     }
     if (!tb_gui_binds(slot->type, tb_setting_type_of(setting)))
@@ -926,8 +1096,169 @@ bool tb_var_bind_setting(tb_var var, tb_setting *setting)
         return false;
     }
     slot->setting = setting;
+    slot->deferred = false;
     tb_gui_take_setting(slot);
     return true;
+}
+
+bool tb_var_bind_setting_deferred(tb_var var, tb_setting *setting)
+{
+    tb_gui_var_slot *slot = NULL;
+
+    TB_ASSERT(setting != NULL);
+    if (!tb_var_bind_setting(var, setting))
+    {
+        return false;
+    }
+    slot = tb_gui_var_slot_of(var);
+    slot->deferred = true;
+    return true;
+}
+
+bool tb_var_deferred(tb_var var)
+{
+    const tb_gui_var_slot *const slot = tb_gui_var_slot_of(var);
+    return slot != NULL && slot->deferred;
+}
+
+bool tb_var_pending(tb_var var)
+{
+    const tb_gui_var_slot *const slot = tb_gui_var_slot_of(var);
+    return slot != NULL && slot->held;
+}
+
+bool tb_var_apply(tb_var var)
+{
+    tb_gui_var_slot *const slot = tb_gui_var_slot_of(var);
+
+    if (slot == NULL)
+    {
+        return false;
+    }
+    if (!slot->held)
+    {
+        return true;
+    }
+    const tb_gui_var_value value = tb_gui_slot_value(slot);
+    if (!tb_gui_write_setting(slot->setting, &value))
+    {
+        return false;
+    }
+    tb_gui_take_setting(slot);
+    return true;
+}
+
+bool tb_var_revert(tb_var var)
+{
+    tb_gui_var_slot *const slot = tb_gui_var_slot_of(var);
+
+    if (slot == NULL || slot->setting == NULL)
+    {
+        return false;
+    }
+    tb_gui_take_setting(slot);
+    return true;
+}
+
+bool tb_var_restore_default(tb_var var)
+{
+    tb_gui_var_slot *const slot = tb_gui_var_slot_of(var);
+    char *buffer = NULL;
+    char scratch[TB_DECIMAL_SHORTEST_SIZE] = {0};
+    tb_gui_var_value value = {0};
+    bool restored = false;
+
+    if (slot == NULL || slot->setting == NULL)
+    {
+        return false;
+    }
+    const tb_gui_var_value written = tb_gui_setting_default(slot->setting, slot->type, &buffer);
+    if (!tb_gui_convert(&written, slot->type, scratch, sizeof(scratch), &value))
+    {
+        restored = false;
+    }
+    else if (slot->deferred)
+    {
+        restored = tb_gui_hold(slot, &value);
+    }
+    else
+    {
+        restored = tb_gui_var_assign(var, &value);
+    }
+    tb_free(buffer);
+    return restored;
+}
+
+/* Each deferred variable of a GUI, alive, in the order made. */
+static size_t tb_gui_deferred_count(const tb_gui *gui)
+{
+    return gui->values != NULL ? gui->values->count : 0;
+}
+
+static tb_var tb_gui_deferred_at(tb_gui *gui, size_t index)
+{
+    const tb_gui_var_slot *const slot = &gui->values->slots[index];
+
+    if (!slot->alive || !slot->deferred)
+    {
+        return TB_VAR_NONE;
+    }
+    return (tb_var){gui, (uint32_t)index, slot->generation};
+}
+
+bool tb_gui_apply_settings(tb_gui *gui)
+{
+    bool applied = true;
+
+    TB_ASSERT(gui != NULL);
+    for (size_t index = 0; index < tb_gui_deferred_count(gui); index++)
+    {
+        const tb_var var = tb_gui_deferred_at(gui, index);
+        if (tb_var_alive(var) && !tb_var_apply(var))
+        {
+            applied = false;
+        }
+    }
+    return applied;
+}
+
+void tb_gui_revert_settings(tb_gui *gui)
+{
+    TB_ASSERT(gui != NULL);
+    for (size_t index = 0; index < tb_gui_deferred_count(gui); index++)
+    {
+        const tb_var var = tb_gui_deferred_at(gui, index);
+        if (tb_var_alive(var))
+        {
+            (void)tb_var_revert(var);
+        }
+    }
+}
+
+void tb_gui_restore_default_settings(tb_gui *gui)
+{
+    TB_ASSERT(gui != NULL);
+    for (size_t index = 0; index < tb_gui_deferred_count(gui); index++)
+    {
+        const tb_var var = tb_gui_deferred_at(gui, index);
+        if (tb_var_alive(var))
+        {
+            (void)tb_var_restore_default(var);
+        }
+    }
+}
+
+bool tb_gui_settings_pending(tb_gui *gui)
+{
+    TB_ASSERT(gui != NULL);
+    for (size_t index = 0; index < tb_gui_deferred_count(gui); index++)
+    {
+        if (tb_var_pending(tb_gui_deferred_at(gui, index)))
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 tb_setting *tb_var_setting(tb_var var)
@@ -1049,11 +1380,20 @@ void tb_gui_vars_update(tb_gui *gui)
     for (size_t index = 0; index < values->count; index++)
     {
         tb_gui_var_slot *const slot = &values->slots[index];
-        if (slot->alive && slot->setting != NULL &&
-            tb_setting_version(slot->setting) != slot->setting_version)
+        if (!slot->alive || slot->setting == NULL ||
+            tb_setting_version(slot->setting) == slot->setting_version)
         {
-            tb_gui_take_setting(slot);
+            continue;
         }
+        if (slot->held)
+        {
+            /* A deferred variable keeps what it holds, which may now be
+             * the setting's own. */
+            slot->setting_version = tb_setting_version(slot->setting);
+            slot->held = !tb_gui_matches_setting(slot);
+            continue;
+        }
+        tb_gui_take_setting(slot);
     }
     values->notifying++;
     for (int pass = 0; pass < TB_GUI_MOST_TRACE_PASSES && pending; pass++)

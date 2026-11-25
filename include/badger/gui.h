@@ -795,6 +795,10 @@ struct tb_widget_class
      * files cannot hold it yet, and saving such a widget fails rather than
      * drop it (tb_gui_save()). NULL for a kind whose properties say all. */
     const char *(*unsaved)(tb_widget widget, const void *data);
+    /** A layout file built it, and its children: take from them what they
+     * hold for it, as a notebook makes its children its tabs. NULL for a
+     * kind that needs nothing. */
+    void (*loaded)(tb_widget widget, void *data);
 };
 
 /**
@@ -1375,6 +1379,11 @@ typedef struct tb_gui_text_block
     float wrap_length;     /**< Units lines wrap at; 0 for none. */
     tb_font_align justify; /**< How lines sit against one another. */
     tb_gui_anchor anchor;  /**< Where the text sits in the rectangle. */
+    /** Optional: a font of the caller's, drawn in place of the spec's face,
+     * at the spec's size or the style's: a font browser's preview of any
+     * font. Borrowed: open until the frame that draws it ends, and forgotten
+     * by the canvas (tb_canvas_forget_font()) before it is closed. */
+    const tb_font *face;
 } tb_gui_text_block;
 
 /** @brief The size text takes, in units, measured at the frame's pixels,
@@ -1658,6 +1667,69 @@ TB_API tb_setting *tb_var_setting(tb_var var);
  * when it is bound to none. False while a text variable holds text its
  * setting refused. */
 TB_API bool tb_var_setting_accepts(tb_var var);
+
+/**
+ * @brief Bind a variable to an engine setting that takes its value only
+ * when it is applied, as an options menu's Apply does: the variable takes
+ * the setting's value now; setting the variable holds its value, which the
+ * setting takes at tb_var_apply(), and tb_var_revert() lets go of.
+ *
+ * A value is checked as the setting would check it (its range, its
+ * choices, its length), and refused as tb_var_bind_setting() refuses it;
+ * text is kept as typed, and tb_var_setting_accepts() says whether the
+ * setting would take it. While the variable holds no value of its own, it
+ * follows the setting's changes as a variable bound at once does; while it
+ * holds one, it keeps it.
+ *
+ * @param setting Required; borrowed: it outlives the binding, or the variable.
+ * @return false, binding nothing, as tb_var_bind_setting() does.
+ */
+TB_API bool tb_var_bind_setting_deferred(tb_var var, tb_setting *setting);
+
+/** @brief Whether a variable is bound to its setting deferred. */
+TB_API bool tb_var_deferred(tb_var var);
+
+/** @brief Whether a deferred variable holds a value its setting does not:
+ * a change not yet applied. False for any other variable. */
+TB_API bool tb_var_pending(tb_var var);
+
+/** @brief Give a deferred variable's setting the value it holds, at the
+ * setting's runtime layer; the variable then takes the setting's value.
+ * @return true when the setting took it, or there was nothing to apply;
+ * false, the variable keeping its value, when the setting refused it, or
+ * the handle is stale. */
+TB_API bool tb_var_apply(tb_var var);
+
+/** @brief Give a bound variable its setting's value, letting go of what a
+ * deferred one held. @return false when it is bound to none, or stale. */
+TB_API bool tb_var_revert(tb_var var);
+
+/**
+ * @brief Give a bound variable its setting's default: the value of the
+ * game's default file, or else the setting's definition, without the
+ * player's choices or the command line's, as an options menu's Defaults.
+ * A deferred variable holds it until it is applied; any other gives it to
+ * its setting at once.
+ * @return false when it is bound to none, the handle is stale, or the value
+ * does not convert to the variable's type.
+ */
+TB_API bool tb_var_restore_default(tb_var var);
+
+/** @brief Apply every deferred variable of a GUI (tb_var_apply()), in the
+ * order they were made. @return false when a setting refused a value; the
+ * others are applied all the same. */
+TB_API bool tb_gui_apply_settings(tb_gui *gui);
+
+/** @brief Revert every deferred variable of a GUI (tb_var_revert()). */
+TB_API void tb_gui_revert_settings(tb_gui *gui);
+
+/** @brief Give every deferred variable of a GUI its setting's default
+ * (tb_var_restore_default()), to hold until applied. */
+TB_API void tb_gui_restore_default_settings(tb_gui *gui);
+
+/** @brief Whether any deferred variable of a GUI holds a change not yet
+ * applied (tb_var_pending()). */
+TB_API bool tb_gui_settings_pending(tb_gui *gui);
 
 /* ---------------------------------------------------------------------------
  * Text being edited, and the clipboard.

@@ -1,0 +1,127 @@
+{
+  "format": "badger-gui",
+  "version": 1,
+  "root": {
+    "kind": "frame",
+    "name": "main",
+    "grid": {
+      "sticky": ["n", "s", "e", "w"]
+    },
+    "columns": [
+      {"minsize": 160},
+      {},
+      {"weight": 1},
+      {"minsize": 48}
+    ],
+    "rows": [
+      {"weight": 3},
+      {},
+      {},
+      {"minsize": 64},
+      {},
+      {"weight": 2},
+      {},
+      {"minsize": 32}
+    ],
+    "children": [
+      {
+        "kind": "label",
+        "name": "title",
+        "properties": {
+          "style": "Banner.Label",
+          "text": "Burrow"
+        },
+        "grid": {
+          "row": 1,
+          "column": 1,
+          "sticky": ["w"]
+        }
+      },
+      {
+        "kind": "label",
+        "name": "tagline",
+        "properties": {
+          "style": "Tagline.Label",
+          "text": "A graybox shooter, under construction"
+        },
+        "grid": {
+          "row": 2,
+          "column": 1,
+          "sticky": ["w"],
+          "padx": [8, 0]
+        }
+      },
+      {
+        "kind": "frame",
+        "name": "buttons",
+        "properties": {
+          "style": "Panel.Frame",
+          "background": true,
+          "focus_wrap": ["vertical"]
+        },
+        "grid": {
+          "row": 4,
+          "column": 1,
+          "sticky": ["w"]
+        },
+        "columns": [
+          {"minsize": 440}
+        ],
+        "children": [
+          {
+            "kind": "button",
+            "name": "play",
+            "properties": {
+              "text": "Play",
+              "command": "play",
+              "default_focus": true
+            },
+            "grid": {
+              "row": 0,
+              "sticky": ["e", "w"],
+              "pady": [0, 16]
+            }
+          },
+          {
+            "kind": "button",
+            "name": "options",
+            "properties": {
+              "text": "Options",
+              "command": "options"
+            },
+            "grid": {
+              "row": 1,
+              "sticky": ["e", "w"],
+              "pady": [0, 16]
+            }
+          },
+          {
+            "kind": "button",
+            "name": "quit",
+            "properties": {
+              "text": "Quit",
+              "command": "quit"
+            },
+            "grid": {
+              "row": 2,
+              "sticky": ["e", "w"]
+            }
+          }
+        ]
+      },
+      {
+        "kind": "label",
+        "name": "version",
+        "properties": {
+          "style": "Hint.Label",
+          "text": "Tenacious Badger"
+        },
+        "grid": {
+          "row": 6,
+          "column": 2,
+          "sticky": ["e"]
+        }
+      }
+    ]
+  }
+}

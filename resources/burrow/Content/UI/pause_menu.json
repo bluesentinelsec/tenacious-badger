@@ -1,0 +1,105 @@
+{
+  "format": "badger-gui",
+  "version": 1,
+  "root": {
+    "kind": "frame",
+    "name": "pause",
+    "grid": {
+      "sticky": ["n", "s", "e", "w"]
+    },
+    "columns": [
+      {"weight": 1},
+      {},
+      {"weight": 1}
+    ],
+    "rows": [
+      {"weight": 1},
+      {},
+      {"weight": 1}
+    ],
+    "children": [
+      {
+        "kind": "frame",
+        "name": "panel",
+        "properties": {
+          "style": "Panel.Frame",
+          "background": true,
+          "focus_wrap": ["vertical"]
+        },
+        "grid": {
+          "row": 1,
+          "column": 1
+        },
+        "columns": [
+          {"minsize": 480}
+        ],
+        "children": [
+          {
+            "kind": "label",
+            "name": "title",
+            "properties": {
+              "style": "Title.Label",
+              "text": "Paused"
+            },
+            "grid": {
+              "row": 0,
+              "pady": [0, 32]
+            }
+          },
+          {
+            "kind": "button",
+            "name": "resume",
+            "properties": {
+              "text": "Resume",
+              "command": "resume",
+              "default_focus": true
+            },
+            "grid": {
+              "row": 1,
+              "sticky": ["e", "w"],
+              "pady": [0, 16]
+            }
+          },
+          {
+            "kind": "button",
+            "name": "options",
+            "properties": {
+              "text": "Options",
+              "command": "options"
+            },
+            "grid": {
+              "row": 2,
+              "sticky": ["e", "w"],
+              "pady": [0, 16]
+            }
+          },
+          {
+            "kind": "button",
+            "name": "quit_to_menu",
+            "properties": {
+              "text": "Quit to menu",
+              "command": "quit_to_menu"
+            },
+            "grid": {
+              "row": 3,
+              "sticky": ["e", "w"],
+              "pady": [0, 16]
+            }
+          },
+          {
+            "kind": "button",
+            "name": "quit",
+            "properties": {
+              "text": "Quit",
+              "command": "quit"
+            },
+            "grid": {
+              "row": 4,
+              "sticky": ["e", "w"]
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

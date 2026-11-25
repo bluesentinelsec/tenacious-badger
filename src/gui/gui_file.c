@@ -45,7 +45,7 @@ static const char *const tb_gui_reserved[] = {"name", "gridded"};
 
 /* The keys of a file, of a widget, of a row or column, and of a font. */
 static const char *const tb_gui_file_keys[] = {"format", "version", "variables", "root"};
-static const char *const tb_gui_variable_keys[] = {"name", "type", "value", "setting"};
+static const char *const tb_gui_variable_keys[] = {"name", "type", "value", "setting", "deferred"};
 /* The types of variables, by the name a file gives them. */
 static const char *const tb_gui_variable_types[] = {"bool", "int", "float", "string"};
 static const tb_gui_type tb_gui_variable_type_of[] = {TB_GUI_TYPE_BOOL, TB_GUI_TYPE_INT,
@@ -1265,6 +1265,10 @@ static bool tb_gui_load_widget(tb_gui_loader *loader, tb_widget parent, const tb
             return false;
         }
     }
+    if (kind->loaded != NULL)
+    {
+        kind->loaded(*made, tb_widget_data(*made));
+    }
     return true;
 }
 
@@ -1340,8 +1344,10 @@ static void tb_gui_remember_var(tb_gui_loader *loader, tb_var var)
     loader->made_var_count++;
 }
 
-/* Bind a variable made to the setting a declaration names. */
-static bool tb_gui_bind_declared(tb_gui_loader *loader, tb_var var, const tb_json_value *json)
+/* Bind a variable made to the setting a declaration names, at once or
+ * deferred. */
+static bool tb_gui_bind_declared(tb_gui_loader *loader, tb_var var, const tb_json_value *json,
+                                 bool deferred)
 {
     tb_text name = {0};
     tb_setting *setting = NULL;
@@ -1359,12 +1365,36 @@ static bool tb_gui_bind_declared(tb_gui_loader *loader, tb_var var, const tb_jso
     {
         return tb_gui_fail(loader, json, "unknown setting", name.bytes);
     }
-    if (!tb_var_bind_setting(var, setting))
+    if (deferred ? !tb_var_bind_setting_deferred(var, setting) : !tb_var_bind_setting(var, setting))
     {
         return tb_gui_fail(loader, json, "a setting the variable's type does not bind to",
                            name.bytes);
     }
     return true;
+}
+
+/* A declaration's `deferred`: true or false, and only with a setting. */
+static bool tb_gui_read_deferred(tb_gui_loader *loader, const tb_json_value *object, bool *deferred)
+{
+    const tb_json_value *const json = tb_gui_member(object, "deferred");
+    size_t back = 0;
+    bool read = true;
+
+    if (json == NULL)
+    {
+        return true;
+    }
+    back = tb_gui_path_key(loader, "deferred");
+    if (!tb_json_as_bool(json, deferred))
+    {
+        read = tb_gui_fail(loader, json, "expected true or false", NULL);
+    }
+    else if (tb_gui_member(object, "setting") == NULL)
+    {
+        read = tb_gui_fail(loader, json, "deferred, and no setting", NULL);
+    }
+    tb_gui_path_back(loader, back);
+    return read;
 }
 
 /* One declaration: a variable of the name is made, unless the GUI has one,
@@ -1381,13 +1411,15 @@ static bool tb_gui_load_variable(tb_gui_loader *loader, const tb_json_value *obj
     tb_var var = TB_VAR_NONE;
     size_t back = 0;
     bool read = false;
+    bool deferred = false;
 
     if (tb_json_type_of(object) != TB_JSON_OBJECT)
     {
         return tb_gui_fail(loader, object, "expected an object", NULL);
     }
     if (!tb_gui_check_keys(loader, object, tb_gui_variable_keys,
-                           TB_GUI_COUNT_OF(tb_gui_variable_keys)))
+                           TB_GUI_COUNT_OF(tb_gui_variable_keys)) ||
+        !tb_gui_read_deferred(loader, object, &deferred))
     {
         return false;
     }
@@ -1448,7 +1480,7 @@ static bool tb_gui_load_variable(tb_gui_loader *loader, const tb_json_value *obj
         return true;
     }
     back = tb_gui_path_key(loader, "setting");
-    read = tb_gui_bind_declared(loader, var, setting_json);
+    read = tb_gui_bind_declared(loader, var, setting_json, deferred);
     tb_gui_path_back(loader, back);
     return read;
 }
@@ -2075,6 +2107,11 @@ static void tb_gui_save_variables(tb_gui_saver *saver, tb_widget widget)
         {
             tb_gui_write_key(saver, "setting");
             tb_gui_write_string(saver, tb_text_from_cstr(tb_setting_name(setting)));
+            if (tb_var_deferred(vars[index]))
+            {
+                tb_gui_write_key(saver, "deferred");
+                tb_gui_saver_check(saver, tb_json_write_bool(saver->writer, true));
+            }
         }
         tb_gui_saver_check(saver, tb_json_write_end_object(saver->writer));
     }
