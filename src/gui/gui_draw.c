@@ -109,6 +109,12 @@ tb_canvas_rect tb_gui_paint_rect(const tb_gui_paint *paint)
     return paint->rect;
 }
 
+tb_canvas_rect tb_gui_paint_clip(const tb_gui_paint *paint)
+{
+    TB_ASSERT(paint != NULL);
+    return paint->clip;
+}
+
 void tb_gui_paint_fill(tb_gui_paint *paint, tb_canvas_rect rect, float radius, tb_vec4 color)
 {
     TB_ASSERT(paint != NULL);
@@ -154,12 +160,15 @@ static void tb_gui_draw_node(tb_gui *gui, uint32_t index, tb_canvas_rect clip, i
                               .layer = layer};
         node->kind->draw(paint.widget, node->data, &paint);
     }
+    /* Children are seen within the clip of a kind that scrolls; popups and
+     * modal widgets are drawn above, on their own layers. */
+    const tb_canvas_rect seen = tb_ui_rect_intersect(inner, tb_gui_node_at(gui, index)->clip);
     for (uint32_t child = tb_gui_node_at(gui, index)->first_child; child != TB_GUI_NO_NODE;
          child = tb_gui_node_at(gui, child)->next)
     {
-        if (!tb_gui_modal_contains(gui, child))
+        if (!tb_gui_modal_contains(gui, child) && !tb_gui_node_at(gui, child)->popup)
         {
-            tb_gui_draw_node(gui, child, inner, layer);
+            tb_gui_draw_node(gui, child, seen, layer);
         }
     }
 }
@@ -183,6 +192,15 @@ void tb_gui_build_commands(tb_gui *gui)
         tb_ui_paint_fill(&gui->paint, layer, all, all, 0.0f, gui->theme.colors[TB_UI_COLOR_SHADOW],
                          0);
         tb_gui_draw_node(gui, modal.index, all, layer);
+    }
+    for (size_t index = 0; index < gui->popup_count; index++)
+    {
+        const tb_widget popup = gui->popups[index].widget;
+        const int32_t layer = gui->layer + 1 + (int32_t)(gui->modal_count + index);
+        if (tb_widget_alive(popup))
+        {
+            tb_gui_draw_node(gui, popup.index, all, layer);
+        }
     }
 }
 

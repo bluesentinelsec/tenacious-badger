@@ -114,7 +114,11 @@ set(TB_TEST_CASE_SOURCES
     gui/gui_event_test.c
     gui/gui_fixture.c
     gui/gui_grid_test.c
+    gui/gui_listbox_test.c
+    gui/gui_menu_test.c
+    gui/gui_popup_test.c
     gui/gui_scale_test.c
+    gui/gui_scroll_test.c
     gui/gui_tree_test.c
     jobs/loop_test.c
     anim/anim_test.c

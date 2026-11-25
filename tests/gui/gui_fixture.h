@@ -76,7 +76,7 @@ typedef struct gui_log
 /* A callback that adds its event to the gui_log given as `user`. */
 void gui_record(const tb_gui_event *event, void *user);
 
-/* Bind every kind of event of a widget to the log. */
+/* Bind every kind of event of a widget to the log, but motion. */
 void gui_record_all(tb_widget widget, gui_log *log);
 
 /* How many events of a kind the log holds for a widget. */

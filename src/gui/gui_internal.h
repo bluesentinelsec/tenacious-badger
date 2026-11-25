@@ -81,13 +81,25 @@ typedef struct tb_gui_node
     /* As last laid out. */
     tb_vec2 natural;
     tb_canvas_rect rect;
-    bool shown; /* placed by the last layout: visible, gridded, and in a shown parent */
+    bool shown;           /* placed by the last layout: visible, gridded, and in a shown parent */
+    tb_vec2 grid_request; /* the size its grid wants */
+    tb_canvas_rect clip;  /* where its children are seen: its rect, or its viewport's clip */
+    tb_vec2 content;      /* the size its children's grid is laid out in */
+    tb_vec2 scroll;       /* how far its children are scrolled, kept within its content */
+    bool popup;           /* shown as a popup, out of its parent's grid */
     /* Bindings. */
     tb_gui_binding *bindings;
     size_t binding_count;
     size_t binding_capacity;
     bool bindings_cleared; /* some were removed during events */
 } tb_gui_node;
+
+/* A popup shown, and how. */
+typedef struct tb_gui_popup_entry
+{
+    tb_widget widget;
+    tb_gui_popup_options options;
+} tb_gui_popup_entry;
 
 /* A font opened from the catalog for a spec, or NULL when it has none. */
 typedef struct tb_gui_font_entry
@@ -164,6 +176,12 @@ struct tb_gui
     tb_widget *modals;
     size_t modal_count;
     size_t modal_capacity;
+    tb_gui_popup_entry *popups; /* the last in front */
+    size_t popup_count;
+    size_t popup_capacity;
+    double hover_time;  /* when the widget under the mouse was entered */
+    tb_widget tooltip;  /* the tooltip shown, or none */
+    bool tooltip_spent; /* a press or a key hid it: none until another widget is entered */
     uint32_t dispatch_depth;
     bool wants_mouse;
     bool wants_keyboard;
@@ -202,6 +220,9 @@ const tb_gui_property *tb_gui_property_find(const tb_gui_node *node, const char 
 
 /* gui_layout.c: the grid. */
 void tb_gui_layout(tb_gui *gui);
+/* Measure a slot's subtree; place it, then its subtree, in a rectangle. */
+tb_vec2 tb_gui_measure(tb_gui *gui, uint32_t index);
+void tb_gui_arrange(tb_gui *gui, uint32_t index, tb_canvas_rect rect);
 void tb_gui_axis_free(tb_gui_axis *axis);
 tb_gui_view tb_gui_compute_view(const tb_gui *gui);
 /* How far into extra space an anchor places something along an axis: 0 at
@@ -211,15 +232,81 @@ float tb_gui_anchor_fraction(int32_t anchor, int axis);
 /* gui_input.c: events, the focus, and modal widgets. */
 void tb_gui_process_input(tb_gui *gui);
 void tb_gui_forget_widget(tb_gui *gui, tb_widget widget);
+/* Give a widget an event of a kind, at the mouse: its bindings, then its kind. */
+void tb_gui_send(tb_gui *gui, tb_gui_event_kind kind, tb_widget target);
 void tb_gui_dispatch_resized(tb_gui *gui);
 void tb_gui_refresh_hover(tb_gui *gui);
 void tb_gui_finish_input(tb_gui *gui);
 bool tb_gui_modal_contains(const tb_gui *gui, uint32_t index);
+
+/* gui_popup.c: popups. The level of the popup a slot is in, from 0 at the
+ * back, passive ones counted only when `passive` is true; SIZE_MAX for
+ * none. */
+size_t tb_gui_popup_level(tb_gui *gui, uint32_t index, bool passive);
+/* The popup in front that takes input, or none. */
+tb_widget tb_gui_active_popup(const tb_gui *gui);
+/* Close the popups from a level up, those in front first. Passive ones are
+ * closed only when `passive` is true. */
+void tb_gui_close_popups_from(tb_gui *gui, size_t level, bool passive);
+void tb_gui_layout_popups(tb_gui *gui);
+/* Take a slot out of the popups, without an event. */
+void tb_gui_forget_popup(tb_gui *gui, uint32_t index);
+
+/* gui_scroll.c: scroll each ancestor of a slot that scrolls as little as
+ * shows a rectangle, in units of the GUI as last laid out. */
+void tb_gui_see_rect(tb_gui *gui, uint32_t index, tb_canvas_rect rect);
+
+/* gui_tooltip.c: tooltips shown as the mouse rests. */
+void tb_gui_update_tooltips(tb_gui *gui);
+
+/* gui_scrollbar.c: scroll bars, for the kinds that draw their own. A bar
+ * along an axis: its track, and the part of the content seen. */
+typedef struct tb_gui_bar
+{
+    tb_canvas_rect track;
+    bool vertical;
+    float offset;  /* units scrolled */
+    float view;    /* units seen */
+    float content; /* units in all */
+} tb_gui_bar;
+
+/* Where a point is on a bar. */
+typedef enum tb_gui_bar_part
+{
+    TB_GUI_BAR_NONE,
+    TB_GUI_BAR_BEFORE, /* the track before the thumb */
+    TB_GUI_BAR_THUMB,
+    TB_GUI_BAR_AFTER /* the track after the thumb */
+} tb_gui_bar_part;
+
+/* How far a bar scrolls, at most. */
+float tb_gui_bar_range(const tb_gui_bar *bar);
+/* An offset kept from 0 to as far as a bar scrolls. */
+float tb_gui_bar_clamp(const tb_gui_bar *bar, float offset);
+/* The thumb's rectangle, at least as long as the bar is wide. */
+tb_canvas_rect tb_gui_bar_thumb(const tb_gui_bar *bar);
+tb_gui_bar_part tb_gui_bar_part_at(const tb_gui_bar *bar, tb_vec2 point);
+/* Where along the thumb a point takes it, for dragging. */
+float tb_gui_bar_grab(const tb_gui_bar *bar, tb_vec2 point);
+/* The offset of the thumb dragged to a point, held where it was grabbed. */
+float tb_gui_bar_drag(const tb_gui_bar *bar, tb_vec2 point, float grab);
+/* The offset a press on the track pages to: a view's length toward it. */
+float tb_gui_bar_page(const tb_gui_bar *bar, tb_gui_bar_part part);
+void tb_gui_bar_draw(tb_gui_paint *paint, const tb_gui_bar *bar, bool hot);
 
 /* gui_draw.c: the commands of a frame. */
 void tb_gui_build_commands(tb_gui *gui);
 
 /* gui_widgets.c: frames, labels, and buttons. */
 void tb_gui_register_builtins(tb_gui *gui);
+/* The containers' and overlays' kinds, each in its own source. */
+void tb_gui_register_scroll_kinds(tb_gui *gui);
+void tb_gui_register_listbox(tb_gui *gui);
+void tb_gui_register_menu_kinds(tb_gui *gui);
+void tb_gui_register_tooltip(tb_gui *gui);
+/* The size of a text, or of one empty line of its font. */
+tb_vec2 tb_gui_measure_block(tb_widget widget, const tb_gui_text_block *block);
+/* The height of a line of the theme's font, in units. */
+float tb_gui_line_height(tb_gui *gui);
 
 #endif

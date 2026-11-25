@@ -72,6 +72,7 @@ static bool tb_gui_set_visible(tb_widget widget, void *data, const tb_gui_value 
     if (!value->boolean)
     {
         tb_widget_end_modal(widget);
+        tb_gui_forget_popup(widget.gui, widget.index);
     }
     return true;
 }
