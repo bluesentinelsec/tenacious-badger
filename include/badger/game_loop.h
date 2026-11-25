@@ -56,13 +56,23 @@
  * the keys in its `event` callback, or turns the shortcut off with
  * `disable_fullscreen_shortcut`.
  *
+ * **Live resizing.** While the player drags the window's border or title
+ * bar, Windows and macOS hold the thread in a loop of their own, and reading
+ * events does not return until the drag ends. The loop sets itself as the
+ * window system's refresh (tb_window_system_set_refresh()), and runs frames
+ * from inside the system's loop as from tb_game_loop_step(): the events
+ * queued, settings, the ticks due, the frame at the window's new size, and
+ * pacing. The loop is the window system's refresh while it exists.
+ *
  * **Without a window.** A loop may have no window: a dedicated server, a
  * replay, or a test. It runs the same, with no events but those given to
  * tb_game_loop_inject().
  *
  * @par Threading
  * Stage-owned: every function is called on the thread that runs the loop,
- * the window system's thread, including from the loop's callbacks.
+ * the window system's thread, including from the loop's callbacks, which
+ * the loop calls on that thread too, from inside the system's own loop
+ * while the player drags the window.
  */
 #ifndef TB_GAME_LOOP_H
 #define TB_GAME_LOOP_H
@@ -152,7 +162,9 @@ typedef struct tb_game_loop_options
 } tb_game_loop_options;
 
 /**
- * @brief Create a game loop, which has run no frame yet.
+ * @brief Create a game loop, which has run no frame yet. With a window, the
+ * loop is its window system's refresh, replacing any set before, until it
+ * is destroyed.
  * @param options How; required. The window system, window, and settings must
  * outlive the loop.
  * @return The loop; never NULL.
@@ -160,7 +172,8 @@ typedef struct tb_game_loop_options
  */
 TB_API tb_game_loop *tb_game_loop_create(const tb_game_loop_options *options);
 
-/** @brief Destroy a game loop. @param loop The loop; NULL is ignored. */
+/** @brief Destroy a game loop, leaving its window system without a refresh.
+ * @param loop The loop; NULL is ignored. */
 TB_API void tb_game_loop_destroy(tb_game_loop *loop);
 
 /**

@@ -1,9 +1,12 @@
 /* The Cocoa windowing turns what AppKit gives a window's content view into
  * the engine's events: buttons, motion, the wheel, entering and leaving,
- * and the text the input context inserts. The events are made as AppKit
- * makes them and given to the view's methods, as the window would give
- * them, so that each is checked without a person at the mouse. */
+ * and the text the input context inserts; and while the player resizes the
+ * window, a timer in AppKit's tracking mode and each new size refresh. The
+ * events are made as AppKit makes them and given to the view's methods, and
+ * the delegate is told of a live resize as AppKit tells it, so that each is
+ * checked without a person at the mouse. */
 #include "badger/library.h"
+#include "badger/platform.h"
 #include "badger/window.h"
 
 #include "tb_test.h"
@@ -18,6 +21,15 @@ typedef struct point
     double x;
     double y;
 } point;
+
+typedef struct extent
+{
+    double width;
+    double height;
+} extent;
+
+/* How long a case runs the tracking mode, waiting for its timer. */
+#define TIMER_SECONDS 1.0
 
 typedef struct range
 {
@@ -394,5 +406,70 @@ TB_TEST(platform_cocoa_window, the_cursor_takes_each_shape)
         tb_window_set_cursor(made.window, (tb_cursor)cursor);
         (void)send(&made, made.view, "resetCursorRects");
     }
+    close_window(&made);
+}
+
+static void count_refresh(void *context)
+{
+    size_t *const refreshes = context;
+    (*refreshes)++;
+}
+
+static void set_content_size(const fixture *made, double width, double height)
+{
+    ((void (*)(id, sel, extent))made->objc.send)(
+        made->handle, made->objc.register_name("setContentSize:"), (extent){width, height});
+}
+
+/* Run the current run loop in AppKit's tracking mode, as it runs while the
+ * player resizes a window, until a refresh comes or a while passes. */
+static bool refreshed_in_tracking_mode(const fixture *made, id mode, const size_t *refreshes,
+                                       double seconds)
+{
+    const size_t before = *refreshes;
+    const id run_loop = send(made, made->objc.get_class("NSRunLoop"), "currentRunLoop");
+    const uint64_t give_up = tb_platform_clock_nanoseconds() + (uint64_t)(seconds * 1000000000.0);
+
+    while (*refreshes == before && tb_platform_clock_nanoseconds() < give_up)
+    {
+        const id until = ((id (*)(id, sel, double))made->objc.send)(
+            made->objc.get_class("NSDate"),
+            made->objc.register_name("dateWithTimeIntervalSinceNow:"), 0.05);
+        (void)((bool (*)(id, sel, id, id))made->objc.send)(
+            run_loop, made->objc.register_name("runMode:beforeDate:"), mode, until);
+    }
+    return *refreshes > before;
+}
+
+/* From windowWillStartLiveResize: to windowDidEndLiveResize:, a timer in
+ * the tracking mode and each new size refresh; outside, neither does. A
+ * window destroyed while it is resized stops its timer. */
+TB_TEST(platform_cocoa_window, a_live_resize_refreshes_from_inside_appkits_loop)
+{
+    fixture made = open_window();
+    const id delegate = send(&made, made.handle, "delegate");
+    size_t refreshes = 0;
+    void *data = NULL;
+    id mode = NULL;
+
+    TB_TEST_REQUIRE_UINT(
+        tb_library_find_data(made.objc.appkit, "NSEventTrackingRunLoopMode", &data, NULL), ==,
+        TB_LIBRARY_OK);
+    mode = *(id *)data;
+    tb_window_system_set_refresh(made.system, count_refresh, &refreshes);
+    set_content_size(&made, 340.0, 190.0);
+    TB_TEST_EXPECT_UINT(refreshes, ==, 0);
+
+    send_event(&made, delegate, "windowWillStartLiveResize:", NULL);
+    set_content_size(&made, 360.0, 200.0);
+    TB_TEST_EXPECT_UINT(refreshes, ==, 1);
+    TB_TEST_EXPECT(refreshed_in_tracking_mode(&made, mode, &refreshes, TIMER_SECONDS));
+    send_event(&made, delegate, "windowDidEndLiveResize:", NULL);
+    refreshes = 0;
+    set_content_size(&made, 380.0, 210.0);
+    TB_TEST_EXPECT(!refreshed_in_tracking_mode(&made, mode, &refreshes, 0.2));
+    TB_TEST_EXPECT_UINT(refreshes, ==, 0);
+
+    send_event(&made, delegate, "windowWillStartLiveResize:", NULL);
     close_window(&made);
 }

@@ -52,6 +52,13 @@
  * options' minimum, and keeps their aspect, when they give one, while the
  * player drags its border: a game designed for 16:9 opts into that.
  *
+ * **Live resizing.** While the player drags a window's border or title bar,
+ * Windows and macOS hold the window system's thread in a loop of their own,
+ * and tb_window_system_poll() does not return until the player lets go. A
+ * game that sets a refresh with tb_window_system_set_refresh() is called
+ * back from inside that loop, to render a frame at the window's new size, so
+ * that the picture follows the drag. The game loop sets one for itself.
+ *
  * **A display that is gone.** A window asked for a display that does not
  * exist, as a settings file may name a monitor since unplugged, opens on the
  * primary display instead.
@@ -503,6 +510,42 @@ TB_API void tb_window_system_wait(tb_window_system *system, uint64_t nanoseconds
  * @par Threading Thread-safe.
  */
 TB_API void tb_window_system_wake(tb_window_system *system);
+
+/** @brief What a window system calls while the system holds its thread in a
+ * loop of its own: see tb_window_system_set_refresh().
+ * @param context As given to tb_window_system_set_refresh(). */
+typedef void tb_window_refresh_function(void *context);
+
+/**
+ * @brief Have a window system call back while the system holds its thread
+ * in a loop of its own, so that the game goes on.
+ *
+ * While the player drags a window's border or title bar, or opens its system
+ * menu, Windows runs a loop of its own inside tb_window_system_poll(), which
+ * returns only when the player lets go; macOS does the same while the player
+ * resizes a window. The window system calls `refresh` from inside that loop:
+ * each time the window's size changes, and about once a frame between, so
+ * that the game reads the events queued, runs the ticks that are due, and
+ * renders a frame at the new size. Wayland and X11 run no such loop, and
+ * never call it.
+ *
+ * Inside `refresh`, tb_window_system_poll() returns the events queued without
+ * reading the system's messages, and tb_window_system_wait() returns at once:
+ * the system's own loop reads them. A refresh that falls due while one runs
+ * is dropped, so that calls never nest.
+ *
+ * The game loop sets a refresh for itself (tb_game_loop_create()). A program
+ * with a loop of its own sets one that runs a frame of its own, or none, and
+ * its picture then stands still while the player drags.
+ *
+ * @param system Required non-null.
+ * @param refresh What to call; NULL for nothing, as a new window system has.
+ * It replaces any set before.
+ * @param context Passed to `refresh`; borrowed, and must stay valid until
+ * the refresh is replaced or the window system closed.
+ */
+TB_API void tb_window_system_set_refresh(tb_window_system *system,
+                                         tb_window_refresh_function *refresh, void *context);
 
 /* ---------------------------------------------------------------------------
  * Windows.
