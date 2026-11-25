@@ -737,6 +737,7 @@ static int sandbox_main(const tb_cli_outcome *outcome, void *context)
     if (status == EXIT_SUCCESS)
     {
         run.box.ui_scale = (float)sandbox_ui_scale / 100.0f;
+        run.box.engine = &run.engine;
         run.speed = SANDBOX_MOVE_SPEED;
         run.box.camera = tb_camera_perspective(
             tb_radians((float)tb_setting_number(run.engine.graphics.field_of_view)));

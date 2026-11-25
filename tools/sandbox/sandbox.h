@@ -7,6 +7,7 @@
 #include "badger/engine_settings.h"
 #include "badger/font.h"
 #include "badger/font_catalog.h"
+#include "badger/gui.h"
 #include "badger/renderer.h"
 #include "badger/rhi.h"
 #include "badger/window.h"
@@ -43,8 +44,9 @@ typedef struct sandbox
     tb_font *fonts[SANDBOX_FONT_COUNT];
     tb_font_spec specs[SANDBOX_FONT_COUNT]; /* each font's role, and its size */
     float pixel_size;                       /* the pixel font's design size, in pixels to the em */
-    float ui_scale;    /* the interface's zoom over the display's scale: 1 is 100% */
-    bool cpu_skinning; /* skinned meshes forced onto the CPU */
+    float ui_scale;                   /* the interface's zoom over the display's scale: 1 is 100% */
+    const tb_engine_settings *engine; /* the engine's settings, which scenes may bind */
+    bool cpu_skinning;                /* skinned meshes forced onto the CPU */
 } sandbox;
 
 /* A frame of a scene. */
@@ -109,7 +111,12 @@ void ui_scene_draw(sandbox *box, void *state, const sandbox_frame *frame);
 void ui_scene_destroy(sandbox *box, void *state);
 bool ui_scene_event(sandbox *box, void *state, const tb_window_event *event);
 
-/* The retained GUI: a form laid out by grid over the shapes (sandbox_gui.c). */
+/* The retained GUI: a form laid out by grid over the shapes (sandbox_gui.c),
+ * and a panel of options bound to the engine's settings, in a column of a
+ * grid (sandbox_gui_options.c). */
+typedef struct gui_options gui_options;
+gui_options *gui_options_create(tb_widget parent, int32_t column, const tb_engine_settings *engine);
+void gui_options_destroy(gui_options *options);
 bool gui_scene_create(sandbox *box, void **state);
 void gui_scene_draw(sandbox *box, void *state, const sandbox_frame *frame);
 void gui_scene_destroy(sandbox *box, void *state);

@@ -479,6 +479,9 @@ static tb_gui_value tb_gui_read_offset(const tb_gui_property *property, const vo
     case TB_GUI_TYPE_COMMAND:
         memcpy(&value.command, at, sizeof(value.command));
         break;
+    case TB_GUI_TYPE_VARIABLE:
+        memcpy(&value.variable, at, sizeof(value.variable));
+        break;
     case TB_GUI_TYPE_COUNT:
         TB_ASSERT_MSG(false, "a property of no type");
         break;
@@ -522,6 +525,9 @@ static void tb_gui_write_offset(const tb_gui_property *property, void *data,
     case TB_GUI_TYPE_COMMAND:
         memcpy(at, &value->command, sizeof(value->command));
         break;
+    case TB_GUI_TYPE_VARIABLE:
+        memcpy(at, &value->variable, sizeof(value->variable));
+        break;
     case TB_GUI_TYPE_COUNT:
         TB_ASSERT_MSG(false, "a property of no type");
         break;
@@ -549,6 +555,9 @@ static bool tb_gui_value_fits(const tb_gui_property *property, const tb_gui_valu
         return isfinite(value->vec2.x) != 0 && isfinite(value->vec2.y) != 0;
     case TB_GUI_TYPE_TEXT:
         return value->text.bytes != NULL || value->text.length == 0;
+    case TB_GUI_TYPE_VARIABLE:
+        /* None, or a variable alive. */
+        return value->variable.gui == NULL || tb_var_alive(value->variable);
     case TB_GUI_TYPE_BOOL:
     case TB_GUI_TYPE_INT:
     case TB_GUI_TYPE_COLOR:
