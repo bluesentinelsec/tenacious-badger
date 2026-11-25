@@ -75,6 +75,7 @@ game makes its own the same way, and nothing in the GUI tells them apart.
 | `arrange` | at layout, once it has a place: before its children are placed |
 | `draw` | each update: drawn under its children, with `tb_gui_paint_*` |
 | `event` | after its bindings: returns whether it used the event |
+| `unsaved` | when it is saved: what it holds that no property says, which a [layout file](#layout-files) cannot hold yet |
 
 `flags` say whether Tab gives a widget the focus (`TB_WIDGET_CLASS_FOCUSABLE`),
 and whether a click does (`TB_WIDGET_CLASS_FOCUS_ON_CLICK`, for fields to
@@ -630,6 +631,85 @@ below the mouse as a passive popup. It hides when the mouse moves to
 another widget, a button is pressed, or a key goes down, and shows again
 only once the mouse has moved to another widget and back.
 
+### Trees
+
+A `treeview` is Tk's `ttk.Treeview`: items in a hierarchy, each with its
+text in the tree's column and a value in each column of values, under
+headings. Items are data with ids (`tb_tree_item`), never reused while the
+tree lives; `TB_TREE_ROOT` is the root.
+
+```c
+tb_widget tree = tb_treeview(pane, &(tb_treeview_desc){.heading = "Name", .command = on_pick});
+tb_treeview_add_column(tree, &(tb_treeview_column_desc){.heading = "Type", .width = 100});
+tb_tree_item lights = tb_treeview_insert(tree, TB_TREE_ROOT, SIZE_MAX,
+                                         &(tb_tree_item_desc){.text = "Lights", .open = true});
+tb_treeview_insert(tree, lights, SIZE_MAX,
+                   &(tb_tree_item_desc){.text = "Sun", .values = (const char *[]){"Light"},
+                                        .value_count = 1});
+```
+
+`tb_treeview_parent`, `_first_child`, and `_next_sibling` walk the items;
+`_text`, `_value`, and their setters read and change them; `_delete`
+deletes an item with every item in it. The rows are the items whose
+ancestors are open, kept in a list rebuilt when the tree changes, and only
+those seen are drawn. An item with children shows a mark: a press on it,
+or a double click on the row, opens or closes it, and the `open_command`
+is called. The selection follows the list's modes (`selectmode`), and its
+`command` is called when the user changes it. The arrows, Page Up and
+Down, Home, and End move the focus item; Right opens an item or goes into
+it, Left closes it or goes to its parent; Space chooses. A heading's right
+edge is dragged to resize its column, down to its `minwidth`.
+`tb_treeview_see` opens an item's ancestors and scrolls to it.
+
+### Notebooks and paned windows
+
+A `notebook` is a row of tabs over a page; each page is a child widget
+added with `tb_notebook_add`, placed in the notebook's grid, and shown
+only while its tab is chosen. A click on a tab chooses it; from a widget in
+the notebook with the focus, Control+Tab and Control+Shift+Tab, or
+Control+Page Down and Up, go around the tabs; with the focus on the
+notebook itself, Left and Right do. Its `command` is called when the user
+chooses another tab. A page destroyed takes its tab with it. Its natural
+size is its chosen page's.
+
+A `panedwindow` holds panes side by side (`TB_GUI_ORIENT_HORIZONTAL`) or
+one above another, with a sash between each two, dragged to share their
+space out (`tb_panedwindow_set_sash` does the same). It lays its panes out
+with its own grid: each pane in a row or column of one uniform group,
+weighted by its share, so that the grid keeps their sizes in proportion
+as the window is resized, and never below the pane's `minsize`; each sash a
+fixed row or column between them. A paned window is as large as it
+measures (its `width` and `height`, or its panes' natural sizes summed), so
+the panes' requests never widen it.
+
+### Message dialogs
+
+`tb_gui_message_box(gui, title, text, buttons, callback, user)` shows a
+dialog after Tk's `messagebox`: a title in the heading role's family, a
+message wrapped at 360 units, and a row of buttons of one width
+(`TB_MESSAGE_OK`, `_OK_CANCEL`, `_YES_NO`, `_YES_NO_CANCEL`,
+`_RETRY_CANCEL`). It is made of a frame, labels, and buttons in grids,
+gridded over every cell of the root's grid, and shown modally in their
+middle. The first button has the focus, so Enter or Space chooses it;
+Escape chooses Cancel, No, or OK, the last of them the dialog has.
+Choosing a button destroys the dialog, then calls the callback with the
+answer.
+
+### Images and canvases
+
+An `image` widget draws a canvas image (`tb_image_create`) by its `fit`,
+after CSS's `object-fit`: its own size (`none`), as large as it fits whole
+(`contain`), as small as it covers the widget, cut off (`cover`),
+stretched (`fill`), or as `contain` but never larger than itself
+(`scale_down`); placed by its `anchor` and tinted by its `tint`. Its size
+is its `width` and `height`, or the image's pixels as units.
+`tb_gui_fit_rect` is the same placement, for kinds of a game's own.
+
+A `canvas` widget's content is drawn by the caller: its callback is given
+the paint functions each update, clipped to the widget and its ancestors,
+and its input comes by bindings. It takes the focus on a click, so that a
+viewport has the keys. `tb_gui_paint_image` draws an image from any kind.
+
 ## Layout files
 
 A widget, and the widgets in it, is written as a JSON file and built from
@@ -783,8 +863,9 @@ column, a reason, and a message of all of them for a log.
 [stream](streams.md). The text is the same for the same widgets, byte for
 byte: indented two spaces, the members of each widget in the order of the
 table above, properties in the order of the kind's table, its references to
-variables and commands first and its others after, then the common ones, the grid's options in the order listed, and numbers in the
-fewest digits that read back as the same float (`0.1`, `100`).
+variables and commands first and its others after, then the common ones,
+the grid's options in the order listed, and numbers in the fewest digits
+that read back as the same float (`0.1`, `100`).
 
 A property is left out when loading would give it its value without it:
 when it equals a new widget's of the kind, after the properties written
@@ -793,9 +874,22 @@ reaches every file that did not choose. A property whose setter changes
 another, as a frame's `background` changes its `mouse_filter`, is written
 first; the one it changed is written after it when the widget holds
 another value. A slider's `value`, which its variable gives it, is not
-written at all. Read-only properties are not written, nor a command set in
-code that has no name, nor a variable with no name, or a name another
-variable made before it holds.
+written at all. Read-only properties are not written.
+
+**Nothing is dropped silently.** Saving fails, and the error says what and
+where (its path in the file written, `$.root.children[1]`), rather than
+write a file that loads to less than the widgets were:
+
+- a widget whose kind says it holds what no property says
+  (`tb_widget_class::unsaved`): menu items and a menu bar's entries, tree
+  items and columns, notebook tabs, a paned window's panes, an image
+  widget's image, a canvas widget's draw callback, and a message box's
+  answers. Layout files have no types for them yet (issue #337); the same
+  kinds empty save and load as any other;
+- a property of a type layout files have no form for;
+- a command set in code with no registered name, and a variable with no
+  name, or a name another variable made before it holds;
+- text that is not UTF-8, and widgets nested more than 64 deep.
 
 The variables the widgets name are declared under `variables`, each once,
 in the order the tree first names them: one bound to a setting with the
@@ -873,10 +967,9 @@ thread that renders. GUIs are independent of one another.
 
 - A combo box typed in (Tk's editable `ttk.Combobox`), and a spin box of
   a list of values; undo in text.
-- Containers and overlays: trees, tabs, split panes, message dialogs, and
-  image and canvas widgets.
-- Menus' and lists' items in layout files, which have no type for a list
-  yet; a menu bar opened by Alt and its titles' mnemonics.
+- Menus', lists', trees', and tabs' items in layout files, which have no
+  type for a list yet, nor for an image or a draw callback; a menu bar
+  opened by Alt and its titles' mnemonics.
 - Style classes and theme files; the `style` property is kept for them.
 - Focus moved by arrows and a gamepad.
 - Files watched by the system's own notices of change, rather than read
@@ -897,7 +990,10 @@ destroyed from inside callbacks; scroll frames laid out, clipped, found
 through their offsets, and scrolled by the wheel, their bars, and `see`;
 popups placed, closed by presses and Escape, and given keys; tooltips;
 lists in each selection mode, and long ones drawing only what is seen;
-menus by the mouse and the keyboard; the stretch modes and text measured
+menus by the mouse and the keyboard; trees by the mouse and the keyboard,
+with headings resized; notebooks' tabs; paned windows' shares and sashes;
+message dialogs answered every way; images fitted; canvases drawn by their
+callbacks; the stretch modes and text measured
 at the display's pixels; and the commands each widget draws, drawn on the null
 backend's canvas. Variables are read and set across their types, their
 observers run in updates, and they follow settings and are followed by
@@ -912,5 +1008,5 @@ loaded again, defaults left out, each error's path, line, and reason,
 thousands of damaged files that must neither crash nor leave a widget
 behind, paths, commands and variables by name, and a file in a VFS of
 memory changed, broken, removed, and mended under a watch. The sandbox's
-`gui` scene shows a form by eye
+`gui` scene shows a form by eye, and its `gui_tool` scene an editor's shape
 ([sandbox](sandbox.md)), and the tests draw it on WARP at two scales.

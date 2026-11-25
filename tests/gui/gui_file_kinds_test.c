@@ -21,7 +21,7 @@ static char *saved_text(tb_widget widget)
     char *text = NULL;
 
     tb_stream_open_buffer(NULL, &stream);
-    TB_TEST_REQUIRE_UINT(tb_gui_save(widget, &stream), ==, TB_GUI_FILE_OK);
+    TB_TEST_REQUIRE_UINT(tb_gui_save(widget, &stream, NULL), ==, TB_GUI_FILE_OK);
     bytes = tb_stream_buffer_bytes(&stream, &length);
     text = tb_malloc(length + 1);
     if (length > 0)
@@ -184,13 +184,15 @@ TB_TEST(gui_file_kinds, a_file_names_a_variable_the_game_made)
     tb_free(saved);
 
     /* A variable with no name, or a name another holds first, cannot be
-     * written, and is left out. */
+     * written: saving fails, rather than lose it. */
     const tb_var unnamed = tb_var_bool(fixture.gui, false);
     TB_TEST_REQUIRE(tb_widget_set(made, "variable",
                                   &(tb_gui_value){TB_GUI_TYPE_VARIABLE, {.variable = unnamed}}));
-    char *const bare = saved_text(made);
-    TB_TEST_EXPECT(tb_str_find(bare, 0, TB_STR_END, "variable") == TB_STR_NOT_FOUND);
-    tb_free(bare);
+    tb_stream stream = {0};
+    tb_stream_open_buffer(NULL, &stream);
+    TB_TEST_EXPECT_UINT(tb_gui_save(made, &stream, &error), ==, TB_GUI_FILE_INVALID);
+    TB_TEST_EXPECT_STRING(error.path, ==, "$.root.properties.variable");
+    (void)tb_stream_close(&stream);
     gui_fixture_close(&fixture);
 }
 
@@ -421,5 +423,75 @@ TB_TEST(gui_file_kinds, every_registered_kind_comes_back_the_same)
         tb_widget_destroy(made);
     }
     tb_test_context_clear();
+    gui_fixture_close(&fixture);
+}
+
+static void draw_nothing(tb_widget widget, tb_gui_paint *paint, void *user)
+{
+    (void)widget;
+    (void)paint;
+    (void)user;
+}
+
+/* Saving fails with the reason and what it would lose. */
+static void expect_unsaved(tb_widget widget, const char *path, const char *what)
+{
+    tb_stream stream = {0};
+    tb_gui_file_error error = {0};
+
+    tb_stream_open_buffer(NULL, &stream);
+    TB_TEST_CONTEXT("%s", what);
+    TB_TEST_EXPECT_UINT(tb_gui_save(widget, &stream, &error), ==, TB_GUI_FILE_INVALID);
+    TB_TEST_EXPECT_STRING(error.reason, ==, "content layout files cannot hold yet (issue #337)");
+    TB_TEST_EXPECT_STRING(error.path, ==, path);
+    TB_TEST_EXPECT(tb_str_find(error.message, 0, TB_STR_END, what) != TB_STR_NOT_FOUND);
+    tb_test_context_clear();
+    (void)tb_stream_close(&stream);
+}
+
+/* What a kind holds outside its properties (#337) is never dropped: a
+ * widget that holds any fails to save, and says what and where, while the
+ * same kinds empty save as any other. */
+TB_TEST(gui_file_kinds, content_files_cannot_hold_yet_fails_rather_than_vanish)
+{
+    gui_fixture fixture = {0};
+    gui_fixture_open(&fixture, 1.0f);
+    const tb_widget root = tb_gui_root(fixture.gui);
+    const tb_widget holder = tb_frame(root, NULL);
+
+    const tb_widget menu = tb_menu(holder);
+    char *const empty_menu = saved_text(menu);
+    tb_free(empty_menu);
+    (void)tb_menu_add(menu, &(tb_menu_item_desc){.label = "&Open"});
+    expect_unsaved(menu, "$.root", "menu items");
+    /* Inside another, the path says where. */
+    expect_unsaved(holder, "$.root.children[0]", "menu items");
+
+    const tb_widget bar = tb_menubar(root);
+    (void)tb_menubar_add(bar, "&File", tb_menu(root));
+    expect_unsaved(bar, "$.root", "menu bar entries");
+
+    const tb_widget tree = tb_treeview(root, NULL);
+    char *const empty_tree = saved_text(tree);
+    tb_free(empty_tree);
+    (void)tb_treeview_add_column(tree, &(tb_treeview_column_desc){.heading = "Type"});
+    expect_unsaved(tree, "$.root", "tree columns");
+    const tb_widget items = tb_treeview(root, NULL);
+    (void)tb_treeview_insert(items, TB_TREE_ROOT, SIZE_MAX, &(tb_tree_item_desc){.text = "a"});
+    expect_unsaved(items, "$.root", "tree items");
+
+    const tb_widget notebook = tb_notebook(root, NULL);
+    (void)tb_notebook_add(notebook, tb_frame(notebook, NULL), "Page");
+    expect_unsaved(notebook, "$.root", "notebook tabs");
+
+    const tb_widget paned = tb_panedwindow(root, NULL);
+    (void)tb_panedwindow_add(paned, tb_frame(paned, NULL), NULL);
+    expect_unsaved(paned, "$.root", "panes");
+
+    const tb_widget canvas = tb_canvas_widget(root, NULL);
+    char *const empty_canvas = saved_text(canvas);
+    tb_free(empty_canvas);
+    TB_TEST_REQUIRE(tb_canvas_widget_set_draw(canvas, draw_nothing, NULL));
+    expect_unsaved(canvas, "$.root", "a draw callback");
     gui_fixture_close(&fixture);
 }

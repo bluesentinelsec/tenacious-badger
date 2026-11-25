@@ -715,6 +715,12 @@ struct tb_widget_class
      * the mouse only within the clip. NULL lays them out in the rectangle
      * less the insets. */
     tb_gui_viewport (*viewport)(tb_widget widget, void *data, tb_canvas_rect inner);
+    /** For a kind whose widgets hold what no property of it expresses, set
+     * by functions (a menu's items, a tree's): what a widget holds now, a
+     * short phrase such as "menu items", or NULL when it holds none. Layout
+     * files cannot hold it yet, and saving such a widget fails rather than
+     * drop it (tb_gui_save()). NULL for a kind whose properties say all. */
+    const char *(*unsaved)(tb_widget widget, const void *data);
 };
 
 /**
@@ -1147,6 +1153,12 @@ TB_API void tb_gui_paint_line(tb_gui_paint *paint, tb_vec2 from, tb_vec2 to, flo
  * cut off at the right. @param paint Required. @param block Required. */
 TB_API void tb_gui_paint_text(tb_gui_paint *paint, const tb_gui_text_block *block,
                               tb_canvas_rect rect, tb_vec4 color);
+
+/** @brief An image stretched over a rectangle and tinted, within the
+ * widget's clip. @param paint Required. @param image Required; alive until
+ * the frame that draws it ends. */
+TB_API void tb_gui_paint_image(tb_gui_paint *paint, const tb_image *image, tb_canvas_rect rect,
+                               tb_vec4 tint);
 
 /* ---------------------------------------------------------------------------
  * Frames, labels, and buttons.
@@ -1944,6 +1956,387 @@ TB_API const tb_widget_class *tb_menubar_class(void);
 TB_API const tb_widget_class *tb_tooltip_class(void);
 
 /* ---------------------------------------------------------------------------
+ * Trees.
+ * ------------------------------------------------------------------------- */
+
+/** @brief An item of a tree view: an id, never reused while the tree
+ * lives. #TB_TREE_ROOT is the root, the parent of the items at the top. */
+typedef uint32_t tb_tree_item;
+
+/** @brief The root of a tree view: no item. */
+#define TB_TREE_ROOT 0u
+
+/** @brief The tree's own column, before the columns of values. */
+#define TB_TREEVIEW_TREE_COLUMN SIZE_MAX
+
+/** @brief A tree view, after Tk's `ttk.Treeview`: items in a hierarchy,
+ * each with its text in the tree's column and a value in each other
+ * column, under headings whose right edges are dragged to resize them. An
+ * item with children shows a mark, pressed to open or close it, as a double
+ * click does. It takes the focus on a click and by Tab; the arrows, Page Up
+ * and Down, Home, and End move, Right opens an item or goes into it, Left
+ * closes it or goes to its parent, and Space chooses. Its items are data,
+ * not widgets: only the rows seen are drawn. Properties: `selectmode`,
+ * `height`, `no_headings`, `heading`, `offset`, `command`, `open_command`. */
+typedef struct tb_treeview_desc
+{
+    /** How items are chosen, as a list's are (#tb_listbox_selectmode). */
+    tb_listbox_selectmode selectmode;
+    /** Rows it shows, scrolling the rest; 0 shows every row. */
+    int32_t height;
+    bool no_headings;    /**< Its headings are not shown. */
+    const char *heading; /**< The tree's column's heading; copied; NULL for none. */
+    float tree_width;    /**< Units the tree's column is wide; 0 is 200. */
+    /** Called when the user changes the selection, Tk's `<<TreeviewSelect>>`. */
+    tb_gui_callback *command;
+    /** Called when the user opens or closes an item, which is then the
+     * focus item, Tk's `<<TreeviewOpen>>` and `<<TreeviewClose>>`. */
+    tb_gui_callback *open_command;
+    void *user; /**< Given to both. */
+} tb_treeview_desc;
+
+/** @brief Make a tree view, with its tree's column only.
+ * @param desc Optional. @return None when `parent` is stale. */
+TB_API tb_widget tb_treeview(tb_widget parent, const tb_treeview_desc *desc);
+
+/** @brief A column of values, after the tree's. */
+typedef struct tb_treeview_column_desc
+{
+    const char *heading; /**< Copied; NULL for none. */
+    float width;         /**< Units; 0 is 100. */
+    float minwidth;      /**< The least it is dragged to; 0 is 20. */
+} tb_treeview_column_desc;
+
+/** @brief Add a column of values at the right. @param desc Optional.
+ * @return Its index among the columns of values, from 0; SIZE_MAX for a
+ * stale handle, another kind, or a negative width. */
+TB_API size_t tb_treeview_add_column(tb_widget treeview, const tb_treeview_column_desc *desc);
+
+/** @brief A column's width, in units. @param column An index from
+ * tb_treeview_add_column(), or #TB_TREEVIEW_TREE_COLUMN. @return 0 for
+ * none. */
+TB_API float tb_treeview_column_width(tb_widget treeview, size_t column);
+
+/** @brief Set a column's width, at least its least. @return false for none. */
+TB_API bool tb_treeview_set_column_width(tb_widget treeview, size_t column, float width);
+
+/** @brief An item to insert. */
+typedef struct tb_tree_item_desc
+{
+    const char *text;          /**< In the tree's column; copied; NULL for none. */
+    const char *const *values; /**< One for each column of values, copied; NULL for none. */
+    size_t value_count;        /**< How many. */
+    bool open;                 /**< Its children are shown. */
+} tb_tree_item_desc;
+
+/**
+ * @brief Insert an item, Tk's `insert`.
+ * @param parent #TB_TREE_ROOT, or an item.
+ * @param index Before which child of the parent; past the last, or
+ * SIZE_MAX, is at the end.
+ * @param desc Optional.
+ * @return The item; #TB_TREE_ROOT for a stale handle, another kind, or a
+ * parent that is not there.
+ */
+TB_API tb_tree_item tb_treeview_insert(tb_widget treeview, tb_tree_item parent, size_t index,
+                                       const tb_tree_item_desc *desc);
+
+/** @brief Delete an item and every item in it. @return false for the root
+ * or an item not there. */
+TB_API bool tb_treeview_delete(tb_widget treeview, tb_tree_item item);
+
+/** @brief Whether an item is there; false for the root. */
+TB_API bool tb_treeview_exists(tb_widget treeview, tb_tree_item item);
+
+/** @brief An item's parent; #TB_TREE_ROOT for the items at the top, and
+ * for none. */
+TB_API tb_tree_item tb_treeview_parent(tb_widget treeview, tb_tree_item item);
+
+/** @brief An item's first child, or the root's; #TB_TREE_ROOT for none. */
+TB_API tb_tree_item tb_treeview_first_child(tb_widget treeview, tb_tree_item item);
+
+/** @brief The child of its parent after an item; #TB_TREE_ROOT for none. */
+TB_API tb_tree_item tb_treeview_next_sibling(tb_widget treeview, tb_tree_item item);
+
+/** @brief An item's text. @return Borrowed until it changes; empty for none. */
+TB_API tb_text tb_treeview_text(tb_widget treeview, tb_tree_item item);
+
+/** @brief Set an item's text. @param text Required; copied. @return false
+ * for none. */
+TB_API bool tb_treeview_set_text(tb_widget treeview, tb_tree_item item, const char *text);
+
+/** @brief An item's value in a column of values. @return Borrowed until it
+ * changes; empty for none. */
+TB_API tb_text tb_treeview_value(tb_widget treeview, tb_tree_item item, size_t column);
+
+/** @brief Set an item's value in a column of values. @param text Required;
+ * copied. @return false for none. */
+TB_API bool tb_treeview_set_value(tb_widget treeview, tb_tree_item item, size_t column,
+                                  const char *text);
+
+/** @brief Open an item, showing its children, or close it, without the
+ * open command. @return false for none. */
+TB_API bool tb_treeview_set_open(tb_widget treeview, tb_tree_item item, bool open);
+
+/** @brief Whether an item is open. */
+TB_API bool tb_treeview_is_open(tb_widget treeview, tb_tree_item item);
+
+/** @brief Choose an item or not, without the command; choosing one in a
+ * mode of one leaves it alone chosen. @return false for none. */
+TB_API bool tb_treeview_select(tb_widget treeview, tb_tree_item item, bool selected);
+
+/** @brief Choose no item. */
+TB_API void tb_treeview_clear_selection(tb_widget treeview);
+
+/** @brief Whether an item is chosen. */
+TB_API bool tb_treeview_selected(tb_widget treeview, tb_tree_item item);
+
+/** @brief The items chosen, in the order made. @param[out] items Optional
+ * when `capacity` is 0. @return How many are chosen. */
+TB_API size_t tb_treeview_selection(tb_widget treeview, tb_tree_item *items, size_t capacity);
+
+/** @brief The item the keyboard is at, Tk's `focus`; #TB_TREE_ROOT for none. */
+TB_API tb_tree_item tb_treeview_focus_item(tb_widget treeview);
+
+/** @brief Put the keyboard at an item. @return false for none. */
+TB_API bool tb_treeview_set_focus_item(tb_widget treeview, tb_tree_item item);
+
+/** @brief Open an item's ancestors, and scroll the tree, and each ancestor
+ * that scrolls, to show it, Tk's `see`. @return false for none. */
+TB_API bool tb_treeview_see(tb_widget treeview, tb_tree_item item);
+
+/** @brief The item whose row is at a height, in units of the GUI, Tk's
+ * `identify row`; #TB_TREE_ROOT for none. */
+TB_API tb_tree_item tb_treeview_identify_row(tb_widget treeview, float y);
+
+/* ---------------------------------------------------------------------------
+ * Notebooks.
+ * ------------------------------------------------------------------------- */
+
+/** @brief A notebook, after Tk's `ttk.Notebook`: a row of tabs over a page,
+ * each page a child widget, only the chosen one shown. A tab is chosen by a
+ * click, by Control+Tab and Control+Shift+Tab or Control+Page Up and Down
+ * from a widget in it with the focus, and by Left and Right while it has
+ * the focus itself. Its natural size is its chosen page's. Properties:
+ * `selected`, `padding`, `command`. */
+typedef struct tb_notebook_desc
+{
+    float padding;            /**< Units between its edges and its pages. */
+    tb_gui_callback *command; /**< Called when the user chooses another tab. */
+    void *user;               /**< Given to the command. */
+} tb_notebook_desc;
+
+/** @brief Make a notebook. @param desc Optional. @return None when
+ * `parent` is stale. */
+TB_API tb_widget tb_notebook(tb_widget parent, const tb_notebook_desc *desc);
+
+/**
+ * @brief Add a page, Tk's `add`: a child of the notebook, placed in its
+ * grid, shown when its tab is chosen; the first page added is chosen. A
+ * page destroyed takes its tab with it.
+ * @param text Its tab's text; required; copied.
+ * @return Its tab's index; SIZE_MAX for a stale handle, another kind, or a
+ * page that is not its child.
+ */
+TB_API size_t tb_notebook_add(tb_widget notebook, tb_widget page, const char *text);
+
+/** @brief How many tabs a notebook has. */
+TB_API size_t tb_notebook_tab_count(tb_widget notebook);
+
+/** @brief The tab chosen; SIZE_MAX for none. */
+TB_API size_t tb_notebook_selected(tb_widget notebook);
+
+/** @brief Choose a tab, without the command. @return false past the end. */
+TB_API bool tb_notebook_select(tb_widget notebook, size_t index);
+
+/** @brief A tab's page; none past the end. */
+TB_API tb_widget tb_notebook_page(tb_widget notebook, size_t index);
+
+/** @brief Set a tab's text. @param text Required; copied. @return false
+ * past the end. */
+TB_API bool tb_notebook_set_tab_text(tb_widget notebook, size_t index, const char *text);
+
+/* ---------------------------------------------------------------------------
+ * Paned windows.
+ * ------------------------------------------------------------------------- */
+
+/** @brief A paned window, after Tk's `ttk.Panedwindow`: panes side by side
+ * (horizontal) or one above another (vertical), with a sash between each
+ * two that is dragged to share their space out. Each pane keeps its share
+ * of the space as the window is resized, and is never less than its least
+ * size. It lays its panes out with its grid, as every widget does.
+ * Properties: `orient`, `width`, `height`. */
+typedef struct tb_panedwindow_desc
+{
+    tb_gui_orient orient; /**< Horizontal unless chosen: panes side by side. */
+    float width;          /**< Units across it wants; 0 is its panes'. */
+    float height;         /**< Units down it wants; 0 is its panes'. */
+} tb_panedwindow_desc;
+
+/** @brief Make a paned window. @param desc Optional. @return None when
+ * `parent` is stale. */
+TB_API tb_widget tb_panedwindow(tb_widget parent, const tb_panedwindow_desc *desc);
+
+/** @brief How a pane takes space. Zero is a share of 1 and no least size. */
+typedef struct tb_pane_options
+{
+    float weight;  /**< Its share of the space, against the others'; 0 is 1. */
+    float minsize; /**< The least it is, in units. */
+} tb_pane_options;
+
+/** @brief Add a pane at the end, Tk's `add`: a child of the paned window.
+ * @param options Optional. @return Its index; SIZE_MAX for a stale handle,
+ * another kind, a pane that is not its child, or a negative option. */
+TB_API size_t tb_panedwindow_add(tb_widget panedwindow, tb_widget pane,
+                                 const tb_pane_options *options);
+
+/** @brief How many panes a paned window has. */
+TB_API size_t tb_panedwindow_pane_count(tb_widget panedwindow);
+
+/** @brief Where a sash starts along the panes' axis, in units of the GUI,
+ * Tk's `sashpos`; laid out first. 0 for none. */
+TB_API float tb_panedwindow_sash(tb_widget panedwindow, size_t sash);
+
+/** @brief Move a sash as dragging it does, its panes kept at least their
+ * least sizes. @param position Units of the GUI along the axis.
+ * @return false for none. */
+TB_API bool tb_panedwindow_set_sash(tb_widget panedwindow, size_t sash, float position);
+
+/* ---------------------------------------------------------------------------
+ * Message dialogs.
+ * ------------------------------------------------------------------------- */
+
+/** @brief The buttons of a message dialog. */
+typedef enum tb_message_buttons
+{
+    TB_MESSAGE_OK,            /**< OK. */
+    TB_MESSAGE_OK_CANCEL,     /**< OK and Cancel. */
+    TB_MESSAGE_YES_NO,        /**< Yes and No. */
+    TB_MESSAGE_YES_NO_CANCEL, /**< Yes, No, and Cancel. */
+    TB_MESSAGE_RETRY_CANCEL   /**< Retry and Cancel. */
+} tb_message_buttons;
+
+/** @brief The button a message dialog was answered with. */
+typedef enum tb_message_result
+{
+    TB_MESSAGE_RESULT_OK,
+    TB_MESSAGE_RESULT_CANCEL,
+    TB_MESSAGE_RESULT_YES,
+    TB_MESSAGE_RESULT_NO,
+    TB_MESSAGE_RESULT_RETRY
+} tb_message_result;
+
+/** @brief A message dialog's answer. @param result The button chosen.
+ * @param user The dialog's argument. */
+typedef void tb_message_callback(tb_message_result result, void *user);
+
+/**
+ * @brief Show a message dialog, after Tk's `messagebox`: a title, a
+ * message, and a row of buttons, made of a frame, labels, and buttons in
+ * grids, shown modally in the middle of the root's grid. The first button
+ * has the focus, so Enter or Space chooses it; Escape chooses Cancel, No,
+ * or OK, the last of them the dialog has. Choosing a button destroys the
+ * dialog and calls the callback; destroying it otherwise calls nothing.
+ * @param title Optional; NULL or empty for none; copied.
+ * @param text Required; copied.
+ * @param buttons Which.
+ * @param callback Optional.
+ * @param user Given to the callback.
+ * @return The dialog, a widget of the kind "messagebox".
+ */
+TB_API tb_widget tb_gui_message_box(tb_gui *gui, const char *title, const char *text,
+                                    tb_message_buttons buttons, tb_message_callback *callback,
+                                    void *user);
+
+/* ---------------------------------------------------------------------------
+ * Images and canvases.
+ * ------------------------------------------------------------------------- */
+
+/** @brief How an image fills its widget, after CSS's `object-fit`. */
+typedef enum tb_image_fit
+{
+    TB_IMAGE_FIT_NONE,      /**< Its own size, a pixel a unit. */
+    TB_IMAGE_FIT_CONTAIN,   /**< As large as it fits whole, its shape kept. */
+    TB_IMAGE_FIT_COVER,     /**< As small as it covers the widget, its shape kept; cut off. */
+    TB_IMAGE_FIT_FILL,      /**< Stretched to the widget. */
+    TB_IMAGE_FIT_SCALE_DOWN /**< As contain, but never larger than its own size. */
+} tb_image_fit;
+
+/**
+ * @brief The rectangle an image of a size is drawn in to fit a rectangle,
+ * placed by an anchor.
+ * @param size The image's size, in units; zero draws nothing.
+ * @par Threading Thread-safe.
+ */
+TB_API tb_canvas_rect tb_gui_fit_rect(tb_vec2 size, tb_canvas_rect rect, tb_image_fit fit,
+                                      tb_gui_anchor anchor);
+
+/** @brief An image in a widget: a canvas image (tb_image_create()), drawn
+ * by its fit, placed by its anchor, and tinted. Properties: `fit`,
+ * `anchor`, `tint`, `width`, `height`. */
+typedef struct tb_image_widget_desc
+{
+    /** Borrowed; it outlives the widget, or is replaced first. NULL draws
+     * nothing. */
+    const tb_image *image;
+    tb_image_fit fit;     /**< Its own size unless chosen. */
+    tb_gui_anchor anchor; /**< Where it sits when it does not fill the widget. */
+    float width;          /**< Units across it wants; 0 is the image's pixels. */
+    float height;         /**< Units down it wants; 0 is the image's pixels. */
+} tb_image_widget_desc;
+
+/** @brief Make an image widget, tinted white. @param desc Optional.
+ * @return None when `parent` is stale. */
+TB_API tb_widget tb_image_widget(tb_widget parent, const tb_image_widget_desc *desc);
+
+/** @brief Draw another image. @param image Borrowed; NULL for none.
+ * @return false for a stale handle or another kind. */
+TB_API bool tb_image_widget_set_image(tb_widget widget, const tb_image *image);
+
+/** @brief The image drawn; NULL for none. */
+TB_API const tb_image *tb_image_widget_image(tb_widget widget);
+
+/** @brief Draw a canvas widget's content: called each update with the
+ * paint functions (tb_gui_paint_fill() and the rest), clipped to it.
+ * @param widget The canvas widget. @param paint Its rectangle and clip.
+ * @param user The widget's argument. */
+typedef void tb_canvas_widget_draw(tb_widget widget, tb_gui_paint *paint, void *user);
+
+/** @brief A canvas widget: content drawn by the caller, after Tk's `canvas`
+ * drawn by hand; its input comes by bindings. It takes the focus on a
+ * click. Properties: `width`, `height`, `background`. */
+typedef struct tb_canvas_widget_desc
+{
+    float width;                 /**< Units across it wants. */
+    float height;                /**< Units down it wants. */
+    bool background;             /**< Filled with the theme's field color first. */
+    tb_canvas_widget_draw *draw; /**< Optional. */
+    void *user;                  /**< Given to it. */
+} tb_canvas_widget_desc;
+
+/** @brief Make a canvas widget. @param desc Optional. @return None when
+ * `parent` is stale. */
+TB_API tb_widget tb_canvas_widget(tb_widget parent, const tb_canvas_widget_desc *desc);
+
+/** @brief Draw a canvas widget's content with another callback.
+ * @param draw Optional. @return false for a stale handle or another kind. */
+TB_API bool tb_canvas_widget_set_draw(tb_widget widget, tb_canvas_widget_draw *draw, void *user);
+
+/** @brief The kinds of trees, notebooks, paned windows, message dialogs,
+ * images, and canvases. @par Threading Thread-safe. */
+TB_API const tb_widget_class *tb_treeview_class(void);
+/** @brief See tb_treeview_class(). @par Threading Thread-safe. */
+TB_API const tb_widget_class *tb_notebook_class(void);
+/** @brief See tb_treeview_class(). @par Threading Thread-safe. */
+TB_API const tb_widget_class *tb_panedwindow_class(void);
+/** @brief See tb_treeview_class(). @par Threading Thread-safe. */
+TB_API const tb_widget_class *tb_message_box_class(void);
+/** @brief See tb_treeview_class(). @par Threading Thread-safe. */
+TB_API const tb_widget_class *tb_image_widget_class(void);
+/** @brief See tb_treeview_class(). @par Threading Thread-safe. */
+TB_API const tb_widget_class *tb_canvas_widget_class(void);
+
+/* ---------------------------------------------------------------------------
  * Finding widgets by path.
  * ------------------------------------------------------------------------- */
 
@@ -2103,16 +2496,25 @@ TB_API tb_gui_file_result tb_gui_load_file(tb_widget parent, struct tb_vfs *vfs,
  * read back as the same value. A property is left out when loading would
  * give it its value without it: when it is its kind's default, after the
  * properties written before it, a kind's variables and commands first.
- * Read-only properties, commands set from code rather than registered by
- * name, and variables with no name that finds them, are not written. The
- * variables named are declared in the file, with their values or settings. Saving a file
- * that was loaded gives the same text when the file was written so.
+ * Read-only properties are not written. The variables named are declared
+ * in the file, with their values or settings. Saving a file that was
+ * loaded gives the same text when the file was written so.
  *
- * @param sink Required open stream that can write; borrowed.
- * @return OK; INVALID for a stale handle or text that is not UTF-8;
- * OUTPUT_FAILED when the stream refused.
+ * Nothing is dropped silently. A widget that holds what a file cannot
+ * hold yet (tb_widget_class::unsaved: menu items, tree items, tabs, panes,
+ * an image, a draw callback), a property of a type with no form in a file,
+ * a command set in code with no registered name, and a variable no name
+ * finds, each fail the save, and the error says which and where.
+ *
+ * @param sink Required open stream that can write; borrowed. On failure it
+ * holds part of a file, or a file with `null` where the failure was.
+ * @param[out] error Optional: where and why it failed; its path is that of
+ * the value in the file written (`$.root.children[1]`).
+ * @return OK; INVALID for a stale handle, text that is not UTF-8, widgets
+ * nested too deep, or what a file cannot hold; OUTPUT_FAILED when the
+ * stream refused.
  */
-TB_API tb_gui_file_result tb_gui_save(tb_widget widget, tb_stream *sink);
+TB_API tb_gui_file_result tb_gui_save(tb_widget widget, tb_stream *sink, tb_gui_file_error *error);
 
 /* ---------------------------------------------------------------------------
  * Hot reload.

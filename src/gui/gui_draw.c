@@ -138,6 +138,15 @@ void tb_gui_paint_line(tb_gui_paint *paint, tb_vec2 from, tb_vec2 to, float thic
                      tb_gui_id_of(paint->widget));
 }
 
+void tb_gui_paint_image(tb_gui_paint *paint, const tb_image *image, tb_canvas_rect rect,
+                        tb_vec4 tint)
+{
+    TB_ASSERT(paint != NULL);
+    TB_ASSERT(image != NULL);
+    tb_ui_paint_image(&paint->gui->paint, paint->layer, paint->clip, image, rect, tint,
+                      tb_gui_id_of(paint->widget));
+}
+
 /* ---------------------------------------------------------------------------
  * The tree, drawn.
  * ------------------------------------------------------------------------- */

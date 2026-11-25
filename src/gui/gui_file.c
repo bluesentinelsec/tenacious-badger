@@ -301,16 +301,63 @@ typedef struct tb_gui_saver
 {
     tb_gui *gui;
     tb_json_writer *writer;
-    tb_gui_file_result result; /* the first failure; OK while there is none */
+    tb_gui_file_result result;             /* the first failure; OK while there is none */
+    tb_gui_file_error *error;              /* where and why the first failure was */
+    char path[TB_GUI_FILE_ERROR_CAPACITY]; /* of the value being written */
+    size_t path_length;
 } tb_gui_saver;
+
+/* The first failure is kept, with the path of the value being written. */
+static void tb_gui_save_fail(tb_gui_saver *saver, tb_gui_file_result result, const char *reason,
+                             const char *detail)
+{
+    if (saver->result != TB_GUI_FILE_OK)
+    {
+        return;
+    }
+    saver->result = result;
+    *saver->error = (tb_gui_file_error){.result = result, .reason = reason};
+    memcpy(saver->error->path, saver->path, saver->path_length + 1);
+    tb_gui_error_message(saver->error, NULL, detail);
+}
 
 static void tb_gui_saver_check(tb_gui_saver *saver, tb_json_result result)
 {
-    if (result != TB_JSON_OK && saver->result == TB_GUI_FILE_OK)
+    if (result == TB_JSON_OUTPUT_FAILED)
     {
-        saver->result =
-            result == TB_JSON_OUTPUT_FAILED ? TB_GUI_FILE_OUTPUT_FAILED : TB_GUI_FILE_INVALID;
+        tb_gui_save_fail(saver, TB_GUI_FILE_OUTPUT_FAILED, "the stream refused what was written",
+                         NULL);
     }
+    else if (result != TB_JSON_OK)
+    {
+        tb_gui_save_fail(saver, TB_GUI_FILE_INVALID, "text that is not UTF-8", NULL);
+    }
+}
+
+/* Go into a member of what is written; returns where to come back to. */
+static size_t tb_gui_saver_key(tb_gui_saver *saver, const char *key)
+{
+    const size_t previous = saver->path_length;
+
+    tb_gui_append(saver->path, sizeof(saver->path), &saver->path_length, ".");
+    tb_gui_append(saver->path, sizeof(saver->path), &saver->path_length, key);
+    return previous;
+}
+
+static size_t tb_gui_saver_index(tb_gui_saver *saver, size_t index)
+{
+    const size_t previous = saver->path_length;
+    char text[32] = {0};
+
+    (void)tb_fmt_buffer(text, sizeof(text), "[%zu]", index);
+    tb_gui_append(saver->path, sizeof(saver->path), &saver->path_length, text);
+    return previous;
+}
+
+static void tb_gui_saver_back(tb_gui_saver *saver, size_t previous)
+{
+    saver->path_length = previous;
+    saver->path[previous] = '\0';
 }
 
 static void tb_gui_write_key(tb_gui_saver *saver, const char *key)
@@ -1572,17 +1619,11 @@ tb_gui_file_result tb_gui_load_file(tb_widget parent, struct tb_vfs *vfs, const 
 /* Whether a property is one the file's "properties" hold, and its value can
  * be written: neither read-only, nor of a type with no codec, nor a named
  * value with no name. */
-static bool tb_gui_writable(tb_gui_saver *saver, const tb_gui_property *property,
-                            const tb_gui_value *value)
+static bool tb_gui_writable(const tb_gui_property *property)
 {
-    if ((property->flags & TB_GUI_PROPERTY_READ_ONLY) != 0 ||
-        tb_gui_codec_of(property->type) == NULL ||
-        tb_gui_listed(tb_gui_reserved, TB_GUI_COUNT_OF(tb_gui_reserved), property->name) ||
-        tb_gui_listed(tb_gui_placement, TB_GUI_COUNT_OF(tb_gui_placement), property->name))
-    {
-        return false;
-    }
-    return !tb_gui_type_is_named(property->type) || tb_gui_named_name_of(saver->gui, value) != NULL;
+    return (property->flags & TB_GUI_PROPERTY_READ_ONLY) == 0 &&
+           !tb_gui_listed(tb_gui_reserved, TB_GUI_COUNT_OF(tb_gui_reserved), property->name) &&
+           !tb_gui_listed(tb_gui_placement, TB_GUI_COUNT_OF(tb_gui_placement), property->name);
 }
 
 /* Which properties come in which turn of the order a file writes them. */
@@ -1608,23 +1649,43 @@ static tb_gui_turn tb_gui_turn_of(const tb_gui_property *property, size_t index,
 static bool tb_gui_differs(tb_gui_saver *saver, tb_widget widget, tb_widget scratch,
                            const tb_gui_property *property)
 {
+    const tb_gui_codec *const codec = tb_gui_codec_of(property->type);
     tb_gui_value value = {0};
     tb_gui_value fresh = {0};
-    const tb_gui_codec *codec = NULL;
+    size_t back = 0;
 
-    if (!tb_widget_get(widget, property->name, &value) ||
-        !tb_gui_writable(saver, property, &value) ||
+    if (!tb_gui_writable(property) || !tb_widget_get(widget, property->name, &value) ||
         !tb_widget_get(scratch, property->name, &fresh))
     {
         return false;
     }
-    codec = tb_gui_codec_of(property->type);
-    /* A writable property's type has a codec. */
-    TB_ASSERT(codec != NULL);
-    if (fresh.type == value.type && codec->equal(&value, &fresh))
+    back = tb_gui_saver_key(saver, property->name);
+    if (codec == NULL)
     {
+        /* Whatever it holds would be lost. */
+        tb_gui_save_fail(saver, TB_GUI_FILE_INVALID,
+                         "a property of a type layout files cannot hold yet (issue #337)",
+                         property->name);
+        tb_gui_saver_back(saver, back);
         return false;
     }
+    if (fresh.type == value.type && codec->equal(&value, &fresh))
+    {
+        tb_gui_saver_back(saver, back);
+        return false;
+    }
+    if (tb_gui_type_is_named(property->type) && tb_gui_named_name_of(saver->gui, &value) == NULL)
+    {
+        tb_gui_save_fail(
+            saver, TB_GUI_FILE_INVALID,
+            property->type == TB_GUI_TYPE_COMMAND
+                ? "a command with no name, which a file cannot refer to"
+                : "a variable with no name that finds it, which a file cannot refer to",
+            property->name);
+        tb_gui_saver_back(saver, back);
+        return false;
+    }
+    tb_gui_saver_back(saver, back);
     (void)tb_widget_set(scratch, property->name, &value);
     return true;
 }
@@ -1760,13 +1821,21 @@ static void tb_gui_save_widget(tb_gui_saver *saver, tb_widget widget, size_t dep
     const tb_text name = tb_gui_string_text(&node->name);
     tb_widget scratch = TB_WIDGET_NONE;
 
+    const char *const unsaved =
+        node->kind->unsaved != NULL ? node->kind->unsaved(widget, node->data) : NULL;
+
     if (depth > TB_GUI_FILE_MOST_DEPTH)
     {
         /* Deeper than a file is read: a null keeps the document whole. */
-        if (saver->result == TB_GUI_FILE_OK)
-        {
-            saver->result = TB_GUI_FILE_INVALID;
-        }
+        tb_gui_save_fail(saver, TB_GUI_FILE_INVALID, "widgets nested too deep", NULL);
+        tb_gui_saver_check(saver, tb_json_write_null(saver->writer));
+        return;
+    }
+    if (unsaved != NULL)
+    {
+        /* What a file cannot hold fails the save, never silently lost. */
+        tb_gui_save_fail(saver, TB_GUI_FILE_INVALID,
+                         "content layout files cannot hold yet (issue #337)", unsaved);
         tb_gui_saver_check(saver, tb_json_write_null(saver->writer));
         return;
     }
@@ -1780,21 +1849,31 @@ static void tb_gui_save_widget(tb_gui_saver *saver, tb_widget widget, size_t dep
     }
     /* A widget of the kind made new holds the defaults to compare against. */
     scratch = tb_widget_create(tb_gui_root(widget.gui), node->kind);
-    tb_gui_save_properties(saver, widget, scratch);
+    {
+        const size_t back = tb_gui_saver_key(saver, "properties");
+        tb_gui_save_properties(saver, widget, scratch);
+        tb_gui_saver_back(saver, back);
+    }
     tb_gui_save_grid(saver, widget, scratch);
     tb_widget_destroy(scratch);
     tb_gui_save_tracks(saver, &tb_gui_node_of(widget)->axes[TB_GUI_COLUMNS], "columns");
     tb_gui_save_tracks(saver, &tb_gui_node_of(widget)->axes[TB_GUI_ROWS], "rows");
     if (tb_widget_child_count(widget) > 0)
     {
+        size_t index = 0;
+        const size_t back = tb_gui_saver_key(saver, "children");
         tb_gui_write_key(saver, "children");
         tb_gui_saver_check(saver, tb_json_write_begin_array(saver->writer));
         for (tb_widget child = tb_widget_first_child(widget); tb_widget_alive(child);
              child = tb_widget_next_sibling(child))
         {
+            const size_t item = tb_gui_saver_index(saver, index);
             tb_gui_save_widget(saver, child, depth + 1);
+            tb_gui_saver_back(saver, item);
+            index++;
         }
         tb_gui_saver_check(saver, tb_json_write_end_array(saver->writer));
+        tb_gui_saver_back(saver, back);
     }
     tb_gui_saver_check(saver, tb_json_write_end_object(saver->writer));
 }
@@ -1913,17 +1992,23 @@ static void tb_gui_save_variables(tb_gui_saver *saver, tb_widget widget)
     tb_free(vars);
 }
 
-tb_gui_file_result tb_gui_save(tb_widget widget, tb_stream *sink)
+tb_gui_file_result tb_gui_save(tb_widget widget, tb_stream *sink, tb_gui_file_error *error)
 {
+    tb_gui_file_error ignored = {0};
     tb_gui_saver saver = {0};
     tb_json_result finished = TB_JSON_OK;
+    size_t back = 0;
 
     TB_ASSERT(sink != NULL);
+    saver.error = error != NULL ? error : &ignored;
+    *saver.error = (tb_gui_file_error){.reason = ""};
     if (!tb_widget_alive(widget))
     {
-        return TB_GUI_FILE_INVALID;
+        return tb_gui_fail_plain(saver.error, TB_GUI_FILE_INVALID, NULL,
+                                 "the widget is not a widget alive");
     }
     saver.gui = widget.gui;
+    tb_gui_append(saver.path, sizeof(saver.path), &saver.path_length, "$");
     saver.writer = tb_json_writer_create(sink, TB_JSON_INDENTED, NULL);
     tb_gui_saver_check(&saver, tb_json_write_begin_object(saver.writer));
     tb_gui_write_key(&saver, "format");
@@ -1932,7 +2017,9 @@ tb_gui_file_result tb_gui_save(tb_widget widget, tb_stream *sink)
     tb_gui_saver_check(&saver, tb_json_write_int64(saver.writer, TB_GUI_FILE_VERSION));
     tb_gui_save_variables(&saver, widget);
     tb_gui_write_key(&saver, "root");
+    back = tb_gui_saver_key(&saver, "root");
     tb_gui_save_widget(&saver, widget, 1);
+    tb_gui_saver_back(&saver, back);
     tb_gui_saver_check(&saver, tb_json_write_end_object(saver.writer));
     finished = tb_json_writer_finish(saver.writer);
     tb_gui_saver_check(&saver, finished);

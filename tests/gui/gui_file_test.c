@@ -99,7 +99,7 @@ static char *save_text(tb_widget widget)
     char *text = NULL;
 
     tb_stream_open_buffer(NULL, &stream);
-    TB_TEST_REQUIRE_UINT(tb_gui_save(widget, &stream), ==, TB_GUI_FILE_OK);
+    TB_TEST_REQUIRE_UINT(tb_gui_save(widget, &stream, NULL), ==, TB_GUI_FILE_OK);
     bytes = tb_stream_buffer_bytes(&stream, &length);
     text = tb_malloc(length + 1);
     if (length > 0)
@@ -430,13 +430,17 @@ TB_TEST(gui_file, defaults_are_left_out)
     TB_TEST_EXPECT_STRING(saved, ==, bare);
     tb_free(saved);
 
-    /* A command set in code, not by a name, cannot be written: it is left
-     * out rather than lost silently into a name that is not there. */
+    /* A command set in code, not by a name, cannot be written: saving fails
+     * and says where, rather than lose it silently. */
     TB_TEST_REQUIRE(tb_widget_set(made, "command",
                                   &(tb_gui_value){TB_GUI_TYPE_COMMAND, {.command = {ping, NULL}}}));
-    char *const unnamed = save_text(made);
-    TB_TEST_EXPECT_STRING(unnamed, ==, bare);
-    tb_free(unnamed);
+    tb_stream stream = {0};
+    tb_gui_file_error error = {0};
+    tb_stream_open_buffer(NULL, &stream);
+    TB_TEST_EXPECT_UINT(tb_gui_save(made, &stream, &error), ==, TB_GUI_FILE_INVALID);
+    TB_TEST_EXPECT_STRING(error.path, ==, "$.root.properties.command");
+    TB_TEST_EXPECT_STRING(error.reason, ==, "a command with no name, which a file cannot refer to");
+    (void)tb_stream_close(&stream);
     gui_fixture_close(&fixture);
 }
 
@@ -705,7 +709,8 @@ TB_TEST(gui_file, widgets_nested_too_deep_are_refused)
         }
     }
     tb_stream_open_buffer(NULL, &stream);
-    TB_TEST_EXPECT_UINT(tb_gui_save(top, &stream), ==, TB_GUI_FILE_INVALID);
+    TB_TEST_EXPECT_UINT(tb_gui_save(top, &stream, &error), ==, TB_GUI_FILE_INVALID);
+    TB_TEST_EXPECT_STRING(error.reason, ==, "widgets nested too deep");
     (void)tb_stream_close(&stream);
 
     /* Sixty-four deep is the most; its text, with one more, is refused. */
@@ -759,16 +764,20 @@ TB_TEST(gui_file, saving_fails_when_it_cannot_write)
     tb_stream refusing = {&refusing_functions, NULL};
     tb_stream buffer = {0};
 
-    TB_TEST_EXPECT_UINT(tb_gui_save(label, &refusing), ==, TB_GUI_FILE_OUTPUT_FAILED);
+    tb_gui_file_error error = {0};
+    TB_TEST_EXPECT_UINT(tb_gui_save(label, &refusing, &error), ==, TB_GUI_FILE_OUTPUT_FAILED);
+    TB_TEST_EXPECT_STRING(error.reason, ==, "the stream refused what was written");
 
     TB_TEST_REQUIRE(tb_widget_set_text(label, "\xFF\xFE"));
     tb_stream_open_buffer(NULL, &buffer);
-    TB_TEST_EXPECT_UINT(tb_gui_save(label, &buffer), ==, TB_GUI_FILE_INVALID);
+    TB_TEST_EXPECT_UINT(tb_gui_save(label, &buffer, &error), ==, TB_GUI_FILE_INVALID);
+    TB_TEST_EXPECT_STRING(error.reason, ==, "text that is not UTF-8");
     (void)tb_stream_close(&buffer);
 
     tb_widget_destroy(label);
     tb_stream_open_buffer(NULL, &buffer);
-    TB_TEST_EXPECT_UINT(tb_gui_save(label, &buffer), ==, TB_GUI_FILE_INVALID);
+    TB_TEST_EXPECT_UINT(tb_gui_save(label, &buffer, &error), ==, TB_GUI_FILE_INVALID);
+    TB_TEST_EXPECT_STRING(error.reason, ==, "the widget is not a widget alive");
     (void)tb_stream_close(&buffer);
     gui_fixture_close(&fixture);
 }

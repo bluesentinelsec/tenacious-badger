@@ -122,6 +122,13 @@ void gui_scene_draw(sandbox *box, void *state, const sandbox_frame *frame);
 void gui_scene_destroy(sandbox *box, void *state);
 bool gui_scene_event(sandbox *box, void *state, const tb_window_event *event);
 
+/* The retained GUI in the shape of an editor: menus, a paned window of an
+ * outliner and a notebook, lists, tooltips, and dialogs (sandbox_gui_tool.c). */
+bool gui_tool_scene_create(sandbox *box, void **state);
+void gui_tool_scene_draw(sandbox *box, void *state, const sandbox_frame *frame);
+void gui_tool_scene_destroy(sandbox *box, void *state);
+bool gui_tool_scene_event(sandbox *box, void *state, const tb_window_event *event);
+
 /* Make a shader for the device's backend from HLSL in memory: compiled to
  * DXIL through DXC for D3D12; the text itself for the null backend, which
  * accepts anything. Errors are printed. */

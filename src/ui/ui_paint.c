@@ -167,6 +167,16 @@ void tb_ui_paint_line(tb_ui_paint *paint, int32_t layer, tb_canvas_rect clip, tb
     tb_ui_paint_clipped(paint, &command, layer, bounds);
 }
 
+void tb_ui_paint_image(tb_ui_paint *paint, int32_t layer, tb_canvas_rect clip,
+                       const tb_image *image, tb_canvas_rect rect, tb_vec4 tint, tb_ui_id id)
+{
+    tb_ui_command command = {
+        .type = TB_UI_COMMAND_IMAGE, .clip = clip, .rect = rect, .color = tint, .id = id};
+
+    command.image = image;
+    tb_ui_paint_clipped(paint, &command, layer, rect);
+}
+
 /* ---------------------------------------------------------------------------
  * Text.
  * ------------------------------------------------------------------------- */
@@ -279,6 +289,13 @@ static void tb_ui_paint_command(tb_renderer *renderer, const tb_ui_command *comm
                             (tb_vec2){command->rect.x, command->rect.y}, command->color, &options);
         break;
     }
+    case TB_UI_COMMAND_IMAGE:
+        tb_canvas_draw_sprite(
+            renderer, &(tb_canvas_sprite){.image = command->image,
+                                          .position = {command->rect.x, command->rect.y},
+                                          .size = {command->rect.width, command->rect.height},
+                                          .tint = command->color});
+        break;
     }
 }
 

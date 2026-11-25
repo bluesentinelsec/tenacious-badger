@@ -171,7 +171,7 @@ TB_TEST(gui_names, saving_writes_a_command_by_its_first_name)
     TB_TEST_REQUIRE(tb_gui_register_command(fixture.gui, "also_go", on_apply, &seen));
     TB_TEST_REQUIRE(tb_gui_register_command(fixture.gui, "other_user", on_apply, NULL));
     tb_stream_open_buffer(NULL, &stream);
-    TB_TEST_REQUIRE_UINT(tb_gui_save(button, &stream), ==, TB_GUI_FILE_OK);
+    TB_TEST_REQUIRE_UINT(tb_gui_save(button, &stream, NULL), ==, TB_GUI_FILE_OK);
     const char *const bytes = (const char *)tb_stream_buffer_bytes(&stream, &length);
     char *const text = tb_malloc(length + 1);
     memcpy(text, bytes, length);
