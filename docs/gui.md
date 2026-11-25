@@ -300,7 +300,7 @@ takes events from the next event on.
 | Function | True while |
 | --- | --- |
 | `tb_gui_wants_mouse` | the mouse is over a widget that stops it, a widget that stops it is held, or a modal widget is shown |
-| `tb_gui_wants_keyboard` | a widget has the focus |
+| `tb_gui_wants_keyboard` | a widget has the focus, or a popup that takes input is shown |
 | `tb_gui_cursor` | the cursor to show: the widget's under the mouse, or its nearest ancestor's that chose one |
 
 ## Frames, labels, and buttons
@@ -413,7 +413,8 @@ event.
 command is called after its `VALIDATE` bindings.
 
 `TB_GUI_EVENT_MOTION` is sent to the widget a button is held on as the
-mouse moves: a slider's drag, and a selection's.
+mouse moves, a slider's drag and a selection's, or else to the widget
+under the mouse (see [popups](#popups)).
 
 ### The widgets
 
@@ -467,10 +468,10 @@ copied, never changed. `tb_widget_selection` and `tb_widget_select` read
 and place the caret and the selection by byte offsets.
 
 **A list over every widget.** A combo box's list drops below it, or above
-when it fits only there, in the GUI's popup: one rectangle, owned by one
-widget, drawn above every widget and modal one, in which the mouse finds
-its owner. A press outside it closes it, as do its owner losing the focus,
-being hidden, disabled, or destroyed. A click, Space, or Alt+Down opens the
+when it fits only there, as a [popup](#popups): a child of the combo box,
+as wide as it, drawn above every widget and modal one. A press outside it
+closes it, and is used by it, as do the combo box losing the focus, being
+hidden, disabled, or destroyed. A click, Space, or Alt+Down opens the
 list; there the mouse, Up and Down, Page Up and Page Down, Home and End
 pick a value, and a click, Enter, or Space chooses it, and Escape or
 Alt+Up closes it. Closed, Up and Down choose the value before or after,
@@ -483,12 +484,157 @@ lines, check buttons by their text beside an indicator a line high,
 sliders and progress bars by their `length` and a line's thickness, a
 slider's value beside it as wide as its widest. So each is one size in
 units at any scale, and its text is drawn at the display's own pixels.
+## Containers and overlays
+
+### Scrolling
+
+A kind shows its children through a viewport by giving its class a
+`viewport` function. Called at layout with its rectangle less its insets, it
+returns what of its children is seen (the clip, in units of the GUI) and
+the size of the space their grid is laid out in (the content). The grid is
+laid out in the content, its top left at the clip's moved up and left by
+the widget's scroll offset; the children are drawn, and found by the
+mouse, only within the clip. A kind with a viewport is as large as it
+measures, with its insets: its children's grid does not widen it, and
+`tb_grid_request` tells its `measure` how large that grid wants to be.
+
+| Function | What |
+| --- | --- |
+| `tb_widget_scroll_to` | scroll a widget's children to an offset, kept at the next layout from 0 to as far as the content goes past the clip |
+| `tb_widget_scroll_offset` | the offset, as the last layout kept it |
+| `tb_widget_see` | scroll each ancestor that scrolls as little as shows a widget, nearest first, Tk's `see`; the focus given to a widget does the same |
+| `tb_grid_request` | the size a widget's grid wants, its insets not counted |
+
+### Popups
+
+A popup is a widget shown in front of every other widget, modal ones
+included, at its natural size: menus, combobox lists, and tooltips.
+`tb_widget_popup(widget, &options)` shows it by a rectangle, its anchor:
+below it (`TB_GUI_POPUP_BELOW`, flipped above when there is no room),
+right of it (`TB_GUI_POPUP_RIGHT`, flipped to the left), or at its top left
+(`TB_GUI_POPUP_AT`, for the mouse's point). It is kept inside the GUI,
+at least `min_size`, and clipped by nothing but the GUI. The widget stays
+in the tree, but out of its parent's grid while it is a popup.
+
+Popups stack, the last shown in front, each on a canvas layer above the
+modal widgets'. While one that is not passive is shown:
+
+- a press outside every popup closes them all, and is used by it: the
+  widget under it is not pressed;
+- a press inside one closes those in front of it, and goes on;
+- keys go to the popup in front, unless the focus is inside it, then to its
+  ancestors; Escape that nothing uses closes it, and Tab that nothing uses
+  closes every popup and moves the focus.
+
+A popup closed is sent `TB_GUI_EVENT_POPUP_CLOSE`; one hidden or
+destroyed is closed without it, and one whose parent is hidden, disabled,
+or destroyed is closed with it. A press in a popup leaves the keyboard's
+focus where it is, unless it is on a field to type in. `tb_widget_close_popup` closes one and
+those in front of it, `tb_gui_close_popups` every popup that is not
+passive. A passive popup (`passive`, a tooltip) takes no input, and is
+closed only by its owner. A popup's widgets take input with a modal widget
+shown.
+
+Kinds that follow the mouse inside them, such as lists, menus, and the
+thumbs of scroll bars, are sent `TB_GUI_EVENT_MOTION` as it moves: the
+widget that holds the mouse, or else the one under it.
+
+### Scroll frames and scroll bars
+
+| Kind | Properties | What |
+| --- | --- | --- |
+| `scrollframe` | `width`, `height`, `xscroll`, `yscroll`, `border`, `offset` | a frame whose grid is laid out at its natural size, or the frame's when that is larger, and seen through it; a width or height of 0 is the grid's, so a scroll frame stuck into a cell of weight scrolls what does not fit |
+| `scrollbar` | `orient`, `first`, `last`, `command` | a bar alone, Tk's `scrollbar`: it shows the part of something seen, as fractions, and calls its command when it is dragged, paged, or turned by the wheel |
+
+A scroll frame shows a bar along an axis it scrolls along only where its
+grid is larger than its view, and each bar takes room from the other's
+axis. The wheel scrolls it down, and across with Shift or a wheel that
+turns sideways, three lines a notch; at its end the wheel goes on to the
+ancestors, so a scroll frame inside another scrolls the outer one once it
+can go no further. A bar's thumb is dragged, and a press on its track
+pages a view toward it.
+
+A scroll bar alone is tied to what it scrolls by its command, which reads
+`tb_scrollbar_get` and scrolls; `tb_scrollbar_set` moves it without calling
+the command, as Tk's `set` does.
+
+### Lists
+
+A `listbox` is Tk's: lines of text, chosen by the mouse and the keyboard.
+Its items are data, not widgets: `tb_listbox_insert`, `tb_listbox_delete`,
+`tb_listbox_get`, and `tb_listbox_size`, or the `items` property, the
+items a line each. Only the rows that can be seen are drawn, those within
+its own view and its ancestors' clips, so a list of many thousands costs
+what its window does.
+
+| `selectmode` | A click | The arrows |
+| --- | --- | --- |
+| `browse` | chooses one; dragging follows the mouse | choose the next |
+| `single` | chooses one | choose the next |
+| `multiple` | turns one on or off | move the active item; Space turns it |
+| `extended` | chooses one; Shift a range from the anchor; Control turns one | choose the next; Shift extends; Control moves the active item |
+
+Page Up and Down, Home, and End move as the arrows do; Control+A chooses
+every item in the modes of many. Its `command` is called when the user
+changes the selection, Tk's `<<ListboxSelect>>`; `tb_listbox_select` and
+`tb_listbox_clear_selection` change it without. `height` is the rows it
+shows, scrolling the rest with the wheel and its own bar; 0 shows every
+row, for a list inside a scroll frame. `tb_listbox_see` scrolls the list,
+and the frames around it, to an item, and `tb_listbox_nearest` finds the
+item at a height.
+
+### Menus
+
+A `menu` is a column of items shown as a popup; a `menubar` is a row of
+titles, each opening its menu below it. Items are data, added with
+`tb_menu_add`: a command, a check item, a radio item of a group, a cascade
+to another menu, or a separator; each with a label, text for its
+accelerator at its right (the game binds the keys themselves), its
+command, and whether it is disabled. A label's `&` marks its mnemonic, the
+letter underlined that chooses it from the keyboard (`"&Open"`); `&&` is
+an ampersand.
+
+```c
+tb_widget bar = tb_menubar(root);
+tb_widget file = tb_menu(bar);
+tb_widget recent = tb_menu(file);
+tb_menu_add(file, &(tb_menu_item_desc){.label = "&Open", .accelerator = "Ctrl+O",
+                                       .command = on_open, .user = editor});
+tb_menu_add(file, &(tb_menu_item_desc){.kind = TB_MENU_ITEM_SEPARATOR});
+tb_menu_add(file, &(tb_menu_item_desc){.kind = TB_MENU_ITEM_CASCADE, .label = "Open &recent",
+                                       .submenu = recent});
+tb_menu_add(file, &(tb_menu_item_desc){.kind = TB_MENU_ITEM_CHECK, .label = "Show &grid"});
+tb_menubar_add(bar, "&File", file);
+```
+
+A menu is the child of what it opens from: its menu bar, the menu whose
+cascade it is, or the widget it is a context menu of, so that the keys it
+does not use go there. The mouse lights the item under it and a click
+chooses it; over a cascade, its menu opens beside it. The arrows move
+between the items that can be chosen, around the ends; Right opens a
+cascade and Left closes it; Enter or Space chooses; a mnemonic's letter
+chooses its item; Escape closes the menu in front. With a menu of a menu
+bar open, the mouse over another title opens its menu, and Left and Right
+from a menu go from title to title. Choosing an item closes every menu,
+turns a check item, sets a radio item and clears the others of its group,
+and then calls its command. A context menu is shown at a point with
+`tb_menu_popup`, from a binding to a press of the right button.
+
+### Tooltips
+
+`tb_tooltip(widget, &(tb_tooltip_desc){.text = "Save the level"})` gives a
+widget a tooltip: a child of it, never in its grid. Once the mouse has
+rested on the widget, or on a widget in it without a tooltip of its own,
+for the theme's `tooltip_delay` or the tooltip's own `delay`, it is shown
+below the mouse as a passive popup. It hides when the mouse moves to
+another widget, a button is pressed, or a key goes down, and shows again
+only once the mouse has moved to another widget and back.
 
 ## Drawing and ownership
 
 `tb_gui_update` builds the frame's draw commands, `tb_ui_command`s in
-units, on canvas layer `tb_gui_options::layer` (50) and the modal widgets'
-above it; `tb_gui_commands` returns them, for tests, and `tb_gui_draw`
+units, on canvas layer `tb_gui_options::layer` (50), the modal widgets'
+above it, and the popups' above those; `tb_gui_commands` returns them, for tests, and `tb_gui_draw`
 hands them to a renderer's canvas. What changes after an update is drawn
 after the next.
 
@@ -508,9 +654,10 @@ thread that renders. GUIs are independent of one another.
 
 - A combo box typed in (Tk's editable `ttk.Combobox`), and a spin box of
   a list of values; undo in text.
-- Scrolling frames; a text box scrolls its own text, but no frame scrolls
-  its widgets yet.
-- Containers and overlays: scrolling, lists, tabs, menus, tooltips.
+- Containers and overlays: trees, tabs, split panes, message dialogs, and
+  image and canvas widgets.
+- Menus' and lists' items in layout files, which have no type for a list
+  yet; a menu bar opened by Alt and its titles' mnemonics.
 - Style classes and theme files; the `style` property is kept for them.
 - Layout files in JSON, and finding widgets by path; the `name` property is
   kept for them.
@@ -527,8 +674,12 @@ at scales from 1 to 2, nesting, and layout only when something changed), the
 mouse entering and leaving, presses held, clicks and double clicks, clipping
 and hidden and disabled widgets, buttons' commands, Tab's focus, keys and the
 wheel given up the tree, modal widgets, cursors, bindings, and widgets
-destroyed from inside callbacks; the stretch modes and text measured at the
-display's pixels; and the commands each widget draws, drawn on the null
+destroyed from inside callbacks; scroll frames laid out, clipped, found
+through their offsets, and scrolled by the wheel, their bars, and `see`;
+popups placed, closed by presses and Escape, and given keys; tooltips;
+lists in each selection mode, and long ones drawing only what is seen;
+menus by the mouse and the keyboard; the stretch modes and text measured
+at the display's pixels; and the commands each widget draws, drawn on the null
 backend's canvas. Variables are read and set across their types, their
 observers run in updates, and they follow settings and are followed by
 them, with the settings' checks; each kind that edits values is driven by

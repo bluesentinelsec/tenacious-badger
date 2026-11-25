@@ -71,19 +71,20 @@ TB_TEST(gui_combobox, the_mouse_opens_its_list_and_picks_a_value)
     const tb_canvas_rect drop = list->rect;
     TB_TEST_EXPECT_FLOAT(drop.y, >=, rect.y + rect.height - 1.0f);
 
-    /* Over the list, the mouse finds the combo box, not the button under
-     * it: its last value is picked. */
+    /* Over the list, the mouse finds the list, a popup of the combo box's,
+     * not the button under it: its last value is picked. */
     gui_move(&fixture, drop.x + 4.0f, drop.y + drop.height - 3.0f);
     tb_gui_stats stats = {0};
     tb_gui_stats_of(fixture.gui, &stats);
-    TB_TEST_EXPECT(tb_widget_equal(stats.hovered, combo));
+    TB_TEST_EXPECT(tb_widget_equal(tb_widget_parent(stats.hovered), combo));
+    TB_TEST_EXPECT(tb_widget_equal(tb_widget_parent(stats.popup), combo));
     gui_press(&fixture, TB_MOUSE_BUTTON_LEFT);
     gui_release(&fixture, TB_MOUSE_BUTTON_LEFT);
     TB_TEST_EXPECT(!tb_combobox_open(combo));
     TB_TEST_EXPECT(tb_text_equal(tb_var_get_text(mode), TB_TEXT("Fullscreen")));
     TB_TEST_EXPECT_UINT(gui_log_count(&log, TB_GUI_EVENT_CHANGED, combo), ==, 1);
 
-    /* A press outside the list closes it, and goes on. */
+    /* A press outside the list closes it, and is used by it. */
     gui_click(&fixture, gui_middle(rect));
     TB_TEST_EXPECT(tb_combobox_open(combo));
     gui_click(&fixture, (tb_vec2){700.0f, 500.0f});

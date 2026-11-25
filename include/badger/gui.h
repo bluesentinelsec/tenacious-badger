@@ -68,8 +68,12 @@
  * and combo boxes, several on one variable kept in step, and a variable
  * bound to an engine setting. See tb_var_create().
  *
- * **Not done yet.** Scrolling frames; menus; style classes; layout files;
- * focus moved by arrows or a gamepad.
+ * **Scrolling and popups.** A kind may show its children through a
+ * viewport, scrolled and clipped (tb_widget_class::viewport); a widget may
+ * be shown as a popup in front of every other (tb_widget_popup()).
+ *
+ * **Not done yet.** Style classes; layout files; focus moved by arrows or
+ * a gamepad.
  *
  * @par Threading
  * Externally synchronized: a GUI and its widgets are used by one thread at
@@ -295,8 +299,8 @@ TB_API void tb_gui_forget_fonts(const tb_gui *gui, tb_renderer *renderer);
  * As of the last update. */
 TB_API bool tb_gui_wants_mouse(const tb_gui *gui);
 
-/** @brief Whether the GUI takes the keyboard: a widget has the focus. As of
- * the last update. */
+/** @brief Whether the GUI takes the keyboard: a widget has the focus, or a
+ * popup that takes input is shown. As of the last update. */
 TB_API bool tb_gui_wants_keyboard(const tb_gui *gui);
 
 /** @brief The cursor the mouse should show, for tb_window_set_cursor(): the
@@ -316,6 +320,7 @@ typedef struct tb_gui_stats
     tb_widget pressed; /**< The widget a button is held on, or none. */
     tb_widget focus;   /**< The widget with the keyboard's focus, or none. */
     tb_widget modal;   /**< The modal widget in front, or none. */
+    tb_widget popup;   /**< The popup in front (tb_widget_popup()), or none. */
 } tb_gui_stats;
 
 /** @brief How the GUI is doing. @param[out] stats Required. */
@@ -560,11 +565,14 @@ typedef enum tb_gui_event_kind
      * a slider dragged, an item chosen; or tb_widget_invoke(), which acts as
      * input does. Not when a program sets it, nor its variable. */
     TB_GUI_EVENT_CHANGED,
-    TB_GUI_EVENT_MOTION, /**< The mouse moved while a button pressed on it is held: a drag. */
+    /** The mouse moved over it, or anywhere while a button pressed on it is
+     * held: a drag. */
+    TB_GUI_EVENT_MOTION,
     /** Text is about to change, Tk's `validatecommand`: `text` is the text
      * proposed, and tb_gui_refuse_edit() keeps the old. */
     TB_GUI_EVENT_VALIDATE,
-    TB_GUI_EVENT_COUNT /**< How many there are; not a kind. */
+    TB_GUI_EVENT_POPUP_CLOSE, /**< It was closed as a popup: see tb_widget_popup(). */
+    TB_GUI_EVENT_COUNT        /**< How many there are; not a kind. */
 } tb_gui_event_kind;
 
 /** @brief An event, as callbacks and kinds are given it. */
@@ -647,13 +655,27 @@ typedef struct tb_gui_edges
     float bottom;
 } tb_gui_edges;
 
+/** @brief Where a kind that scrolls shows its children: see
+ * tb_widget_class::viewport. */
+typedef struct tb_gui_viewport
+{
+    /** What of its children is seen, in units of the GUI: its rectangle
+     * less its insets, and less its scroll bars. */
+    tb_canvas_rect clip;
+    /** The size of the space its children's grid is laid out in, in units:
+     * at least the clip's size along an axis it scrolls along. */
+    tb_vec2 content;
+} tb_gui_viewport;
+
 /**
  * @brief A kind of widget: a class, whose functions the GUI calls for each
  * widget of it, with the widget's data. Every function may be NULL.
  *
  * A widget's natural size is the larger of what its kind measures and what
  * the grid of its children wants, with its insets around it; its parent's
- * grid gives it a place from that.
+ * grid gives it a place from that. A kind with a `viewport` is as large as
+ * it measures, with its insets: the grid of its children is laid out in
+ * the space the viewport gives it, and scrolled within it.
  */
 struct tb_widget_class
 {
@@ -679,6 +701,13 @@ struct tb_widget_class
     /** Handle an event, after its bindings. Returns true when it has used
      * it: a key or the wheel is then not given to its ancestors. */
     bool (*event)(tb_widget widget, void *data, const tb_gui_event *event);
+    /** For a kind whose children scroll: given its rectangle less its
+     * insets, where its children are seen and the size their grid is laid
+     * out in, after arrange(). Its children are placed in that space moved
+     * by its scroll offset (tb_widget_scroll_to()), and drawn and found by
+     * the mouse only within the clip. NULL lays them out in the rectangle
+     * less the insets. */
+    tb_gui_viewport (*viewport)(tb_widget widget, void *data, tb_canvas_rect inner);
 };
 
 /**
@@ -961,6 +990,108 @@ TB_API void tb_grid_size(tb_widget container, size_t *columns, size_t *rows);
 TB_API bool tb_grid_bbox(tb_widget container, size_t column, size_t row, size_t column2,
                          size_t row2, tb_canvas_rect *rect);
 
+/** @brief The size a widget's grid wants, in units, its insets not
+ * counted, as the last layout measured it: its rows and columns summed. A
+ * kind's measure() reads its own, already measured: a kind that scrolls
+ * sizes itself from it. Zero for a stale handle. */
+TB_API tb_vec2 tb_grid_request(tb_widget container);
+
+/* ---------------------------------------------------------------------------
+ * Scrolling.
+ * ------------------------------------------------------------------------- */
+
+/** @brief How far a widget of a kind that scrolls (tb_widget_class::viewport)
+ * has its children scrolled, in units from their top left, as the last
+ * layout kept it within its content. Zero for other widgets. */
+TB_API tb_vec2 tb_widget_scroll_offset(tb_widget widget);
+
+/**
+ * @brief Scroll a widget's children: their top left `offset` units above
+ * and left of its clip's. Kept, at the next layout, from 0 to as far as
+ * the content goes past the clip.
+ * @param offset Finite; negative is 0.
+ * @return false for a stale handle, or a kind that does not scroll.
+ */
+TB_API bool tb_widget_scroll_to(tb_widget widget, tb_vec2 offset);
+
+/**
+ * @brief Scroll each ancestor that scrolls as little as shows a widget,
+ * nearest first: its top left edges, when it is larger than the clip. Tk's
+ * `see`. The widgets are laid out first when something changed. The focus
+ * given to a widget scrolls it into view so.
+ * @return false for a stale handle or a widget not shown.
+ */
+TB_API bool tb_widget_see(tb_widget widget);
+
+/* ---------------------------------------------------------------------------
+ * Popups.
+ * ------------------------------------------------------------------------- */
+
+/** @brief Where a popup opens, by its anchor's rectangle. */
+typedef enum tb_gui_popup_placement
+{
+    /** Below the anchor, its left edges in line: a menu of a menu bar, a
+     * combobox's list. Above it when there is no room below. */
+    TB_GUI_POPUP_BELOW,
+    /** Right of the anchor, its top edges in line: a menu's cascade. Left
+     * of it when there is no room to the right. */
+    TB_GUI_POPUP_RIGHT,
+    /** Its top left at the anchor's: a context menu at the mouse, a
+     * tooltip. Up or left of it when there is no room. */
+    TB_GUI_POPUP_AT
+} tb_gui_popup_placement;
+
+/** @brief How a popup is shown. Zero is below an empty rectangle at the
+ * GUI's top left. */
+typedef struct tb_gui_popup_options
+{
+    /** The rectangle it opens beside, in units of the GUI: the widget that
+     * opened it, or the mouse's point. */
+    tb_canvas_rect anchor;
+    tb_gui_popup_placement placement; /**< Where, by the anchor. */
+    /** The least size it is, in units: a combobox's list is as wide as the
+     * combobox. */
+    tb_vec2 min_size;
+    /** It takes no input, and is not closed by a press elsewhere or by
+     * Escape: a tooltip. */
+    bool passive;
+} tb_gui_popup_options;
+
+/**
+ * @brief Show a widget as a popup: in front of every other widget and
+ * modal widget, at its natural size, by its options, kept inside the GUI,
+ * and not clipped by its parent. Menus, combobox lists, and tooltips are
+ * popups.
+ *
+ * The widget stays in the tree, but out of its parent's grid while it is a
+ * popup. Popups stack: the last shown is in front. While one that is not
+ * passive is shown, a press outside every popup closes them all and is
+ * used by it; a press inside one closes those in front of it; keys go to
+ * the one in front, unless the focus is inside it, and then to its
+ * ancestors, and Escape that it does not use closes it; Tab that it does
+ * not use closes them all and moves the focus. A popup closed is sent
+ * #TB_GUI_EVENT_POPUP_CLOSE; one hidden or destroyed is closed
+ * without it; one whose parent is hidden, disabled, or destroyed is closed
+ * with it. A press in a popup leaves the focus where it is, unless it is on
+ * a kind that takes the focus on a click.
+ *
+ * Showing a widget already a popup moves it by its new options.
+ * @param options Optional; NULL is zero.
+ * @return false for a stale handle or the root.
+ */
+TB_API bool tb_widget_popup(tb_widget widget, const tb_gui_popup_options *options);
+
+/** @brief Close a popup, and the popups in front of it, those first; each is
+ * sent #TB_GUI_EVENT_POPUP_CLOSE. Nothing for a widget that is not one. */
+TB_API void tb_widget_close_popup(tb_widget widget);
+
+/** @brief Whether a widget is shown as a popup. */
+TB_API bool tb_widget_is_popup(tb_widget widget);
+
+/** @brief Close every popup that is not passive, as a press outside them
+ * does. */
+TB_API void tb_gui_close_popups(tb_gui *gui);
+
 /* ---------------------------------------------------------------------------
  * Drawing, for kinds.
  * ------------------------------------------------------------------------- */
@@ -983,6 +1114,11 @@ TB_API tb_vec2 tb_gui_measure_text(tb_gui *gui, const tb_gui_text_block *block);
 
 /** @brief The widget being drawn's place and size, in units. @param paint Required. */
 TB_API tb_canvas_rect tb_gui_paint_rect(const tb_gui_paint *paint);
+
+/** @brief What of the widget being drawn can be seen, in units: its
+ * rectangle cut by its ancestors' clips. A kind of many rows draws only
+ * those inside it. @param paint Required. */
+TB_API tb_canvas_rect tb_gui_paint_clip(const tb_gui_paint *paint);
 
 /** @brief Fill a rectangle, its corners rounded by `radius`, within the
  * widget's clip. @param paint Required. */
@@ -1535,5 +1671,265 @@ TB_API const tb_widget_class *tb_scale_class(void);
 TB_API const tb_widget_class *tb_progressbar_class(void);
 /** @brief See tb_checkbutton_class(). @par Threading Thread-safe. */
 TB_API const tb_widget_class *tb_combobox_class(void);
+
+/* ---------------------------------------------------------------------------
+ * Scroll frames and scroll bars.
+ * ------------------------------------------------------------------------- */
+
+/** @brief A scroll frame: a frame whose grid is laid out at its natural
+ * size, or the frame's, whichever is larger, and seen through the frame,
+ * scrolled by the wheel (Shift for across) and by bars shown where the grid
+ * is larger. Properties: `width`, `height`, `xscroll`, `yscroll`, `border`,
+ * `offset`. */
+typedef struct tb_scrollframe_desc
+{
+    /** Units across it wants; 0 is its grid's width. */
+    float width;
+    /** Units down it wants; 0 is its grid's height. */
+    float height;
+    bool no_xscroll; /**< Its grid is as wide as it, and never scrolls across. */
+    bool no_yscroll; /**< Its grid is as tall as it, and never scrolls down. */
+    bool border;     /**< Outlined with the theme's border. */
+} tb_scrollframe_desc;
+
+/** @brief Make a scroll frame; grid its children in it as in a frame.
+ * @param desc Optional; NULL is zero. @return None when `parent` is stale. */
+TB_API tb_widget tb_scrollframe(tb_widget parent, const tb_scrollframe_desc *desc);
+
+/** @brief A scroll bar alone, Tk's `scrollbar`: a thumb that shows the part
+ * of something seen, from `first` to `last` as fractions of it, dragged,
+ * paged by a press on its track, or turned by the wheel, which calls its
+ * `command`; the command reads where it is (tb_scrollbar_get()) and
+ * scrolls what it is for. Properties: `orient`, `first`, `last`, `command`. */
+typedef struct tb_scrollbar_desc
+{
+    tb_gui_orient orient;     /**< Horizontal unless chosen. */
+    tb_gui_callback *command; /**< Called when it is moved; NULL for none. */
+    void *user;               /**< Given to the command. */
+} tb_scrollbar_desc;
+
+/** @brief Make a scroll bar, showing all, 0 to 1. @param desc Optional.
+ * @return None when `parent` is stale. */
+TB_API tb_widget tb_scrollbar(tb_widget parent, const tb_scrollbar_desc *desc);
+
+/** @brief Show the part of something seen, Tk's `set`, without calling the
+ * command. @return false for a stale handle or another kind, or fractions
+ * not within 0 and 1 and in order. */
+TB_API bool tb_scrollbar_set(tb_widget scrollbar, float first, float last);
+
+/** @brief The part shown. @param[out] first Required. @param[out] last
+ * Required. @return false for a stale handle or another kind. */
+TB_API bool tb_scrollbar_get(tb_widget scrollbar, float *first, float *last);
+
+/* ---------------------------------------------------------------------------
+ * Lists.
+ * ------------------------------------------------------------------------- */
+
+/** @brief How a list's items are chosen, Tk's `selectmode`. */
+typedef enum tb_listbox_selectmode
+{
+    /** One item, which follows the mouse dragged and the arrows. */
+    TB_LISTBOX_BROWSE,
+    /** One item, chosen by a click or the arrows. */
+    TB_LISTBOX_SINGLE,
+    /** Any items, each click turning one on or off; the arrows move the
+     * active item, and Space turns it. */
+    TB_LISTBOX_MULTIPLE,
+    /** A range, as file lists have it: a click chooses one, Shift a range
+     * from the last chosen, Control turns one on or off. */
+    TB_LISTBOX_EXTENDED
+} tb_listbox_selectmode;
+
+/** @brief A list box, Tk's `listbox`: lines of text, chosen by the mouse or
+ * the keyboard (the arrows, Page Up and Down, Home and End, Space, and
+ * Control+A in the modes of many). It takes the focus on a click and by
+ * Tab. Only the rows that can be seen are drawn, so lists of many thousands
+ * of items cost what their window does. Properties: `items` (the items, a
+ * line each), `selectmode`, `width`, `height`, `offset`, `command`. */
+typedef struct tb_listbox_desc
+{
+    tb_listbox_selectmode selectmode; /**< Browse unless chosen. */
+    float width;                      /**< Units across; 0 is ten ems. */
+    /** Rows it shows, scrolling the rest; 0 shows every row, for a list in
+     * a scroll frame. */
+    int32_t height;
+    /** Called when the selection changes by the mouse or the keyboard, Tk's
+     * `<<ListboxSelect>>`; NULL for none. */
+    tb_gui_callback *command;
+    void *user;               /**< Given to the command. */
+    const char *const *items; /**< Its first items, copied; NULL for none. */
+    size_t item_count;        /**< How many. */
+} tb_listbox_desc;
+
+/** @brief Make a list box. @param desc Optional. @return None when `parent` is stale. */
+TB_API tb_widget tb_listbox(tb_widget parent, const tb_listbox_desc *desc);
+
+/** @brief Insert an item before another. @param index Where; past the end,
+ * or SIZE_MAX, is at the end. @param text Required; copied; one line.
+ * @return Where it was put; SIZE_MAX for a stale handle or another kind. */
+TB_API size_t tb_listbox_insert(tb_widget listbox, size_t index, const char *text);
+
+/** @brief Delete `count` items from `first`, as many as there are.
+ * @return How many were deleted. */
+TB_API size_t tb_listbox_delete(tb_widget listbox, size_t first, size_t count);
+
+/** @brief How many items a list has; 0 for a stale handle or another kind. */
+TB_API size_t tb_listbox_size(tb_widget listbox);
+
+/** @brief An item's text. @return Borrowed until the items change; empty
+ * past the end. */
+TB_API tb_text tb_listbox_get(tb_widget listbox, size_t index);
+
+/** @brief Choose an item or not, without calling the command; choosing one
+ * in a mode of one leaves it alone chosen. @return false past the end. */
+TB_API bool tb_listbox_select(tb_widget listbox, size_t index, bool selected);
+
+/** @brief Choose no item. */
+TB_API void tb_listbox_clear_selection(tb_widget listbox);
+
+/** @brief Whether an item is chosen. */
+TB_API bool tb_listbox_selected(tb_widget listbox, size_t index);
+
+/**
+ * @brief The items chosen, in order, Tk's `curselection`.
+ * @param[out] indices Optional when `capacity` is 0; the first `capacity`.
+ * @return How many are chosen, which may be more than `capacity`.
+ */
+TB_API size_t tb_listbox_selection(tb_widget listbox, size_t *indices, size_t capacity);
+
+/** @brief The active item, which the keyboard moves; SIZE_MAX when the list
+ * is empty. */
+TB_API size_t tb_listbox_active(tb_widget listbox);
+
+/** @brief Make an item the active one. @return false past the end. */
+TB_API bool tb_listbox_activate(tb_widget listbox, size_t index);
+
+/** @brief Scroll the list, and each ancestor that scrolls, to show an item.
+ * @return false past the end. */
+TB_API bool tb_listbox_see(tb_widget listbox, size_t index);
+
+/** @brief The item nearest a height, in units of the GUI, Tk's `nearest`.
+ * @return SIZE_MAX for an empty list. */
+TB_API size_t tb_listbox_nearest(tb_widget listbox, float y);
+
+/* ---------------------------------------------------------------------------
+ * Menus.
+ * ------------------------------------------------------------------------- */
+
+/** @brief What an item of a menu is. */
+typedef enum tb_menu_item_kind
+{
+    TB_MENU_ITEM_COMMAND,  /**< Calls its command. */
+    TB_MENU_ITEM_CHECK,    /**< Turned on and off, then calls its command. */
+    TB_MENU_ITEM_RADIO,    /**< On, with the others of its group off, then calls its command. */
+    TB_MENU_ITEM_CASCADE,  /**< Opens another menu beside it. */
+    TB_MENU_ITEM_SEPARATOR /**< A line between items. */
+} tb_menu_item_kind;
+
+/** @brief An item to add to a menu. Zero is a command of no label. */
+typedef struct tb_menu_item_desc
+{
+    tb_menu_item_kind kind;
+    /** Its label, copied; `&` marks its mnemonic, the letter that chooses
+     * it from the keyboard and is underlined ("&Open"); `&&` is an
+     * ampersand. NULL for none. */
+    const char *label;
+    /** Text shown at its right, as "Ctrl+O"; copied; NULL for none. The
+     * game binds the keys themselves. */
+    const char *accelerator;
+    tb_gui_callback *command; /**< Called when it is chosen; NULL for none. */
+    void *user;               /**< Given to the command. */
+    bool checked;             /**< A check or radio item's first state. */
+    int32_t group;            /**< A radio item's group, within its menu. */
+    /** A cascade's menu: a child of this menu, made by tb_menu(). */
+    tb_widget submenu;
+    bool disabled; /**< Shown dimmed, and never chosen. */
+} tb_menu_item_desc;
+
+/**
+ * @brief Make a menu, Tk's `menu`: a column of items, shown as a popup by
+ * a menu bar, by a cascade of another menu, or at a point as a context menu
+ * (tb_menu_popup()). The mouse lights the item under it and a click chooses
+ * it; the arrows move between items, Right opens a cascade and Left closes
+ * it, Enter or Space chooses, a mnemonic's letter chooses its item, and
+ * Escape closes the menu in front. Choosing an item closes every menu,
+ * then calls its command; a cascade opens instead.
+ * @param parent The menu bar or menu it opens from, or the widget it is a
+ * context menu of: keys a menu does not use go to it.
+ * @return None when `parent` is stale.
+ */
+TB_API tb_widget tb_menu(tb_widget parent);
+
+/** @brief Add an item at the end of a menu. @param item Required.
+ * @return Its index; SIZE_MAX for a stale handle or another kind. */
+TB_API size_t tb_menu_add(tb_widget menu, const tb_menu_item_desc *item);
+
+/** @brief How many items a menu has, separators counted. */
+TB_API size_t tb_menu_item_count(tb_widget menu);
+
+/** @brief Whether a check or radio item is on. */
+TB_API bool tb_menu_item_checked(tb_widget menu, size_t index);
+
+/** @brief Turn a check or radio item on or off, without calling its
+ * command. @return false past the end. */
+TB_API bool tb_menu_set_checked(tb_widget menu, size_t index, bool checked);
+
+/** @brief Enable an item or disable it. @return false past the end. */
+TB_API bool tb_menu_set_item_enabled(tb_widget menu, size_t index, bool enabled);
+
+/** @brief The item lit, by the mouse or the arrows; SIZE_MAX for none. */
+TB_API size_t tb_menu_active(tb_widget menu);
+
+/** @brief Choose an item as a click does. @return false past the end, or
+ * for a separator or a disabled item. */
+TB_API bool tb_menu_invoke(tb_widget menu, size_t index);
+
+/** @brief Show a menu as a context menu, its top left at a point, after
+ * closing the popups shown. @param position Units of the GUI: the
+ * event's `position`. @return false for a stale handle or another kind. */
+TB_API bool tb_menu_popup(tb_widget menu, tb_vec2 position);
+
+/** @brief Make a menu bar: a row of titles, each of which opens its menu
+ * below it when pressed. With a menu open, the mouse over another title
+ * opens its menu, and Left and Right go from menu to menu.
+ * @return None when `parent` is stale. */
+TB_API tb_widget tb_menubar(tb_widget parent);
+
+/** @brief Add a title to a menu bar, at its end. @param label Required;
+ * copied; `&` marks its mnemonic. @param menu Its menu, a child of the
+ * menu bar. @return Its index; SIZE_MAX for a stale handle or another kind. */
+TB_API size_t tb_menubar_add(tb_widget menubar, const char *label, tb_widget menu);
+
+/* ---------------------------------------------------------------------------
+ * Tooltips.
+ * ------------------------------------------------------------------------- */
+
+/** @brief A tooltip: text shown below the mouse when it has rested on a
+ * widget for a while, as a passive popup, and hidden when it moves to
+ * another widget, a button is pressed, or a key goes down. The widget's
+ * children without a tooltip of their own show its. Properties: `text`,
+ * `delay`. */
+typedef struct tb_tooltip_desc
+{
+    const char *text; /**< Copied; NULL or empty shows none. */
+    float delay;      /**< Seconds the mouse rests first; 0 is the theme's. */
+} tb_tooltip_desc;
+
+/** @brief Give a widget a tooltip: a child of it, never in its grid.
+ * @param desc Optional. @return The tooltip; none when `widget` is stale. */
+TB_API tb_widget tb_tooltip(tb_widget widget, const tb_tooltip_desc *desc);
+
+/** @brief The kinds of the containers and overlays. @par Threading Thread-safe. */
+TB_API const tb_widget_class *tb_scrollframe_class(void);
+/** @brief See tb_scrollframe_class(). @par Threading Thread-safe. */
+TB_API const tb_widget_class *tb_scrollbar_class(void);
+/** @brief See tb_scrollframe_class(). @par Threading Thread-safe. */
+TB_API const tb_widget_class *tb_listbox_class(void);
+/** @brief See tb_scrollframe_class(). @par Threading Thread-safe. */
+TB_API const tb_widget_class *tb_menu_class(void);
+/** @brief See tb_scrollframe_class(). @par Threading Thread-safe. */
+TB_API const tb_widget_class *tb_menubar_class(void);
+/** @brief See tb_scrollframe_class(). @par Threading Thread-safe. */
+TB_API const tb_widget_class *tb_tooltip_class(void);
 
 #endif

@@ -270,6 +270,12 @@ void gui_record_all(tb_widget widget, gui_log *log)
 {
     for (int kind = 0; kind < TB_GUI_EVENT_COUNT; kind++)
     {
+        /* Every move is a motion: the cases that look for them bind them
+         * themselves, so the log keeps room for the rest. */
+        if (kind == TB_GUI_EVENT_MOTION)
+        {
+            continue;
+        }
         TB_TEST_REQUIRE(tb_bind(widget, (tb_gui_event_kind)kind, gui_record, log));
     }
 }

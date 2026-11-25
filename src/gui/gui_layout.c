@@ -198,7 +198,7 @@ static void tb_gui_shrink(tb_gui_axis *axis, float deficit)
 
 static bool tb_gui_in_grid(const tb_gui_node *node)
 {
-    return node->visible && node->gridded;
+    return node->visible && node->gridded && !node->popup;
 }
 
 static size_t tb_gui_start(const tb_gui_node *node, int axis)
@@ -226,8 +226,6 @@ static float tb_gui_request(const tb_gui_node *node, int axis)
 /* ---------------------------------------------------------------------------
  * Measuring.
  * ------------------------------------------------------------------------- */
-
-static tb_vec2 tb_gui_measure(tb_gui *gui, uint32_t index);
 
 /* Size a grid's tracks along an axis from its children, already measured. */
 static float tb_gui_measure_axis(tb_gui *gui, uint32_t index, int axis_index)
@@ -302,7 +300,7 @@ static float tb_gui_measure_axis(tb_gui *gui, uint32_t index, int axis_index)
     return total;
 }
 
-static tb_vec2 tb_gui_measure(tb_gui *gui, uint32_t index)
+tb_vec2 tb_gui_measure(tb_gui *gui, uint32_t index)
 {
     const tb_widget widget = tb_gui_handle(gui, index);
     tb_vec2 content = {0};
@@ -316,6 +314,10 @@ static tb_vec2 tb_gui_measure(tb_gui *gui, uint32_t index)
             (void)tb_gui_measure(gui, child);
         }
     }
+    /* The grid first: a kind that scrolls measures itself from it. */
+    const tb_vec2 grid = {tb_gui_measure_axis(gui, index, TB_GUI_COLUMNS),
+                          tb_gui_measure_axis(gui, index, TB_GUI_ROWS)};
+    tb_gui_node_at(gui, index)->grid_request = grid;
     const tb_widget_class *const kind = tb_gui_node_at(gui, index)->kind;
     if (kind->measure != NULL)
     {
@@ -325,11 +327,10 @@ static tb_vec2 tb_gui_measure(tb_gui *gui, uint32_t index)
     {
         insets = kind->insets(widget, tb_gui_node_at(gui, index)->data);
     }
-    const tb_vec2 grid = {tb_gui_measure_axis(gui, index, TB_GUI_COLUMNS),
-                          tb_gui_measure_axis(gui, index, TB_GUI_ROWS)};
     tb_gui_node *const node = tb_gui_node_at(gui, index);
-    node->natural = (tb_vec2){fmaxf(content.x, grid.x) + insets.left + insets.right,
-                              fmaxf(content.y, grid.y) + insets.top + insets.bottom};
+    const tb_vec2 wanted = kind->viewport != NULL ? content : tb_vec2_max(content, grid);
+    node->natural =
+        (tb_vec2){wanted.x + insets.left + insets.right, wanted.y + insets.top + insets.bottom};
     return node->natural;
 }
 
@@ -459,7 +460,17 @@ static void tb_gui_note_resize(tb_gui *gui, uint32_t index)
     gui->resized_count++;
 }
 
-static void tb_gui_arrange(tb_gui *gui, uint32_t index, tb_canvas_rect rect)
+/* A scroll offset kept from 0 to as far as the content goes past the clip.
+ * The grid's edges are put on whole pixels from it, as from any origin. */
+static tb_vec2 tb_gui_keep_scroll(tb_vec2 scroll, tb_gui_viewport viewport)
+{
+    const float most_x = fmaxf(viewport.content.x - viewport.clip.width, 0.0f);
+    const float most_y = fmaxf(viewport.content.y - viewport.clip.height, 0.0f);
+
+    return (tb_vec2){fminf(fmaxf(scroll.x, 0.0f), most_x), fminf(fmaxf(scroll.y, 0.0f), most_y)};
+}
+
+void tb_gui_arrange(tb_gui *gui, uint32_t index, tb_canvas_rect rect)
 {
     const tb_widget widget = tb_gui_handle(gui, index);
     tb_gui_node *node = tb_gui_node_at(gui, index);
@@ -480,13 +491,22 @@ static void tb_gui_arrange(tb_gui *gui, uint32_t index, tb_canvas_rect rect)
     {
         insets = kind->insets(widget, tb_gui_node_at(gui, index)->data);
     }
+    const tb_canvas_rect inner = {rect.x + insets.left, rect.y + insets.top,
+                                  fmaxf(rect.width - insets.left - insets.right, 0.0f),
+                                  fmaxf(rect.height - insets.top - insets.bottom, 0.0f)};
+    tb_gui_viewport viewport = {.clip = inner, .content = {inner.width, inner.height}};
+    if (kind->viewport != NULL)
+    {
+        viewport = kind->viewport(widget, tb_gui_node_at(gui, index)->data, inner);
+    }
     node = tb_gui_node_at(gui, index);
-    const float left = rect.x + insets.left;
-    const float top = rect.y + insets.top;
-    tb_gui_arrange_axis(gui, &node->axes[TB_GUI_COLUMNS], node->grid_anchor, TB_GUI_COLUMNS, left,
-                        fmaxf(rect.width - insets.left - insets.right, 0.0f));
-    tb_gui_arrange_axis(gui, &node->axes[TB_GUI_ROWS], node->grid_anchor, TB_GUI_ROWS, top,
-                        fmaxf(rect.height - insets.top - insets.bottom, 0.0f));
+    node->clip = kind->viewport != NULL ? viewport.clip : rect;
+    node->content = viewport.content;
+    node->scroll = tb_gui_keep_scroll(node->scroll, viewport);
+    tb_gui_arrange_axis(gui, &node->axes[TB_GUI_COLUMNS], node->grid_anchor, TB_GUI_COLUMNS,
+                        viewport.clip.x - node->scroll.x, viewport.content.x);
+    tb_gui_arrange_axis(gui, &node->axes[TB_GUI_ROWS], node->grid_anchor, TB_GUI_ROWS,
+                        viewport.clip.y - node->scroll.y, viewport.content.y);
     for (uint32_t child = node->first_child; child != TB_GUI_NO_NODE;
          child = tb_gui_node_at(gui, child)->next)
     {
@@ -521,6 +541,7 @@ void tb_gui_layout(tb_gui *gui)
     }
     (void)tb_gui_measure(gui, 0);
     tb_gui_arrange(gui, 0, (tb_canvas_rect){0.0f, 0.0f, gui->view.size.x, gui->view.size.y});
+    tb_gui_layout_popups(gui);
 }
 
 /* ---------------------------------------------------------------------------
@@ -642,6 +663,12 @@ void tb_grid_size(tb_widget container, size_t *columns, size_t *rows)
     TB_ASSERT(rows != NULL);
     *columns = node != NULL ? node->axes[TB_GUI_COLUMNS].count : 0;
     *rows = node != NULL ? node->axes[TB_GUI_ROWS].count : 0;
+}
+
+tb_vec2 tb_grid_request(tb_widget container)
+{
+    const tb_gui_node *const node = tb_gui_node_of(container);
+    return node != NULL ? node->grid_request : (tb_vec2){0};
 }
 
 bool tb_grid_bbox(tb_widget container, size_t column, size_t row, size_t column2, size_t row2,
