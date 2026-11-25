@@ -3,7 +3,9 @@
  * the window as it is resized: its middle column takes the extra width, an
  * empty row the extra height, and the status line stays at the bottom.
  * Nested grids hold rows of buttons of one width, and a modal dialog asks
- * to confirm. The window events go to the GUI first, which takes the mouse
+ * to confirm. On the right, a panel of options edits the engine's own
+ * settings through variables (sandbox_gui_options.c). The window events go
+ * to the GUI first, which takes the mouse
  * over the form and the keys while a button has the focus; the fly camera
  * has the rest. */
 #include "sandbox.h"
@@ -40,6 +42,7 @@ typedef struct gui_scene
     tb_widget volume;
     tb_widget status;
     tb_widget dialog;
+    gui_options *options;
     size_t name_index;
     int volume_percent;
     int applies;
@@ -327,6 +330,7 @@ bool gui_scene_create(sandbox *box, void **state)
     (void)tb_grid_column_configure(root, 1, &(tb_grid_track){.weight = 1.0f});
     (void)tb_grid_row_configure(root, 0, &(tb_grid_track){.weight = 1.0f});
     gui_build_form(scene, root, &title);
+    scene->options = gui_options_create(root, 1, box->engine);
     gui_build_dialog(scene, root);
     return true;
 }
@@ -345,6 +349,10 @@ void gui_scene_destroy(sandbox *box, void *state)
         tb_gui_forget_fonts(scene->gui, box->renderer);
     }
     tb_gui_destroy(scene->gui);
+    if (scene->options != NULL)
+    {
+        gui_options_destroy(scene->options);
+    }
     for (size_t font = 0; font < TB_UI_FONT_COUNT; font++)
     {
         if (scene->fonts.fonts[font] != NULL)

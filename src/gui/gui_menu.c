@@ -529,6 +529,8 @@ static bool tb_gui_menu_event(tb_widget widget, void *data, const tb_gui_event *
     case TB_GUI_EVENT_FOCUS_OUT:
     case TB_GUI_EVENT_RESIZE:
     case TB_GUI_EVENT_COMMAND:
+    case TB_GUI_EVENT_CHANGED:
+    case TB_GUI_EVENT_VALIDATE:
     case TB_GUI_EVENT_COUNT:
         break;
     }
@@ -859,6 +861,8 @@ static bool tb_gui_menubar_event(tb_widget widget, void *data, const tb_gui_even
     case TB_GUI_EVENT_RESIZE:
     case TB_GUI_EVENT_COMMAND:
     case TB_GUI_EVENT_POPUP_CLOSE:
+    case TB_GUI_EVENT_CHANGED:
+    case TB_GUI_EVENT_VALIDATE:
     case TB_GUI_EVENT_COUNT:
         break;
     }

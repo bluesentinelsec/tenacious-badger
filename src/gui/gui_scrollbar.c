@@ -149,7 +149,7 @@ void tb_gui_bar_draw(tb_gui_paint *paint, const tb_gui_bar *bar, bool hot)
  * The scrollbar kind.
  * ------------------------------------------------------------------------- */
 
-static const char *const tb_gui_orient_names[] = {"vertical", "horizontal"};
+static const char *const tb_gui_orient_names[] = {"horizontal", "vertical"};
 
 typedef struct tb_gui_scrollbar
 {
@@ -274,6 +274,8 @@ static bool tb_gui_scrollbar_event(tb_widget widget, void *data, const tb_gui_ev
     case TB_GUI_EVENT_FOCUS_OUT:
     case TB_GUI_EVENT_RESIZE:
     case TB_GUI_EVENT_POPUP_CLOSE:
+    case TB_GUI_EVENT_CHANGED:
+    case TB_GUI_EVENT_VALIDATE:
     case TB_GUI_EVENT_COUNT:
         break;
     }

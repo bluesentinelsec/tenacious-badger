@@ -1,7 +1,7 @@
 # badger-sandbox: draws the engine's test scenes in a window, to look at by
 # eye. A developer tool: built with the engine, never shipped with a game.
 add_executable(badger-sandbox sandbox.c sandbox_capture.c sandbox_scenes.c sandbox_skinning.c
-    sandbox_gui.c sandbox_inspector.c sandbox_lighting.c sandbox_ui.c)
+    sandbox_gui.c sandbox_gui_options.c sandbox_inspector.c sandbox_lighting.c sandbox_ui.c)
 target_link_libraries(badger-sandbox PRIVATE TenaciousBadger::badger)
 
 tb_configure_target(badger-sandbox)
