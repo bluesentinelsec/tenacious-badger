@@ -379,6 +379,8 @@ TB_TEST(gui_file_kinds, every_registered_kind_comes_back_the_same)
         const tb_widget made = tb_widget_create(root, kind);
         size_t changed_count = 0;
         TB_TEST_REQUIRE(tb_grid(made, &(tb_grid_options){.row = 1, .sticky = TB_STICKY_EW}));
+        /* A common property changed on every kind, those with none of their own too. */
+        tb_widget_set_style(made, "changed");
         for (size_t index = 0; index < kind->property_count; index++)
         {
             const tb_gui_property *const property = &kind->properties[index];
@@ -409,7 +411,10 @@ TB_TEST(gui_file_kinds, every_registered_kind_comes_back_the_same)
         gui_update(&fixture);
         char *const second = saved_text(again);
         TB_TEST_EXPECT_STRING(second, ==, first);
-        TB_TEST_EXPECT_UINT(changed_count, >, 0);
+        if (kind->property_count > 0)
+        {
+            TB_TEST_EXPECT_UINT(changed_count, >, 0);
+        }
         tb_free(second);
         tb_free(first);
         tb_widget_destroy(again);

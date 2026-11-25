@@ -285,6 +285,7 @@ static bool tb_gui_choice_event(tb_widget widget, tb_gui_choice *choice, const t
     case TB_GUI_EVENT_CHANGED:
     case TB_GUI_EVENT_MOTION:
     case TB_GUI_EVENT_VALIDATE:
+    case TB_GUI_EVENT_POPUP_CLOSE:
     case TB_GUI_EVENT_COUNT:
         break;
     }

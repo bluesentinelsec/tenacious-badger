@@ -388,6 +388,7 @@ void tb_gui_destroy(tb_gui *gui)
     tb_free(gui->resized);
     tb_free(gui->queue);
     tb_free(gui->modals);
+    tb_free(gui->popups);
     tb_ui_paint_free(&gui->paint);
     tb_arena_destroy(gui->arena);
     tb_free(gui);
@@ -474,6 +475,7 @@ void tb_gui_update(tb_gui *gui, double delta_seconds)
     }
     tb_gui_refresh_hover(gui);
     tb_gui_finish_input(gui);
+    tb_gui_update_tooltips(gui);
     tb_gui_build_commands(gui);
 }
 
@@ -487,14 +489,15 @@ void tb_gui_stats_of(const tb_gui *gui, tb_gui_stats *stats)
 {
     TB_ASSERT(gui != NULL);
     TB_ASSERT(stats != NULL);
-    *stats = (tb_gui_stats){.widgets = gui->alive_count,
-                            .layouts = gui->layouts,
-                            .commands = gui->paint.count,
-                            .hovered = gui->hovered,
-                            .pressed = gui->pressed,
-                            .focus = gui->focus,
-                            .modal = gui->modal_count > 0 ? gui->modals[gui->modal_count - 1]
-                                                          : TB_WIDGET_NONE};
+    *stats = (tb_gui_stats){
+        .widgets = gui->alive_count,
+        .layouts = gui->layouts,
+        .commands = gui->paint.count,
+        .hovered = gui->hovered,
+        .pressed = gui->pressed,
+        .focus = gui->focus,
+        .modal = gui->modal_count > 0 ? gui->modals[gui->modal_count - 1] : TB_WIDGET_NONE,
+        .popup = gui->popup_count > 0 ? gui->popups[gui->popup_count - 1].widget : TB_WIDGET_NONE};
 }
 
 /* ---------------------------------------------------------------------------

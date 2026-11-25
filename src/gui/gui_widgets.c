@@ -166,8 +166,7 @@ static tb_gui_text_block tb_gui_label_block(const tb_gui_label *label)
                                .anchor = (tb_gui_anchor)label->anchor};
 }
 
-/* The size of a text, or of one empty line of its font. */
-static tb_vec2 tb_gui_measure_block(tb_widget widget, const tb_gui_text_block *block)
+tb_vec2 tb_gui_measure_block(tb_widget widget, const tb_gui_text_block *block)
 {
     tb_gui *const gui = widget.gui;
     const tb_gui_resolved_font resolved = tb_gui_resolve_font(gui, block->font);
@@ -183,6 +182,19 @@ static tb_vec2 tb_gui_measure_block(tb_widget widget, const tb_gui_text_block *b
     }
     tb_ui_font_measures_of(resolved.font, resolved.size, gui->view.scale, &measures);
     return (tb_vec2){0.0f, measures.line_height};
+}
+
+float tb_gui_line_height(tb_gui *gui)
+{
+    const tb_gui_resolved_font resolved = tb_gui_resolve_font(gui, (tb_font_spec){0});
+    tb_ui_font_measures measures = {0};
+
+    if (resolved.font == NULL)
+    {
+        return resolved.size;
+    }
+    tb_ui_font_measures_of(resolved.font, resolved.size, gui->view.scale, &measures);
+    return measures.line_height;
 }
 
 static tb_vec2 tb_gui_label_measure(tb_widget widget, const void *data)
@@ -391,6 +403,7 @@ static bool tb_gui_button_event(tb_widget widget, void *data, const tb_gui_event
     case TB_GUI_EVENT_CHANGED:
     case TB_GUI_EVENT_MOTION:
     case TB_GUI_EVENT_VALIDATE:
+    case TB_GUI_EVENT_POPUP_CLOSE:
     case TB_GUI_EVENT_COUNT:
         break;
     }
@@ -444,4 +457,8 @@ void tb_gui_register_builtins(tb_gui *gui)
     (void)tb_gui_register_class(gui, &tb_gui_label_kind);
     (void)tb_gui_register_class(gui, &tb_gui_button_kind);
     tb_gui_register_value_kinds(gui);
+    tb_gui_register_scroll_kinds(gui);
+    tb_gui_register_listbox(gui);
+    tb_gui_register_menu_kinds(gui);
+    tb_gui_register_tooltip(gui);
 }

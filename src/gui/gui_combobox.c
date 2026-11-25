@@ -1,7 +1,8 @@
 /* Combo boxes: one of a list of values, chosen from a list that drops down
- * in the GUI's popup, above every widget (tb_gui_popup_open()). The value
- * is in a text variable, by its text; in an integer variable, by its index;
- * or its own. */
+ * as a popup, above every widget (tb_widget_popup()): a child of the combo
+ * box, of a kind of its own, made when it first opens. The value is in a
+ * text variable, by its text; in an integer variable, by its index; or its
+ * own. */
 #include "gui_values.h"
 
 #include "badger/assert.h"
@@ -35,6 +36,7 @@ typedef struct tb_gui_combobox
     int32_t highlight; /* in the open list, by the keys */
     int32_t top;       /* the first value the open list shows */
     bool picking;      /* a press in the open list waits for its release */
+    tb_widget list;    /* its list, a popup while open; none until first opened */
 } tb_gui_combobox;
 
 /* ---------------------------------------------------------------------------
@@ -171,21 +173,16 @@ static int32_t tb_gui_combo_rows(const tb_gui_combobox *box)
     return count < box->height ? count : box->height;
 }
 
-/* Where the list is, below the combo box, or above when it fits only there. */
-static tb_canvas_rect tb_gui_combo_list_rect(tb_widget widget, const tb_gui_combobox *box)
+static bool tb_gui_combo_is_open(const tb_gui_combobox *box)
 {
-    const tb_canvas_rect rect = tb_widget_rect(widget);
-    const float border = tb_gui_theme(widget.gui)->border;
-    const float height =
-        (float)tb_gui_combo_rows(box) * tb_gui_combo_item_height(widget.gui) + 2.0f * border;
-    const float bottom = tb_gui_view_of(widget.gui).size.y;
-    tb_canvas_rect list = {rect.x, rect.y + rect.height, rect.width, height};
+    return tb_widget_is_popup(box->list);
+}
 
-    if (list.y + height > bottom && rect.y - height >= 0.0f)
-    {
-        list.y = rect.y - height;
-    }
-    return list;
+/* Where the open list is: below the combo box, or above when it fits only
+ * there, as the popup layer placed it. */
+static tb_canvas_rect tb_gui_combo_list_rect(const tb_gui_combobox *box)
+{
+    return tb_widget_rect(box->list);
 }
 
 /* The value under a point in the open list, or TB_GUI_NO_INDEX. */
@@ -276,6 +273,15 @@ static void tb_gui_combo_draw_list(tb_widget widget, const void *data, tb_gui_pa
                          theme->colors[TB_UI_COLOR_BORDER]);
 }
 
+static const tb_widget_class *tb_gui_combo_list_class(void);
+
+static tb_gui_popup_options tb_gui_combo_popup_options(tb_widget widget)
+{
+    const tb_canvas_rect rect = tb_widget_rect(widget);
+    return (tb_gui_popup_options){
+        .anchor = rect, .placement = TB_GUI_POPUP_BELOW, .min_size = {rect.width, 0.0f}};
+}
+
 static void tb_gui_combo_open(tb_widget widget, tb_gui_combobox *box)
 {
     const int32_t current = tb_gui_combo_current(box);
@@ -284,25 +290,29 @@ static void tb_gui_combo_open(tb_widget widget, tb_gui_combobox *box)
     {
         return;
     }
+    if (!tb_widget_alive(box->list))
+    {
+        box->list = tb_widget_create(widget, tb_gui_combo_list_class());
+    }
     box->highlight = current >= 0 ? current : 0;
     tb_gui_combo_reveal(box, box->highlight);
     box->picking = false;
-    tb_gui_popup_open(widget, tb_gui_combo_list_rect(widget, box), tb_gui_combo_draw_list);
+    const tb_gui_popup_options options = tb_gui_combo_popup_options(widget);
+    (void)tb_widget_popup(box->list, &options);
 }
 
 static void tb_gui_combo_close(tb_widget widget, tb_gui_combobox *box)
 {
+    (void)widget;
     box->picking = false;
-    if (tb_gui_popup_owned(widget.gui, widget))
-    {
-        tb_gui_popup_close(widget.gui);
-    }
+    tb_widget_close_popup(box->list);
 }
 
 bool tb_combobox_open(tb_widget widget)
 {
-    return tb_widget_class_of(widget) == tb_combobox_class() &&
-           tb_gui_popup_owned(widget.gui, widget);
+    const tb_gui_combobox *const box =
+        tb_widget_class_of(widget) == tb_combobox_class() ? tb_widget_data(widget) : NULL;
+    return box != NULL && tb_gui_combo_is_open(box);
 }
 
 /* ---------------------------------------------------------------------------
@@ -347,7 +357,7 @@ static void tb_gui_combo_draw(tb_widget widget, const void *data, tb_gui_paint *
     const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
     const uint32_t state = tb_widget_state(widget);
     const bool disabled = (state & TB_WIDGET_DISABLED) != 0;
-    const bool open = tb_gui_popup_owned(widget.gui, widget);
+    const bool open = tb_gui_combo_is_open(box);
     const tb_canvas_rect rect = tb_gui_paint_rect(paint);
     const tb_gui_edges insets = tb_gui_combo_insets(widget, data);
     const float line = tb_gui_values_measures(widget.gui).line_height;
@@ -388,15 +398,16 @@ static void tb_gui_combo_draw(tb_widget widget, const void *data, tb_gui_paint *
                       theme->border * 1.5f, mark);
 }
 
-/* Its list follows it when it is laid out again. */
+/* Its list follows it when it is laid out again: the popups are placed
+ * after every other widget. */
 static void tb_gui_combo_arrange(tb_widget widget, void *data, tb_canvas_rect rect)
 {
-    tb_gui_combobox *const box = data;
+    const tb_gui_combobox *const box = data;
 
-    (void)rect;
-    if (tb_gui_popup_owned(widget.gui, widget))
+    (void)widget;
+    if (tb_gui_combo_is_open(box))
     {
-        tb_gui_popup_open(widget, tb_gui_combo_list_rect(widget, box), tb_gui_combo_draw_list);
+        tb_gui_move_popup(box->list, rect);
     }
 }
 
@@ -449,7 +460,7 @@ static bool tb_gui_combo_key(tb_widget widget, tb_gui_combobox *box, const tb_gu
     const bool alt = (event->modifiers & TB_MODIFIER_ALT) != 0;
     const int32_t current = tb_gui_combo_current(box);
 
-    if (tb_gui_popup_owned(widget.gui, widget))
+    if (tb_gui_combo_is_open(box))
     {
         if (alt && key == TB_KEY_UP)
         {
@@ -488,7 +499,7 @@ static bool tb_gui_combo_wheel(tb_widget widget, tb_gui_combobox *box, const tb_
     {
         return false;
     }
-    if (tb_gui_popup_owned(widget.gui, widget))
+    if (tb_gui_combo_is_open(box))
     {
         box->top += notch;
         tb_gui_combo_reveal(box, box->top);
@@ -505,39 +516,14 @@ static bool tb_gui_combo_wheel(tb_widget widget, tb_gui_combobox *box, const tb_
 static bool tb_gui_combo_event(tb_widget widget, void *data, const tb_gui_event *event)
 {
     tb_gui_combobox *const box = data;
-    const bool open = tb_gui_popup_owned(widget.gui, widget);
-    const tb_canvas_rect list = tb_gui_combo_list_rect(widget, box);
-
     switch (event->kind)
     {
     case TB_GUI_EVENT_PRESS:
-        if (event->button != TB_MOUSE_BUTTON_LEFT)
-        {
-            return true;
-        }
-        if (open && tb_ui_rect_contains(list, event->position))
-        {
-            box->picking = true;
-        }
-        else if (open)
-        {
-            tb_gui_combo_close(widget, box);
-        }
-        else
+        /* A press on it while its list is open closes the list, and is used
+         * by the popup layer: this one opens it. */
+        if (event->button == TB_MOUSE_BUTTON_LEFT && !tb_gui_combo_is_open(box))
         {
             tb_gui_combo_open(widget, box);
-        }
-        return true;
-    case TB_GUI_EVENT_RELEASE:
-        if (box->picking && event->button == TB_MOUSE_BUTTON_LEFT)
-        {
-            const int32_t index = tb_gui_combo_item_at(widget, box, event->position, list);
-            box->picking = false;
-            if (index != TB_GUI_NO_INDEX)
-            {
-                tb_gui_combo_close(widget, box);
-                tb_gui_combo_choose(widget, box, index);
-            }
         }
         return true;
     case TB_GUI_EVENT_KEY:
@@ -549,6 +535,7 @@ static bool tb_gui_combo_event(tb_widget widget, void *data, const tb_gui_event 
         return false;
     case TB_GUI_EVENT_ENTER:
     case TB_GUI_EVENT_LEAVE:
+    case TB_GUI_EVENT_RELEASE:
     case TB_GUI_EVENT_CLICK:
     case TB_GUI_EVENT_DOUBLE_CLICK:
     case TB_GUI_EVENT_TEXT:
@@ -558,10 +545,99 @@ static bool tb_gui_combo_event(tb_widget widget, void *data, const tb_gui_event 
     case TB_GUI_EVENT_CHANGED:
     case TB_GUI_EVENT_MOTION:
     case TB_GUI_EVENT_VALIDATE:
+    case TB_GUI_EVENT_POPUP_CLOSE:
     case TB_GUI_EVENT_COUNT:
         break;
     }
     return false;
+}
+
+/* ---------------------------------------------------------------------------
+ * The list's kind: its combo box's values, drawn and picked from it.
+ * ------------------------------------------------------------------------- */
+
+static tb_vec2 tb_gui_combo_list_measure(tb_widget widget, const void *data)
+{
+    const tb_widget owner = tb_widget_parent(widget);
+    const tb_gui_combobox *const box = tb_widget_data(owner);
+    const float border = tb_gui_theme(widget.gui)->border;
+
+    (void)data;
+    return (tb_vec2){0.0f, (float)tb_gui_combo_rows(box) * tb_gui_combo_item_height(widget.gui) +
+                               2.0f * border};
+}
+
+static void tb_gui_combo_list_draw(tb_widget widget, const void *data, tb_gui_paint *paint)
+{
+    const tb_widget owner = tb_widget_parent(widget);
+    /* Drawn as the combo box's own, which it is part of. */
+    tb_gui_paint drawn = *paint;
+
+    (void)data;
+    drawn.widget = owner;
+    tb_gui_combo_draw_list(owner, tb_widget_data(owner), &drawn);
+}
+
+static bool tb_gui_combo_list_event(tb_widget widget, void *data, const tb_gui_event *event)
+{
+    const tb_widget owner = tb_widget_parent(widget);
+    tb_gui_combobox *const box = tb_widget_data(owner);
+
+    (void)data;
+    switch (event->kind)
+    {
+    case TB_GUI_EVENT_PRESS:
+        box->picking = event->button == TB_MOUSE_BUTTON_LEFT;
+        return true;
+    case TB_GUI_EVENT_RELEASE:
+        if (box->picking && event->button == TB_MOUSE_BUTTON_LEFT)
+        {
+            const int32_t index =
+                tb_gui_combo_item_at(owner, box, event->position, tb_gui_combo_list_rect(box));
+            box->picking = false;
+            if (index != TB_GUI_NO_INDEX)
+            {
+                tb_gui_combo_close(owner, box);
+                tb_gui_combo_choose(owner, box, index);
+            }
+        }
+        return true;
+    case TB_GUI_EVENT_KEY:
+        /* The popup layer gives its keys to the list first: they are the
+         * combo box's. */
+        return tb_gui_combo_key(owner, box, event);
+    case TB_GUI_EVENT_WHEEL:
+        return tb_gui_combo_wheel(owner, box, event);
+    case TB_GUI_EVENT_POPUP_CLOSE:
+        box->picking = false;
+        return true;
+    case TB_GUI_EVENT_ENTER:
+    case TB_GUI_EVENT_LEAVE:
+    case TB_GUI_EVENT_CLICK:
+    case TB_GUI_EVENT_DOUBLE_CLICK:
+    case TB_GUI_EVENT_TEXT:
+    case TB_GUI_EVENT_FOCUS_IN:
+    case TB_GUI_EVENT_FOCUS_OUT:
+    case TB_GUI_EVENT_RESIZE:
+    case TB_GUI_EVENT_COMMAND:
+    case TB_GUI_EVENT_CHANGED:
+    case TB_GUI_EVENT_MOTION:
+    case TB_GUI_EVENT_VALIDATE:
+    case TB_GUI_EVENT_COUNT:
+        break;
+    }
+    return false;
+}
+
+static const tb_widget_class tb_gui_combo_list_kind = {.name = "combobox_list",
+                                                       .mouse_filter = TB_GUI_MOUSE_STOP,
+                                                       .measure = tb_gui_combo_list_measure,
+                                                       .draw = tb_gui_combo_list_draw,
+                                                       .event = tb_gui_combo_list_event};
+
+static const tb_widget_class *tb_gui_combo_list_class(void)
+{
+    return &tb_gui_combo_list_kind;
 }
 
 /* ---------------------------------------------------------------------------

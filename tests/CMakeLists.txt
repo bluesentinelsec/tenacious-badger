@@ -119,9 +119,13 @@ set(TB_TEST_CASE_SOURCES
     gui/gui_file_test.c
     gui/gui_fixture.c
     gui/gui_grid_test.c
+    gui/gui_listbox_test.c
+    gui/gui_menu_test.c
     gui/gui_names_test.c
+    gui/gui_popup_test.c
     gui/gui_range_test.c
     gui/gui_scale_test.c
+    gui/gui_scroll_test.c
     gui/gui_tree_test.c
     gui/gui_var_test.c
     gui/gui_watch_test.c
