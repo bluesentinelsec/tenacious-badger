@@ -107,8 +107,11 @@ zooms the inspector too.
 
 In the `gui` scene the GUI sees the window's events first, as the
 interface does in the `ui` scene: it takes the mouse over the form, the
-keys while a button has the focus, and Tab, and the fly camera has the
-rest. Resizing the window lays the form out again: its middle column takes
+keys while a widget has the focus, Tab, and the arrows, and the fly camera
+has the rest. The scene is used from the keyboard alone: an arrow focuses
+the Rename button, the arrows move the focus by
+[navigation](gui.md#navigation), ringed while the keyboard moves it, Enter
+or Space presses, and Escape goes back, out of a field or the dialog. Resizing the window lays the form out again: its middle column takes
 the extra width, and an empty row the extra height. `--ui-scale` is the
 GUI's factor on top of the display's scale.
 

@@ -50,11 +50,13 @@ static void tb_theme_box(tb_theme *theme, const tb_ui_theme *palette, const char
     tb_theme_number(theme, style_class, "radius", 0, radius);
 }
 
-/* The ring drawn with the focus: the accent, twice an edge. */
+/* The ring drawn with the focus: the accent, twice an edge. Fields ring
+ * whenever they have the focus; what is clicked rings only while the
+ * keyboard or a gamepad moved the focus last (TB_WIDGET_FOCUS_VISIBLE). */
 static void tb_theme_focus_ring(tb_theme *theme, const tb_ui_theme *palette,
-                                const char *style_class)
+                                const char *style_class, uint32_t states)
 {
-    tb_theme_number(theme, style_class, "focus_width", TB_WIDGET_FOCUSED, 2.0f * palette->border);
+    tb_theme_number(theme, style_class, "focus_width", states, 2.0f * palette->border);
 }
 
 static tb_gui_edges tb_theme_padding(tb_vec2 padding)
@@ -105,7 +107,7 @@ static void tb_theme_fill_buttons(tb_theme *theme, const tb_ui_theme *palette)
                    colors[TB_UI_COLOR_BUTTON_HOT]);
     tb_theme_color(theme, "Button", "background", held, colors[TB_UI_COLOR_BUTTON_ACTIVE]);
     tb_theme_edges(theme, "Button", "padding", tb_theme_padding(palette->frame_padding));
-    tb_theme_focus_ring(theme, palette, "Button");
+    tb_theme_focus_ring(theme, palette, "Button", TB_WIDGET_FOCUS_VISIBLE);
     tb_theme_color(theme, "Button", "default_color", 0, colors[TB_UI_COLOR_ACCENT]);
     tb_theme_number(theme, "Button", "default_width", 0, palette->border);
 
@@ -116,7 +118,7 @@ static void tb_theme_fill_buttons(tb_theme *theme, const tb_ui_theme *palette)
     tb_theme_color(theme, "Combobox", "background", TB_WIDGET_PRESSED,
                    colors[TB_UI_COLOR_BUTTON_ACTIVE]);
     tb_theme_edges(theme, "Combobox", "padding", tb_theme_padding(palette->frame_padding));
-    tb_theme_focus_ring(theme, palette, "Combobox");
+    tb_theme_focus_ring(theme, palette, "Combobox", TB_WIDGET_FOCUS_VISIBLE);
     tb_theme_box(theme, palette, "ComboboxList", colors[TB_UI_COLOR_POPUP],
                  palette->frame_rounding);
     tb_theme_edges(theme, "ComboboxList", "padding", tb_theme_row_padding(palette));
@@ -137,7 +139,7 @@ static void tb_theme_fill_choices(tb_theme *theme, const tb_ui_theme *palette)
         tb_theme_color(theme, kinds[index], "background", TB_WIDGET_HOVERED,
                        colors[TB_UI_COLOR_FRAME_HOT]);
         tb_theme_color(theme, kinds[index], "background", held, colors[TB_UI_COLOR_FRAME_ACTIVE]);
-        tb_theme_focus_ring(theme, palette, kinds[index]);
+        tb_theme_focus_ring(theme, palette, kinds[index], TB_WIDGET_FOCUS_VISIBLE);
         tb_theme_number(theme, kinds[index], "spacing", 0, palette->frame_padding.x);
     }
     /* A check button ticked is filled with the accent, border and all. */
@@ -169,7 +171,7 @@ static void tb_theme_fill_fields(tb_theme *theme, const tb_ui_theme *palette)
         tb_theme_color(theme, kinds[index], "background", TB_WIDGET_FOCUSED,
                        colors[TB_UI_COLOR_FRAME_HOT]);
         tb_theme_edges(theme, kinds[index], "padding", tb_theme_padding(palette->frame_padding));
-        tb_theme_focus_ring(theme, palette, kinds[index]);
+        tb_theme_focus_ring(theme, palette, kinds[index], TB_WIDGET_FOCUSED);
     }
     tb_theme_color(theme, "Spinbox", "arrow_pressed_color", 0, colors[TB_UI_COLOR_BUTTON_ACTIVE]);
     tb_theme_color(theme, "Spinbox", "separator_color", 0, colors[TB_UI_COLOR_BORDER]);
@@ -184,7 +186,7 @@ static void tb_theme_fill_ranges(tb_theme *theme, const tb_ui_theme *palette)
     tb_theme_color(theme, "Scale", "background", TB_WIDGET_HOVERED, colors[TB_UI_COLOR_BUTTON_HOT]);
     tb_theme_color(theme, "Scale", "background", TB_WIDGET_PRESSED,
                    colors[TB_UI_COLOR_BUTTON_ACTIVE]);
-    tb_theme_focus_ring(theme, palette, "Scale");
+    tb_theme_focus_ring(theme, palette, "Scale", TB_WIDGET_FOCUS_VISIBLE);
     tb_theme_color(theme, "Scale", "trough_color", 0, colors[TB_UI_COLOR_FRAME]);
     tb_theme_color(theme, "Scale", "fill_color", 0, colors[TB_UI_COLOR_ACCENT]);
     tb_theme_color(theme, "Scale", "fill_color", TB_WIDGET_DISABLED,

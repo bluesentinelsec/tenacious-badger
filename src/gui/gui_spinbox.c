@@ -330,6 +330,7 @@ static bool tb_gui_spinbox_event(tb_widget widget, void *data, const tb_gui_even
     case TB_GUI_EVENT_MOTION:
     case TB_GUI_EVENT_VALIDATE:
     case TB_GUI_EVENT_POPUP_CLOSE:
+    case TB_GUI_EVENT_BACK:
     case TB_GUI_EVENT_COUNT:
         break;
     }
@@ -578,7 +579,7 @@ static const tb_widget_class tb_gui_spinbox_kind = {
     .data_size = sizeof(tb_gui_spinbox),
     .properties = tb_gui_spinbox_properties,
     .property_count = TB_GUI_VALUES_COUNT_OF(tb_gui_spinbox_properties),
-    .flags = TB_WIDGET_CLASS_FOCUSABLE | TB_WIDGET_CLASS_FOCUS_ON_CLICK,
+    .flags = TB_WIDGET_CLASS_FOCUSABLE | TB_WIDGET_CLASS_FOCUS_ON_CLICK | TB_WIDGET_CLASS_ENGAGES,
     .mouse_filter = TB_GUI_MOUSE_STOP,
     .init = tb_gui_spinbox_init,
     .destroy = tb_gui_spinbox_release_format,

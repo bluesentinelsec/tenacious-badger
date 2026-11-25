@@ -479,9 +479,9 @@ TB_TEST(gui_event, a_modal_widget_alone_takes_input)
     TB_TEST_EXPECT(tb_widget_equal(stats_of(&fixture).focus, cancel));
     gui_key(&fixture, TB_KEY_TAB, 0);
     TB_TEST_EXPECT(tb_widget_equal(stats_of(&fixture).focus, ok));
-    /* With no focus, keys go to the modal widget: Escape to close it. */
+    /* With no focus, keys go to the modal widget. */
     tb_gui_clear_focus(fixture.gui);
-    gui_key(&fixture, TB_KEY_ESCAPE, 0);
+    gui_key(&fixture, TB_KEY_A, 0);
     TB_TEST_EXPECT_UINT(gui_log_count(&log, TB_GUI_EVENT_KEY, dialog), ==, 1);
 
     /* It is drawn on a layer above the others, over a shade. */

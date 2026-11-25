@@ -59,6 +59,7 @@ void tb_gui_forget_popup(tb_gui *gui, uint32_t index)
         return;
     }
     tb_gui_node_at(gui, index)->popup = false;
+    tb_gui_holder_closed(gui, index);
     for (size_t at = level + 1; at < gui->popup_count; at++)
     {
         gui->popups[at - 1] = gui->popups[at];
@@ -142,6 +143,7 @@ bool tb_widget_popup(tb_widget widget, const tb_gui_popup_options *options)
             gui->popup_capacity == 0 ? TB_GUI_FIRST_POPUPS : gui->popup_capacity * 2;
         gui->popups = tb_realloc_array(gui->popups, gui->popup_capacity, sizeof(*gui->popups));
     }
+    tb_gui_remember_focus(gui, widget);
     gui->popups[gui->popup_count] = (tb_gui_popup_entry){.widget = widget, .options = chosen};
     gui->popup_count++;
     node->popup = true;

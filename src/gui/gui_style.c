@@ -788,14 +788,14 @@ static size_t tb_style_themes_of(tb_gui *gui, uint32_t index)
 }
 
 /* How an entry's states rank against another's: disabled outranks
- * selected, selected pressed, pressed hovered, and hovered focused, so that
- * a state outranks every mix of those below it, as Godot's styles of a
- * button do. */
+ * selected, selected pressed, pressed hovered, hovered engaged, engaged
+ * focus-visible, and focus-visible focused, so that a state outranks every
+ * mix of those below it, as Godot's styles of a button do. */
 static int32_t tb_style_rank(uint32_t states)
 {
-    static const uint32_t order[TB_STYLE_STATE_BITS] = {TB_WIDGET_FOCUSED, TB_WIDGET_HOVERED,
-                                                        TB_WIDGET_PRESSED, TB_WIDGET_SELECTED,
-                                                        TB_WIDGET_DISABLED};
+    static const uint32_t order[TB_STYLE_STATE_BITS] = {
+        TB_WIDGET_FOCUSED, TB_WIDGET_FOCUS_VISIBLE, TB_WIDGET_ENGAGED, TB_WIDGET_HOVERED,
+        TB_WIDGET_PRESSED, TB_WIDGET_SELECTED,      TB_WIDGET_DISABLED};
     int32_t rank = 0;
 
     for (size_t index = 0; index < TB_STYLE_STATE_BITS; index++)

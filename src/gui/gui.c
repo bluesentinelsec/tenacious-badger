@@ -349,6 +349,7 @@ tb_gui *tb_gui_create(const tb_gui_options *options)
     gui->paint.arena = gui->arena;
     gui->paint.scale = 1.0f;
     gui->view = tb_gui_compute_view(gui);
+    tb_gui_navigation_create(gui);
     tb_gui_register_builtins(gui);
     tb_gui_styles_init(gui, chosen->style_theme);
 
@@ -371,6 +372,7 @@ void tb_gui_destroy(tb_gui *gui)
     tb_gui_watches_free(gui);
     tb_gui_names_free(gui);
     tb_gui_vars_free(gui);
+    tb_gui_navigation_free(gui);
     for (size_t index = 0; index < gui->node_count; index++)
     {
         if (gui->nodes[index].in_use)
@@ -689,6 +691,8 @@ uint32_t tb_widget_state(tb_widget widget)
     if (tb_widget_equal(gui->focus, widget))
     {
         state |= TB_WIDGET_FOCUSED;
+        state |= gui->focus_visible ? TB_WIDGET_FOCUS_VISIBLE : 0u;
+        state |= gui->focus_engaged ? TB_WIDGET_ENGAGED : 0u;
     }
     return state;
 }

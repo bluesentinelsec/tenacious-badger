@@ -105,6 +105,10 @@ TB_TEST(gui_draw, frames_labels_and_buttons_draw_their_states)
     TB_TEST_EXPECT_UINT(commands_of(&fixture, button, TB_UI_COMMAND_OUTLINE), ==, 1);
     TB_TEST_REQUIRE(tb_widget_focus(button));
     gui_update(&fixture);
+    /* Focused by a program after the mouse: no ring until the focus is shown. */
+    TB_TEST_EXPECT_UINT(commands_of(&fixture, button, TB_UI_COMMAND_OUTLINE), ==, 1);
+    tb_gui_set_focus_visible(fixture.gui, true);
+    gui_update(&fixture);
     TB_TEST_EXPECT_UINT(commands_of(&fixture, button, TB_UI_COMMAND_OUTLINE), ==, 2);
     /* The default button is ringed too, and a button of no text has none. */
     TB_TEST_EXPECT_UINT(commands_of(&fixture, fallback, TB_UI_COMMAND_OUTLINE), ==, 2);

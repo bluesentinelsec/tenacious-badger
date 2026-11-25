@@ -231,7 +231,7 @@ static bool tb_gui_radio_arrow(tb_widget widget, const tb_gui_choice *choice, tb
     next = tb_gui_radio_neighbour(widget, choice, after);
     if (!tb_widget_alive(next))
     {
-        return true;
+        return false;
     }
     (void)tb_widget_focus(next);
     (void)tb_widget_invoke(next);
@@ -250,7 +250,8 @@ static bool tb_gui_choice_event(tb_widget widget, tb_gui_choice *choice, const t
         }
         return true;
     case TB_GUI_EVENT_KEY:
-        if (event->key == TB_KEY_SPACE && !event->repeat && tb_gui_values_plain(event))
+        if ((event->key == TB_KEY_SPACE || event->key == TB_KEY_ENTER) && !event->repeat &&
+            tb_gui_values_plain(event))
         {
             (void)tb_widget_invoke(widget);
             return true;
@@ -289,6 +290,7 @@ static bool tb_gui_choice_event(tb_widget widget, tb_gui_choice *choice, const t
     case TB_GUI_EVENT_MOTION:
     case TB_GUI_EVENT_VALIDATE:
     case TB_GUI_EVENT_POPUP_CLOSE:
+    case TB_GUI_EVENT_BACK:
     case TB_GUI_EVENT_COUNT:
         break;
     }

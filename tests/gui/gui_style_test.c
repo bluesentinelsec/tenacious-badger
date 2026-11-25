@@ -403,6 +403,8 @@ TB_TEST(gui_style, a_box_draws_its_fill_border_and_focus_ring)
 
     gui_fixture_open(&fixture, 1.0f);
     const tb_widget button = make_button(&fixture, "OK");
+    /* As the keyboard gives it: the ring is shown. */
+    tb_gui_set_focus_visible(fixture.gui, true);
     TB_TEST_REQUIRE(tb_widget_focus(button));
     gui_update(&fixture);
     const tb_ui_command *const commands = tb_gui_commands(fixture.gui, &count);
@@ -477,7 +479,10 @@ TB_TEST(gui_style, the_tool_themes_follow_their_palettes)
     TB_TEST_EXPECT_FLOAT(style->padding.left, ==, palette->frame_padding.x);
     TB_TEST_EXPECT_FLOAT(style->padding.top, ==, palette->frame_padding.y);
     TB_TEST_EXPECT_FLOAT(style->focus_width, ==, 0.0f);
-    TB_TEST_EXPECT_FLOAT(tb_style_in(button, TB_WIDGET_FOCUSED)->focus_width, ==,
+    /* A button rings while its focus is shown, not after a click. */
+    TB_TEST_EXPECT_FLOAT(tb_style_in(button, TB_WIDGET_FOCUSED)->focus_width, ==, 0.0f);
+    TB_TEST_EXPECT_FLOAT(
+        tb_style_in(button, TB_WIDGET_FOCUSED | TB_WIDGET_FOCUS_VISIBLE)->focus_width, ==,
                          2.0f * palette->border);
     TB_TEST_EXPECT(same_color(tb_style_in(check, TB_WIDGET_SELECTED)->background,
                               palette->colors[TB_UI_COLOR_ACCENT]));

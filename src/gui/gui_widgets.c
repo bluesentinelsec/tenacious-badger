@@ -15,7 +15,8 @@ static const char *const tb_gui_anchor_names[] = {"center", "n",  "ne", "e", "se
 
 /* The states a kind's look follows. */
 #define TB_GUI_DRAWN_STATES                                                                        \
-    (TB_WIDGET_HOVERED | TB_WIDGET_PRESSED | TB_WIDGET_FOCUSED | TB_WIDGET_DISABLED)
+    (TB_WIDGET_HOVERED | TB_WIDGET_PRESSED | TB_WIDGET_FOCUSED | TB_WIDGET_DISABLED |       \
+     TB_WIDGET_FOCUS_VISIBLE | TB_WIDGET_ENGAGED)
 
 /* ---------------------------------------------------------------------------
  * Frames.
@@ -386,7 +387,7 @@ static void tb_gui_button_draw(tb_widget widget, const void *data, tb_gui_paint 
     const tb_style *const style = tb_style_in(widget, state);
     const tb_canvas_rect rect = tb_gui_paint_rect(paint);
     const tb_gui_text_block block = tb_gui_button_block(button);
-    const bool plain = (state & (TB_WIDGET_FOCUSED | TB_WIDGET_DISABLED)) == 0;
+    const bool plain = (state & (TB_WIDGET_FOCUS_VISIBLE | TB_WIDGET_DISABLED)) == 0;
 
     tb_gui_paint_box(paint, rect, style);
     /* A dialog's default button is ringed thinly, but for the focus's ring. */
@@ -438,6 +439,7 @@ static bool tb_gui_button_event(tb_widget widget, void *data, const tb_gui_event
     case TB_GUI_EVENT_MOTION:
     case TB_GUI_EVENT_VALIDATE:
     case TB_GUI_EVENT_POPUP_CLOSE:
+    case TB_GUI_EVENT_BACK:
     case TB_GUI_EVENT_COUNT:
         break;
     }

@@ -329,7 +329,7 @@ static void tb_game_fill_buttons(tb_theme *theme, const tb_style_image images[TB
         tb_game_number(theme, kinds[index], "border_width", 0, 0.0f);
         tb_game_number(theme, kinds[index], "radius", 0, retro ? 0.0f : TB_GAME_CORNER);
         tb_game_padding(theme, kinds[index], retro ? 12.0f : 16.0f, retro ? 6.0f : 7.0f);
-        tb_game_number(theme, kinds[index], "focus_width", TB_WIDGET_FOCUSED, 2.0f);
+        tb_game_number(theme, kinds[index], "focus_width", TB_WIDGET_FOCUS_VISIBLE, 2.0f);
         tb_game_font(theme, kinds[index], retro ? TB_FONT_ROLE_PIXEL : TB_FONT_ROLE_HEADING);
     }
     tb_game_set_image(theme, "Combobox", "background_image", TB_WIDGET_PRESSED,
@@ -377,7 +377,7 @@ static void tb_game_fill_fields(tb_theme *theme, const tb_style_image images[TB_
         tb_game_color(theme, choices[index], "border_color", 0, bronze);
         tb_game_number(theme, choices[index], "border_width", 0, 2.0f);
         tb_game_number(theme, choices[index], "radius", 0, retro ? 0.0f : 3.0f);
-        tb_game_number(theme, choices[index], "focus_width", TB_WIDGET_FOCUSED, 2.0f);
+        tb_game_number(theme, choices[index], "focus_width", TB_WIDGET_FOCUS_VISIBLE, 2.0f);
         tb_game_number(theme, choices[index], "spacing", 0, 8.0f);
     }
     /* Each state the default theme gives a look of its own is given here too,
@@ -397,7 +397,7 @@ static void tb_game_fill_fields(tb_theme *theme, const tb_style_image images[TB_
     tb_game_color(theme, "Scale", "background", TB_WIDGET_PRESSED, gold);
     tb_game_color(theme, "Scale", "border_color", 0, tb_game_rgb(0.10f, 0.07f, 0.04f));
     tb_game_number(theme, "Scale", "border_width", 0, 2.0f);
-    tb_game_number(theme, "Scale", "focus_width", TB_WIDGET_FOCUSED, 2.0f);
+    tb_game_number(theme, "Scale", "focus_width", TB_WIDGET_FOCUS_VISIBLE, 2.0f);
     tb_game_color(theme, "Scale", "trough_color", 0, dark);
     tb_game_color(theme, "Scale", "fill_color", 0, gold);
     tb_game_set_image(theme, "Progressbar", "background_image", 0, &images[TB_GAME_FIELD]);

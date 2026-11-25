@@ -20,7 +20,7 @@ typedef struct tb_gui_message
     tb_widget buttons[TB_GUI_MESSAGE_MOST_BUTTONS];
     tb_message_result results[TB_GUI_MESSAGE_MOST_BUTTONS];
     size_t button_count;
-    tb_message_result escape; /* what Escape chooses */
+    tb_message_result escape; /* what Back chooses */
 } tb_gui_message;
 
 /* The dialog's buttons, their answers, and what Escape answers. */
@@ -139,13 +139,15 @@ static void tb_gui_message_on_button(const tb_gui_event *event, void *user)
     }
 }
 
-static void tb_gui_message_on_key(const tb_gui_event *event, void *user)
+/* Back, Escape or a gamepad's B, answers as Cancel, No, or OK does. */
+static void tb_gui_message_on_back(const tb_gui_event *event, void *user)
 {
     const tb_gui_message *const message = tb_widget_data(event->widget);
 
     (void)user;
-    if (event->key == TB_KEY_ESCAPE && message != NULL)
+    if (message != NULL)
     {
+        tb_gui_accept_event(event);
         tb_gui_message_answer(event->widget, message->escape);
     }
 }
@@ -212,7 +214,7 @@ tb_widget tb_gui_message_box(tb_gui *gui, const char *title, const char *text,
         message->buttons[index] = button;
         message->results[index] = set.results[index];
     }
-    (void)tb_bind(dialog, TB_GUI_EVENT_KEY, tb_gui_message_on_key, NULL);
+    (void)tb_bind(dialog, TB_GUI_EVENT_BACK, tb_gui_message_on_back, NULL);
     (void)tb_widget_show_modal(dialog);
     /* The first button has the focus: Enter or Space chooses it. */
     tb_gui_layout(gui);

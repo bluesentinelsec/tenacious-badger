@@ -260,10 +260,14 @@ static void tb_gui_scale_point(tb_widget widget, tb_gui_scale *scale, tb_vec2 po
                       (double)scale->from + fraction * ((double)scale->to - (double)scale->from));
 }
 
-/* A key's step: toward `from` for Left, Up, and Page Up; toward `to` for
- * the others. 0 for a key that steps nothing. */
+/* A key's step: toward `from` for Left or Up along it, and Page Up; toward
+ * `to` for Right or Down along it, and Page Down. 0 for a key that steps
+ * nothing: the arrows across it are left to navigation. */
 static double tb_gui_scale_key_step(const tb_gui_scale *scale, tb_key key)
 {
+    const bool across = scale->orient == TB_GUI_ORIENT_HORIZONTAL;
+    const tb_key back = across ? TB_KEY_LEFT : TB_KEY_UP;
+    const tb_key ahead = across ? TB_KEY_RIGHT : TB_KEY_DOWN;
     const double range = (double)scale->to - (double)scale->from;
     const double small =
         scale->resolution > 0.0f ? (double)scale->resolution : fabs(range) / TB_GUI_RANGE_STEPS;
@@ -271,11 +275,11 @@ static double tb_gui_scale_key_step(const tb_gui_scale *scale, tb_key key)
                                                    : fabs(range) / TB_GUI_RANGE_PAGES;
     const double toward_to = range < 0.0 ? -1.0 : 1.0;
 
-    if (key == TB_KEY_LEFT || key == TB_KEY_UP)
+    if (key == back)
     {
         return -small * toward_to;
     }
-    if (key == TB_KEY_RIGHT || key == TB_KEY_DOWN)
+    if (key == ahead)
     {
         return small * toward_to;
     }
@@ -347,6 +351,7 @@ static bool tb_gui_scale_event(tb_widget widget, void *data, const tb_gui_event 
     case TB_GUI_EVENT_CHANGED:
     case TB_GUI_EVENT_VALIDATE:
     case TB_GUI_EVENT_POPUP_CLOSE:
+    case TB_GUI_EVENT_BACK:
     case TB_GUI_EVENT_COUNT:
         break;
     }

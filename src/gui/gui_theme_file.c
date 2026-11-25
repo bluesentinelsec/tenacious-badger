@@ -385,10 +385,10 @@ const char *tb_style_value_read(const char *name, const tb_json_value *json,
 }
 
 static const char *const tb_theme_state_names[TB_STYLE_STATE_BITS] = {
-    "hovered", "pressed", "focused", "disabled", "selected"};
+    "hovered", "pressed", "focused", "disabled", "focus_visible", "engaged", "selected"};
 static const uint32_t tb_theme_state_flags[TB_STYLE_STATE_BITS] = {
-    TB_WIDGET_HOVERED, TB_WIDGET_PRESSED, TB_WIDGET_FOCUSED, TB_WIDGET_DISABLED,
-    TB_WIDGET_SELECTED};
+    TB_WIDGET_HOVERED,       TB_WIDGET_PRESSED, TB_WIDGET_FOCUSED, TB_WIDGET_DISABLED,
+    TB_WIDGET_FOCUS_VISIBLE, TB_WIDGET_ENGAGED, TB_WIDGET_SELECTED};
 
 /* The flag a state's name of a length is, or 0. */
 static uint32_t tb_theme_state_of(const char *word, size_t length)
@@ -711,7 +711,7 @@ static tb_gui_file_result tb_theme_read_class(tb_theme_reader *reader, const cha
         if (!tb_style_key_read(key, length, name, sizeof(name), &states))
         {
             reason = "a key: a name, then \":\" and states joined by \"+\": hovered, pressed, "
-                     "focused, disabled, selected";
+                     "focused, disabled, focus_visible, engaged, selected";
         }
         else
         {

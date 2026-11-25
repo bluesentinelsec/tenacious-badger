@@ -154,6 +154,8 @@ static void expect_forms(look_screen *opened, gui_fixture *fixture, const char *
         tb_widget_set(grid, "selected", &(tb_gui_value){TB_GUI_TYPE_BOOL, {.boolean = true}}));
     tb_widget_set_enabled(off, false);
     gui_update(fixture);
+    /* Focused as the keyboard focuses it, so that its ring is shown. */
+    tb_gui_set_focus_visible(fixture->gui, true);
     TB_TEST_REQUIRE(tb_widget_focus(apply));
     hover(fixture, ok);
     expect_look(opened, fixture, name);
