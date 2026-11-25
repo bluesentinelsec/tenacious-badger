@@ -708,6 +708,13 @@ static void tb_gui_move_mouse(tb_gui *gui, const tb_window_event *event)
 
     gui->mouse =
         (tb_vec2){(pixel.x - view.origin.x) / view.scale, (pixel.y - view.origin.y) / view.scale};
+    if (view.target == TB_CANVAS_TARGET_VIEWPORT)
+    {
+        /* The view is of the viewport's target, a pixel a unit of the
+         * viewport's: the mouse is placed by the viewport itself. */
+        const tb_vec2 units = tb_viewport_from_pixels(&gui->viewport, pixel);
+        gui->mouse = (tb_vec2){units.x / view.scale, units.y / view.scale};
+    }
     gui->mouse_inside = true;
     /* The bars beside the viewport are not the GUI's: a press there reaches
      * no widget. A viewport not given yet has none. */

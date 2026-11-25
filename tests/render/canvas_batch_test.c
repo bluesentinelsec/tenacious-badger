@@ -134,8 +134,9 @@ TB_TEST(canvas_batch, quads_are_ordered_by_layer_then_as_they_were_drawn)
     static const float expected[] = {5, 1, 4, 2, 7, 0, 3, 6};
     tb_canvas_batch batch = {0};
     const tb_canvas_quad *sorted = NULL;
+    size_t counts[TB_CANVAS_TARGET_COUNT] = {0};
 
-    tb_canvas_batch_begin(&batch, 64, 64);
+    tb_canvas_batch_begin(&batch, 64, 64, 0, 0);
     for (size_t index = 0; index < TB_TEST_COUNT_OF(layers); index++)
     {
         /* Each quad's place in the drawing order is its x. */
@@ -145,7 +146,9 @@ TB_TEST(canvas_batch, quads_are_ordered_by_layer_then_as_they_were_drawn)
         TB_TEST_REQUIRE(tb_canvas_batch_add(&batch, &shape));
     }
     TB_TEST_REQUIRE_UINT(batch.count, ==, TB_TEST_COUNT_OF(layers));
-    sorted = tb_canvas_batch_sort(&batch);
+    sorted = tb_canvas_batch_sort(&batch, counts);
+    TB_TEST_EXPECT_UINT(counts[TB_CANVAS_TARGET_FRAME], ==, TB_TEST_COUNT_OF(layers));
+    TB_TEST_EXPECT_UINT(counts[TB_CANVAS_TARGET_VIEWPORT], ==, 0);
     for (size_t index = 0; index < TB_TEST_COUNT_OF(expected); index++)
     {
         TB_TEST_CONTEXT("place %zu", index);
@@ -160,8 +163,9 @@ TB_TEST(canvas_batch, empty_shapes_add_nothing_and_a_batch_grows)
 {
     tb_canvas_batch batch = {0};
     const tb_canvas_quad *sorted = NULL;
+    size_t counts[TB_CANVAS_TARGET_COUNT] = {0};
 
-    tb_canvas_batch_begin(&batch, 64, 64);
+    tb_canvas_batch_begin(&batch, 64, 64, 0, 0);
     TB_TEST_EXPECT(
         !tb_canvas_batch_add(&batch, &(tb_canvas_shape){.size = {0, 4}, .color = {1, 1, 1, 1}}));
     TB_TEST_EXPECT(
@@ -173,12 +177,80 @@ TB_TEST(canvas_batch, empty_shapes_add_nothing_and_a_batch_grows)
             solid((tb_vec2){(float)index, 0}, (tb_vec2){1, 1}, (tb_vec4){1, 1, 1, 1});
         TB_TEST_REQUIRE(tb_canvas_batch_add(&batch, &shape));
     }
-    sorted = tb_canvas_batch_sort(&batch);
+    sorted = tb_canvas_batch_sort(&batch, counts);
     TB_TEST_EXPECT_FLOAT(sorted[2999].corner[0], ==, 2999.0f);
-    tb_canvas_batch_begin(&batch, 32, 32);
+    tb_canvas_batch_begin(&batch, 32, 32, 0, 0);
     TB_TEST_EXPECT_UINT(batch.count, ==, 0);
     TB_TEST_EXPECT_INT(batch.layer, ==, 0);
     TB_TEST_EXPECT_FLOAT(batch.view.scale, ==, 1.0f);
+    tb_canvas_batch_free(&batch);
+}
+
+/* In the viewport render mode, the viewport target's quads are drawn
+ * first, into it, before it is upscaled, and the frame's after, over it:
+ * the sort puts them first, each target's in layer order, whatever layers
+ * the frame's are on. A quad of the target's view with no clip is clipped
+ * to the target, not to the frame. */
+TB_TEST(canvas_batch, the_viewport_targets_quads_come_before_the_frames)
+{
+    tb_canvas_batch batch = {0};
+    const tb_canvas_quad *sorted = NULL;
+    size_t counts[TB_CANVAS_TARGET_COUNT] = {0};
+    const tb_canvas_view target = {.scale = 1.0f, .target = TB_CANVAS_TARGET_VIEWPORT};
+    const tb_canvas_view frame = {.scale = 1.0f};
+
+    tb_canvas_batch_begin(&batch, 1280, 720, 320, 180);
+    /* Each quad's x is its place in the order expected. */
+    tb_canvas_batch_set_view(&batch, &frame);
+    batch.layer = -5;
+    TB_TEST_REQUIRE(tb_canvas_batch_add(
+        &batch, &(tb_canvas_shape){.position = {2, 0}, .size = {1, 1}, .color = {1, 1, 1, 1}}));
+    tb_canvas_batch_set_view(&batch, &target);
+    batch.layer = 7;
+    TB_TEST_REQUIRE(tb_canvas_batch_add(
+        &batch, &(tb_canvas_shape){.position = {1, 0}, .size = {1, 1}, .color = {1, 1, 1, 1}}));
+    batch.layer = 3;
+    TB_TEST_REQUIRE(tb_canvas_batch_add(
+        &batch, &(tb_canvas_shape){.position = {0, 0}, .size = {1, 1}, .color = {1, 1, 1, 1}}));
+    tb_canvas_batch_set_view(&batch, &frame);
+    batch.layer = 0;
+    TB_TEST_REQUIRE(tb_canvas_batch_add(
+        &batch, &(tb_canvas_shape){.position = {3, 0}, .size = {1, 1}, .color = {1, 1, 1, 1}}));
+    sorted = tb_canvas_batch_sort(&batch, counts);
+    TB_TEST_EXPECT_UINT(counts[TB_CANVAS_TARGET_VIEWPORT], ==, 2);
+    TB_TEST_EXPECT_UINT(counts[TB_CANVAS_TARGET_FRAME], ==, 2);
+    for (size_t index = 0; index < 4; index++)
+    {
+        TB_TEST_CONTEXT("place %zu", index);
+        TB_TEST_EXPECT_FLOAT(sorted[index].corner[0], ==, (float)index);
+        TB_TEST_EXPECT_UINT(sorted[index].target, ==,
+                            index < 2 ? TB_CANVAS_TARGET_VIEWPORT : TB_CANVAS_TARGET_FRAME);
+    }
+    TB_TEST_EXPECT_FLOAT(sorted[0].clip[2], ==, 320.0f);
+    TB_TEST_EXPECT_FLOAT(sorted[0].clip[3], ==, 180.0f);
+    TB_TEST_EXPECT_FLOAT(sorted[2].clip[2], ==, 1280.0f);
+    TB_TEST_EXPECT_FLOAT(sorted[2].clip[3], ==, 720.0f);
+    tb_canvas_batch_free(&batch);
+}
+
+/* A frame without the viewport's target, in the canvas mode, draws a view
+ * of the target over the frame, as one of the frame: nothing drawn in it is
+ * lost. */
+TB_TEST(canvas_batch, a_view_of_a_target_there_is_not_draws_over_the_frame)
+{
+    tb_canvas_batch batch = {0};
+    size_t counts[TB_CANVAS_TARGET_COUNT] = {0};
+    const tb_canvas_view target = {.scale = 1.0f, .target = TB_CANVAS_TARGET_VIEWPORT};
+
+    tb_canvas_batch_begin(&batch, 64, 32, 0, 0);
+    tb_canvas_batch_set_view(&batch, &target);
+    TB_TEST_EXPECT_INT(batch.view.target, ==, TB_CANVAS_TARGET_FRAME);
+    TB_TEST_REQUIRE(
+        tb_canvas_batch_add(&batch, &(tb_canvas_shape){.size = {1, 1}, .color = {1, 1, 1, 1}}));
+    (void)tb_canvas_batch_sort(&batch, counts);
+    TB_TEST_EXPECT_UINT(counts[TB_CANVAS_TARGET_FRAME], ==, 1);
+    TB_TEST_EXPECT_UINT(counts[TB_CANVAS_TARGET_VIEWPORT], ==, 0);
+    TB_TEST_EXPECT_FLOAT(batch.sorted[0].clip[2], ==, 64.0f);
     tb_canvas_batch_free(&batch);
 }
 

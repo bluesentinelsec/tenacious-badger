@@ -210,9 +210,14 @@ typedef struct tb_theme tb_theme;
  */
 typedef struct tb_gui_view
 {
-    tb_vec2 origin; /**< The pixel of the frame where unit (0, 0) is: whole pixels. */
+    tb_vec2 origin; /**< The pixel of the target where unit (0, 0) is: whole pixels. */
     float scale;    /**< Pixels a unit. */
     tb_vec2 size;   /**< The root's size, in units. */
+    /** Whose pixels `origin` and `scale` are: the frame's, or, in the
+     * viewport render mode, the viewport's target's, where the GUI is laid
+     * out, measured and drawn at a pixel a unit of the viewport's, times
+     * the GUI's own scale, and upscaled with the 3D scene. */
+    tb_canvas_target target;
 } tb_gui_view;
 
 /* ---------------------------------------------------------------------------

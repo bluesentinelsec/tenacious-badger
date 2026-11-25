@@ -178,7 +178,7 @@ void tb_canvas_set_view(tb_renderer *renderer, const tb_canvas_view *view)
     tb_canvas_check_frame(renderer);
     TB_ASSERT(view != NULL);
     TB_ASSERT_MSG(view->scale > 0.0f, "a view of some scale");
-    renderer->canvas.view = *view;
+    tb_canvas_batch_set_view(&renderer->canvas, view);
 }
 
 void tb_canvas_set_layer(tb_renderer *renderer, int32_t layer)
@@ -429,32 +429,32 @@ void tb_renderer_canvas_destroy(tb_renderer *renderer)
 
 static void tb_renderer_record_canvas(const tb_render_graph_pass_context *pass)
 {
-    const tb_canvas_recording *const recording = pass->context;
-    const tb_renderer *const renderer = recording->renderer;
+    const tb_canvas_draw *const draw = pass->context;
+    const tb_renderer *const renderer = draw->renderer;
     const struct
     {
         float target[2];
         uint32_t quads;
         uint32_t offset;
-    } constants = {{(float)renderer->width, (float)renderer->height},
+    } constants = {{(float)draw->width, (float)draw->height},
                    tb_rhi_buffer_index(renderer->device, renderer->frames[renderer->slot].upload),
-                   (uint32_t)recording->offset};
+                   (uint32_t)draw->offset};
 
     tb_rhi_cmd_pipeline(pass->list, renderer->canvas_pipeline);
     tb_rhi_cmd_push_constants(pass->list, &constants, sizeof(constants));
-    tb_rhi_cmd_draw(pass->list, TB_CANVAS_QUAD_VERTICES, recording->count, 0, 0);
+    tb_rhi_cmd_draw(pass->list, TB_CANVAS_QUAD_VERTICES, draw->count, 0, 0);
 }
 
-void tb_renderer_canvas_record(tb_renderer *renderer, tb_canvas_recording *recording,
-                               tb_render_graph_texture image)
+void tb_renderer_canvas_upload(tb_renderer *renderer, tb_canvas_recording *recording)
 {
     const size_t count = renderer->canvas.count;
+    size_t counts[TB_CANVAS_TARGET_COUNT] = {0};
     const tb_canvas_quad *quads = NULL;
     size_t fit = 0;
-    tb_render_graph_pass pass = {0};
+    uint64_t offset = 0;
 
     renderer->canvas_stats = (tb_canvas_stats){0};
-    *recording = (tb_canvas_recording){.renderer = renderer};
+    *recording = (tb_canvas_recording){0};
     if (count == 0)
     {
         return;
@@ -464,9 +464,9 @@ void tb_renderer_canvas_record(tb_renderer *renderer, tb_canvas_recording *recor
         renderer->canvas_stats.dropped = count;
         return;
     }
-    quads = tb_canvas_batch_sort(&renderer->canvas);
+    quads = tb_canvas_batch_sort(&renderer->canvas, counts);
     /* What does not fit in the frame's uploads is not drawn: the last in
-     * order, the highest layers'. */
+     * order, the frame's highest layers'. */
     fit = tb_renderer_upload_room(renderer, TB_CANVAS_QUAD_ALIGNMENT) / sizeof(*quads);
     fit = fit < count ? fit : count;
     renderer->canvas_stats.dropped = count - fit;
@@ -474,18 +474,39 @@ void tb_renderer_canvas_record(tb_renderer *renderer, tb_canvas_recording *recor
     {
         return;
     }
-    recording->offset =
-        tb_renderer_upload(renderer, quads, fit * sizeof(*quads), TB_CANVAS_QUAD_ALIGNMENT);
-    TB_ASSERT_MSG(recording->offset <= UINT32_MAX, "the frame's uploads within 4 GiB");
-    recording->count = (uint32_t)fit;
+    offset = tb_renderer_upload(renderer, quads, fit * sizeof(*quads), TB_CANVAS_QUAD_ALIGNMENT);
+    TB_ASSERT_MSG(offset <= UINT32_MAX, "the frame's uploads within 4 GiB");
+    /* The viewport target's quads come first, then the frame's. */
+    const size_t first =
+        counts[TB_CANVAS_TARGET_VIEWPORT] < fit ? counts[TB_CANVAS_TARGET_VIEWPORT] : fit;
+    recording->targets[TB_CANVAS_TARGET_VIEWPORT] =
+        (tb_canvas_draw){.renderer = renderer, .offset = offset, .count = (uint32_t)first};
+    recording->targets[TB_CANVAS_TARGET_FRAME] =
+        (tb_canvas_draw){.renderer = renderer,
+                         .offset = offset + first * sizeof(*quads),
+                         .count = (uint32_t)(fit - first)};
     /* Glyphs the atlas could not hold are drawn with no color: not drawn. */
     renderer->canvas_stats.glyphs = renderer->glyph_count - renderer->glyphs_hidden;
     renderer->canvas_stats.quads =
         fit > renderer->glyphs_hidden ? fit - renderer->glyphs_hidden : 0;
     renderer->canvas_stats.dropped += renderer->glyphs_hidden;
-    renderer->canvas_stats.draws = 1;
-    pass = (tb_render_graph_pass){
-        .name = "canvas", .execute = tb_renderer_record_canvas, .context = recording};
+}
+
+void tb_renderer_canvas_record(tb_renderer *renderer, tb_canvas_recording *recording,
+                               tb_canvas_target target, tb_render_graph_texture image,
+                               uint32_t width, uint32_t height)
+{
+    tb_canvas_draw *const draw = &recording->targets[target];
+    tb_render_graph_pass pass = {.execute = tb_renderer_record_canvas, .context = draw};
+
+    if (draw->count == 0)
+    {
+        return;
+    }
+    draw->width = width;
+    draw->height = height;
+    renderer->canvas_stats.draws++;
+    pass.name = target == TB_CANVAS_TARGET_VIEWPORT ? "canvas in the viewport" : "canvas";
     pass.colors[0] = (tb_render_graph_color){.texture = image, .load = TB_RHI_LOAD_KEEP};
     pass.color_count = 1;
     tb_render_graph_add_pass(renderer->graph, &pass);

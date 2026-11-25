@@ -233,6 +233,14 @@ does not change it. `tb_gui_options::scale`, and `tb_gui_set_scale`, is
 this GUI's own factor on top, an options menu's interface scale: larger
 units, and fewer of them in the root.
 
+In the policy's viewport render mode ([display](display.md#render-modes)),
+the GUI is laid out, measured and drawn in the viewport's target, a pixel
+a unit times its own scale, and upscaled with the 3D scene: its view
+(`tb_gui_view::target`) is the target's. A GUI designed for a pixel-art
+game at 320 by 180 is laid out at 320 by 180 pixels, and its text is
+rasterized at them. The mouse is placed by the viewport on the frame, as
+in the canvas mode.
+
 The mouse is placed in units from the viewport's corner. Over the bars
 beside it, it reaches no widget: a press there goes to nothing of the GUI,
 and `tb_gui_wants_mouse` says no.

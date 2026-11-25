@@ -8,9 +8,14 @@
  * what the viewport shows, and a grid centered on it. A panel of the GUI
  * in its bottom right corner, in the same units, holds a button for each
  * hotkey; the mouse over the
- * bars reaches none of them. In the top left corner, in logical units,
- * what the window, the frame and the viewport are, where the mouse is in
- * pixels and in units, and the policy.
+ * bars reaches none of them. In the design's units too, pixel art, still
+ * and turning, and a line of text, which show the render modes apart: the
+ * canvas mode draws them at the frame's own pixels, crisp at any scale; the
+ * viewport mode at the target's, a pixel a unit, then upscaled, so that at
+ * 320 by 180 their pixels, the text's included, are whole blocks. In the
+ * top left corner, in logical units, an overlay that stays at the frame's
+ * own pixels in either mode: what the window, the frame and the viewport
+ * are, where the mouse is in pixels and in units, and the policy.
  *
  * F1 to F6 change the policy and the window through the engine's settings,
  * at the runtime layer, as the inspector does, so that the inspector (the
@@ -63,6 +68,12 @@ static const char *const display_window_modes[DISPLAY_WINDOW_MODES] = {"windowed
 #define DISPLAY_OVERLAY_LAYER 900
 #define DISPLAY_LINE_CAPACITY 160u
 #define DISPLAY_LINE_COUNT 13u
+/* The pixel art, a texel a unit of a 320 by 180 design, and as large
+ * against any other: its texels, and the design height it is drawn at. */
+#define DISPLAY_ART_SIDE 16u
+#define DISPLAY_ART_DESIGN_HEIGHT 180.0f
+/* The size of the text under the art, in units of a 320 by 180 design. */
+#define DISPLAY_ART_TEXT_SIZE 10.0f
 
 /* What each button of the panel does: a hotkey's action. */
 typedef enum display_action
@@ -87,10 +98,40 @@ typedef struct display_button
     char text[64]; /* what it shows, so it is set again only when it changes */
 } display_button;
 
+/* The pixel art: a badger's face, a row of texels a string, each letter a
+ * color of display_art_colors. */
+static const char *const display_art[DISPLAY_ART_SIDE] = {
+    "................", "..kk........kk..", ".kgkk......kkgk.", ".kggkkkkkkkkggk.",
+    "..kwwkkkkkkwwk..", "..kwwwkkkkwwwk..", ".kwwkwwkkwwkwwk.", ".kwkkkwwwwkkkwk.",
+    ".kwkekwwwwkekwk.", ".kwkkkwwwwkkkwk.", "..kwwwwwwwwwwk..", "..kkwwwkkwwwkk..",
+    "...kkwwppwwkk...", "....kkwwwwkk....", "......kkkk......", "................"};
+
+/* Each letter's color, RGBA; '.' is clear. */
+static uint32_t display_art_color(char letter)
+{
+    switch (letter)
+    {
+    case 'k':
+        return 0x202028FFu;
+    case 'w':
+        return 0xF2EEE4FFu;
+    case 'g':
+        return 0x8A8A96FFu;
+    case 'e':
+        return 0x101010FFu;
+    case 'p':
+        return 0xD87090FFu;
+    default:
+        break;
+    }
+    return 0u;
+}
+
 struct display_scene
 {
     sandbox *box;
     void *shapes;
+    tb_image *art; /* the pixel art, filtered nearest */
     tb_light_id sun;
     tb_gui *gui;
     tb_ui_fonts fonts;
@@ -321,6 +362,31 @@ static void display_refresh_panel(display_scene *scene)
  * Making and destroying.
  * ------------------------------------------------------------------------- */
 
+/* The pixel art as an image, read nearest so that its texels stay square. */
+static tb_image *display_make_art(tb_renderer *renderer)
+{
+    uint8_t pixels[DISPLAY_ART_SIDE * DISPLAY_ART_SIDE * 4u] = {0};
+
+    for (size_t y = 0; y < DISPLAY_ART_SIDE; y++)
+    {
+        for (size_t x = 0; x < DISPLAY_ART_SIDE; x++)
+        {
+            const uint32_t color = display_art_color(display_art[y][x]);
+            uint8_t *const pixel = &pixels[(y * DISPLAY_ART_SIDE + x) * 4u];
+            pixel[0] = (uint8_t)(color >> 24);
+            pixel[1] = (uint8_t)(color >> 16);
+            pixel[2] = (uint8_t)(color >> 8);
+            pixel[3] = (uint8_t)color;
+        }
+    }
+    return tb_image_create(renderer,
+                           &(tb_image_desc){.width = DISPLAY_ART_SIDE,
+                                            .height = DISPLAY_ART_SIDE,
+                                            .filter = TB_IMAGE_NEAREST,
+                                            .name = "display art"},
+                           pixels, sizeof(pixels));
+}
+
 bool display_scene_create(sandbox *box, void **state)
 {
     display_scene *const scene = tb_calloc(1, sizeof(*scene));
@@ -340,6 +406,7 @@ bool display_scene_create(sandbox *box, void **state)
     sun.intensity = 1.5f;
     scene->sun = tb_renderer_add_light(box->renderer, &sun);
     tb_renderer_set_sky(box->renderer, &sky);
+    scene->art = display_make_art(box->renderer);
     if (!tb_ui_fonts_open(box->catalog, NULL, &scene->fonts))
     {
         (void)tb_fmt_print("badger-sandbox: display: this build of the engine carries no fonts; "
@@ -363,6 +430,7 @@ void display_scene_destroy(sandbox *box, void *state)
     tb_window_set_cursor(box->window, TB_CURSOR_ARROW);
     tb_renderer_remove_light(box->renderer, scene->sun);
     tb_renderer_set_sky(box->renderer, NULL);
+    tb_image_destroy(box->renderer, scene->art);
     if (scene->gui != NULL)
     {
         tb_gui_forget_fonts(scene->gui, box->renderer);
@@ -512,6 +580,59 @@ static void display_draw_design(tb_renderer *renderer, const tb_viewport_policy 
     tb_canvas_stroke_circle(renderer, tb_vec2_scale(design, 0.5f), marker * 0.5f, line, border);
 }
 
+/* A line of text in the design's units, centered under a point. */
+static void display_text_under(tb_renderer *renderer, const tb_font *font, const char *line,
+                               float size, tb_vec2 at, tb_vec4 color)
+{
+    const tb_text text = tb_text_from_cstr(line);
+    const tb_vec2 measured = tb_canvas_measure_text(renderer, font, text, size, NULL);
+
+    tb_canvas_draw_text(renderer, font, text, size, (tb_vec2){at.x - measured.x * 0.5f, at.y},
+                        color, NULL);
+}
+
+/* In the design's units, to the left of its middle: the pixel art, still
+ * and turning, and under it a line of the UI font, each as large against
+ * the design as at 320 by 180, where a unit is a texel of the art. The
+ * canvas mode draws them at the frame's pixels: the turning art's texels
+ * turn smoothly and the text is crisp. The viewport mode draws them at the
+ * target's: at 320 by 180, the turning art stays on the target's pixels,
+ * and the text is rasterized at a few pixels to the em, then upscaled. */
+static void display_draw_art(display_scene *scene, const tb_viewport_policy *policy,
+                             const tb_viewport *viewport, const sandbox_frame *frame)
+{
+    sandbox *const box = scene->box;
+    tb_renderer *const renderer = box->renderer;
+    const tb_canvas_view view = tb_canvas_view_viewport(viewport);
+    const tb_vec2 design = display_design_units(policy, viewport);
+    const float texel = design.y / DISPLAY_ART_DESIGN_HEIGHT;
+    const float side = (float)DISPLAY_ART_SIDE * texel;
+    const tb_vec2 still = {design.x * 0.25f - side * 0.75f, design.y * 0.5f};
+    const tb_vec2 turning = {design.x * 0.25f + side * 0.75f, design.y * 0.5f - side * 0.5f};
+    const tb_font *const font = box->fonts[SANDBOX_FONT_UI];
+
+    tb_canvas_set_view(renderer, &view);
+    tb_canvas_set_layer(renderer, DISPLAY_LINES_LAYER);
+    tb_canvas_draw_sprite(renderer, &(tb_canvas_sprite){.image = scene->art,
+                                                        .position = still,
+                                                        .size = {side, side},
+                                                        .pivot = {0.5f, 1.0f},
+                                                        .tint = {1.0f, 1.0f, 1.0f, 1.0f}});
+    tb_canvas_draw_sprite(renderer, &(tb_canvas_sprite){.image = scene->art,
+                                                        .position = turning,
+                                                        .size = {side, side},
+                                                        .pivot = {0.5f, 0.5f},
+                                                        .rotation = (float)frame->seconds * 0.5f,
+                                                        .tint = {1.0f, 1.0f, 1.0f, 1.0f}});
+    if (font == NULL)
+    {
+        return;
+    }
+    display_text_under(renderer, font, "Tenacious Badger", DISPLAY_ART_TEXT_SIZE * texel,
+                       (tb_vec2){design.x * 0.25f, still.y + texel * 2.0f},
+                       (tb_vec4){1.0f, 0.85f, 0.3f, 1.0f});
+}
+
 /* The facts, a line each. */
 static size_t display_facts(display_scene *scene, const tb_viewport_policy *policy,
                             const tb_viewport *viewport)
@@ -555,17 +676,24 @@ static size_t display_facts(display_scene *scene, const tb_viewport_policy *poli
                         policy->design_height, tb_viewport_aspect_name(policy->aspect),
                         tb_viewport_scale_mode_name(policy->scale_mode), (double)policy->scale);
     (void)tb_fmt_buffer(scene->lines[count++], DISPLAY_LINE_CAPACITY,
-                        "         render %s%s, bars (%.2f, %.2f, %.2f), player's aspect %s",
+                        "         render %s, bars (%.2f, %.2f, %.2f), player's aspect %s",
                         tb_viewport_render_mode_name(policy->render_mode),
-                        policy->render_mode == TB_VIEWPORT_RENDER_VIEWPORT
-                            ? " (drawn as canvas until the viewport mode arrives)"
-                            : "",
                         (double)policy->bar_color.x, (double)policy->bar_color.y,
                         (double)policy->bar_color.z,
                         tb_setting_choice_name(engine->display.aspect_ratio, ratio));
+    if (viewport->target_width > 0)
+    {
+        (void)tb_fmt_buffer(scene->lines[count++], DISPLAY_LINE_CAPACITY,
+                            "Target   %u x %u pixels, a pixel a unit, upscaled into the viewport",
+                            viewport->target_width, viewport->target_height);
+    }
+    else
+    {
+        (void)tb_fmt_buffer(scene->lines[count++], DISPLAY_LINE_CAPACITY,
+                            "Target   none: drawn at the frame's own pixels");
+    }
     (void)tb_fmt_buffer(scene->lines[count++], DISPLAY_LINE_CAPACITY,
-                        "Keys     F1 aspect, F2 scale mode, F3 render mode (viewport mode arrives "
-                        "in a later change)");
+                        "Keys     F1 aspect, F2 scale mode, F3 render mode (canvas or viewport)");
     (void)tb_fmt_buffer(scene->lines[count++], DISPLAY_LINE_CAPACITY,
                         "         F4 design size (1920x1080, 1280x720, 640x360, 320x180), F5 "
                         "window mode");
@@ -653,6 +781,7 @@ void display_scene_draw(sandbox *box, void *state, const sandbox_frame *frame)
     tb_renderer_viewport_policy(box->renderer, &policy);
     shapes_draw(box, scene->shapes, frame);
     display_draw_design(box->renderer, &policy, &viewport);
+    display_draw_art(scene, &policy, &viewport, frame);
     display_draw_panel(scene, &viewport, frame);
     display_draw_facts(scene, &policy, &viewport);
 }

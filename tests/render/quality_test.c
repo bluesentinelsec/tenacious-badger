@@ -191,7 +191,6 @@ TB_TEST(renderer_quality, the_render_size_is_the_viewports)
     quality.temporal_aa = false;
     tb_renderer_set_quality(opened.renderer, &quality);
     policy.bar_color = (tb_vec4){0.2f, 0.4f, 0.6f, 1.0f};
-    policy.render_mode = TB_VIEWPORT_RENDER_VIEWPORT;
     tb_renderer_set_viewport_policy(opened.renderer, &policy, 0.0f);
     tb_renderer_viewport_policy(opened.renderer, &kept);
     TB_TEST_EXPECT_FLOAT(kept.bar_color.y, ==, 0.4f);
@@ -203,6 +202,18 @@ TB_TEST(renderer_quality, the_render_size_is_the_viewports)
     tb_renderer_render_size(opened.renderer, &width, &height);
     TB_TEST_EXPECT_UINT(width, ==, viewport.width);
     TB_TEST_EXPECT_UINT(height, ==, viewport.height);
+    /* In the viewport render mode, the scene is drawn into the viewport's
+     * target, a pixel a unit: the render size is the design's, whatever the
+     * window's. */
+    policy.render_mode = TB_VIEWPORT_RENDER_VIEWPORT;
+    tb_renderer_set_viewport_policy(opened.renderer, &policy, 0.0f);
+    draw_frame(&opened);
+    viewport = tb_renderer_viewport(opened.renderer);
+    TB_TEST_EXPECT_UINT(viewport.target_width, ==, 1920u);
+    TB_TEST_EXPECT_UINT(viewport.target_height, ==, 1080u);
+    tb_renderer_render_size(opened.renderer, &width, &height);
+    TB_TEST_EXPECT_UINT(width, ==, 1920u);
+    TB_TEST_EXPECT_UINT(height, ==, 1080u);
     /* The player's 4:3 narrows the window first. */
     tb_renderer_set_viewport_policy(opened.renderer, &policy, 4.0f / 3.0f);
     draw_frame(&opened);

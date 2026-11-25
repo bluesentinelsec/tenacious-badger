@@ -148,14 +148,16 @@ static void tb_text_draw_glyph(tb_renderer *renderer, const tb_font *font,
     }
 }
 
-/* Draw a layout with its box's top left at a pixel of the frame, each glyph
- * on a whole pixel and each baseline on a whole row, clipped as the view is. */
+/* Draw a layout with its box's top left at a pixel of the view's target,
+ * each glyph on a whole pixel and each baseline on a whole row, clipped as
+ * the view is. */
 static void tb_text_draw_layout(tb_renderer *renderer, const tb_font *font,
                                 const tb_font_layout *layout, tb_vec2 origin, tb_vec4 color)
 {
     const tb_canvas_view view = renderer->canvas.view;
 
-    renderer->canvas.view = (tb_canvas_view){.scale = 1.0f, .clip = view.clip};
+    renderer->canvas.view =
+        (tb_canvas_view){.scale = 1.0f, .clip = view.clip, .target = view.target};
     for (size_t index = 0; index < layout->glyph_count; index++)
     {
         const tb_font_layout_glyph *const glyph = &layout->glyphs[index];

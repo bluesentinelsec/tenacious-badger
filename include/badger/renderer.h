@@ -290,8 +290,12 @@ TB_API void tb_renderer_set_vsync(tb_renderer *renderer, bool vsync);
  * #TB_VIEWPORT_POLICY_LOGICAL, whose viewport is the whole frame; an app
  * gives the policy its settings describe (tb_viewport_policy_from_settings()).
  *
- * The viewport render mode is not drawn yet: it is drawn as the canvas
- * mode, which the renderer logs once.
+ * In the viewport render mode, the 3D scene, its debug lines, and what the
+ * canvas draws in views of the viewport's target are drawn into that
+ * target, a pixel a unit, which is then upscaled into the viewport; what
+ * the canvas draws in views of the frame is drawn over it, at the frame's
+ * pixels. A device without bindless resources draws the canvas mode
+ * instead, which the renderer logs once.
  *
  * @param policy Required; copied.
  * @param aspect_ratio The player's, width over height, from
@@ -309,7 +313,8 @@ TB_API void tb_renderer_viewport_policy(const tb_renderer *renderer, tb_viewport
  * are, for the canvas (tb_canvas_view_viewport()), the GUI
  * (tb_gui_set_viewport()) and the mouse. Of the frame's size as of the last
  * tb_renderer_begin_frame() that drew, or the renderer's creation, and the
- * policy set since.
+ * policy set since. Its target is of the size the device makes, and none
+ * where the device draws the viewport render mode as the canvas mode.
  */
 TB_API tb_viewport tb_renderer_viewport(const tb_renderer *renderer);
 

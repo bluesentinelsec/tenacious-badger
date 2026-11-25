@@ -240,6 +240,12 @@ void tb_gui_draw(const tb_gui *gui, tb_renderer *renderer)
 {
     TB_ASSERT(gui != NULL);
     TB_ASSERT(renderer != NULL);
-    tb_ui_paint_submit(renderer, gui->paint.commands, gui->paint.count, gui->view.scale,
-                       gui->view.origin);
+    tb_canvas_view base = {
+        .origin = gui->view.origin, .scale = gui->view.scale, .target = gui->view.target};
+
+    if (gui->view.target == TB_CANVAS_TARGET_VIEWPORT)
+    {
+        base.clip = (tb_rhi_rect){0, 0, gui->viewport.target_width, gui->viewport.target_height};
+    }
+    tb_ui_paint_submit(renderer, gui->paint.commands, gui->paint.count, &base);
 }

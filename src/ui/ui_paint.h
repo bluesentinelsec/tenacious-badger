@@ -91,9 +91,10 @@ void tb_ui_paint_text(tb_ui_paint *paint, int32_t layer, tb_canvas_rect clip,
                       const tb_ui_text_run *run, tb_text text, tb_vec2 position, tb_vec4 color,
                       tb_ui_id id);
 
-/* Draw commands on a renderer's canvas, at `scale` pixels a unit, the
- * units' (0, 0) at the pixel `origin`. */
+/* Draw commands on a renderer's canvas in a view: at its scale, the units'
+ * (0, 0) at its origin, into its target, each command clipped within its
+ * clip, or within the frame when its clip has no size. */
 void tb_ui_paint_submit(tb_renderer *renderer, const tb_ui_command *commands, size_t count,
-                        float scale, tb_vec2 origin);
+                        const tb_canvas_view *base);
 
 #endif

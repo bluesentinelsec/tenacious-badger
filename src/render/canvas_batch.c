@@ -59,6 +59,14 @@ tb_canvas_view tb_canvas_view_viewport(const tb_viewport *viewport)
     tb_canvas_view view = {0};
 
     TB_ASSERT(viewport != NULL);
+    if (viewport->target_width > 0 && viewport->target_height > 0)
+    {
+        /* The viewport render mode: the target's pixels, one a unit. */
+        view.scale = 1.0f;
+        view.clip = (tb_rhi_rect){0, 0, viewport->target_width, viewport->target_height};
+        view.target = TB_CANVAS_TARGET_VIEWPORT;
+        return view;
+    }
     view.origin = (tb_vec2){(float)viewport->x, (float)viewport->y};
     view.scale = tb_viewport_uniform_scale(viewport);
     if (viewport->scale.x != viewport->scale.y)
@@ -152,10 +160,12 @@ tb_canvas_quad tb_canvas_quad_of(const tb_canvas_shape *shape, const tb_canvas_v
     quad.texture = shape->texture;
     quad.sampler = shape->sampler;
     quad.flags = shape->flags;
+    quad.target = (uint32_t)view->target;
     return quad;
 }
 
-void tb_canvas_batch_begin(tb_canvas_batch *batch, uint32_t width, uint32_t height)
+void tb_canvas_batch_begin(tb_canvas_batch *batch, uint32_t width, uint32_t height,
+                           uint32_t target_width, uint32_t target_height)
 {
     TB_ASSERT(batch != NULL);
     batch->count = 0;
@@ -163,6 +173,8 @@ void tb_canvas_batch_begin(tb_canvas_batch *batch, uint32_t width, uint32_t heig
     batch->view = tb_canvas_view_pixels();
     batch->width = width;
     batch->height = height;
+    batch->target_width = target_width;
+    batch->target_height = target_height;
 }
 
 void tb_canvas_batch_free(tb_canvas_batch *batch)
@@ -172,6 +184,17 @@ void tb_canvas_batch_free(tb_canvas_batch *batch)
     tb_free(batch->keys);
     tb_free(batch->sorted);
     *batch = (tb_canvas_batch){0};
+}
+
+void tb_canvas_batch_set_view(tb_canvas_batch *batch, const tb_canvas_view *view)
+{
+    TB_ASSERT(batch != NULL && view != NULL);
+    const bool has_target = batch->target_width > 0 && batch->target_height > 0;
+    batch->view = *view;
+    if (view->target != TB_CANVAS_TARGET_VIEWPORT || !has_target)
+    {
+        batch->view.target = TB_CANVAS_TARGET_FRAME;
+    }
 }
 
 bool tb_canvas_batch_add(tb_canvas_batch *batch, const tb_canvas_shape *shape)
@@ -188,8 +211,16 @@ bool tb_canvas_batch_add(tb_canvas_batch *batch, const tb_canvas_shape *shape)
         batch->quads = tb_realloc_array(batch->quads, batch->capacity, sizeof(*batch->quads));
         batch->keys = tb_realloc_array(batch->keys, batch->capacity, sizeof(*batch->keys));
     }
-    batch->quads[batch->count] =
-        tb_canvas_quad_of(shape, &batch->view, batch->width, batch->height);
+    if (batch->view.target == TB_CANVAS_TARGET_VIEWPORT)
+    {
+        batch->quads[batch->count] =
+            tb_canvas_quad_of(shape, &batch->view, batch->target_width, batch->target_height);
+    }
+    else
+    {
+        batch->quads[batch->count] =
+            tb_canvas_quad_of(shape, &batch->view, batch->width, batch->height);
+    }
     batch->keys[batch->count] =
         (uint64_t)((uint32_t)batch->layer ^ TB_CANVAS_LAYER_BIAS) << 32 | (uint64_t)batch->count;
     batch->count++;
@@ -209,9 +240,17 @@ static int tb_canvas_key_compare(const void *left, const void *right, void *cont
     return a > b ? 1 : 0;
 }
 
-const tb_canvas_quad *tb_canvas_batch_sort(tb_canvas_batch *batch)
+/* The order the targets' quads are drawn in: the viewport's, into its
+ * target before it is upscaled, then the frame's, over it. */
+static const tb_canvas_target tb_canvas_target_order[TB_CANVAS_TARGET_COUNT] = {
+    TB_CANVAS_TARGET_VIEWPORT, TB_CANVAS_TARGET_FRAME};
+
+const tb_canvas_quad *tb_canvas_batch_sort(tb_canvas_batch *batch,
+                                           size_t counts[TB_CANVAS_TARGET_COUNT])
 {
-    TB_ASSERT(batch != NULL);
+    size_t placed = 0;
+
+    TB_ASSERT(batch != NULL && counts != NULL);
     /* Every key differs, by the quad's place, so the order is total. */
     tb_sort(batch->keys, batch->count, sizeof(*batch->keys), tb_canvas_key_compare, NULL);
     if (batch->sorted_capacity < batch->count)
@@ -220,9 +259,20 @@ const tb_canvas_quad *tb_canvas_batch_sort(tb_canvas_batch *batch)
         tb_free(batch->sorted);
         batch->sorted = tb_calloc(batch->sorted_capacity, sizeof(*batch->sorted));
     }
-    for (size_t index = 0; index < batch->count; index++)
+    for (size_t order = 0; order < TB_CANVAS_TARGET_COUNT; order++)
     {
-        batch->sorted[index] = batch->quads[(uint32_t)batch->keys[index]];
+        const tb_canvas_target target = tb_canvas_target_order[order];
+        const size_t first = placed;
+        for (size_t index = 0; index < batch->count; index++)
+        {
+            const tb_canvas_quad *const quad = &batch->quads[(uint32_t)batch->keys[index]];
+            if (quad->target == (uint32_t)target)
+            {
+                batch->sorted[placed] = *quad;
+                placed++;
+            }
+        }
+        counts[target] = placed - first;
     }
     return batch->sorted;
 }

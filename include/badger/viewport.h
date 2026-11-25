@@ -26,8 +26,8 @@
  *   `expand` shows more of either; `ignore` stretches.
  * - The **scale mode**: fractional, or whole pixels a unit for pixel art.
  * - The **render mode**: the canvas draws at the frame's own pixels, so
- *   text stays crisp; the viewport mode is to render at the design size and
- *   upscale. Only the canvas mode is drawn yet.
+ *   text stays crisp; the viewport mode renders into a target of a pixel a
+ *   unit, then upscales it into the viewport, as a pixel-art game wants.
  * - A **scale**, a factor on top: 2 draws every unit twice as large, and
  *   shows half as many.
  * - The **bar color**, of what the viewport does not cover.
@@ -98,8 +98,10 @@ typedef enum tb_viewport_render_mode
     /** At the frame's own pixels, through the viewport's transform: text
      * and edges stay crisp at any scale. */
     TB_VIEWPORT_RENDER_CANVAS,
-    /** At the design size, then upscaled into the viewport. Not drawn yet:
-     * the renderer draws it as the canvas mode, and says so once. */
+    /** Into a target of a pixel a unit, the units the viewport shows, then
+     * upscaled into the viewport: nearest-neighbour at whole pixels a unit,
+     * linear otherwise. Text is rasterized at the target's pixels, for a
+     * retro look. */
     TB_VIEWPORT_RENDER_VIEWPORT,
     TB_VIEWPORT_RENDER_COUNT /**< The number of render modes. */
 } tb_viewport_render_mode;
@@ -166,6 +168,12 @@ typedef struct tb_viewport_frame
  * ways but in `ignore`. `size` is the units the rectangle shows: the
  * design size in `keep`, more along an axis that grows, and as many as the
  * frame holds without a design size.
+ *
+ * In the viewport render mode, what is drawn in units is drawn first into
+ * a **target** of `target_width` by `target_height` pixels, a pixel a unit
+ * each way from its top left, then upscaled into the rectangle: the
+ * target's units `(0, 0)` to `size` cover the rectangle exactly. The
+ * mouse is still placed by the rectangle and `scale`.
  */
 typedef struct tb_viewport
 {
@@ -175,7 +183,17 @@ typedef struct tb_viewport
     uint32_t height; /**< Its pixels down. */
     tb_vec2 scale;   /**< Pixels a unit, across and down; more than 0. */
     tb_vec2 size;    /**< The units shown, across and down. */
+    /** In the viewport render mode, the target's pixels across: the units
+     * shown, rounded up, from 1 to #TB_VIEWPORT_MAX_TARGET. 0 in the canvas
+     * mode, and for a frame of no size. */
+    uint32_t target_width;
+    uint32_t target_height; /**< The target's pixels down; see `target_width`. */
 } tb_viewport;
+
+/** @brief The most pixels a side of the viewport render mode's target: the
+ * largest texture every backend makes. A side of more units than this, of
+ * an absurd design or scale, is not drawn whole. */
+#define TB_VIEWPORT_MAX_TARGET 16384u
 
 /**
  * @brief The viewport a policy gives a frame.

@@ -86,11 +86,39 @@ pixel art keeps whole pixels at 150%.
 ### Render modes
 
 `canvas` draws everything at the frame's own pixels through the viewport's
-transform, so text and edges stay crisp at any scale. `viewport` is to
-render at the design size into a texture, then upscale it into the
-viewport, nearest-neighbour for integer scales and linear otherwise, as a
-pixel-art game wants. The viewport mode is not drawn yet: the renderer
-accepts it and draws the canvas mode, and says so once in its log.
+transform, so text and edges stay crisp at any scale. `viewport`, after
+Godot's `stretch/mode = viewport`, draws what is in units into a
+**target** first, a texture of a pixel a unit, then upscales the target
+into the viewport, as a pixel-art game wants:
+
+- **The target** is the units the viewport shows, rounded up: the design
+  size in `keep` and `ignore`, and more along an axis that `expand`,
+  `keep_width` or `keep_height` grows, as Godot's viewport grows. The
+  policy's `scale` shows fewer units, so it makes the target smaller: a
+  design of 320 by 180 at a scale of 2 is a target of 160 by 90, each of
+  its pixels a unit twice as large. Without a design size, the target is
+  the logical pixels, and the upscale is the display's scale. A side is at
+  most 16384 pixels (`TB_VIEWPORT_MAX_TARGET`).
+- **Into it** go the 3D scene, at the render scale of the target's pixels
+  and with temporal anti-aliasing at its size, its debug lines, and what
+  the canvas and the GUI draw in the design's units. Text is laid out,
+  measured and rasterized at the target's pixels: a line of 8 units is
+  8 pixels to the em, then upscaled, which is the point of the mode.
+- **The upscale** is nearest-neighbour in the `integer` scale mode, where
+  every unit is a whole block of pixels, and linear otherwise; a policy
+  `scale` that is not whole makes it linear too. The bars around it are
+  cleared to the bar color.
+- **Over it**, at the frame's own pixels, go the overlays: what the canvas
+  draws in a view of the frame (`tb_canvas_view_pixels()`,
+  `tb_canvas_view_logical()`, `tb_canvas_view_fit()`) and the renderer's
+  labels. The engine's inspector, consoles, statistics and the sandbox's
+  status line stay crisp in either mode.
+
+The mouse is placed by the viewport in either mode, so input is the same
+in both.
+
+The upscale reads the target through bindless resources. A device without
+them draws the canvas mode, and says so once in its log.
 
 ## The viewport
 
@@ -103,6 +131,7 @@ pure and thread-safe.
 | `x`, `y`, `width`, `height` | The rectangle, in whole pixels of the frame; at least 1 by 1 for a frame of some size |
 | `scale` | Pixels a unit, across and down: the same both ways but in `ignore` |
 | `size` | The units shown, across and down |
+| `target_width`, `target_height` | In the viewport render mode, the target's pixels: `size` rounded up. 0 by 0 in the canvas mode |
 
 `tb_viewport_to_pixels()` and `tb_viewport_from_pixels()` convert between
 pixels and units, `tb_viewport_contains()` says whether a pixel is in the
@@ -149,12 +178,15 @@ at (43, 24), 4 pixels a unit; 1024 by 768 is 960 by 540 at (32, 114), 3.
   the whole frame, until an app gives it a policy. See
   [the renderer](renderer.md#the-viewport).
 - **The canvas** draws in the design's units with
-  `tb_canvas_view_viewport()`, clipped to the rectangle. Its other views,
-  in pixels and logical units over the whole frame, stay for overlays.
+  `tb_canvas_view_viewport()`, clipped to the rectangle; in the viewport
+  render mode, that view is of the target, a pixel a unit
+  (`TB_CANVAS_TARGET_VIEWPORT`). Its other views, in pixels and logical
+  units over the whole frame, stay for overlays, drawn after the upscale.
 - **The GUI** takes the renderer's viewport each frame
   (`tb_gui_set_viewport()`), so the two always agree; its root is the
   viewport, its units the viewport's times its own interface scale, and a
-  press on the bars reaches no widget. See
+  press on the bars reaches no widget. In the viewport render mode it is
+  laid out and drawn in the target. See
   [the GUI](gui.md#units-and-scaling).
 - **The window** is not resized or placed by the policy: its modes are the
   settings' ([windows](windows.md)), windowed in developer builds and
@@ -165,15 +197,19 @@ at (43, 24), 4 pixels a unit; 1024 by 768 is 960 by 540 at (32, 114), 3.
 
 The sandbox's [`display` scene](sandbox.md#the-display-scene) shows the
 policy at work: a lit scene in the viewport, the design's border and grid,
-a GUI panel, and what the viewport is. F1 to F5 change the aspect, the
-scale mode, the render mode, the design size and the window's mode; F6
-locks resizing the window to the design's aspect, and Alt+Enter switches
-between windowed and borderless.
+pixel art and a line of text, a GUI panel, and what the viewport is. F1 to
+F5 change the aspect, the scale mode, the render mode, the design size and
+the window's mode; F6 locks resizing the window to the design's aspect,
+and Alt+Enter switches between windowed and borderless. At 320 by 180,
+F3 shows the render modes apart: the canvas mode draws the turning art and
+the text smoothly at the window's pixels, and the viewport mode in whole
+blocks of the target's, the panel's text included.
 
 ```
 badger-sandbox --scene display
 badger-sandbox --scene display --set display.stretch_aspect=expand
 badger-sandbox --scene display --set display.design_width=320 --set display.design_height=180 --set display.stretch_scale_mode=integer
+badger-sandbox --scene display --set display.design_width=320 --set display.design_height=180 --set display.stretch_scale_mode=integer --set display.stretch_render_mode=viewport
 ```
 
 ## Threading

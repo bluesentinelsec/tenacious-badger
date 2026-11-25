@@ -414,7 +414,7 @@ const tb_ui_theme *tb_gui_theme(const tb_gui *gui)
 static bool tb_gui_views_equal(tb_gui_view a, tb_gui_view b)
 {
     return a.origin.x == b.origin.x && a.origin.y == b.origin.y && a.scale == b.scale &&
-           a.size.x == b.size.x && a.size.y == b.size.y;
+           a.size.x == b.size.x && a.size.y == b.size.y && a.target == b.target;
 }
 
 /* Work out the view again, and lay out again when it changed. */
