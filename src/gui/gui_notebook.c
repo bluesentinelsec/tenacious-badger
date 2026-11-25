@@ -381,6 +381,15 @@ static const tb_gui_property tb_gui_notebook_properties[] = {
     {.name = "command", .type = TB_GUI_TYPE_COMMAND, .offset = offsetof(tb_gui_notebook, command)},
 };
 
+/* What a layout file cannot hold yet (tb_widget_class::unsaved). */
+static const char *tb_gui_notebook_unsaved(tb_widget widget, const void *data)
+{
+    const tb_gui_notebook *const notebook = data;
+
+    (void)widget;
+    return notebook->count > 0 ? "notebook tabs" : NULL;
+}
+
 static const tb_widget_class tb_gui_notebook_kind = {
     .name = "notebook",
     .data_size = sizeof(tb_gui_notebook),
@@ -395,7 +404,8 @@ static const tb_widget_class tb_gui_notebook_kind = {
     .arrange = tb_gui_notebook_arrange,
     .draw = tb_gui_notebook_draw,
     .event = tb_gui_notebook_event,
-    .style = &tb_gui_notebook_style};
+    .style = &tb_gui_notebook_style,
+    .unsaved = tb_gui_notebook_unsaved};
 
 static tb_gui_notebook *tb_gui_notebook_of(tb_widget widget)
 {

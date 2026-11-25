@@ -104,9 +104,9 @@ size_t tb_canvas_nine_slice_layout(const tb_canvas_nine_slice *slice, uint32_t i
                            (int32_t)((int64_t)down.start + (int64_t)down.cuts[row]),
                            across.cuts[column + 1] - across.cuts[column],
                            down.cuts[row + 1] - down.cuts[row]},
-                                          .rect = {across.edges[column], down.edges[row],
-                                                   across.edges[column + 1] - across.edges[column],
-                                                   down.edges[row + 1] - down.edges[row]}};
+                .rect = {across.edges[column], down.edges[row],
+                         across.edges[column + 1] - across.edges[column],
+                         down.edges[row + 1] - down.edges[row]}};
             const bool middle = row == 1 && column == 1;
             if ((middle && slice->hollow) || part.source.width == 0 || part.source.height == 0 ||
                 !(part.rect.width > 0.0f) || !(part.rect.height > 0.0f))

@@ -80,10 +80,21 @@ static const tb_widget_style_desc tb_gui_message_style = {.name = "Messagebox",
                                                           .elements = tb_gui_message_elements,
                                                           .element_count = TB_GUI_MESSAGE_ELEMENTS};
 
+/* What a layout file cannot hold yet (tb_widget_class::unsaved). */
+static const char *tb_gui_message_unsaved(tb_widget widget, const void *data)
+{
+    const tb_gui_message *const message = data;
+
+    (void)widget;
+    return message->button_count > 0 || message->callback != NULL ? "a message box's answers"
+                                                                  : NULL;
+}
+
 static const tb_widget_class tb_gui_message_kind = {.name = "messagebox",
                                                     .data_size = sizeof(tb_gui_message),
                                                     .mouse_filter = TB_GUI_MOUSE_PASS,
-                                                    .style = &tb_gui_message_style};
+                                                    .style = &tb_gui_message_style,
+                                                    .unsaved = tb_gui_message_unsaved};
 
 /* Answer a dialog: it ends, is destroyed, and its callback is called. */
 static void tb_gui_message_answer(tb_widget dialog, tb_message_result result)

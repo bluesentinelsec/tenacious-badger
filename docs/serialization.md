@@ -16,7 +16,9 @@ The `serialize` module reads and writes structured data. Its code lives in
   arena of the caller's. Strings are decoded, numbers keep their text, and the
   tree does not borrow the text. `tb_json_find` looks a member up in time
   logarithmic in the object's size; `tb_json_member_at` walks members in the
-  order of the text.
+  order of the text. `tb_json_offset_of` says where a value began in the
+  text, for a caller that checks what a document means, as
+  [layout files](gui.md#layout-files) do, to say where a value it refuses is.
 
 ### Untrusted text
 

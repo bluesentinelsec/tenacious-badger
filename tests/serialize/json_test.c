@@ -283,6 +283,32 @@ TB_TEST(serialize_json, nesting_and_length_stop_at_their_limits)
  * Documents.
  * ------------------------------------------------------------------------- */
 
+/* A caller that checks what a document means, as layout files do, says
+ * where a value it refuses is: each value knows where it began. */
+TB_TEST(serialize_json, a_document_value_knows_where_it_began_in_the_text)
+{
+    static const char source[] = "{\"a\": [1, \"two\"],\n \"b\": {\"c\": null, \"d\": true}}";
+    tb_arena *const arena = tb_arena_create(0);
+    const tb_json_value *root = NULL;
+    const tb_json_value *array = NULL;
+    const tb_json_value *object = NULL;
+
+    TB_TEST_REQUIRE_UINT(tb_json_parse(source, sizeof(source) - 1, NULL, arena, &root, NULL), ==,
+                         TB_JSON_OK);
+    TB_TEST_EXPECT_UINT(tb_json_offset_of(root), ==, 0);
+    array = tb_json_find(root, "a", 1);
+    TB_TEST_REQUIRE(array != NULL);
+    TB_TEST_EXPECT_UINT(tb_json_offset_of(array), ==, 6);
+    TB_TEST_EXPECT_UINT(tb_json_offset_of(tb_json_at(array, 0)), ==, 7);
+    TB_TEST_EXPECT_UINT(tb_json_offset_of(tb_json_at(array, 1)), ==, 10);
+    object = tb_json_find(root, "b", 1);
+    TB_TEST_REQUIRE(object != NULL);
+    TB_TEST_EXPECT_UINT(tb_json_offset_of(object), ==, 24);
+    TB_TEST_EXPECT_UINT(tb_json_offset_of(tb_json_find(object, "c", 1)), ==, 30);
+    TB_TEST_EXPECT_UINT(tb_json_offset_of(tb_json_find(object, "d", 1)), ==, 41);
+    tb_arena_destroy(arena);
+}
+
 TB_TEST(serialize_json, a_document_holds_every_value_after_the_text_is_gone)
 {
     static const char source[] = "{\"name\": \"rock \\u00e9\", \"size\": [1, 2.5, -3],"

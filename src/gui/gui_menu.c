@@ -581,6 +581,15 @@ static bool tb_gui_menu_event(tb_widget widget, void *data, const tb_gui_event *
     return false;
 }
 
+/* What a layout file cannot hold yet (tb_widget_class::unsaved). */
+static const char *tb_gui_menu_unsaved(tb_widget widget, const void *data)
+{
+    const tb_gui_menu *const menu = data;
+
+    (void)widget;
+    return menu->count > 0 ? "menu items" : NULL;
+}
+
 static const tb_widget_class tb_gui_menu_kind = {.name = "menu",
                                                  .data_size = sizeof(tb_gui_menu),
                                                  .mouse_filter = TB_GUI_MOUSE_STOP,
@@ -589,7 +598,8 @@ static const tb_widget_class tb_gui_menu_kind = {.name = "menu",
                                                  .measure = tb_gui_menu_measure,
                                                  .draw = tb_gui_menu_draw,
                                                  .event = tb_gui_menu_event,
-                                                 .style = &tb_gui_menu_style};
+                                                 .style = &tb_gui_menu_style,
+                                                 .unsaved = tb_gui_menu_unsaved};
 
 static tb_gui_menu *tb_gui_menu_of(tb_widget widget)
 {
@@ -915,6 +925,15 @@ static bool tb_gui_menubar_event(tb_widget widget, void *data, const tb_gui_even
     return false;
 }
 
+/* What a layout file cannot hold yet (tb_widget_class::unsaved). */
+static const char *tb_gui_menubar_unsaved(tb_widget widget, const void *data)
+{
+    const tb_gui_menubar *const bar = data;
+
+    (void)widget;
+    return bar->count > 0 ? "menu bar entries" : NULL;
+}
+
 static const tb_widget_class tb_gui_menubar_kind = {.name = "menubar",
                                                     .data_size = sizeof(tb_gui_menubar),
                                                     .mouse_filter = TB_GUI_MOUSE_STOP,
@@ -923,7 +942,8 @@ static const tb_widget_class tb_gui_menubar_kind = {.name = "menubar",
                                                     .measure = tb_gui_menubar_measure,
                                                     .draw = tb_gui_menubar_draw,
                                                     .event = tb_gui_menubar_event,
-                                                    .style = &tb_gui_menubar_style};
+                                                    .style = &tb_gui_menubar_style,
+                                                    .unsaved = tb_gui_menubar_unsaved};
 
 static tb_gui_menubar *tb_gui_menubar_of(tb_widget widget)
 {

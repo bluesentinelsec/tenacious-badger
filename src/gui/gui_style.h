@@ -6,6 +6,8 @@
 
 #include "gui_internal.h"
 
+#include "badger/json.h"
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -78,6 +80,31 @@ const tb_image *tb_theme_make_image(tb_theme *theme, tb_renderer *renderer,
 /* Whether a value may be set by a name: of a standard value's type, and of
  * some type; a font given no size takes its role's. */
 bool tb_style_value_check(const char *name, const tb_style_value *value, tb_style_value *checked);
+
+/* gui_theme_file.c: values read and written as theme files hold them, and
+ * as layout files hold a widget's overrides. An image is found by the path
+ * it is named by; NULL when nothing names it. */
+typedef const tb_image *tb_style_image_finder(void *context, const char *path);
+/* A key, "name" or "name:state+state": its name, copied into `name`, and
+ * its states. False for a key of no name, a name too long, or a state of
+ * no such name. */
+bool tb_style_key_read(const char *key, size_t length, char *name, size_t capacity,
+                       uint32_t *states);
+/* A key of a name and states, its states in a fixed order. */
+void tb_style_key_write(const char *name, uint32_t states, char *buffer, size_t capacity);
+/* A value of a name: of its standard type, or of the type its shape says.
+ * Returns NULL, or why it is refused. */
+const char *tb_style_value_read(const char *name, const tb_json_value *json,
+                                tb_style_image_finder *find, void *context, tb_style_value *value);
+/* A value, as it reads back; an image by its path, which is required. */
+tb_json_result tb_style_value_write(tb_json_writer *writer, const tb_style_value *value,
+                                    const char *image_path);
+
+/* gui_style.c: an image by the path one of a widget's themes names it by,
+ * nearest first; and the path a widget's themes name an image by. NULL for
+ * none. */
+const tb_image *tb_gui_style_image_named(tb_widget widget, const char *path);
+const char *tb_gui_style_image_path(tb_widget widget, const tb_image *image);
 
 /* The tool theme's values, of a palette, into a theme (gui_theme_tool.c). */
 void tb_theme_fill_tool(tb_theme *theme, const tb_ui_theme *palette);

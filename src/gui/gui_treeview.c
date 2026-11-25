@@ -1336,6 +1336,22 @@ static const tb_gui_property tb_gui_treeview_properties[] = {
      .offset = offsetof(tb_gui_treeview, open_command)},
 };
 
+/* What a layout file cannot hold yet (tb_widget_class::unsaved). */
+static const char *tb_gui_treeview_unsaved(tb_widget widget, const void *data)
+{
+    const tb_gui_treeview *const tree = data;
+
+    (void)widget;
+    for (size_t item = TB_TREE_ROOT + 1; item < tree->count; item++)
+    {
+        if (tree->items[item].alive)
+        {
+            return "tree items";
+        }
+    }
+    return tree->column_count > 1 ? "tree columns" : NULL;
+}
+
 static const tb_widget_class tb_gui_treeview_kind = {
     .name = "treeview",
     .data_size = sizeof(tb_gui_treeview),
@@ -1349,7 +1365,8 @@ static const tb_widget_class tb_gui_treeview_kind = {
     .arrange = tb_gui_treeview_arrange,
     .draw = tb_gui_treeview_draw,
     .event = tb_gui_treeview_event,
-    .style = &tb_gui_treeview_style};
+    .style = &tb_gui_treeview_style,
+    .unsaved = tb_gui_treeview_unsaved};
 
 static tb_gui_treeview *tb_gui_treeview_of(tb_widget widget)
 {

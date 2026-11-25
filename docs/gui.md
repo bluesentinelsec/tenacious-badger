@@ -75,6 +75,7 @@ game makes its own the same way, and nothing in the GUI tells them apart.
 | `arrange` | at layout, once it has a place: before its children are placed |
 | `draw` | each update: drawn under its children, with `tb_gui_paint_*` |
 | `event` | after its bindings: returns whether it used the event |
+| `unsaved` | when it is saved: what it holds that no property says, which a [layout file](#layout-files) cannot hold yet |
 
 `flags` say whether Tab gives a widget the focus (`TB_WIDGET_CLASS_FOCUSABLE`),
 and whether a click does (`TB_WIDGET_CLASS_FOCUS_ON_CLICK`, for fields to
@@ -712,6 +713,239 @@ the paint functions each update, clipped to the widget and its ancestors,
 and its input comes by bindings. It takes the focus on a click, so that a
 viewport has the keys. `tb_gui_paint_image` draws an image from any kind.
 
+## Layout files
+
+A widget, and the widgets in it, is written as a JSON file and built from
+one: a game's menus are made in files an author edits, and the
+drag-and-drop editor to come will read and write the same files. The
+format knows no kind of widget. Each property is written by its kind's
+table, by its type, so a kind a game registers is read and written as the
+engine's are.
+
+```c
+tb_gui_register_command(gui, "apply_settings", on_apply, game);
+tb_widget options = TB_WIDGET_NONE;
+tb_gui_file_error error = {0};
+if (tb_gui_load_file(tb_gui_root(gui), vfs, "ui/options.json", &options, &error) != TB_GUI_FILE_OK)
+{
+    tb_fmt_print_error("%s\n", error.message); /* ui/options.json:12:20: $.root...: unknown property "colour" */
+}
+tb_widget apply = tb_widget_find(options, "video/apply");
+```
+
+### The format
+
+```json
+{
+  "format": "badger-gui",
+  "version": 1,
+  "variables": [
+    {
+      "name": "fov",
+      "type": "float",
+      "setting": "graphics.fov"
+    }
+  ],
+  "root": {
+    "kind": "frame",
+    "name": "options",
+    "properties": {
+      "padding": 12,
+      "background": true
+    },
+    "grid": {
+      "sticky": [
+        "n",
+        "s",
+        "e",
+        "w"
+      ]
+    },
+    "columns": [
+      {},
+      {
+        "weight": 1
+      }
+    ],
+    "children": [
+      {
+        "kind": "scale",
+        "properties": {
+          "variable": "fov",
+          "from": 60,
+          "to": 120
+        },
+        "grid": {
+          "column": 1
+        }
+      },
+      {
+        "kind": "button",
+        "name": "apply",
+        "properties": {
+          "command": "apply_settings",
+          "text": "Apply"
+        },
+        "grid": {
+          "row": 1,
+          "column": 1
+        }
+      }
+    ]
+  }
+}
+```
+
+A file is an object of these members: `format`, always `"badger-gui"`;
+`version`, the version of the format, 1; `variables`, optional, the
+variables its widgets edit; and `root`, the widget the file builds. A file
+of a newer version than the engine reads is refused. A
+widget is an object of these members, each but `kind` left out when it has
+nothing to say:
+
+| Member | What |
+| --- | --- |
+| `kind` | the name its kind is registered by: `"frame"`, `"label"`, `"button"`, or a game's |
+| `name` | its name, for finding it by path; without `/` |
+| `properties` | its properties by name, the common ones and its kind's, but for `name` and its place in the grid |
+| `overrides` | its [style's overrides](#theme-files), by name and states |
+| `grid` | its place in its parent's grid: `row`, `column`, `row_span`, `column_span`, `sticky`, `padx`, `pady`, `ipadx`, `ipady`. A widget without it is not in the grid, and so not shown |
+| `columns`, `rows` | its own grid's columns and rows, from the first, each `weight`, `minsize`, `pad`, and `uniform`; `{}` is one configured with none |
+| `children` | its children, in order |
+
+A value is written by its property's type:
+
+| Type | JSON | Example |
+| --- | --- | --- |
+| bool | `true` or `false` | `"visible": false` |
+| int | an integer | `"row": 2` |
+| float | a number | `"padding": 12.5` |
+| vec2 | an array of two numbers | `"padx": [4, 0]` |
+| color | an array of four numbers: red, green, blue, alpha | `"tint": [1, 0.5, 0, 1]` |
+| text | a string | `"text": "Apply"` |
+| enum | one of the property's names | `"anchor": "nw"` |
+| flags | an array of the names of the bits set | `"sticky": ["e", "w"]` |
+| font | an object of `role` (by name, `"heading"`), `weight`, `italic`, and `size` | `"font": {"role": "heading", "size": 26}` |
+| command | the name it is registered by | `"command": "apply_settings"` |
+| variable | the variable's name | `"variable": "fov"` |
+
+**Variables.** A file names the variables its widgets show and edit, as a
+variable's own name (`tb_var_set_name`, `tb_gui_find_var`). It may declare
+them, under `variables`, each with its `name`, its `type` (`bool`, `int`,
+`float`, or `string`), its first `value` (the type's zero when left out),
+and the `setting` it is bound to by name (`tb_var_bind_setting`), found in
+the settings given the GUI with `tb_gui_set_settings`. A declared variable
+whose name the GUI already has is used as it is, its value and binding
+kept, when it is of the type, so a game may make its own first, and a file
+loaded again finds the variables it made the first time. A file that fails
+destroys the variables it made.
+
+### Loading
+
+`tb_gui_load` builds a file's text, and `tb_gui_load_file` a file read
+through a [VFS](vfs.md), as the last child of a parent. The text is strict
+JSON, read by the engine's [reader](serialization.md#json). A widget is
+made of its kind, its name set, then its properties in the order of the
+file, each with `tb_widget_set`, then its place in the grid, its columns and
+rows, and its children. No callback is called while it is built.
+
+Loading is all or nothing. A file that is not JSON is
+`TB_GUI_FILE_MALFORMED`; one that is JSON but not a layout the GUI can
+build is `TB_GUI_FILE_INVALID`: another format or a newer version, a key
+the format does not have, a kind not registered, a property the kind does
+not have, or one that is read-only, a value of the wrong type, a name an
+enumeration does not have, a command not registered, a number out of a
+float's range, a value a property or the grid refuses, or widgets nested
+more than 64 deep. Whatever was built is destroyed, and the parent is as it
+was. The error, `tb_gui_file_error`, says where and why: the JSON path of
+the value at fault (`$.root.children[2].properties.colour`), its line and
+column, a reason, and a message of all of them for a log.
+
+### Saving
+
+`tb_gui_save` writes a widget, and the widgets in it, to a
+[stream](streams.md). The text is the same for the same widgets, byte for
+byte: indented two spaces, the members of each widget in the order of the
+table above, properties in the order of the kind's table, its references to
+variables and commands first and its others after, then the common ones,
+the grid's options in the order listed, and numbers in the fewest digits
+that read back as the same float (`0.1`, `100`).
+
+A property is left out when loading would give it its value without it:
+when it equals a new widget's of the kind, after the properties written
+before it are set. A file holds what was chosen, and a change to a default
+reaches every file that did not choose. A property whose setter changes
+another, as a frame's `background` changes its `mouse_filter`, is written
+first; the one it changed is written after it when the widget holds
+another value. A slider's `value`, which its variable gives it, is not
+written at all. Read-only properties are not written.
+
+**Nothing is dropped silently.** Saving fails, and the error says what and
+where (its path in the file written, `$.root.children[1]`), rather than
+write a file that loads to less than the widgets were:
+
+- a widget whose kind says it holds what no property says
+  (`tb_widget_class::unsaved`): menu items and a menu bar's entries, tree
+  items and columns, notebook tabs, a paned window's panes, an image
+  widget's image, a canvas widget's draw callback, and a message box's
+  answers. Layout files have no types for them yet (issue #337); the same
+  kinds empty save and load as any other;
+- a property of a type layout files have no form for;
+- a command set in code with no registered name, and a variable with no
+  name, or a name another variable made before it holds;
+- text that is not UTF-8, and widgets nested more than 64 deep.
+
+The variables the widgets name are declared under `variables`, each once,
+in the order the tree first names them: one bound to a setting with the
+setting's name, any other with its value now.
+
+Saving a file that was loaded gives the same text when the file was
+written so: the tests load files, save them, and compare the bytes. A file
+written by hand in another order, or with other spacing, is saved in this
+form.
+
+### Finding widgets
+
+`tb_widget_find(from, "options/video/apply")` follows names: the first
+child of `from` named `options`, its first child named `video`, and so on,
+as Godot's node paths do. `""` is `from` itself; an empty name, or a name
+not there, finds none. `tb_widget_path` gives the path from the GUI's root
+that finds a widget, when every widget on the way has a name.
+
+### Names
+
+A file refers to what code holds by name. `tb_gui_register_command` names a
+callback and its argument; a property of type command is written as the
+name, and saving writes the first name registered for a callback and
+argument. A variable carries its own name. Each named type is a namespace
+of its own: a command and a variable may share a name.
+
+### Hot reload
+
+`tb_gui_watch(widget, vfs, path, &options)` loads a widget again from its
+file whenever the file changes, for an author who edits a layout while the
+game runs. Each `tb_gui_update` looks at the files whose interval has
+passed (half a second unless chosen), reading each through the VFS and
+comparing a hash of its bytes with the last. The engine has no directory
+watching of its own yet, and the VFS's mounts include archives, so the
+watch reads rather than waits for the system to say; a layout file is
+small, and the cost is a read every interval.
+
+When the bytes changed, the file is built under the same parent, put in
+the old widget's place among its siblings, and the old widget destroyed:
+its handles go stale, and the callback (`tb_gui_watch_options::callback`)
+is given the new widget, to find again what the game keeps. A file that
+fails to load leaves the old widget as it was, and the callback is given
+the error; the file is tried again when it next changes. A file that
+cannot be read for a moment, as an editor replaces it, is waited for. The
+watch ends when its widget is destroyed other than by a reload, or with
+`tb_gui_unwatch`.
+
+Watching is for development: a game turns it on in its development builds,
+and a shipped game, whose files are in packages, does not. The sandbox's
+`gui` scene builds a panel from `tools/sandbox/resources/gui/panel.json`
+and watches it.
+
 ## Styles
 
 Every kind draws by a style: colors, sizes, and fonts looked up by name in
@@ -877,7 +1111,8 @@ The sandbox's `gui` scene switches between all four as it runs
 
 A theme loads from a JSON file, its classes and values in place of the
 theme's, all or nothing (`tb_theme_load`, or `tb_theme_load_file` through
-a VFS). Comments and trailing commas are allowed, as in files people edit.
+a VFS). The text is strict JSON, read as [layout files](#layout-files)
+are, and its errors are theirs.
 
 ```json
 {
@@ -902,8 +1137,8 @@ a VFS). Comments and trailing commas are allowed, as in files people edit.
 
 | Key | What |
 | --- | --- |
-| `format` | `"badger-theme"` |
-| `version` | `1`, `TB_THEME_FILE_FORMAT_VERSION`; another is refused as `TB_THEME_FILE_VERSION` |
+| `format` | `"badger-theme"`, `TB_THEME_FILE_FORMAT` |
+| `version` | `1`, `TB_THEME_FILE_FORMAT_VERSION`; a newer one is refused |
 | `name` | optional text |
 | `styles` | style classes by name, each an object of values |
 
@@ -917,7 +1152,7 @@ its shape:
 | color | `"#rrggbb"` or `"#rrggbbaa"` |
 | number | a number of units |
 | edges | a number for every side, `[across, down]`, or `[left, top, right, bottom]` |
-| font | `{"role": "ui" \| "body" \| "heading" \| "monospace" \| "pixel", "weight": 400, "italic": false, "size": 18}`; only the role is required |
+| font | `{"role": "ui" \| "body" \| "heading" \| "monospace" \| "pixel", "weight": 400, "italic": false, "size": 18}`; only the role is required; a weight of 0 is the GUI's own font |
 | image | `{"image": path, "insets": texels, "source": [x, y, width, height], "scale": 1, "whole_pixels": false, "hollow": false, "tint": color}`; only the path is required |
 
 An image is named by its VFS path, which the theme maps to a canvas image
@@ -925,23 +1160,28 @@ the game made (`tb_theme_add_image`), so a file names no pixels and a
 missing image is an error. Sizes that cannot be negative (`border_width`,
 `radius`, `focus_width`, `padding`) are refused when they are.
 
-**Errors.** Loading returns why it failed, and `tb_theme_file_error` says
-where: a line and a column for text that is not JSON
-(`TB_THEME_FILE_SYNTAX`), or a path in the document, as
-`styles.Button.background:hovered`, for JSON that is not a theme
-(`TB_THEME_FILE_INVALID`), with a message that names the file. On any
-error the theme is as it was.
+**Errors.** Loading returns a layout file's results, and its error,
+`tb_gui_file_error`: `TB_GUI_FILE_MALFORMED` with a line and a column for
+text that is not JSON, and `TB_GUI_FILE_INVALID` for JSON that is not a
+theme, with the JSON path of the value at fault
+(`$.styles.Button.background:hovered`), its line and column, a reason, and
+a message of all of them that names the file. On any error the theme is as
+it was.
 
 **Hot reload.** `tb_gui_watch_theme(gui, theme, vfs, path, &options)`
-looks at a theme's file at an interval, half a second unless chosen, each
-`tb_gui_update`, through the VFS, so that every platform and mount watch
-alike; when its bytes change it is loaded again, and the GUI draws by it
+watches a theme's file with the layout files' watches (see [hot
+reload](#hot-reload)): each `tb_gui_update` reads it once its interval has
+passed, and when its bytes changed loads it again, and the GUI draws by it
 from that update. A file that fails leaves the theme as it was, and the
-callback says why; one that cannot be read for a moment, as while an
-editor replaces it, is looked at again. A shipped game, whose files are in
-packages, need not watch them. The layout files' loader reads JSON and
-watches files the same way; the two are to share one reader and one watch
-list once both are in.
+callback is given the error. `tb_gui_unwatch_theme` ends the watch.
+
+**Overrides in layout files.** A widget's `style` is a common property,
+saved and loaded with the others. Its overrides are the widget's
+`overrides` in a [layout file](#the-format), an object of values written
+as a theme's are: `"overrides": {"text_color": "#ffcc4d",
+"padding:hovered": [12, 6]}`. An image is written by the path one of the
+widget's themes names it by; saving one that no theme names fails, rather
+than drop it.
 
 ## Drawing and ownership
 
@@ -951,9 +1191,10 @@ above it, and the popups' above those; `tb_gui_commands` returns them, for tests
 hands them to a renderer's canvas. What changes after an update is drawn
 after the next.
 
-The caller owns the GUI, its theme's fonts, and the catalog, which outlive
-it. The GUI owns its widgets, their text, its variables, and the fonts it
-opened from the catalog; `tb_gui_forget_fonts` tells the renderer's canvas to forget those
+The caller owns the GUI, its theme's fonts, the catalog, and the VFS of
+each file watched, which outlive it. The GUI owns its widgets, their text,
+its variables, and the fonts it opened from the catalog;
+`tb_gui_forget_fonts` tells the renderer's canvas to forget those
 before `tb_gui_destroy` closes them. A kind's table, and its properties'
 names, outlive every widget of it.
 
@@ -970,12 +1211,12 @@ thread that renders. GUIs are independent of one another.
 - Menus', lists', trees', and tabs' items in layout files, which have no
   type for a list yet, nor for an image or a draw callback; a menu bar
   opened by Alt and its titles' mnemonics.
-- A theme saved to a file; theme files watched by the OS's change notices
-  rather than by looking; a theme's images loaded from their paths by the
-  engine, which has no image decoder at run time yet.
-- Layout files in JSON, and finding widgets by path; the `name` property is
-  kept for them.
+- A theme saved to a file, and a widget's own theme (`tb_widget_set_style_theme`)
+  in layout files; a theme's images loaded from their paths by the engine,
+  which has no image decoder at run time yet.
 - Focus moved by arrows and a gamepad.
+- Files watched by the system's own notices of change, rather than read
+  every interval.
 
 ## Tests
 
@@ -1002,15 +1243,24 @@ observers run in updates, and they follow settings and are followed by
 them, with the settings' checks; each kind that edits values is driven by
 the mouse and the keys, its variable kept in step with its twin's, its
 `CHANGED` events and commands counted, its properties set to what they
-read, and its size measured at scales 1, 1.5, and 2. Styles are resolved
-along their classes' chains, by the ranks of their states, from overrides
-and the themes of subtrees, and resolved again only when what they come
-from changes; theme files load every type of value, refuse what is not a
-theme with where and why, refuse damaged bytes, and load again as they
-change through a VFS; and nine-slice panels are cut on whole pixels at
-scales 1, 1.5, and 2. The forms and containers are drawn on WARP and
-matched with golden images in the default theme, and the forms in the
-light, game, and retro themes (`tests/gui/gui_look_d3d12_test.c`). The
-sandbox's `gui` scene shows a form by eye, and its `gui_tool` scene an
-editor's shape ([sandbox](sandbox.md)), and the tests draw it on WARP at
-two scales.
+read, and its size measured at scales 1, 1.5, and 2.
+`gui_file_test.c`, `gui_names_test.c`, and `gui_watch_test.c` cover layout
+files: a file of every part saved back byte for byte, every type of
+property written and read again, every kind that edits values saved and
+loaded again, defaults left out, each error's path, line, and reason,
+thousands of damaged files that must neither crash nor leave a widget
+behind, paths, commands and variables by name, and a file in a VFS of
+memory changed, broken, removed, and mended under a watch.
+`gui_style_test.c`, `gui_theme_file_test.c`, and `canvas_slice_test.c`
+cover styles: resolved along their classes' chains, by the ranks of their
+states, from overrides and the themes of subtrees, and resolved again only
+when what they come from changes; theme files of every type of value,
+refused with their paths, damaged, read through a VFS, and loaded again as
+they change; overrides saved in layout files and loaded back the same; and
+nine-slice panels cut on whole pixels at scales 1, 1.5, and 2. The forms
+and containers are drawn on WARP and matched with golden images in the
+default theme, and the forms in the light, game, and retro themes
+(`gui_look_d3d12_test.c`); the default's were taken before styles, and
+still match. The sandbox's
+`gui` scene shows a form by eye, and its `gui_tool` scene an editor's shape
+([sandbox](sandbox.md)), and the tests draw it on WARP at two scales.

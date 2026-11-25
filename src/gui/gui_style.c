@@ -340,7 +340,8 @@ bool tb_theme_get(const tb_theme *theme, const char *style_class, const char *na
     }
     for (size_t index = 0; index < found->count; index++)
     {
-        if (found->entries[index].states == states && tb_str_equal(found->entries[index].name, name))
+        if (found->entries[index].states == states &&
+            tb_str_equal(found->entries[index].name, name))
         {
             *value = found->entries[index].value;
             return true;
@@ -979,6 +980,45 @@ const tb_style *tb_style_in(tb_widget widget, uint32_t states)
 const tb_style *tb_style_of(tb_widget widget)
 {
     return tb_style_in(widget, tb_widget_state(widget));
+}
+
+const tb_image *tb_gui_style_image_named(tb_widget widget, const char *path)
+{
+    if (!tb_widget_alive(widget))
+    {
+        return NULL;
+    }
+    const size_t count = tb_style_themes_of(widget.gui, widget.index);
+    for (size_t index = 0; index < count; index++)
+    {
+        const tb_image *const image = tb_theme_image(widget.gui->theme_chain[index], path);
+        if (image != NULL)
+        {
+            return image;
+        }
+    }
+    return NULL;
+}
+
+const char *tb_gui_style_image_path(tb_widget widget, const tb_image *image)
+{
+    if (!tb_widget_alive(widget))
+    {
+        return NULL;
+    }
+    const size_t count = tb_style_themes_of(widget.gui, widget.index);
+    for (size_t index = 0; index < count; index++)
+    {
+        const tb_theme *const theme = widget.gui->theme_chain[index];
+        for (size_t at = 0; at < theme->image_count; at++)
+        {
+            if (theme->images[at].image == image)
+            {
+                return theme->images[at].path;
+            }
+        }
+    }
+    return NULL;
 }
 
 /* ---------------------------------------------------------------------------

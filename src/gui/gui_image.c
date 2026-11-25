@@ -185,6 +185,15 @@ static const tb_gui_property tb_gui_image_properties[] = {
      .set = tb_gui_image_set_height},
 };
 
+/* What a layout file cannot hold yet (tb_widget_class::unsaved). */
+static const char *tb_gui_image_unsaved(tb_widget widget, const void *data)
+{
+    const tb_gui_image *const image = data;
+
+    (void)widget;
+    return image->image != NULL ? "an image" : NULL;
+}
+
 static const tb_widget_class tb_gui_image_kind = {.name = "image",
                                                   .data_size = sizeof(tb_gui_image),
                                                   .properties = tb_gui_image_properties,
@@ -194,7 +203,8 @@ static const tb_widget_class tb_gui_image_kind = {.name = "image",
                                                   .init = tb_gui_image_init,
                                                   .measure = tb_gui_image_measure,
                                                   .draw = tb_gui_image_draw,
-                                                  .style = &tb_gui_image_style};
+                                                  .style = &tb_gui_image_style,
+                                                  .unsaved = tb_gui_image_unsaved};
 
 static tb_gui_image *tb_gui_image_of(tb_widget widget)
 {

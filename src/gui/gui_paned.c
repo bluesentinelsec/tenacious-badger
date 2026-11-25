@@ -359,6 +359,15 @@ static const tb_gui_property tb_gui_paned_properties[] = {
      .set = tb_gui_paned_set_height},
 };
 
+/* What a layout file cannot hold yet (tb_widget_class::unsaved). */
+static const char *tb_gui_paned_unsaved(tb_widget widget, const void *data)
+{
+    const tb_gui_paned *const paned = data;
+
+    (void)widget;
+    return paned->count > 0 ? "panes" : NULL;
+}
+
 static const tb_widget_class tb_gui_paned_kind = {.name = "panedwindow",
                                                   .data_size = sizeof(tb_gui_paned),
                                                   .properties = tb_gui_paned_properties,
@@ -371,7 +380,8 @@ static const tb_widget_class tb_gui_paned_kind = {.name = "panedwindow",
                                                   .draw = tb_gui_paned_draw,
                                                   .event = tb_gui_paned_event,
                                                   .viewport = tb_gui_paned_viewport,
-                                                  .style = &tb_gui_paned_style};
+                                                  .style = &tb_gui_paned_style,
+                                                  .unsaved = tb_gui_paned_unsaved};
 
 static tb_gui_paned *tb_gui_paned_of(tb_widget widget)
 {

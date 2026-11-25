@@ -122,9 +122,6 @@ typedef struct tb_gui_theme_use
     uint64_t generation;
 } tb_gui_theme_use;
 
-/* A theme file watched for changes (gui_theme_file.c). */
-typedef struct tb_gui_theme_watch tb_gui_theme_watch;
-
 /* A popup shown, and how. */
 typedef struct tb_gui_popup_entry
 {
@@ -141,6 +138,17 @@ typedef struct tb_gui_font_entry
     tb_font_spec spec;
     tb_font *font;
 } tb_gui_font_entry;
+
+/* An object a layout file refers to by name: a command, by its value's
+ * type. Each type is a namespace of its own. */
+typedef struct tb_gui_named
+{
+    char *name; /* owned */
+    tb_gui_value value;
+} tb_gui_named;
+
+/* A file whose widget is loaded again when it changes (gui_watch.c). */
+typedef struct tb_gui_watch_entry tb_gui_watch_entry;
 
 /* A font resolved for text: the font, its size in units, and its measures. */
 typedef struct tb_gui_resolved_font
@@ -233,13 +241,19 @@ struct tb_gui
     size_t theme_use_capacity;
     const tb_theme **theme_chain; /* the themes of the widget being resolved */
     size_t theme_chain_capacity;
-    tb_gui_theme_watch *theme_watches;
-    size_t theme_watch_count;
-    size_t theme_watch_capacity;
 
     /* What tb_gui_draw() draws. */
     tb_arena *arena;
     tb_ui_paint paint;
+
+    /* Objects named for layout files, and the files watched. */
+    tb_gui_named *names;
+    size_t name_count;
+    size_t name_capacity;
+    tb_settings *settings; /* that layout files bind variables to; borrowed */
+    tb_gui_watch_entry *watches;
+    size_t watch_count;
+    size_t watch_capacity;
 };
 
 /* What a kind draws with: the widget, its rectangle, and its clip. */
@@ -267,6 +281,8 @@ tb_text tb_gui_string_text(const tb_gui_string *string);
  * the spec's weight is 0; at the spec's size, or the base's, or else the
  * palette's. */
 tb_gui_resolved_font tb_gui_resolve_font(tb_gui *gui, tb_font_spec base, tb_font_spec spec);
+/* Move a widget among its siblings, to just before another of them. */
+void tb_gui_move_before(tb_gui *gui, uint32_t child, uint32_t sibling);
 
 /* gui_property.c: the common properties. */
 const tb_gui_property *tb_gui_property_find(const tb_gui_node *node, const char *name);
@@ -392,6 +408,36 @@ tb_vec2 tb_gui_measure_block(tb_widget widget, const tb_gui_text_block *block);
 /* The height of a line of a widget's font, in units. */
 float tb_gui_line_height(tb_widget widget);
 
+/* gui_names.c: objects named for layout files. A type of value is named
+ * when a file refers to its values by name rather than writing them. */
+bool tb_gui_type_is_named(tb_gui_type type);
+bool tb_gui_named_find(tb_gui *gui, tb_gui_type type, tb_text name, tb_gui_value *value);
+/* The name of a value of a named type, that finds it; NULL when it has none. */
+const char *tb_gui_named_name_of(tb_gui *gui, const tb_gui_value *value);
+void tb_gui_names_free(tb_gui *gui);
+
+/* gui_file.c: a file's bytes read through a VFS, with a terminator after
+ * them, for the caller to free; the error says why not. */
+struct tb_vfs;
+tb_gui_file_result tb_gui_read_file(struct tb_vfs *vfs, const char *path, char **bytes,
+                                    size_t *length, tb_gui_file_error *error);
+/* What layout files and theme files share of their errors: text added to a
+ * buffer, cut short at its end; an error's message, of its file's name, its
+ * place, its path, its reason, and what was named (`detail`, or NULL); and
+ * the line and column of an offset in a text, from 1. */
+void tb_gui_append(char *buffer, size_t capacity, size_t *used, const char *text);
+void tb_gui_error_message(tb_gui_file_error *error, const char *file_name, const char *detail);
+void tb_gui_locate(const char *text, size_t length, size_t offset, size_t *line, size_t *column);
+/* Bytes of a float's text: a sign, nine digits, a point, and an exponent. */
+#define TB_GUI_FLOAT_TEXT 32u
+/* A float in the fewest digits that read back as it; the text's length. */
+size_t tb_gui_float_text(float value, char *buffer, size_t capacity);
+
+/* gui_watch.c: files loaded again when they change: layout files, and
+ * theme files. */
+void tb_gui_watches_poll(tb_gui *gui);
+void tb_gui_watches_free(tb_gui *gui);
+
 /* gui_var.c: variables polled against their settings, their observers run,
  * and their memory released with the GUI's. */
 void tb_gui_vars_update(tb_gui *gui);
@@ -416,9 +462,5 @@ void tb_gui_style_release(tb_gui *gui, uint32_t index);
  * spec's weight is 0, at the spec's size, or its style's when it is 0. A
  * widget's style at rest gives its font in every state. */
 tb_gui_resolved_font tb_gui_widget_font(tb_widget widget, tb_font_spec spec);
-
-/* gui_theme_file.c: theme files watched, looked at each update. */
-void tb_gui_theme_watches_update(tb_gui *gui);
-void tb_gui_theme_watches_free(tb_gui *gui);
 
 #endif
