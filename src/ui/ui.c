@@ -251,6 +251,8 @@ tb_ui *tb_ui_create(const tb_ui_options *options)
         chosen->forget_frames != 0 ? chosen->forget_frames : TB_UI_DEFAULT_FORGET_FRAMES;
     ui->arena = tb_arena_create(TB_UI_ARENA_CHUNK);
     ui->scale = 1.0f;
+    ui->paint.arena = ui->arena;
+    ui->paint.scale = 1.0f;
     ui->clipboard = tb_calloc(TB_UI_CLIPBOARD_CAPACITY, 1);
     return ui;
 }
@@ -265,7 +267,7 @@ void tb_ui_destroy(tb_ui *ui)
     tb_free(ui->states);
     tb_free(ui->slots);
     tb_free(ui->focusables);
-    tb_free(ui->commands);
+    tb_ui_paint_free(&ui->paint);
     tb_free(ui->clipboard);
     tb_free(ui);
 }
@@ -479,27 +481,12 @@ static void tb_ui_forget(tb_ui *ui)
 
 static void tb_ui_measure_fonts(tb_ui *ui)
 {
-    const float pixels = ui->theme.font_size * ui->scale;
-
     for (size_t index = 0; index < TB_UI_FONT_COUNT; index++)
     {
         const tb_font *const font = ui->theme.fonts[index] != NULL
                                         ? ui->theme.fonts[index]
                                         : ui->theme.fonts[TB_UI_FONT_REGULAR];
-        tb_font_line_metrics lines = {0};
-        tb_font_metrics metrics = {0};
-        tb_ui_font_measures *const measures = &ui->fonts[index];
-
-        tb_font_get_line_metrics(font, pixels, &lines);
-        tb_font_get_metrics(font, &metrics);
-        measures->font = font;
-        measures->line_height = lines.line_height / ui->scale;
-        measures->ascent = lines.ascent / ui->scale;
-        measures->cap_height = (float)metrics.cap_height * tb_font_scale(font, pixels) / ui->scale;
-        if (!(measures->cap_height > 0.0f))
-        {
-            measures->cap_height = measures->ascent * 0.7f;
-        }
+        tb_ui_font_measures_of(font, ui->theme.font_size, ui->scale, &ui->fonts[index]);
     }
     ui->frame_height = ui->fonts[TB_UI_FONT_REGULAR].line_height + 2.0f * ui->theme.frame_padding.y;
 }
@@ -588,7 +575,7 @@ void tb_ui_begin_frame(tb_ui *ui, const tb_ui_input *input)
     }
     ui->size = (tb_vec2){input->size.x / ui->scale, input->size.y / ui->scale};
     tb_arena_reset(ui->arena);
-    ui->command_count = 0;
+    tb_ui_paint_reset(&ui->paint, ui->scale);
     ui->focusable_count = 0;
     ui->collisions = 0;
     ui->windows = 0;
@@ -869,8 +856,8 @@ const tb_ui_command *tb_ui_commands(const tb_ui *ui, size_t *count)
 {
     TB_ASSERT(ui != NULL);
     TB_ASSERT(count != NULL);
-    *count = ui->command_count;
-    return ui->commands;
+    *count = ui->paint.count;
+    return ui->paint.commands;
 }
 
 bool tb_ui_wants_mouse(const tb_ui *ui)
@@ -901,7 +888,7 @@ void tb_ui_stats_of(const tb_ui *ui, tb_ui_stats *stats)
 {
     TB_ASSERT(ui != NULL);
     TB_ASSERT(stats != NULL);
-    *stats = (tb_ui_stats){.commands = ui->command_count,
+    *stats = (tb_ui_stats){.commands = ui->paint.count,
                            .windows = ui->windows,
                            .states = ui->state_count,
                            .id_collisions = ui->collisions,

@@ -400,6 +400,9 @@ typedef struct tb_ui_command
     const tb_font *font; /**< Text's font. */
     float font_size;     /**< Text's size, in units to the em. */
     float wrap_width;    /**< The width text wraps at; 0 for none. */
+    /** How text's lines sit across its box: the wrap width when there is
+     * one, or else the widest line. Zero is left. */
+    tb_font_align align;
     /** Text's bytes: the interface's, valid until the next frame begins. */
     tb_text text;
     tb_ui_id id; /**< The widget, or window, that drew it; 0 for none. */

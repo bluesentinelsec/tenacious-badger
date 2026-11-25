@@ -7,6 +7,8 @@
 #include "badger/arena.h"
 #include "badger/ui.h"
 
+#include "ui_paint.h"
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -115,15 +117,6 @@ typedef struct tb_ui_interaction
     bool keys;    /* it has the focus from Tab, and takes keys */
 } tb_ui_interaction;
 
-/* A font's measures at the theme's size, in units. */
-typedef struct tb_ui_font_measures
-{
-    const tb_font *font;
-    float line_height;
-    float ascent;
-    float cap_height;
-} tb_ui_font_measures;
-
 struct tb_ui
 {
     tb_ui_theme theme;
@@ -205,9 +198,7 @@ struct tb_ui
     bool wants_text;
 
     /* The frame's commands. */
-    tb_ui_command *commands;
-    size_t command_count;
-    size_t command_capacity;
+    tb_ui_paint paint;
 };
 
 /* ui.c: ids, state, and the mouse. */
@@ -233,9 +224,6 @@ void tb_ui_begin_popup(tb_ui *ui, tb_ui_id owner, tb_canvas_rect below, float he
 void tb_ui_end_popup(tb_ui *ui);
 
 /* ui_draw.c: commands, text, and shapes. */
-tb_canvas_rect tb_ui_rect_intersect(tb_canvas_rect a, tb_canvas_rect b);
-bool tb_ui_rect_contains(tb_canvas_rect rect, tb_vec2 point);
-tb_canvas_rect tb_ui_rect_inset(tb_canvas_rect rect, float x, float y);
 tb_canvas_rect tb_ui_clip(const tb_ui *ui);
 void tb_ui_fill(tb_ui *ui, tb_canvas_rect rect, float radius, tb_vec4 color, tb_ui_id id);
 void tb_ui_outline(tb_ui *ui, tb_canvas_rect rect, float radius, float thickness, tb_vec4 color,

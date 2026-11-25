@@ -1,7 +1,7 @@
 # badger-sandbox: draws the engine's test scenes in a window, to look at by
 # eye. A developer tool: built with the engine, never shipped with a game.
 add_executable(badger-sandbox sandbox.c sandbox_capture.c sandbox_scenes.c sandbox_skinning.c
-    sandbox_inspector.c sandbox_lighting.c sandbox_ui.c)
+    sandbox_gui.c sandbox_inspector.c sandbox_lighting.c sandbox_ui.c)
 target_link_libraries(badger-sandbox PRIVATE TenaciousBadger::badger)
 
 tb_configure_target(badger-sandbox)
@@ -17,6 +17,8 @@ if(TB_BUILD_TESTS)
         COMMAND badger-sandbox --renderer null --scene text --frames 3)
     add_test(NAME sandbox.draws_the_interface_on_the_null_backend
         COMMAND badger-sandbox --renderer null --scene ui --frames 3)
+    add_test(NAME sandbox.draws_the_gui_on_the_null_backend
+        COMMAND badger-sandbox --renderer null --scene gui --frames 3)
     add_test(NAME sandbox.shows_the_inspector_on_the_null_backend
         COMMAND badger-sandbox --renderer null --scene shapes --inspector --frames 3)
     add_test(NAME sandbox.lights_materials_on_the_null_backend
@@ -24,6 +26,7 @@ if(TB_BUILD_TESTS)
     # A machine without a display, as some CI runners are, has no window.
     set_tests_properties(sandbox.runs_frames_on_the_null_backend
         sandbox.draws_text_on_the_null_backend sandbox.draws_the_interface_on_the_null_backend
+        sandbox.draws_the_gui_on_the_null_backend
         sandbox.shows_the_inspector_on_the_null_backend
         sandbox.lights_materials_on_the_null_backend PROPERTIES
         SKIP_REGULAR_EXPRESSION "no windowing")
@@ -84,5 +87,15 @@ if(TB_BUILD_TESTS)
                 --frames 3 --capture "${CMAKE_CURRENT_BINARY_DIR}/sandbox_ui.bmp")
         set_tests_properties(sandbox.draws_the_interface_on_d3d12 PROPERTIES
             PASS_REGULAR_EXPRESSION "saved")
+        # The retained GUI: a form laid out by grid, at two scales.
+        add_test(NAME sandbox.draws_the_gui_on_d3d12
+            COMMAND badger-sandbox --renderer d3d12 --software --validation --scene gui
+                --frames 3 --capture "${CMAKE_CURRENT_BINARY_DIR}/sandbox_gui.bmp")
+        add_test(NAME sandbox.draws_the_gui_larger_on_d3d12
+            COMMAND badger-sandbox --renderer d3d12 --software --validation --scene gui
+                --ui-scale 150 --frames 3
+                --capture "${CMAKE_CURRENT_BINARY_DIR}/sandbox_gui_150.bmp")
+        set_tests_properties(sandbox.draws_the_gui_on_d3d12 sandbox.draws_the_gui_larger_on_d3d12
+            PROPERTIES PASS_REGULAR_EXPRESSION "saved")
     endif()
 endif()
