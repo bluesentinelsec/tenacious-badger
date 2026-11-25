@@ -2,10 +2,12 @@
  * the renderer resizes its swap chain at nearly every frame. A swap chain
  * resizes many times in a row and presents at each size, also into a window
  * larger than its images, which it shows unscaled; and the renderer follows
- * a window through many sizes, renders nothing while it is minimized, and
- * renders again once it is restored, without losing its device. */
+ * a window through many sizes, with its viewport recomputed for each,
+ * renders nothing while it is minimized, and renders again once it is
+ * restored, without losing its device. */
 #include "badger/renderer.h"
 #include "badger/rhi.h"
+#include "badger/viewport.h"
 #include "badger/window.h"
 
 #include "tb_test.h"
@@ -144,8 +146,20 @@ static bool render_frame(tb_renderer *renderer)
     return true;
 }
 
-/* The renderer follows a window resized at every frame, renders nothing
- * while it is minimized, and renders at its size again once restored. */
+/* The policy's viewport of a frame of the window's size, as the renderer
+ * must have it for the frame. */
+static tb_viewport expected_viewport(const tb_viewport_policy *policy, const tb_window_state *state)
+{
+    return tb_viewport_compute(policy,
+                               &(tb_viewport_frame){.width = state->pixel_width,
+                                                    .height = state->pixel_height,
+                                                    .display_scale = (float)state->content_scale});
+}
+
+/* The renderer follows a window resized at every frame, with the viewport
+ * of each new size, as a letterboxed 16:9 design has it; renders nothing
+ * while the window is minimized; and renders at its size again once
+ * restored. */
 TB_TEST(renderer_frame, follows_a_window_through_many_sizes_on_d3d12)
 {
     screen opened = {0};
@@ -154,6 +168,9 @@ TB_TEST(renderer_frame, follows_a_window_through_many_sizes_on_d3d12)
     tb_renderer_options options = {0};
     tb_window_state state = {0};
     tb_window_native native = {0};
+    const tb_viewport_policy policy = TB_VIEWPORT_POLICY_INIT;
+    tb_viewport viewport = {0};
+    tb_viewport expected = {0};
     uint32_t width = 0;
     uint32_t height = 0;
 
@@ -166,6 +183,7 @@ TB_TEST(renderer_frame, follows_a_window_through_many_sizes_on_d3d12)
         close_screen(&opened);
         TB_TEST_SKIP("no renderer: %s", error.message);
     }
+    tb_renderer_set_viewport_policy(renderer, &policy, 0.0f);
     for (uint32_t step = 0; step < RESIZES; step++)
     {
         TB_TEST_CONTEXT("step %u", step);
@@ -180,6 +198,14 @@ TB_TEST(renderer_frame, follows_a_window_through_many_sizes_on_d3d12)
         tb_renderer_size(renderer, &width, &height);
         TB_TEST_EXPECT_UINT(width, ==, state.pixel_width);
         TB_TEST_EXPECT_UINT(height, ==, state.pixel_height);
+        viewport = tb_renderer_viewport(renderer);
+        expected = expected_viewport(&policy, &state);
+        TB_TEST_EXPECT_UINT(viewport.x, ==, expected.x);
+        TB_TEST_EXPECT_UINT(viewport.y, ==, expected.y);
+        TB_TEST_EXPECT_UINT(viewport.width, ==, expected.width);
+        TB_TEST_EXPECT_UINT(viewport.height, ==, expected.height);
+        TB_TEST_EXPECT_UINT(viewport.x + viewport.width, <=, width);
+        TB_TEST_EXPECT_UINT(viewport.y + viewport.height, <=, height);
     }
 
     tb_window_native_of(opened.window, &native);

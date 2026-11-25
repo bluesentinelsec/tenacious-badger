@@ -44,7 +44,10 @@ until the drag ends. The loop sets itself as the window system's refresh
 ([Windows and displays](windows.md#live-resizing)), and runs frames from
 inside the system's loop: the events queued, settings, the ticks due, the
 frame at the window's new size, and pacing, as a frame between drags does.
-The picture follows the drag, and the simulation goes on.
+The picture follows the drag, and the simulation goes on. Each frame the
+renderer begins resizes its swap chain to the window and computes the display
+policy's viewport for the new size ([The renderer](renderer.md)), so the
+bars, the 3D view, the canvas and the interface keep their places.
 
 A refresh that comes while the loop is running a frame, as a window the
 settings reconfigure may send, runs no frame of its own. A minimized window
