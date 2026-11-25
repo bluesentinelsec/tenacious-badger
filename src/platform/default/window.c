@@ -60,6 +60,15 @@ void tb_window_system_wake(tb_window_system *system)
     tb_default_not_implemented("platform.window", "tb_window_system_wake");
 }
 
+void tb_window_system_set_refresh(tb_window_system *system, tb_window_refresh_function *refresh,
+                                  void *context)
+{
+    (void)system;
+    (void)refresh;
+    (void)context;
+    tb_default_not_implemented("platform.window", "tb_window_system_set_refresh");
+}
+
 tb_window_result tb_window_create(tb_window_system *system, const tb_window_options *options,
                                   tb_window **window, tb_window_error *error)
 {

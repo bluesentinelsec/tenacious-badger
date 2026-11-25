@@ -201,7 +201,8 @@ if(WIN32)
     list(APPEND TB_TEST_CASE_SOURCES rhi/rhi_d3d12_test.c ${TB_RHI_SHADER_SOURCE}
         render/canvas_d3d12_test.c render/golden.c render/lighting_d3d12_test.c ${TB_GOLDEN_SOURCE}
         render/material_d3d12_test.c
-        render/renderer_d3d12_test.c render/skinning_d3d12_test.c render/sky_d3d12_test.c
+        render/renderer_d3d12_test.c render/resize_d3d12_test.c render/skinning_d3d12_test.c
+        render/sky_d3d12_test.c
         render/text_d3d12_test.c shader/shader_library_d3d12_test.c gui/gui_d3d12_test.c
         gui/gui_look_d3d12_test.c)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -239,6 +240,7 @@ set(TB_INTERNAL_TEST_CASE_SOURCES
     core/reserved_arena_failure_test.c
     codec/crc32_table_test.c
     font/font_embedded_cache_test.c
+    game/game_loop_refresh_test.c
     jobs/deque_test.c
     render/canvas_batch_test.c
     # A window's scale changed as its adapter changes it, with Roboto of the test data.

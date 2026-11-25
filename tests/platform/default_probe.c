@@ -623,6 +623,11 @@ TB_TEST(platform_default, tb_window_system_wake)
     tb_window_system_wake(NULL);
 }
 
+TB_TEST(platform_default, tb_window_system_set_refresh)
+{
+    tb_window_system_set_refresh(NULL, NULL, NULL);
+}
+
 TB_TEST(platform_default, tb_window_create)
 {
     tb_window *window = NULL;

@@ -7,7 +7,13 @@
  * between two ticks. It counts nanoseconds times the tick rate, in which a
  * tick is exactly a billion: a tick of a sixtieth of a second is no whole
  * number of nanoseconds, and rounding it would gain or lose a tick now and
- * then. */
+ * then.
+ *
+ * While the system holds the thread in a loop of its own, as Windows does
+ * while the player drags the window, reading events does not return until
+ * the drag ends. The window system calls the loop's refresh from inside it,
+ * and the refresh runs the frames the drag would otherwise stop: the events
+ * queued, settings, ticks, the frame, and pacing, as a step does. */
 #include "badger/game_loop.h"
 
 #include "badger/assert.h"
@@ -55,6 +61,9 @@ struct tb_game_loop
     uint64_t quit_asked;  /* When quitting was last asked without a dialog; 0 for never. */
     bool paused_by_game;
     bool quitting;
+    /* Running a frame's settings, ticks, and callbacks, or a refresh: a
+     * refresh that comes then runs no frame of its own. */
+    bool busy;
 };
 
 static uint64_t tb_game_platform_now(void *context)
@@ -73,6 +82,8 @@ static uint64_t tb_game_now(const tb_game_loop *loop)
 {
     return loop->clock.now(loop->clock.context);
 }
+
+static void tb_game_loop_refresh(void *context);
 
 tb_game_loop *tb_game_loop_create(const tb_game_loop_options *options)
 {
@@ -112,12 +123,17 @@ tb_game_loop *tb_game_loop_create(const tb_game_loop_options *options)
         tb_window_state_of(loop->window, &state);
         loop->time.focused = state.focused;
         loop->time.visible = !state.minimized;
+        tb_window_system_set_refresh(loop->system, tb_game_loop_refresh, loop);
     }
     return loop;
 }
 
 void tb_game_loop_destroy(tb_game_loop *loop)
 {
+    if (loop != NULL && loop->system != NULL)
+    {
+        tb_window_system_set_refresh(loop->system, NULL, NULL);
+    }
     tb_free(loop);
 }
 
@@ -438,37 +454,32 @@ static void tb_game_loop_pace(tb_game_loop *loop)
     }
 }
 
-bool tb_game_loop_step(tb_game_loop *loop)
+/* Time is counted from the first frame. */
+static void tb_game_loop_start(tb_game_loop *loop)
 {
+    if (loop->started)
+    {
+        return;
+    }
+    loop->started = true;
+    loop->last_frame = tb_game_now(loop);
+    loop->deadline = loop->last_frame;
+}
+
+/* A frame's work after its events: settings, the ticks due, and the frame. */
+static void tb_game_loop_run_frame(tb_game_loop *loop)
+{
+    const uint64_t longest =
+        tb_game_loop_seconds(tb_setting_number(loop->settings->engine.max_frame_time));
     uint64_t now = 0;
     uint64_t elapsed = 0;
     int64_t frame_count = 0;
 
-    TB_ASSERT(loop != NULL);
-    if (loop->quitting)
-    {
-        return false;
-    }
-    if (!loop->started)
-    {
-        loop->started = true;
-        loop->last_frame = tb_game_now(loop);
-        loop->deadline = loop->last_frame;
-    }
-    tb_game_loop_read_events(loop);
-    if (loop->quitting)
-    {
-        return false;
-    }
+    loop->busy = true;
     tb_game_loop_apply_settings(loop);
-
     now = tb_game_now(loop);
     elapsed = now - loop->last_frame;
-    {
-        const uint64_t longest =
-            tb_game_loop_seconds(tb_setting_number(loop->settings->engine.max_frame_time));
-        elapsed = elapsed < longest ? elapsed : longest;
-    }
+    elapsed = elapsed < longest ? elapsed : longest;
     loop->last_frame = now;
     loop->time.frame_seconds = (double)elapsed / TB_NANOSECONDS_PER_SECOND;
     tb_game_loop_tick(loop, elapsed);
@@ -477,18 +488,62 @@ bool tb_game_loop_step(tb_game_loop *loop)
         loop->callbacks.frame(loop->callbacks.context, &loop->time);
     }
     loop->time.frame++;
-
     frame_count = tb_setting_integer(loop->settings->developer.frame_count);
     if (frame_count > 0 && loop->time.frame >= (uint64_t)frame_count)
     {
         loop->quitting = true;
     }
+    loop->busy = false;
+}
+
+bool tb_game_loop_step(tb_game_loop *loop)
+{
+    TB_ASSERT(loop != NULL);
+    if (loop->quitting)
+    {
+        return false;
+    }
+    tb_game_loop_start(loop);
+    tb_game_loop_read_events(loop);
+    if (loop->quitting)
+    {
+        return false;
+    }
+    tb_game_loop_run_frame(loop);
     if (loop->quitting)
     {
         return false;
     }
     tb_game_loop_pace(loop);
     return true;
+}
+
+/* The window system's refresh, from inside a loop the system holds the
+ * thread in: a frame as a step runs it, of the events the system queued.
+ * One that comes during a frame's work, as a window configured by the
+ * settings may send, runs none. */
+static void tb_game_loop_refresh(void *context)
+{
+    tb_game_loop *const loop = context;
+
+    if (loop->busy || loop->quitting)
+    {
+        return;
+    }
+    tb_game_loop_start(loop);
+    loop->busy = true;
+    tb_game_loop_read_events(loop);
+    loop->busy = false;
+    if (loop->quitting)
+    {
+        return;
+    }
+    tb_game_loop_run_frame(loop);
+    if (loop->quitting)
+    {
+        return;
+    }
+    tb_game_loop_pace(loop);
 }
 
 void tb_game_loop_run(tb_game_loop *loop)

@@ -1,9 +1,15 @@
 /* The Win32 windowing turns the messages Windows sends a window into the
  * engine's events: keys by their scancodes, a close request that leaves the
  * window open, focus, minimizing, displays, a new scale, the mouse, and the
- * characters keys type. Messages are
- * sent to the window directly, as Windows would send them, so that each is
- * checked without a person at the keyboard. */
+ * characters keys type; and while Windows holds the thread in its loop for
+ * a drag, a timer and each new size refresh, and the game loop runs its
+ * frames from there. Messages are sent to the window directly, as Windows
+ * would send them, so that each is checked without a person at the keyboard
+ * or the mouse. */
+#include "badger/game_loop.h"
+#include "badger/memory.h"
+#include "badger/platform.h"
+#include "badger/settings.h"
 #include "badger/str.h"
 #include "badger/window.h"
 
@@ -13,6 +19,13 @@
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+
+/* The timer the window refreshes by while Windows holds the thread, as the
+ * backend names it. */
+#define REFRESH_TIMER 0x7462u
+
+/* How long a case waits for Windows to fire a timer. */
+#define TIMER_NANOSECONDS UINT64_C(1000000000)
 
 /* A key message's lParam: a scancode, extended or not, repeating or not. */
 static LPARAM key_parameter(uint32_t scancode, bool repeat, bool alt)
@@ -585,5 +598,144 @@ TB_TEST(platform_win32_window, titles_are_utf8)
         ==, TB_WINDOW_OK);
     (void)GetWindowTextW(made.handle, title, 32);
     TB_TEST_EXPECT(title[0] == 0);
+    close_window(&made);
+}
+
+/* ---------------------------------------------------------------------------
+ * Dragging: Windows holds the thread in a loop of its own.
+ * ------------------------------------------------------------------------- */
+
+static void count_refresh(void *context)
+{
+    size_t *const refreshes = context;
+    (*refreshes)++;
+}
+
+/* Read the system's messages until a refresh comes, or a second passes. */
+static bool refreshed_by_the_timer(fixture *made, const size_t *refreshes)
+{
+    const size_t before = *refreshes;
+    const uint64_t give_up = tb_platform_clock_nanoseconds() + TIMER_NANOSECONDS;
+    tb_window_event event = {0};
+
+    while (*refreshes == before && tb_platform_clock_nanoseconds() < give_up)
+    {
+        tb_window_system_wait(made->system, 10000000u);
+        while (tb_window_system_poll(made->system, &event))
+        {
+        }
+    }
+    return *refreshes > before;
+}
+
+/* From WM_ENTERSIZEMOVE to WM_EXITSIZEMOVE, and through the system menu's
+ * loop, the refresh timer runs and each new size refreshes; outside them
+ * neither does. */
+TB_TEST(platform_win32_window, a_drag_refreshes_from_inside_windows_loop)
+{
+    fixture made = open_window();
+    size_t refreshes = 0;
+    RECT frame = {0};
+
+    tb_window_system_set_refresh(made.system, count_refresh, &refreshes);
+    (void)SendMessageW(made.handle, WM_TIMER, REFRESH_TIMER, 0);
+    (void)GetWindowRect(made.handle, &frame);
+    (void)SetWindowPos(made.handle, NULL, 0, 0, frame.right - frame.left + 10,
+                       frame.bottom - frame.top, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    TB_TEST_EXPECT_UINT(refreshes, ==, 0);
+
+    (void)SendMessageW(made.handle, WM_ENTERSIZEMOVE, 0, 0);
+    TB_TEST_EXPECT_INT(SendMessageW(made.handle, WM_TIMER, REFRESH_TIMER, 0), ==, 0);
+    TB_TEST_EXPECT_UINT(refreshes, ==, 1);
+    (void)SetWindowPos(made.handle, NULL, 0, 0, frame.right - frame.left + 30,
+                       frame.bottom - frame.top + 20, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    TB_TEST_EXPECT_UINT(refreshes, ==, 2);
+    /* Another program's timer is not the window's. */
+    (void)SendMessageW(made.handle, WM_TIMER, REFRESH_TIMER + 1u, 0);
+    TB_TEST_EXPECT_UINT(refreshes, ==, 2);
+    TB_TEST_EXPECT(refreshed_by_the_timer(&made, &refreshes));
+    (void)SendMessageW(made.handle, WM_EXITSIZEMOVE, 0, 0);
+    refreshes = 0;
+    (void)SendMessageW(made.handle, WM_TIMER, REFRESH_TIMER, 0);
+    TB_TEST_EXPECT_UINT(refreshes, ==, 0);
+
+    (void)SendMessageW(made.handle, WM_ENTERMENULOOP, TRUE, 0);
+    TB_TEST_EXPECT(refreshed_by_the_timer(&made, &refreshes));
+    (void)SendMessageW(made.handle, WM_EXITMENULOOP, TRUE, 0);
+    close_window(&made);
+}
+
+/* What the game loop's frames saw. */
+typedef struct frames_seen
+{
+    tb_window *window;
+    size_t frames;
+    uint32_t frame_width;   /* The window's width at the last frame. */
+    uint32_t resized_width; /* The last resize given to the game before it. */
+    uint32_t resized_before_frame;
+} frames_seen;
+
+static void seen_frame(void *context, const tb_game_time *time)
+{
+    frames_seen *const seen = context;
+    tb_window_state state = {0};
+
+    (void)time;
+    tb_window_state_of(seen->window, &state);
+    seen->frames++;
+    seen->frame_width = state.pixel_width;
+    seen->resized_before_frame = seen->resized_width;
+}
+
+static bool seen_event(void *context, const tb_window_event *event)
+{
+    frames_seen *const seen = context;
+
+    if (event->type == TB_WINDOW_EVENT_RESIZED)
+    {
+        seen->resized_width = event->state.pixel_width;
+    }
+    return false;
+}
+
+/* While the player drags the window, the game loop runs frames from inside
+ * Windows' loop: at each tick of its timer, and at each new size, with the
+ * resize given to the game before the frame. */
+TB_TEST(platform_win32_window, the_game_loop_runs_frames_during_a_drag)
+{
+    fixture made = open_window();
+    tb_settings *const settings = tb_settings_create();
+    tb_engine_settings *const engine = tb_calloc(1, sizeof(tb_engine_settings));
+    frames_seen seen = {.window = made.window};
+    tb_game_loop *loop = NULL;
+    RECT frame = {0};
+    RECT client = {0};
+
+    tb_engine_settings_add(settings, &(tb_engine_settings_options){.developer = true}, engine);
+    loop = tb_game_loop_create(&(tb_game_loop_options){
+        .system = made.system,
+        .window = made.window,
+        .settings = engine,
+        .callbacks = {.frame = seen_frame, .event = seen_event, .context = &seen}});
+    TB_TEST_REQUIRE(tb_game_loop_step(loop));
+    TB_TEST_REQUIRE_UINT(seen.frames, ==, 1);
+
+    (void)SendMessageW(made.handle, WM_ENTERSIZEMOVE, 0, 0);
+    (void)SendMessageW(made.handle, WM_TIMER, REFRESH_TIMER, 0);
+    TB_TEST_EXPECT_UINT(seen.frames, ==, 2);
+    (void)GetWindowRect(made.handle, &frame);
+    (void)SetWindowPos(made.handle, NULL, 0, 0, frame.right - frame.left + 48,
+                       frame.bottom - frame.top + 24, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+    (void)GetClientRect(made.handle, &client);
+    TB_TEST_EXPECT_UINT(seen.frames, ==, 3);
+    TB_TEST_EXPECT_UINT(seen.frame_width, ==, (uint32_t)client.right);
+    TB_TEST_EXPECT_UINT(seen.resized_before_frame, ==, (uint32_t)client.right);
+    (void)SendMessageW(made.handle, WM_EXITSIZEMOVE, 0, 0);
+    (void)SendMessageW(made.handle, WM_TIMER, REFRESH_TIMER, 0);
+    TB_TEST_EXPECT_UINT(seen.frames, ==, 3);
+
+    tb_game_loop_destroy(loop);
+    tb_settings_destroy(settings);
+    tb_free(engine);
     close_window(&made);
 }

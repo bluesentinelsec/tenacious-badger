@@ -5,7 +5,13 @@
  * open, so sizes are pixels, monitors report their own scale, and a window
  * moved to another monitor is told to rescale. user32 and gdi32 are among
  * the libraries the toolchain links by default; shcore, for a monitor's
- * scale, is loaded through the library interface. */
+ * scale, is loaded through the library interface.
+ *
+ * While the player drags a window's border or title bar, or opens its system
+ * menu, DefWindowProc() runs a loop of its own, from WM_ENTERSIZEMOVE to
+ * WM_EXITSIZEMOVE, or WM_ENTERMENULOOP to WM_EXITMENULOOP, and the pump does
+ * not return until it ends. A timer that runs for as long as the loop does,
+ * and each new size, call the window system's refresh from inside it. */
 #include "../shared/window.h"
 #include "window_input.h"
 
@@ -23,6 +29,12 @@
 
 /* The message that wakes the window system's thread. */
 #define TB_WIN32_WAKE (WM_APP + 1)
+
+/* The timer that refreshes while Windows holds the thread in a loop of its
+ * own, and how often it asks to fire: as often as Windows allows, which is
+ * a tick of its timer. The game's frame limit paces the frames. */
+#define TB_WIN32_REFRESH_TIMER 0x7462u
+#define TB_WIN32_REFRESH_MILLISECONDS USER_TIMER_MINIMUM
 
 /* The arrow cursor, IDC_ARROW, as the wide resource name it is. */
 #define TB_WIN32_ARROW MAKEINTRESOURCEW(32512)
@@ -62,6 +74,9 @@ typedef struct tb_win32_window
     bool raw_position_known;
     LONG raw_x;
     LONG raw_y;
+    /* Windows holds the thread in its loop for a drag or the system menu,
+     * and the refresh timer runs. */
+    bool held;
 } tb_win32_window;
 
 static tb_win32_system *tb_win32_of(const tb_window_system *system)
@@ -936,6 +951,27 @@ static void tb_win32_on_activate_app(tb_window *window, bool active)
     (void)ShowWindow(native->handle, SW_MINIMIZE);
 }
 
+/* Windows begins or ends a loop of its own, for a drag or the system menu:
+ * the refresh timer runs for as long as it does. */
+static void tb_win32_hold(tb_window *window, bool held)
+{
+    tb_win32_window *const native = tb_win32_window_of(window);
+
+    if (native->held == held)
+    {
+        return;
+    }
+    native->held = held;
+    if (held)
+    {
+        (void)SetTimer(native->handle, TB_WIN32_REFRESH_TIMER, TB_WIN32_REFRESH_MILLISECONDS, NULL);
+    }
+    else
+    {
+        (void)KillTimer(native->handle, TB_WIN32_REFRESH_TIMER);
+    }
+}
+
 static bool tb_win32_on_message(tb_window *window, UINT message, WPARAM word, LPARAM parameter,
                                 LRESULT *answer)
 {
@@ -957,7 +993,28 @@ static bool tb_win32_on_message(tb_window *window, UINT message, WPARAM word, LP
             tb_win32_read_size(window);
             tb_win32_update_confinement(window);
         }
+        /* A frame at the new size at once, while the player drags. */
+        if (native->held && word != SIZE_MINIMIZED)
+        {
+            tb_window_refresh(window->system);
+        }
         return false;
+    case WM_ENTERSIZEMOVE:
+    case WM_ENTERMENULOOP:
+        tb_win32_hold(window, true);
+        return false;
+    case WM_EXITSIZEMOVE:
+    case WM_EXITMENULOOP:
+        tb_win32_hold(window, false);
+        return false;
+    case WM_TIMER:
+        if (word != TB_WIN32_REFRESH_TIMER || !native->held)
+        {
+            return false;
+        }
+        tb_window_refresh(window->system);
+        *answer = 0;
+        return true;
     case WM_MOVE:
         tb_win32_update_confinement(window);
         return false;
@@ -1284,6 +1341,10 @@ static bool tb_win32_register(tb_win32_system *native, const wchar_t *name, WNDP
                                       .lpfnWndProc = procedure,
                                       .hInstance = native->instance,
                                       .hCursor = LoadCursorW(NULL, TB_WIN32_ARROW),
+                                      /* What a swap chain's smaller picture
+                                       * leaves of the client area, while the
+                                       * player drags the window larger. */
+                                      .hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH),
                                       .lpszClassName = name};
 
     return RegisterClassExW(&window_class) != 0;

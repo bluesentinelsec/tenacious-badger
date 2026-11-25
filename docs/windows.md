@@ -94,6 +94,37 @@ keeps it within the window, letterboxing what it draws. Windows and
 X11 window managers may still give a window a size of another aspect when it
 is maximized or tiled.
 
+## Live resizing
+
+While the player drags a window's border, the picture follows at the new
+size. Windows and macOS make that harder: during the drag they hold the
+thread in a loop of their own, inside `tb_window_system_poll()`, which
+returns only when the player lets go. A program sets a refresh with
+`tb_window_system_set_refresh()`, and the window system calls it from inside
+that loop, at each new size and about once a frame between, to run a frame
+of the program's own. The game loop sets one for itself
+([The game loop](game-loop.md#while-the-window-is-dragged)); a program with
+a loop of its own may set one, or none, and then its picture stands still
+while the player drags.
+
+| | The system's loop | The refresh |
+| --- | --- | --- |
+| Windows | `DefWindowProc()`'s, from `WM_ENTERSIZEMOVE` to `WM_EXITSIZEMOVE` while the border or title bar is dragged, and from `WM_ENTERMENULOOP` to `WM_EXITMENULOOP` while the system menu is open | A `SetTimer()` timer for as long as the loop runs, and each `WM_SIZE` |
+| macOS | AppKit's tracking loop, in `NSEventTrackingRunLoopMode`, from the delegate's `windowWillStartLiveResize:` to `windowDidEndLiveResize:` | An `NSTimer` in that mode, at 120 Hz, and each `windowDidResize:` |
+| X11 | None: resizes arrive as `ConfigureNotify` events between frames | Never called |
+| Wayland | None: each `xdg_surface.configure` is acknowledged and answered with a buffer of its size, between frames | Never called |
+
+Calls never nest. Inside a refresh, `tb_window_system_poll()` returns the
+events queued without reading the system's messages, and
+`tb_window_system_wait()` returns at once; a refresh that falls due inside
+one is dropped. A minimized window's size messages call no refresh.
+
+D3D12 swap chains show their images unscaled (`DXGI_SCALING_NONE`), from the
+window's top-left corner, so a frame drawn before the renderer resized its
+images to the window is never stretched: what it leaves uncovered is the
+window's black, until the next frame, which the renderer draws at the new
+size.
+
 ## Events
 
 `tb_window_system_poll()` reads what the system sent and returns it as events:
@@ -156,7 +187,12 @@ the window system, which on macOS must be the main thread.
 
 ## Testing
 
-The window tests run every case on each windowing that opens. CI's Linux
+The window tests run every case on each windowing that opens. Live resizing
+is tested with a window system whose backend holds the thread for a number
+of refreshes, as a drag does, on every platform; on Windows by sending the
+window the messages of a drag; on macOS by calling the delegate's
+live-resize methods and running the tracking mode's timers; and on D3D12 by
+resizing a swap chain, and a renderer's window, many times in a row. CI's Linux
 coverage job starts an X server (Xvfb) and a Wayland compositor (Weston,
 headless) so that both backends are run; the Windows and macOS runners have
 displays of their own. On Windows the message handling is also tested by

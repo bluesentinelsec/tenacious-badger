@@ -18,7 +18,14 @@
  * from its top: it receives the mouse, and it is the text input client that
  * Cocoa's input context gives typed text to, dead keys composed. Relative
  * mouse mode parts the cursor from the mouse with
- * CGAssociateMouseAndMouseCursorPosition() and reads the events' deltas. */
+ * CGAssociateMouseAndMouseCursorPosition() and reads the events' deltas.
+ *
+ * While the player resizes a window, AppKit tracks the mouse in a run loop
+ * of its own, in NSEventTrackingRunLoopMode, inside the event the pump sent,
+ * and the pump does not return until the player lets go. From the
+ * delegate's windowWillStartLiveResize: to its windowDidEndLiveResize:, a
+ * timer in that mode, and each new size, call the window system's refresh
+ * from inside it. */
 #include "../shared/window.h"
 
 #include "badger/assert.h"
@@ -98,6 +105,10 @@ typedef struct tb_cocoa_rect
 /* NSNotFound, NSIntegerMax. */
 #define TB_COCOA_NOT_FOUND 0x7FFFFFFFFFFFFFFFul
 
+/* How often the refresh timer fires while the player resizes a window: a
+ * frame of a 120 Hz display. The game's frame limit paces the frames. */
+#define TB_COCOA_REFRESH_SECONDS (1.0 / 120.0)
+
 /* A touchpad's precise scrolling is in points; this many make a notch. */
 #define TB_COCOA_POINTS_PER_NOTCH 10.0
 
@@ -143,6 +154,7 @@ typedef struct tb_cocoa_runtime
     int32_t (*associate_mouse)(bool connected);
     int32_t (*warp_cursor)(tb_cocoa_point point);
     tb_id default_mode;           /* NSDefaultRunLoopMode */
+    tb_id tracking_mode;          /* NSEventTrackingRunLoopMode */
     tb_id screens_changed;        /* NSApplicationDidChangeScreenParametersNotification */
     tb_id window_class;           /* TBCocoaWindow */
     tb_id delegate_class;         /* TBCocoaDelegate */
@@ -266,6 +278,9 @@ typedef struct tb_cocoa_window
     tb_id view;         /* The content view, a TBCocoaView. */
     bool cursor_hiding; /* NSCursor's hide was called for the window, and not unhide. */
     bool marked_text;   /* The input context is composing text. */
+    /* While the player resizes the window: an NSTimer, retained, in the
+     * event-tracking mode, that refreshes. */
+    tb_id refresh_timer;
 } tb_cocoa_window;
 
 static tb_cocoa_system *tb_cocoa_of(const tb_window_system *system)
@@ -499,9 +514,65 @@ static bool tb_cocoa_should_close(tb_id self, tb_sel command, tb_id sender)
 
 static void tb_cocoa_did_resize(tb_id self, tb_sel command, tb_id notification)
 {
+    tb_window *const window = tb_cocoa_target(self);
+
     (void)command;
     (void)notification;
-    tb_cocoa_read_size(tb_cocoa_target(self));
+    tb_cocoa_read_size(window);
+    /* A frame at the new size at once, while the player resizes. */
+    if (tb_cocoa_window_of(window)->refresh_timer != NULL)
+    {
+        tb_window_refresh(window->system);
+    }
+}
+
+/* The player begins resizing the window: a timer refreshes from inside
+ * AppKit's tracking loop, whose mode only such a timer runs in. */
+static void tb_cocoa_will_start_live_resize(tb_id self, tb_sel command, tb_id notification)
+{
+    tb_cocoa_window *const native = tb_cocoa_window_of(tb_cocoa_target(self));
+    tb_id timer = NULL;
+
+    (void)command;
+    (void)notification;
+    if (native->refresh_timer != NULL)
+    {
+        return;
+    }
+    timer = ((tb_id (*)(tb_id, tb_sel, double, tb_id, tb_sel, tb_id, bool))tb_cocoa.send)(
+        tb_class("NSTimer"), tb_sel_of("timerWithTimeInterval:target:selector:userInfo:repeats:"),
+        TB_COCOA_REFRESH_SECONDS, self, tb_sel_of("refreshTimerFired:"), NULL, true);
+    native->refresh_timer = tb_send(timer, "retain");
+    ((void (*)(tb_id, tb_sel, tb_id, tb_id))tb_cocoa.send)(
+        tb_send(tb_class("NSRunLoop"), "currentRunLoop"), tb_sel_of("addTimer:forMode:"), timer,
+        tb_cocoa.tracking_mode);
+}
+
+static void tb_cocoa_stop_refreshing(tb_cocoa_window *native)
+{
+    if (native->refresh_timer == NULL)
+    {
+        return;
+    }
+    (void)tb_send(native->refresh_timer, "invalidate");
+    (void)tb_send(native->refresh_timer, "release");
+    native->refresh_timer = NULL;
+}
+
+static void tb_cocoa_did_end_live_resize(tb_id self, tb_sel command, tb_id notification)
+{
+    (void)command;
+    (void)notification;
+    tb_cocoa_stop_refreshing(tb_cocoa_window_of(tb_cocoa_target(self)));
+}
+
+static void tb_cocoa_refresh_fired(tb_id self, tb_sel command, tb_id timer)
+{
+    tb_window *const window = tb_cocoa_target(self);
+
+    (void)command;
+    (void)timer;
+    tb_window_refresh(window->system);
 }
 
 static void tb_cocoa_hold_mouse(tb_window *window, bool held);
@@ -1102,6 +1173,11 @@ static void tb_cocoa_make_classes(void)
         tb_cocoa_add(delegate_class, "windowDidResize:", (tb_imp)tb_cocoa_did_resize, "v@:@");
         tb_cocoa_add(delegate_class, "windowDidMove:", (tb_imp)tb_cocoa_did_resize, "v@:@");
         tb_cocoa_add(delegate_class,
+                     "windowWillStartLiveResize:", (tb_imp)tb_cocoa_will_start_live_resize, "v@:@");
+        tb_cocoa_add(delegate_class,
+                     "windowDidEndLiveResize:", (tb_imp)tb_cocoa_did_end_live_resize, "v@:@");
+        tb_cocoa_add(delegate_class, "refreshTimerFired:", (tb_imp)tb_cocoa_refresh_fired, "v@:@");
+        tb_cocoa_add(delegate_class,
                      "windowDidChangeBackingProperties:", (tb_imp)tb_cocoa_did_resize, "v@:@");
         tb_cocoa_add(delegate_class, "windowDidBecomeKey:", (tb_imp)tb_cocoa_did_become_key,
                      "v@:@");
@@ -1224,6 +1300,14 @@ static tb_window_result tb_cocoa_load(tb_window_error *error)
         /* coverage-on */
     }
     tb_cocoa.default_mode = *(tb_id *)data;
+    if (tb_library_find_data(tb_cocoa.appkit, "NSEventTrackingRunLoopMode", &data,
+                             &library_error) != TB_LIBRARY_OK)
+    {
+        /* coverage-off: AppKit exports it */
+        return tb_window_fail(error, TB_WINDOW_UNAVAILABLE, "%s", library_error.message);
+        /* coverage-on */
+    }
+    tb_cocoa.tracking_mode = *(tb_id *)data;
     if (tb_library_find_data(tb_cocoa.appkit, "NSApplicationDidChangeScreenParametersNotification",
                              &data, &library_error) != TB_LIBRARY_OK)
     {
@@ -1568,6 +1652,7 @@ static void tb_cocoa_destroy(tb_window *window)
     {
         (void)tb_send(tb_class("NSCursor"), "unhide");
     }
+    tb_cocoa_stop_refreshing(native);
     /* The view may outlive the window in an autorelease pool: it forgets
      * the window. */
     *(void **)((char *)native->view + tb_cocoa.view_target_offset) = NULL;
