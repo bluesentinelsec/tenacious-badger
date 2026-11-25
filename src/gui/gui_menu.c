@@ -654,8 +654,9 @@ bool tb_menu_popup(tb_widget menu, tb_vec2 position)
     }
     tb_gui_close_popups(menu.gui);
     data->active = SIZE_MAX;
-    return tb_widget_popup(menu, &(tb_gui_popup_options){.anchor = {position.x, position.y},
-                                                         .placement = TB_GUI_POPUP_AT});
+    return tb_widget_popup(menu,
+                           &(tb_gui_popup_options){.anchor = {.x = position.x, .y = position.y},
+                                                   .placement = TB_GUI_POPUP_AT});
 }
 
 /* ---------------------------------------------------------------------------
