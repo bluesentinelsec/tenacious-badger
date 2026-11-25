@@ -21,40 +21,21 @@
 
 tb_gui_view tb_gui_compute_view(const tb_gui *gui)
 {
-    const float width = (float)gui->frame_width;
-    const float height = (float)gui->frame_height;
-    const tb_vec2 reference = gui->reference_size;
-    const bool referenced = reference.x > 0.0f && reference.y > 0.0f;
+    const tb_viewport *const viewport = &gui->viewport;
     tb_gui_view view = {0};
-    float fit = 1.0f;
 
-    if (!referenced || gui->stretch == TB_GUI_STRETCH_NONE)
+    view.origin = (tb_vec2){(float)viewport->x, (float)viewport->y};
+    view.scale = tb_viewport_uniform_scale(viewport) * gui->zoom;
+    if (viewport->scale.x == viewport->scale.y)
     {
-        view.scale = gui->display_scale * gui->zoom;
-        view.size = (tb_vec2){width / view.scale, height / view.scale};
+        /* The viewport's units exactly, such as a whole design size. */
+        view.size = (tb_vec2){viewport->size.x / gui->zoom, viewport->size.y / gui->zoom};
         return view;
     }
-    if (width > 0.0f && height > 0.0f)
-    {
-        fit = fminf(width / reference.x, height / reference.y);
-    }
-    switch (gui->stretch)
-    {
-    case TB_GUI_STRETCH_EXPAND:
-        view.scale = fit * gui->zoom;
-        view.size = (tb_vec2){width / view.scale, height / view.scale};
-        return view;
-    case TB_GUI_STRETCH_INTEGER:
-        view.scale = fmaxf(floorf(fit * gui->zoom), 1.0f);
-        break;
-    case TB_GUI_STRETCH_KEEP_ASPECT:
-    case TB_GUI_STRETCH_NONE:
-        view.scale = fit * gui->zoom;
-        break;
-    }
-    view.size = (tb_vec2){reference.x / gui->zoom, reference.y / gui->zoom};
-    view.origin = (tb_vec2){floorf((width - view.size.x * view.scale) * 0.5f + 0.5f),
-                            floorf((height - view.size.y * view.scale) * 0.5f + 0.5f)};
+    /* Stretched: the smaller scale both ways, and the root over the whole
+     * viewport. */
+    view.size =
+        (tb_vec2){(float)viewport->width / view.scale, (float)viewport->height / view.scale};
     return view;
 }
 

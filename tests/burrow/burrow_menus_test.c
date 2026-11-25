@@ -168,10 +168,21 @@ static void close_case(menus_case *made)
     tb_font_catalog_destroy(made->catalog);
 }
 
-/* A frame of the menus at their reference size. */
+/* A frame of the menus in a frame of pixels, in the viewport of the
+ * engine's default display policy, which Burrow's defaults keep. */
+static void update_at(menus_case *made, uint32_t width, uint32_t height, double seconds)
+{
+    const tb_viewport_policy policy = TB_VIEWPORT_POLICY_INIT;
+    const tb_viewport viewport = tb_viewport_compute(
+        &policy, &(tb_viewport_frame){.width = width, .height = height, .display_scale = 1.0f});
+
+    burrow_menus_update(made->menus, &viewport, seconds);
+}
+
+/* A frame of the menus at their design size. */
 static void update(menus_case *made)
 {
-    burrow_menus_update(made->menus, 1920, 1080, 1.0f, 1.0 / 60.0);
+    update_at(made, 1920, 1080, 1.0 / 60.0);
 }
 
 static void navigate(menus_case *made, tb_gui_nav action)
@@ -233,7 +244,7 @@ TB_TEST(burrow_menus, the_main_menu_shows_from_its_file)
     TB_TEST_EXPECT(tb_text_starts_with(tb_widget_text(find(&made, "main/version")),
                                        TB_TEXT("Tenacious Badger ")));
     /* Laid out at 1920 by 1080 units, whatever the window. */
-    burrow_menus_update(made.menus, 1280, 720, 1.0f, 1.0 / 60.0);
+    update_at(&made, 1280, 720, 1.0 / 60.0);
     TB_TEST_EXPECT_FLOAT(tb_gui_view_of(burrow_menus_gui(made.menus)).size.x, ==, 1920.0f);
     TB_TEST_EXPECT_FLOAT(tb_gui_view_of(burrow_menus_gui(made.menus)).scale, ==, 1280.0f / 1920.0f);
     TB_TEST_EXPECT_INT(burrow_menus_cursor(made.menus), ==, TB_CURSOR_ARROW);
@@ -576,7 +587,7 @@ TB_TEST(burrow_menus, files_load_again_as_they_change)
     char path[PATH_CAPACITY] = {0};
     (void)tb_fmt_buffer(path, sizeof(path), "%s/Content/UI/pause_menu.json", made.root);
     TB_TEST_REQUIRE_UINT(tb_fs_write_file(view(path), paused, tb_str_length(paused)), ==, TB_FS_OK);
-    burrow_menus_update(made.menus, 1920, 1080, 1.0f, 1.0);
+    update_at(&made, 1920, 1080, 1.0);
     TB_TEST_EXPECT(tb_widget_alive(find(&made, "pause/go")));
     TB_TEST_EXPECT(tb_widget_visible(find(&made, "pause")));
     TB_TEST_EXPECT(focused(&made, "pause/go"));
@@ -584,7 +595,7 @@ TB_TEST(burrow_menus, files_load_again_as_they_change)
     TB_TEST_EXPECT_INT(screen_of(&made), ==, BURROW_SCREEN_PLAYING);
 
     TB_TEST_REQUIRE_UINT(tb_fs_write_file(view(path), "{", 1), ==, TB_FS_OK);
-    burrow_menus_update(made.menus, 1920, 1080, 1.0f, 1.0);
+    update_at(&made, 1920, 1080, 1.0);
     TB_TEST_EXPECT(tb_widget_alive(find(&made, "pause/go")));
     TB_TEST_EXPECT(!tb_widget_visible(find(&made, "pause")));
 
@@ -593,9 +604,9 @@ TB_TEST(burrow_menus, files_load_again_as_they_change)
     (void)tb_fmt_buffer(theme, sizeof(theme), "%s/Content/UI/burrow.theme.json", made.root);
     static const char sizes[] = "{\"format\": \"badger-theme\", \"version\": 1, \"styles\": {}}";
     TB_TEST_REQUIRE_UINT(tb_fs_write_file(view(theme), sizes, tb_str_length(sizes)), ==, TB_FS_OK);
-    burrow_menus_update(made.menus, 1920, 1080, 1.0f, 1.0);
+    update_at(&made, 1920, 1080, 1.0);
     TB_TEST_REQUIRE_UINT(tb_fs_write_file(view(theme), "[", 1), ==, TB_FS_OK);
-    burrow_menus_update(made.menus, 1920, 1080, 1.0f, 1.0);
+    update_at(&made, 1920, 1080, 1.0);
     close_case(&made);
 }
 

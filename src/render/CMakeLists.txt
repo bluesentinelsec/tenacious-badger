@@ -17,6 +17,8 @@ set(TB_RENDER_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/skinning.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/sky.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/temporal.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/viewport.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/viewport_settings.c"
     CACHE INTERNAL "Renderer sources")
 target_sources(badger PRIVATE ${TB_RENDER_SOURCES})
 target_sources(badger_static PRIVATE ${TB_RENDER_SOURCES})

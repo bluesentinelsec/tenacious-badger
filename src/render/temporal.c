@@ -1,6 +1,6 @@
 /* Temporal anti-aliasing, and the render scale it upsamples from: each
  * frame's projection is jittered by a fraction of a pixel along Halton's
- * sequence, and a full-screen pass at the output's size blends the frame
+ * sequence, and a full-screen pass at the viewport's size blends the frame
  * with the last, reprojected by the camera's motion and clamped to the
  * frame's neighbourhood, into a history that is the next frame's last. */
 #include "renderer_internal.h"
@@ -98,12 +98,15 @@ static void tb_temporal_destroy_history(tb_renderer *renderer)
     renderer->history_height = 0;
 }
 
-/* Make the history textures at the output's size, when they are not. */
+/* Make the history textures at the viewport's size, when they are not: a
+ * viewport of another size starts the history again. */
 static void tb_temporal_size_history(tb_renderer *renderer)
 {
     tb_rhi_error error = TB_RHI_ERROR_INIT;
+    const uint32_t width = renderer->viewport.width;
+    const uint32_t height = renderer->viewport.height;
 
-    if (renderer->history_width == renderer->width && renderer->history_height == renderer->height)
+    if (renderer->history_width == width && renderer->history_height == height)
     {
         return;
     }
@@ -113,8 +116,8 @@ static void tb_temporal_size_history(tb_renderer *renderer)
     {
         if (tb_rhi_texture_create(renderer->device,
                                   &(tb_rhi_texture_desc){.format = TB_TEMPORAL_HISTORY_FORMAT,
-                                                         .width = renderer->width,
-                                                         .height = renderer->height,
+                                                         .width = width,
+                                                         .height = height,
                                                          .usage = TB_RHI_TEXTURE_SAMPLED |
                                                                   TB_RHI_TEXTURE_RENDER_TARGET,
                                                          .name = "temporal history"},
@@ -124,8 +127,8 @@ static void tb_temporal_size_history(tb_renderer *renderer)
         }
         renderer->history_state[index] = TB_RHI_STATE_COMMON;
     }
-    renderer->history_width = renderer->width;
-    renderer->history_height = renderer->height;
+    renderer->history_width = width;
+    renderer->history_height = height;
     renderer->history_valid = false;
 }
 
@@ -149,10 +152,10 @@ uint64_t tb_renderer_temporal_upload(tb_renderer *renderer, tb_vec2 jitter, tb_m
         (tb_vec4){(float)renderer->render_width, (float)renderer->render_height,
                   1.0f / (float)renderer->render_width, 1.0f / (float)renderer->render_height};
     constants.output_size =
-        (tb_vec4){(float)renderer->width, (float)renderer->height, 1.0f / (float)renderer->width,
-                  1.0f / (float)renderer->height};
+        (tb_vec4){(float)renderer->viewport.width, (float)renderer->viewport.height,
+                  1.0f / (float)renderer->viewport.width, 1.0f / (float)renderer->viewport.height};
     constants.blend.x = TB_TEMPORAL_CURRENT_WEIGHT;
-    constants.blend.z = (float)renderer->width / (float)renderer->render_width;
+    constants.blend.z = (float)renderer->viewport.width / (float)renderer->render_width;
     return tb_renderer_upload(renderer, &constants, sizeof(constants), TB_RHI_CONSTANT_ALIGNMENT);
 }
 

@@ -1,9 +1,11 @@
-/* Units and scaling: a tool's GUI in logical pixels at the display's scale,
- * a game's designed at a reference size and stretched to the frame by
- * keeping its aspect, expanding, or whole multiples; the mouse placed in
- * units; a frame resized laid out again; and text measured at the frame's
- * own pixels. */
+/* Units and scaling: a GUI fills the viewport the display policy gives a
+ * frame (badger/viewport.h): a tool's in logical pixels at the display's
+ * scale, a game's in its design units, kept whole, expanded, or by whole
+ * pixels; the GUI's own factor on top; the mouse placed in units, and
+ * reaching nothing over the bars; a frame resized laid out again; and text
+ * measured at the frame's own pixels. */
 #include "badger/font_layout.h"
+#include "badger/viewport.h"
 
 #include "gui_fixture.h"
 #include "tb_test.h"
@@ -19,6 +21,31 @@ static void expect_view(tb_gui_view view, float x, float y, float scale, float w
     TB_TEST_EXPECT_FLOAT_NEAR(view.size.y, height, 1e-2f);
 }
 
+/* Give the fixture's GUI the viewport a policy gives a frame, as an app
+ * gives it the renderer's. */
+static void place(gui_fixture *fixture, const tb_viewport_policy *policy, uint32_t width,
+                  uint32_t height, float display_scale)
+{
+    const tb_viewport viewport = tb_viewport_compute(
+        policy,
+        &(tb_viewport_frame){.width = width, .height = height, .display_scale = display_scale});
+
+    fixture->scale = display_scale;
+    tb_gui_set_viewport(fixture->gui, &viewport);
+}
+
+static tb_viewport_policy design(uint32_t width, uint32_t height, tb_viewport_aspect aspect,
+                                 tb_viewport_scale_mode mode)
+{
+    tb_viewport_policy policy = TB_VIEWPORT_POLICY_INIT;
+
+    policy.design_width = width;
+    policy.design_height = height;
+    policy.aspect = aspect;
+    policy.scale_mode = mode;
+    return policy;
+}
+
 TB_TEST(gui_scale, a_tools_units_are_logical_pixels_at_the_displays_scale)
 {
     gui_fixture fixture = {0};
@@ -28,12 +55,14 @@ TB_TEST(gui_scale, a_tools_units_are_logical_pixels_at_the_displays_scale)
     expect_view(tb_gui_view_of(fixture.gui), 0.0f, 0.0f, 1.25f, 800.0f, 640.0f);
     tb_gui_set_scale(fixture.gui, 2.0f);
     expect_view(tb_gui_view_of(fixture.gui), 0.0f, 0.0f, 2.5f, 400.0f, 320.0f);
-    /* A reference size without a stretch is a tool's. */
+    /* The policy without a design size is a tool's, whatever its aspect. */
     tb_gui_set_scale(fixture.gui, 1.0f);
-    tb_gui_set_stretch(fixture.gui, (tb_vec2){1920.0f, 1080.0f}, TB_GUI_STRETCH_NONE);
+    tb_viewport_policy tool = design(0, 0, TB_VIEWPORT_ASPECT_EXPAND, TB_VIEWPORT_SCALE_FRACTIONAL);
+    place(&fixture, &tool, 1000, 800, 1.25f);
     expect_view(tb_gui_view_of(fixture.gui), 0.0f, 0.0f, 1.25f, 800.0f, 640.0f);
-    /* A stretch without a reference size likewise. */
-    tb_gui_set_stretch(fixture.gui, (tb_vec2){0.0f, 0.0f}, TB_GUI_STRETCH_EXPAND);
+    /* A design size of one axis alone is none. */
+    tool.design_width = 1920;
+    place(&fixture, &tool, 1000, 800, 1.25f);
     expect_view(tb_gui_view_of(fixture.gui), 0.0f, 0.0f, 1.25f, 800.0f, 640.0f);
     /* No display scale is 1. */
     gui_resize(&fixture, 1000, 800, 0.0f);
@@ -41,36 +70,71 @@ TB_TEST(gui_scale, a_tools_units_are_logical_pixels_at_the_displays_scale)
     gui_fixture_close(&fixture);
 }
 
-TB_TEST(gui_scale, keep_aspect_fits_the_reference_and_letterboxes_it)
+TB_TEST(gui_scale, keep_fits_the_design_and_the_bars_reach_no_widget)
 {
     gui_fixture fixture = {0};
     gui_fixture_open(&fixture, 1.0f);
     const tb_widget box = gui_box(tb_gui_root(fixture.gui), 100.0f, 100.0f);
+    const tb_viewport_policy keep =
+        design(1920, 1080, TB_VIEWPORT_ASPECT_KEEP, TB_VIEWPORT_SCALE_FRACTIONAL);
 
     TB_TEST_REQUIRE(tb_grid(box, NULL));
-    tb_gui_set_stretch(fixture.gui, (tb_vec2){1920.0f, 1080.0f}, TB_GUI_STRETCH_KEEP_ASPECT);
-    /* The display's scale does not change a fit: the reference fills the
+    /* The display's scale does not change a fit: the design fills the
      * same share of the frame at any density. */
-    gui_resize(&fixture, 1000, 1000, 2.0f);
+    place(&fixture, &keep, 1000, 1000, 2.0f);
     const float fit = 1000.0f / 1920.0f;
     expect_view(tb_gui_view_of(fixture.gui), 0.0f, 219.0f, fit, 1920.0f, 1080.0f);
-    gui_resize(&fixture, 1000, 1000, 1.0f);
+    place(&fixture, &keep, 1000, 1000, 1.0f);
     expect_view(tb_gui_view_of(fixture.gui), 0.0f, 219.0f, fit, 1920.0f, 1080.0f);
+    TB_TEST_EXPECT_UINT(tb_gui_viewport_of(fixture.gui).height, ==, 562u);
 
-    /* The mouse is placed in units, from the letterbox's corner. */
+    /* The mouse is placed in units, from the viewport's corner. */
     gui_move(&fixture, 50.0f, 50.0f);
     tb_gui_stats stats = {0};
     tb_gui_stats_of(fixture.gui, &stats);
     TB_TEST_EXPECT(tb_widget_equal(stats.hovered, box));
-    /* In the bar above, the mouse is over nothing of the GUI. */
+    /* On the bar above, the mouse is over nothing of the GUI, the root
+     * included. */
     gui_move(&fixture, 50.0f, -100.0f);
     tb_gui_stats_of(fixture.gui, &stats);
     TB_TEST_EXPECT(!tb_widget_alive(stats.hovered));
     TB_TEST_EXPECT(!tb_gui_wants_mouse(fixture.gui));
 
-    /* A factor on top: larger units, and fewer of them. */
+    /* The GUI's own factor on top: larger units, and fewer of them. */
     tb_gui_set_scale(fixture.gui, 2.0f);
     expect_view(tb_gui_view_of(fixture.gui), 0.0f, 219.0f, 2.0f * fit, 960.0f, 540.0f);
+    gui_fixture_close(&fixture);
+}
+
+/* A widget that fills the root reaches the viewport's edge, and a press
+ * just past it, on the bar, reaches nothing: not even a widget as large as
+ * the root. */
+TB_TEST(gui_scale, a_press_on_the_bars_reaches_no_widget)
+{
+    gui_fixture fixture = {0};
+    gui_fixture_open(&fixture, 1.0f);
+    const tb_widget root = tb_gui_root(fixture.gui);
+    const tb_widget button = tb_button(root, &(tb_button_desc){.text = "Fill"});
+    const tb_viewport_policy keep =
+        design(400, 300, TB_VIEWPORT_ASPECT_KEEP, TB_VIEWPORT_SCALE_FRACTIONAL);
+    tb_gui_stats stats = {0};
+
+    TB_TEST_REQUIRE(tb_grid(button, &(tb_grid_options){.sticky = TB_STICKY_NSEW}));
+    TB_TEST_REQUIRE(tb_grid_column_configure(root, 0, &(tb_grid_track){.weight = 1.0f}));
+    TB_TEST_REQUIRE(tb_grid_row_configure(root, 0, &(tb_grid_track){.weight = 1.0f}));
+    /* Pillarboxed: 400 by 300 in the middle of 800 by 300. */
+    place(&fixture, &keep, 800, 300, 1.0f);
+    gui_update(&fixture);
+    TB_TEST_EXPECT_UINT(tb_gui_viewport_of(fixture.gui).x, ==, 200u);
+    gui_move(&fixture, 399.0f, 150.0f);
+    tb_gui_stats_of(fixture.gui, &stats);
+    TB_TEST_EXPECT(tb_widget_equal(stats.hovered, button));
+    gui_move(&fixture, 401.0f, 150.0f);
+    tb_gui_stats_of(fixture.gui, &stats);
+    TB_TEST_EXPECT(!tb_widget_alive(stats.hovered));
+    gui_move(&fixture, -1.0f, 150.0f);
+    tb_gui_stats_of(fixture.gui, &stats);
+    TB_TEST_EXPECT(!tb_widget_alive(stats.hovered));
     gui_fixture_close(&fixture);
 }
 
@@ -80,20 +144,21 @@ TB_TEST(gui_scale, expand_scales_by_the_smaller_axis_and_gives_the_rest_to_the_r
     gui_fixture_open(&fixture, 1.0f);
     const tb_widget box = gui_box(tb_gui_root(fixture.gui), 10.0f, 10.0f);
     const tb_widget root = tb_gui_root(fixture.gui);
+    const tb_viewport_policy expand =
+        design(1920, 1080, TB_VIEWPORT_ASPECT_EXPAND, TB_VIEWPORT_SCALE_FRACTIONAL);
 
     TB_TEST_REQUIRE(tb_grid(box, &(tb_grid_options){.sticky = TB_STICKY_NSEW}));
     TB_TEST_REQUIRE(tb_grid_column_configure(root, 0, &(tb_grid_track){.weight = 1.0f}));
     TB_TEST_REQUIRE(tb_grid_row_configure(root, 0, &(tb_grid_track){.weight = 1.0f}));
-    tb_gui_set_stretch(fixture.gui, (tb_vec2){1920.0f, 1080.0f}, TB_GUI_STRETCH_EXPAND);
-    gui_resize(&fixture, 2000, 1000, 1.0f);
+    place(&fixture, &expand, 2000, 1000, 1.0f);
     const float fit = 1000.0f / 1080.0f;
     expect_view(tb_gui_view_of(fixture.gui), 0.0f, 0.0f, fit, 2000.0f / fit, 1080.0f);
     gui_update(&fixture);
     TB_TEST_EXPECT_FLOAT_NEAR(tb_widget_rect(box).width, 2160.0f, 1.0f / fit);
     TB_TEST_EXPECT_FLOAT_NEAR(tb_widget_rect(box).height, 1080.0f, 1.0f / fit);
 
-    /* A taller frame: the reference's width fits, and the height grows. */
-    gui_resize(&fixture, 960, 1080, 1.0f);
+    /* A taller frame: the design's width fits, and the height grows. */
+    place(&fixture, &expand, 960, 1080, 1.0f);
     expect_view(tb_gui_view_of(fixture.gui), 0.0f, 0.0f, 0.5f, 1920.0f, 2160.0f);
     gui_update(&fixture);
     TB_TEST_EXPECT_FLOAT_NEAR(tb_widget_rect(box).height, 2160.0f, 1e-3f);
@@ -104,19 +169,37 @@ TB_TEST(gui_scale, integer_scales_by_whole_pixels_on_whole_pixels)
 {
     gui_fixture fixture = {0};
     gui_fixture_open(&fixture, 1.0f);
+    const tb_viewport_policy pixels =
+        design(320, 180, TB_VIEWPORT_ASPECT_KEEP, TB_VIEWPORT_SCALE_INTEGER);
 
-    tb_gui_set_stretch(fixture.gui, (tb_vec2){320.0f, 180.0f}, TB_GUI_STRETCH_INTEGER);
-    gui_resize(&fixture, 1280, 800, 1.5f);
+    place(&fixture, &pixels, 1280, 800, 1.5f);
     expect_view(tb_gui_view_of(fixture.gui), 0.0f, 40.0f, 4.0f, 320.0f, 180.0f);
-    gui_resize(&fixture, 1000, 700, 1.0f);
+    place(&fixture, &pixels, 1000, 700, 1.0f);
     expect_view(tb_gui_view_of(fixture.gui), 20.0f, 80.0f, 3.0f, 320.0f, 180.0f);
-    /* Never less than a pixel a unit; what does not fit is cut off. */
-    gui_resize(&fixture, 200, 100, 1.0f);
-    expect_view(tb_gui_view_of(fixture.gui), -60.0f, -40.0f, 1.0f, 320.0f, 180.0f);
+    /* Never less than a pixel a unit; what fits of the design is shown,
+     * from its top left. */
+    place(&fixture, &pixels, 200, 100, 1.0f);
+    expect_view(tb_gui_view_of(fixture.gui), 0.0f, 0.0f, 1.0f, 200.0f, 100.0f);
     /* A frame of no size yet fits nothing, and stays whole. */
-    gui_resize(&fixture, 0, 0, 1.0f);
+    place(&fixture, &pixels, 0, 0, 1.0f);
     TB_TEST_EXPECT_FLOAT(tb_gui_view_of(fixture.gui).scale, ==, 1.0f);
     gui_update(&fixture);
+    gui_fixture_close(&fixture);
+}
+
+/* Stretched by `ignore`, the GUI keeps one scale both ways, the smaller,
+ * so that its text is not squashed, and its root fills the viewport with
+ * more units along the axis stretched more. */
+TB_TEST(gui_scale, ignore_keeps_text_whole_and_fills_the_viewport)
+{
+    gui_fixture fixture = {0};
+    gui_fixture_open(&fixture, 1.0f);
+    const tb_viewport_policy ignore =
+        design(400, 300, TB_VIEWPORT_ASPECT_IGNORE, TB_VIEWPORT_SCALE_FRACTIONAL);
+
+    place(&fixture, &ignore, 800, 300, 1.0f);
+    expect_view(tb_gui_view_of(fixture.gui), 0.0f, 0.0f, 1.0f, 800.0f, 300.0f);
+    TB_TEST_EXPECT_FLOAT(tb_gui_viewport_of(fixture.gui).scale.x, ==, 2.0f);
     gui_fixture_close(&fixture);
 }
 

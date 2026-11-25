@@ -48,8 +48,11 @@ Burrow's menus are built with the engine's [retained GUI](gui.md) from
 [layout files](gui.md#layout-files) in Burrow's content, and drawn in the
 [game theme](gui.md#the-built-in-themes): bronze buttons and slate panels
 of nine-slice images, headings in Source Sans 3 and text in Source Serif 4.
-They are laid out at 1920 by 1080 units with the keep-aspect stretch, so
-they look the same in any window, letterboxed where its shape is not 16:9.
+They are laid out at 1920 by 1080 units in the viewport of Burrow's
+[display policy](display.md), which its default file keeps at 1920 by
+1080, so they look the same in any window, letterboxed where its shape is
+not 16:9, as the room behind them is. Whatever the policy's design size,
+the menus are scaled to show 1920 by 1080 of their units in the viewport.
 
 | Screen | Shows | Back |
 | --- | --- | --- |

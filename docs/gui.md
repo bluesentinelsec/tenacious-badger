@@ -32,7 +32,8 @@ tb_grid_column_configure(form, 1, &(tb_grid_track){.weight = 1});
 tb_gui_feed_event(gui, &event);
 
 /* each frame */
-tb_gui_resize(gui, width, height, tb_canvas_view_logical(renderer).scale);
+const tb_viewport viewport = tb_renderer_viewport(renderer);
+tb_gui_set_viewport(gui, &viewport);
 tb_gui_update(gui, delta_seconds);
 tb_gui_draw(gui, renderer); /* between tb_renderer_begin_frame() and tb_renderer_end_frame() */
 ```
@@ -209,27 +210,32 @@ grids.
 ## Units and scaling
 
 Everything is laid out in units, and drawn at the view's scale of pixels a
-unit. `tb_gui_resize` gives the GUI the frame's size in pixels and the
-display's scale, each frame; the view (`tb_gui_view_of`) follows, and the
-widgets are laid out again when it changes.
+unit. The GUI fills a viewport, the one that the app's
+[display policy](display.md) gives the frame: the renderer's, which
+`tb_gui_set_viewport` gives the GUI each frame, so that the GUI, the 3D
+scene and the canvas agree. The view (`tb_gui_view_of`) follows, and the
+widgets are laid out again when it changes. A test, or a tool without a
+renderer, gives a frame of logical pixels directly with `tb_gui_resize`.
 
-A tool's GUI has no reference size: a unit is a logical pixel, the
-display's scale in pixels, and the root is as large as the frame. A game's
-is designed at a reference size (`tb_gui_options::reference_size`) and
-stretched to the frame, after Godot's `content_scale` modes:
+The root is the viewport, and its units are the viewport's:
 
-| Stretch | Scale | The root |
+| The policy | A unit | The root |
 | --- | --- | --- |
-| `TB_GUI_STRETCH_NONE` | the display's scale | as large as the frame |
-| `TB_GUI_STRETCH_KEEP_ASPECT` | as large as the reference fits | the reference size, centered, the rest of the frame empty |
-| `TB_GUI_STRETCH_EXPAND` | as the reference fits, by the smaller axis | the reference size, and the other axis's extra |
-| `TB_GUI_STRETCH_INTEGER` | as keep-aspect, by a whole number of pixels, at least 1 | the reference size, on whole pixels |
+| No design size, a tool's | a logical pixel, the display's scale in pixels | as large as the frame |
+| `keep` | as large as the design fits | the design size, centered, between bars |
+| `keep_width`, `keep_height`, `expand` | as the design fits | the design size, and the extra the frame has along an axis |
+| `integer` scale mode | a whole number of pixels, at least 1 | the design size, on whole pixels |
+| `ignore` | the smaller of its two scales, so that text is not squashed | the whole frame, with more units along the axis stretched more |
 
-The stretch modes fit the reference to the frame's pixels, so a frame of
-twice the density shows the same layout in twice the pixels, and the
-display's scale does not change them. `tb_gui_options::scale`, and
-`tb_gui_set_scale`, is a factor on top in every mode, an options menu's
-interface scale: larger units, and fewer of them in the root.
+The policy fits the design to the frame's pixels, so a frame of twice the
+density shows the same layout in twice the pixels, and the display's scale
+does not change it. `tb_gui_options::scale`, and `tb_gui_set_scale`, is
+this GUI's own factor on top, an options menu's interface scale: larger
+units, and fewer of them in the root.
+
+The mouse is placed in units from the viewport's corner. Over the bars
+beside it, it reaches no widget: a press there goes to nothing of the GUI,
+and `tb_gui_wants_mouse` says no.
 
 Text is measured and drawn at the frame's own pixels, at the view's scale,
 never drawn small and scaled up, and its measures turned back into units,
@@ -285,9 +291,9 @@ other, on a canvas layer above them, over a shade, and alone in taking
 input: the mouse finds nothing outside it, Tab goes around its own widgets,
 and keys with no focus go to it. Modal widgets stack; the last shown is in
 front. One ends with `tb_widget_end_modal`, or when it is hidden or
-destroyed. The shade covers the whole frame, the bars beside a
-keep-aspect root as well. A modal widget is in the tree like any other, placed by its
-parent's grid: a dialog is a frame gridded over the root's cells.
+destroyed. The shade covers the whole viewport, the root; the bars beside
+it are the renderer's. A modal widget is in the tree like any other, placed
+by its parent's grid: a dialog is a frame gridded over the root's cells.
 
 **Callbacks.** `tb_bind(widget, kind, callback, user)` calls a function
 when an event of a kind happens to a widget; several may be bound to one
@@ -1452,10 +1458,10 @@ Two programs show the GUI at work, one of each of its uses:
   loaded again as they are saved, their buttons connected to commands by
   name, and their options bound to the engine's settings by variables
   that hold their changes until applied, with Apply, Revert, Defaults, and
-  a message dialog when Back would lose changes. They are laid out at a
-  reference size of 1920 by 1080 with the keep-aspect stretch, drawn in the
-  game theme with a theme file over it, and walked by the keyboard and a
-  gamepad's actions alone.
+  a message dialog when Back would lose changes. They are laid out at
+  1920 by 1080 units in the viewport of Burrow's display policy, drawn in
+  the game theme with a theme file over it, and walked by the keyboard and
+  a gamepad's actions alone.
 - **A tool, from code.** The sandbox's [`gui_fonts`](sandbox.md#the-gui-scene)
   scene is a font browser written in C as a Tkinter tool is written: a
   paned window of a tree view and a pane of an entry, a canvas widget, and
@@ -1482,8 +1488,8 @@ message dialogs answered every way; images fitted; canvases drawn by their
 callbacks; navigation by the arrows and by actions fed, in grids regular
 and not, with neighbours, wrapping, each kind's engagement, Accept and
 Back, modal widgets that trap the focus and give it back, scroll frames
-that follow it, the focus shown and hidden, and keys rebound; the stretch
-modes and text measured
+that follow it, the focus shown and hidden, and keys rebound; viewports of
+each aspect and scale mode, the bars beside them, and text measured
 at the display's pixels; and the commands each widget draws, drawn on the null
 backend's canvas. Variables are read and set across their types, their
 observers run in updates, and they follow settings and are followed by

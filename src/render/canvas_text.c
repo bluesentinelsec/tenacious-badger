@@ -299,7 +299,8 @@ void tb_debug_text(tb_renderer *renderer, tb_vec3 position, tb_text text, tb_vec
  * in a font. */
 static void tb_text_draw_labels(tb_renderer *renderer, const tb_font *font)
 {
-    const float aspect = (float)renderer->width / (float)renderer->height;
+    const tb_viewport *const viewport = &renderer->viewport;
+    const float aspect = tb_viewport_aspect_of(viewport);
     const tb_mat4 clip = tb_mat4_mul(tb_camera_projection_of(&renderer->camera, aspect),
                                      tb_camera_view(&renderer->camera));
     const float size = (renderer->debug_font_size > 0.0f ? renderer->debug_font_size
@@ -325,8 +326,10 @@ static void tb_text_draw_labels(tb_renderer *renderer, const tb_font *font)
         tb_font_layout_text(font,
                             tb_text_make(&renderer->label_bytes[label->offset], label->length),
                             size, NULL, renderer->text_arena, &layout);
-        origin.x = (at.x / at.w * 0.5f + 0.5f) * (float)renderer->width - layout.width * 0.5f;
-        origin.y = (0.5f - at.y / at.w * 0.5f) * (float)renderer->height - layout.height * 0.5f;
+        origin.x = (float)viewport->x + (at.x / at.w * 0.5f + 0.5f) * (float)viewport->width -
+                   layout.width * 0.5f;
+        origin.y = (float)viewport->y + (0.5f - at.y / at.w * 0.5f) * (float)viewport->height -
+                   layout.height * 0.5f;
         tb_text_draw_layout(renderer, font, &layout, (tb_vec2){roundf(origin.x), roundf(origin.y)},
                             label->color);
         tb_arena_reset(renderer->text_arena);

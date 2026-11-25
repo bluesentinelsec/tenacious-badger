@@ -304,11 +304,25 @@ static bool sandbox_scene_event(sandbox_run *run, const tb_window_event *event)
     return true;
 }
 
+/* A function key, which a scene may take before the inspector. */
+static bool sandbox_function_key(const sandbox_run *run, const tb_window_event *event)
+{
+    const bool keyed =
+        event->type == TB_WINDOW_EVENT_KEY_DOWN || event->type == TB_WINDOW_EVENT_KEY_UP;
+
+    return sandbox_scenes[run->scene].function_keys && keyed && event->key >= TB_KEY_F1 &&
+           event->key <= TB_KEY_F12;
+}
+
 static bool sandbox_event(void *context, const tb_window_event *event)
 {
     sandbox_run *const run = context;
     const tb_window_event_type type = event->type;
 
+    if (sandbox_function_key(run, event) && sandbox_scene_event(run, event))
+    {
+        return true;
+    }
     if (!run->looking && run->inspector != NULL && sandbox_inspector_event(run->inspector, event))
     {
         if (type == TB_WINDOW_EVENT_KEY_UP)
@@ -448,6 +462,7 @@ static void sandbox_apply_settings(sandbox_run *run)
 {
     const uint64_t vsync = tb_setting_version(run->engine.display.vsync);
     tb_renderer_quality quality = TB_RENDERER_QUALITY_INIT;
+    tb_viewport_policy policy = TB_VIEWPORT_POLICY_INIT;
 
     if (vsync != run->vsync_version)
     {
@@ -460,6 +475,15 @@ static void sandbox_apply_settings(sandbox_run *run)
      * the renderer's profile allows. */
     tb_renderer_quality_from_settings(&run->engine, &quality);
     tb_renderer_set_quality(run->box.renderer, &quality);
+    /* The display policy, as a game takes it, but a tool's scene's. */
+    tb_viewport_policy_from_settings(&run->engine, &policy);
+    if (sandbox_scenes[run->scene].logical_units)
+    {
+        policy.design_width = 0;
+        policy.design_height = 0;
+    }
+    tb_renderer_set_viewport_policy(run->box.renderer, &policy,
+                                    tb_viewport_aspect_ratio_from_settings(&run->engine));
 }
 
 static void sandbox_frame_callback(void *context, const tb_game_time *time)
