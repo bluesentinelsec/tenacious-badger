@@ -99,21 +99,9 @@
       "deferred": true
     },
     {
-      "name": "lighting",
-      "type": "int",
-      "setting": "graphics.lighting",
-      "deferred": true
-    },
-    {
       "name": "motion_blur",
       "type": "int",
       "setting": "graphics.motion_blur",
-      "deferred": true
-    },
-    {
-      "name": "film_grain",
-      "type": "float",
-      "setting": "graphics.film_grain",
       "deferred": true
     },
     {
@@ -132,12 +120,6 @@
       "name": "mouse_raw_input",
       "type": "bool",
       "setting": "controls.mouse.raw_input",
-      "deferred": true
-    },
-    {
-      "name": "mouse_smoothing",
-      "type": "bool",
-      "setting": "controls.mouse.smoothing",
       "deferred": true
     },
     {
@@ -232,7 +214,7 @@
     ],
     "rows": [
       {"weight": 1},
-      {"minsize": 900},
+      {"minsize": 1000},
       {"weight": 1}
     ],
     "children": [
@@ -339,7 +321,7 @@
                     "properties": {
                       "variable": "monitor",
                       "values": "Primary display",
-                      "width": 18
+                      "width": 28
                     },
                     "grid": {
                       "row": 1,
@@ -800,42 +782,13 @@
                   },
                   {
                     "kind": "label",
-                    "name": "lighting_label",
-                    "properties": {
-                      "style": "Field.Label",
-                      "text": "Lighting"
-                    },
-                    "grid": {
-                      "row": 7,
-                      "sticky": ["w"],
-                      "padx": [0, 32],
-                      "pady": [6, 6]
-                    }
-                  },
-                  {
-                    "kind": "combobox",
-                    "name": "lighting",
-                    "properties": {
-                      "variable": "lighting",
-                      "values": "Raster\nHybrid\nPath tracing",
-                      "width": 18
-                    },
-                    "grid": {
-                      "row": 7,
-                      "column": 1,
-                      "sticky": ["w"],
-                      "pady": [6, 6]
-                    }
-                  },
-                  {
-                    "kind": "label",
                     "name": "motion_blur_label",
                     "properties": {
                       "style": "Field.Label",
                       "text": "Motion blur"
                     },
                     "grid": {
-                      "row": 8,
+                      "row": 7,
                       "sticky": ["w"],
                       "padx": [0, 32],
                       "pady": [6, 6]
@@ -850,40 +803,7 @@
                       "width": 18
                     },
                     "grid": {
-                      "row": 8,
-                      "column": 1,
-                      "sticky": ["w"],
-                      "pady": [6, 6]
-                    }
-                  },
-                  {
-                    "kind": "label",
-                    "name": "film_grain_label",
-                    "properties": {
-                      "style": "Field.Label",
-                      "text": "Film grain"
-                    },
-                    "grid": {
-                      "row": 9,
-                      "sticky": ["w"],
-                      "padx": [0, 32],
-                      "pady": [6, 6]
-                    }
-                  },
-                  {
-                    "kind": "scale",
-                    "name": "film_grain",
-                    "properties": {
-                      "variable": "film_grain",
-                      "from": 0,
-                      "to": 1,
-                      "resolution": 0.05,
-                      "length": 480,
-                      "show_value": true,
-                      "format": "%.2f"
-                    },
-                    "grid": {
-                      "row": 9,
+                      "row": 7,
                       "column": 1,
                       "sticky": ["w"],
                       "pady": [6, 6]
@@ -1004,41 +924,13 @@
                   },
                   {
                     "kind": "label",
-                    "name": "mouse_smoothing_label",
-                    "properties": {
-                      "style": "Field.Label",
-                      "text": "Smoothing"
-                    },
-                    "grid": {
-                      "row": 4,
-                      "sticky": ["w"],
-                      "padx": [0, 32],
-                      "pady": [6, 6]
-                    }
-                  },
-                  {
-                    "kind": "checkbutton",
-                    "name": "mouse_smoothing",
-                    "properties": {
-                      "variable": "mouse_smoothing",
-                      "text": "Smooth the mouse"
-                    },
-                    "grid": {
-                      "row": 4,
-                      "column": 1,
-                      "sticky": ["w"],
-                      "pady": [6, 6]
-                    }
-                  },
-                  {
-                    "kind": "label",
                     "name": "gamepad_heading",
                     "properties": {
                       "style": "Heading.Label",
                       "text": "Gamepad"
                     },
                     "grid": {
-                      "row": 5,
+                      "row": 4,
                       "column_span": 2,
                       "sticky": ["w"],
                       "pady": [24, 8]
@@ -1052,7 +944,7 @@
                       "text": "Horizontal look"
                     },
                     "grid": {
-                      "row": 6,
+                      "row": 5,
                       "sticky": ["w"],
                       "padx": [0, 32],
                       "pady": [6, 6]
@@ -1071,7 +963,7 @@
                       "format": "%.2f"
                     },
                     "grid": {
-                      "row": 6,
+                      "row": 5,
                       "column": 1,
                       "sticky": ["w"],
                       "pady": [6, 6]
@@ -1085,7 +977,7 @@
                       "text": "Vertical look"
                     },
                     "grid": {
-                      "row": 7,
+                      "row": 6,
                       "sticky": ["w"],
                       "padx": [0, 32],
                       "pady": [6, 6]
@@ -1104,7 +996,7 @@
                       "format": "%.2f"
                     },
                     "grid": {
-                      "row": 7,
+                      "row": 6,
                       "column": 1,
                       "sticky": ["w"],
                       "pady": [6, 6]
@@ -1118,7 +1010,7 @@
                       "text": "Vertical axis"
                     },
                     "grid": {
-                      "row": 8,
+                      "row": 7,
                       "sticky": ["w"],
                       "padx": [0, 32],
                       "pady": [6, 6]
@@ -1132,7 +1024,7 @@
                       "text": "Invert"
                     },
                     "grid": {
-                      "row": 8,
+                      "row": 7,
                       "column": 1,
                       "sticky": ["w"],
                       "pady": [6, 6]
@@ -1146,7 +1038,7 @@
                       "text": "Vibration"
                     },
                     "grid": {
-                      "row": 9,
+                      "row": 8,
                       "sticky": ["w"],
                       "padx": [0, 32],
                       "pady": [6, 6]
@@ -1165,7 +1057,7 @@
                       "format": "%.2f"
                     },
                     "grid": {
-                      "row": 9,
+                      "row": 8,
                       "column": 1,
                       "sticky": ["w"],
                       "pady": [6, 6]
@@ -1203,9 +1095,7 @@
                       "from": 0,
                       "to": 1,
                       "resolution": 0.01,
-                      "length": 480,
-                      "show_value": true,
-                      "format": "%.2f"
+                      "length": 480
                     },
                     "grid": {
                       "row": 0,
@@ -1236,9 +1126,7 @@
                       "from": 0,
                       "to": 1,
                       "resolution": 0.01,
-                      "length": 480,
-                      "show_value": true,
-                      "format": "%.2f"
+                      "length": 480
                     },
                     "grid": {
                       "row": 1,
@@ -1269,9 +1157,7 @@
                       "from": 0,
                       "to": 1,
                       "resolution": 0.01,
-                      "length": 480,
-                      "show_value": true,
-                      "format": "%.2f"
+                      "length": 480
                     },
                     "grid": {
                       "row": 2,
@@ -1302,9 +1188,7 @@
                       "from": 0,
                       "to": 1,
                       "resolution": 0.01,
-                      "length": 480,
-                      "show_value": true,
-                      "format": "%.2f"
+                      "length": 480
                     },
                     "grid": {
                       "row": 3,
@@ -1335,9 +1219,7 @@
                       "from": 0,
                       "to": 1,
                       "resolution": 0.01,
-                      "length": 480,
-                      "show_value": true,
-                      "format": "%.2f"
+                      "length": 480
                     },
                     "grid": {
                       "row": 4,
@@ -1468,9 +1350,7 @@
                       "from": 0,
                       "to": 1,
                       "resolution": 0.05,
-                      "length": 480,
-                      "show_value": true,
-                      "format": "%.2f"
+                      "length": 480
                     },
                     "grid": {
                       "row": 9,

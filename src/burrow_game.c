@@ -44,15 +44,19 @@
 /* The most displays the options name. */
 #define BURROW_MOST_DISPLAYS 16
 
-/* The canvas layer of the shade over the room while a menu pauses it:
- * under the menus' (TB_GUI_DEFAULT_LAYER). */
+/* The canvas layer of the shade over the room while a menu shows: under
+ * the menus' (TB_GUI_DEFAULT_LAYER). */
 #define BURROW_SHADE_LAYER 40
+
+/* How much the shade darkens the room behind the main menu, which moves
+ * behind it, against the room frozen behind the others. */
+#define BURROW_MAIN_SHADE 0.35f
 
 /* What is behind the sky, which covers it: seen only where the device draws
  * no sky. */
 static const tb_vec4 burrow_clear = {0.35f, 0.42f, 0.52f, 1.0f};
 
-/* The shade over the room while the game is paused. */
+/* The shade over the room while a menu shows. */
 static const tb_vec4 burrow_shade = {0.02f, 0.02f, 0.03f, 0.55f};
 
 /* What runs while Burrow plays. */
@@ -250,17 +254,17 @@ static void burrow_place_camera(burrow_game *game, const tb_game_time *time)
     game->camera.orientation = burrow_view_orientation(yaw, pitch);
 }
 
-/* A shade over the frozen room, under a menu that paused the game. */
+/* A shade over the room, under the menu shown, so that its text reads. */
 static void burrow_draw_shade(burrow_game *game)
 {
     const tb_canvas_view view = tb_canvas_view_logical(game->renderer);
     uint32_t width = 0;
     uint32_t height = 0;
+    tb_vec4 shade = burrow_shade;
 
-    if (game->menus == NULL || !burrow_menus_state(game->menus)->in_game ||
-        game->screen == BURROW_SCREEN_PLAYING)
+    if (!burrow_menus_state(game->menus)->in_game)
     {
-        return;
+        shade.w = BURROW_MAIN_SHADE;
     }
     tb_renderer_size(game->renderer, &width, &height);
     tb_canvas_set_view(game->renderer, &view);
@@ -268,7 +272,7 @@ static void burrow_draw_shade(burrow_game *game)
     tb_canvas_fill_rect(
         game->renderer,
         (tb_canvas_rect){0.0f, 0.0f, (float)width / view.scale, (float)height / view.scale},
-        burrow_shade);
+        shade);
 }
 
 static void burrow_frame(void *context, const tb_game_time *time)
