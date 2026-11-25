@@ -388,6 +388,9 @@ static bool tb_gui_button_event(tb_widget widget, void *data, const tb_gui_event
     case TB_GUI_EVENT_FOCUS_IN:
     case TB_GUI_EVENT_FOCUS_OUT:
     case TB_GUI_EVENT_RESIZE:
+    case TB_GUI_EVENT_CHANGED:
+    case TB_GUI_EVENT_MOTION:
+    case TB_GUI_EVENT_VALIDATE:
     case TB_GUI_EVENT_COUNT:
         break;
     }
@@ -440,4 +443,5 @@ void tb_gui_register_builtins(tb_gui *gui)
     (void)tb_gui_register_class(gui, &tb_gui_frame_kind);
     (void)tb_gui_register_class(gui, &tb_gui_label_kind);
     (void)tb_gui_register_class(gui, &tb_gui_button_kind);
+    tb_gui_register_value_kinds(gui);
 }

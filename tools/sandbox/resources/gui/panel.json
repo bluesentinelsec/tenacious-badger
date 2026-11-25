@@ -12,7 +12,7 @@
     "grid": {
       "column": 1,
       "sticky": [
-        "n",
+        "s",
         "e"
       ],
       "padx": [
@@ -20,8 +20,8 @@
         16
       ],
       "pady": [
-        16,
-        0
+        0,
+        16
       ]
     },
     "columns": [
@@ -76,8 +76,8 @@
         "kind": "button",
         "name": "hello",
         "properties": {
-          "text": "Say hello",
           "command": "say_hello",
+          "text": "Say hello",
           "cursor": "hand"
         },
         "grid": {
@@ -92,8 +92,8 @@
         "kind": "button",
         "name": "reset",
         "properties": {
-          "text": "Reset...",
           "command": "show_reset_dialog",
+          "text": "Reset...",
           "cursor": "hand"
         },
         "grid": {

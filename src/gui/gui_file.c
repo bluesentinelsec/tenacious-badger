@@ -13,6 +13,7 @@
 #include "badger/fmt.h"
 #include "badger/json.h"
 #include "badger/memory.h"
+#include "badger/settings.h"
 #include "badger/str.h"
 #include "badger/vfs.h"
 
@@ -45,7 +46,13 @@ static const char *const tb_gui_placement[] = {
 static const char *const tb_gui_reserved[] = {"name", "gridded"};
 
 /* The keys of a file, of a widget, of a row or column, and of a font. */
-static const char *const tb_gui_file_keys[] = {"format", "version", "root"};
+static const char *const tb_gui_file_keys[] = {"format", "version", "variables", "root"};
+static const char *const tb_gui_variable_keys[] = {"name", "type", "value", "setting"};
+/* The types of variables, by the name a file gives them. */
+static const char *const tb_gui_variable_types[] = {"bool", "int", "float", "string"};
+static const tb_gui_type tb_gui_variable_type_of[] = {TB_GUI_TYPE_BOOL, TB_GUI_TYPE_INT,
+                                                      TB_GUI_TYPE_FLOAT, TB_GUI_TYPE_TEXT};
+
 static const char *const tb_gui_widget_keys[] = {"kind",    "name", "properties", "grid",
                                                  "columns", "rows", "children"};
 static const char *const tb_gui_track_keys[] = {"weight", "minsize", "pad", "uniform"};
@@ -160,6 +167,9 @@ typedef struct tb_gui_loader
     tb_gui_file_error *error;
     char path[TB_GUI_FILE_ERROR_CAPACITY];
     size_t path_length;
+    tb_var *made_vars; /* variables this load made, destroyed if it fails */
+    size_t made_var_count;
+    size_t made_var_capacity;
 } tb_gui_loader;
 
 /* Go into a member of an object; returns where to come back to. */
@@ -786,9 +796,10 @@ static bool tb_gui_read_named(tb_gui_loader *loader, const tb_gui_property *prop
     }
     if (!tb_gui_named_find(loader->gui, property->type, name, value))
     {
-        return tb_gui_fail(
-            loader, json,
-            property->type == TB_GUI_TYPE_COMMAND ? "unknown command" : "unknown name", name.bytes);
+        return tb_gui_fail(loader, json,
+                           property->type == TB_GUI_TYPE_COMMAND ? "unknown command"
+                                                                 : "unknown variable",
+                           name.bytes);
     }
     return true;
 }
@@ -802,6 +813,11 @@ static void tb_gui_write_named(tb_gui_saver *saver, const tb_gui_property *prope
     /* Only a value with a name is chosen to be written. */
     TB_ASSERT(name != NULL);
     tb_gui_write_string(saver, tb_text_from_cstr(name));
+}
+
+static bool tb_gui_equal_variable(const tb_gui_value *a, const tb_gui_value *b)
+{
+    return tb_var_equal(a->variable, b->variable);
 }
 
 static bool tb_gui_equal_command(const tb_gui_value *a, const tb_gui_value *b)
@@ -821,6 +837,7 @@ static const tb_gui_codec tb_gui_codecs[TB_GUI_TYPE_COUNT] = {
     [TB_GUI_TYPE_FLAGS] = {tb_gui_read_flags, tb_gui_write_flags, tb_gui_equal_flags},
     [TB_GUI_TYPE_FONT] = {tb_gui_read_font, tb_gui_write_font, tb_gui_equal_font},
     [TB_GUI_TYPE_COMMAND] = {tb_gui_read_named, tb_gui_write_named, tb_gui_equal_command},
+    [TB_GUI_TYPE_VARIABLE] = {tb_gui_read_named, tb_gui_write_named, tb_gui_equal_variable},
 };
 
 static const tb_gui_codec *tb_gui_codec_of(tb_gui_type type)
@@ -1156,6 +1173,210 @@ static bool tb_gui_load_widget(tb_gui_loader *loader, tb_widget parent, const tb
     return true;
 }
 
+/* ---------------------------------------------------------------------------
+ * Variables a file declares.
+ * ------------------------------------------------------------------------- */
+
+/* A declared variable's first value, of its type; the type's zero when the
+ * file gives none. */
+static bool tb_gui_read_variable_value(tb_gui_loader *loader, tb_gui_type type,
+                                       const tb_json_value *json, tb_gui_value *value)
+{
+    int64_t integer = 0;
+    double number = 0.0;
+
+    if (type == TB_GUI_TYPE_BOOL)
+    {
+        return tb_gui_read_bool(loader, NULL, json, value);
+    }
+    if (type == TB_GUI_TYPE_INT)
+    {
+        if (!tb_gui_read_int_json(loader, json, INT32_MIN, INT32_MAX, &integer))
+        {
+            return false;
+        }
+        *value = tb_gui_int((int32_t)integer);
+        return true;
+    }
+    if (type == TB_GUI_TYPE_TEXT)
+    {
+        return tb_gui_read_text(loader, NULL, json, value);
+    }
+    if (tb_json_type_of(json) != TB_JSON_NUMBER || !tb_json_as_double(json, &number) ||
+        fabs(number) > (double)FLT_MAX)
+    {
+        return tb_gui_fail(loader, json, "expected a number", NULL);
+    }
+    *value = tb_gui_float((float)number);
+    return true;
+}
+
+/* A declared variable's type, by its name. */
+static bool tb_gui_read_variable_type(tb_gui_loader *loader, const tb_json_value *json,
+                                      tb_gui_type *type)
+{
+    tb_text name = {0};
+
+    if (!tb_gui_read_string(loader, json, &name))
+    {
+        return false;
+    }
+    for (size_t index = 0; index < TB_GUI_COUNT_OF(tb_gui_variable_types); index++)
+    {
+        if (tb_text_equal(tb_text_from_cstr(tb_gui_variable_types[index]), name))
+        {
+            *type = tb_gui_variable_type_of[index];
+            return true;
+        }
+    }
+    return tb_gui_fail(loader, json, "unknown variable type", name.bytes);
+}
+
+static void tb_gui_remember_var(tb_gui_loader *loader, tb_var var)
+{
+    if (loader->made_var_count == loader->made_var_capacity)
+    {
+        loader->made_var_capacity =
+            loader->made_var_capacity == 0 ? 4u : loader->made_var_capacity * 2;
+        loader->made_vars = tb_realloc_array(loader->made_vars, loader->made_var_capacity,
+                                             sizeof(*loader->made_vars));
+    }
+    loader->made_vars[loader->made_var_count] = var;
+    loader->made_var_count++;
+}
+
+/* Bind a variable made to the setting a declaration names. */
+static bool tb_gui_bind_declared(tb_gui_loader *loader, tb_var var, const tb_json_value *json)
+{
+    tb_text name = {0};
+    tb_setting *setting = NULL;
+
+    if (!tb_gui_read_string(loader, json, &name))
+    {
+        return false;
+    }
+    if (loader->gui->settings == NULL)
+    {
+        return tb_gui_fail(loader, json, "a setting, and no settings given the GUI", name.bytes);
+    }
+    setting = tb_settings_find(loader->gui->settings, name.bytes);
+    if (setting == NULL)
+    {
+        return tb_gui_fail(loader, json, "unknown setting", name.bytes);
+    }
+    if (!tb_var_bind_setting(var, setting))
+    {
+        return tb_gui_fail(loader, json, "a setting the variable's type does not bind to",
+                           name.bytes);
+    }
+    return true;
+}
+
+/* One declaration: a variable of the name is made, unless the GUI has one,
+ * which is used as it is when it is of the type. */
+static bool tb_gui_load_variable(tb_gui_loader *loader, const tb_json_value *object)
+{
+    const tb_json_value *const name_json = tb_gui_member(object, "name");
+    const tb_json_value *const type_json = tb_gui_member(object, "type");
+    const tb_json_value *const value_json = tb_gui_member(object, "value");
+    const tb_json_value *const setting_json = tb_gui_member(object, "setting");
+    tb_gui_type type = TB_GUI_TYPE_COUNT;
+    tb_gui_value value = {0};
+    tb_text name = {0};
+    tb_var var = TB_VAR_NONE;
+    size_t back = 0;
+    bool read = false;
+
+    if (tb_json_type_of(object) != TB_JSON_OBJECT)
+    {
+        return tb_gui_fail(loader, object, "expected an object", NULL);
+    }
+    if (!tb_gui_check_keys(loader, object, tb_gui_variable_keys,
+                           TB_GUI_COUNT_OF(tb_gui_variable_keys)))
+    {
+        return false;
+    }
+    if (name_json == NULL || type_json == NULL)
+    {
+        return tb_gui_fail(loader, object, "a variable without its name and type", NULL);
+    }
+    back = tb_gui_path_key(loader, "name");
+    read = tb_gui_read_string(loader, name_json, &name);
+    if (read && name.length == 0)
+    {
+        read = tb_gui_fail(loader, name_json, "a variable with an empty name", NULL);
+    }
+    tb_gui_path_back(loader, back);
+    if (!read)
+    {
+        return false;
+    }
+    back = tb_gui_path_key(loader, "type");
+    read = tb_gui_read_variable_type(loader, type_json, &type);
+    tb_gui_path_back(loader, back);
+    if (!read)
+    {
+        return false;
+    }
+    var = tb_gui_find_var(loader->gui, name.bytes);
+    if (tb_var_alive(var))
+    {
+        if (tb_var_type(var) == type)
+        {
+            return true;
+        }
+        back = tb_gui_path_key(loader, "type");
+        (void)tb_gui_fail(loader, type_json, "a variable of another type by this name", name.bytes);
+        tb_gui_path_back(loader, back);
+        return false;
+    }
+    value = (tb_gui_value){.type = type};
+    if (type == TB_GUI_TYPE_TEXT)
+    {
+        value.text = tb_text_make("", 0);
+    }
+    if (value_json != NULL)
+    {
+        back = tb_gui_path_key(loader, "value");
+        read = tb_gui_read_variable_value(loader, type, value_json, &value);
+        tb_gui_path_back(loader, back);
+        if (!read)
+        {
+            return false;
+        }
+    }
+    var = tb_var_create(loader->gui, &value);
+    tb_var_set_name(var, name.bytes);
+    tb_gui_remember_var(loader, var);
+    if (setting_json == NULL)
+    {
+        return true;
+    }
+    back = tb_gui_path_key(loader, "setting");
+    read = tb_gui_bind_declared(loader, var, setting_json);
+    tb_gui_path_back(loader, back);
+    return read;
+}
+
+static bool tb_gui_load_variables(tb_gui_loader *loader, const tb_json_value *array)
+{
+    if (tb_json_type_of(array) != TB_JSON_ARRAY)
+    {
+        return tb_gui_fail(loader, array, "expected an array", NULL);
+    }
+    for (size_t index = 0; index < tb_json_count(array); index++)
+    {
+        const size_t back = tb_gui_path_index(loader, index);
+        const bool loaded = tb_gui_load_variable(loader, tb_json_at(array, index));
+        tb_gui_path_back(loader, back);
+        if (!loaded)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 /* The file's own object: its format, its version, and its root. */
 static bool tb_gui_load_document(tb_gui_loader *loader, tb_widget parent,
                                  const tb_json_value *document, tb_widget *made)
@@ -1206,6 +1427,16 @@ static bool tb_gui_load_document(tb_gui_loader *loader, tb_widget parent,
     {
         return false;
     }
+    if (tb_gui_member(document, "variables") != NULL)
+    {
+        back = tb_gui_path_key(loader, "variables");
+        loaded = tb_gui_load_variables(loader, tb_gui_member(document, "variables"));
+        tb_gui_path_back(loader, back);
+        if (!loaded)
+        {
+            return false;
+        }
+    }
     back = tb_gui_path_key(loader, "root");
     loaded = tb_gui_load_widget(loader, parent, root, 1, made);
     tb_gui_path_back(loader, back);
@@ -1252,13 +1483,19 @@ tb_gui_file_result tb_gui_load(tb_widget parent, const char *text, size_t length
     }
     if (!tb_gui_load_document(&loader, parent, document, &made))
     {
-        /* All or nothing: what was built goes, its children with it. */
+        /* All or nothing: what was built goes, its children with it, and
+         * the variables it made. */
         tb_widget_destroy(made);
+        for (size_t index = 0; index < loader.made_var_count; index++)
+        {
+            tb_var_destroy(loader.made_vars[index]);
+        }
         result = TB_GUI_FILE_INVALID;
         goto cleanup;
     }
     *widget = made;
 cleanup:
+    tb_free(loader.made_vars);
     tb_arena_destroy(arena);
     return result;
 }
@@ -1335,7 +1572,7 @@ tb_gui_file_result tb_gui_load_file(tb_widget parent, struct tb_vfs *vfs, const 
 /* Whether a property is one the file's "properties" hold, and its value can
  * be written: neither read-only, nor of a type with no codec, nor a named
  * value with no name. */
-static bool tb_gui_writable(const tb_gui_saver *saver, const tb_gui_property *property,
+static bool tb_gui_writable(tb_gui_saver *saver, const tb_gui_property *property,
                             const tb_gui_value *value)
 {
     if ((property->flags & TB_GUI_PROPERTY_READ_ONLY) != 0 ||
@@ -1348,12 +1585,57 @@ static bool tb_gui_writable(const tb_gui_saver *saver, const tb_gui_property *pr
     return !tb_gui_type_is_named(property->type) || tb_gui_named_name_of(saver->gui, value) != NULL;
 }
 
-/* The properties to write, in the order a load sets them: the kind's, then
- * the common ones. A property is chosen when its value differs from a
- * widget of the kind made new, with the properties chosen before it set: a
- * property whose setter changes another is written before it, and the one
- * it changed is written when the change is not what the widget holds. */
-static size_t tb_gui_choose(const tb_gui_saver *saver, tb_widget widget, tb_widget scratch,
+/* Which properties come in which turn of the order a file writes them. */
+typedef enum tb_gui_turn
+{
+    TB_GUI_TURN_NAMED,  /* the kind's references to named objects: variables, commands */
+    TB_GUI_TURN_KIND,   /* the kind's other properties */
+    TB_GUI_TURN_COMMON, /* the common properties */
+    TB_GUI_TURN_COUNT
+} tb_gui_turn;
+
+static tb_gui_turn tb_gui_turn_of(const tb_gui_property *property, size_t index, size_t common)
+{
+    if (index < common)
+    {
+        return TB_GUI_TURN_COMMON;
+    }
+    return tb_gui_type_is_named(property->type) ? TB_GUI_TURN_NAMED : TB_GUI_TURN_KIND;
+}
+
+/* Choose a property when its value differs from the scratch widget's, and
+ * set it on the scratch widget, as a load would. */
+static bool tb_gui_differs(tb_gui_saver *saver, tb_widget widget, tb_widget scratch,
+                           const tb_gui_property *property)
+{
+    tb_gui_value value = {0};
+    tb_gui_value fresh = {0};
+    const tb_gui_codec *codec = NULL;
+
+    if (!tb_widget_get(widget, property->name, &value) ||
+        !tb_gui_writable(saver, property, &value) ||
+        !tb_widget_get(scratch, property->name, &fresh))
+    {
+        return false;
+    }
+    codec = tb_gui_codec_of(property->type);
+    /* A writable property's type has a codec. */
+    TB_ASSERT(codec != NULL);
+    if (fresh.type == value.type && codec->equal(&value, &fresh))
+    {
+        return false;
+    }
+    (void)tb_widget_set(scratch, property->name, &value);
+    return true;
+}
+
+/* The properties to write, in the order a load sets them: the kind's
+ * references to variables and commands, which may give other properties
+ * their values, then its other properties, then the common ones. A
+ * property is chosen when its value differs from a widget of the kind made
+ * new, with the properties chosen before it set: a property a setter
+ * before it changed is written only when the widget holds another value. */
+static size_t tb_gui_choose(tb_gui_saver *saver, tb_widget widget, tb_widget scratch,
                             const tb_gui_property **chosen)
 {
     const size_t total = tb_widget_property_count(widget);
@@ -1361,29 +1643,19 @@ static size_t tb_gui_choose(const tb_gui_saver *saver, tb_widget widget, tb_widg
     size_t count = 0;
 
     (void)tb_gui_common_properties(&common);
-    for (size_t step = 0; step < total; step++)
+    for (int turn = 0; turn < (int)TB_GUI_TURN_COUNT; turn++)
     {
-        /* The kind's own first, then the common ones. */
-        const size_t index = step < total - common ? common + step : step - (total - common);
-        const tb_gui_property *const property = tb_widget_property_at(widget, index);
-        tb_gui_value value = {0};
-        tb_gui_value fresh = {0};
-        if (!tb_widget_get(widget, property->name, &value) ||
-            !tb_gui_writable(saver, property, &value) ||
-            !tb_widget_get(scratch, property->name, &fresh))
+        for (size_t index = 0; index < total; index++)
         {
-            continue;
+            const tb_gui_property *const property = tb_widget_property_at(widget, index);
+            if ((int)tb_gui_turn_of(property, index, common) != turn ||
+                !tb_gui_differs(saver, widget, scratch, property))
+            {
+                continue;
+            }
+            chosen[count] = property;
+            count++;
         }
-        const tb_gui_codec *const codec = tb_gui_codec_of(property->type);
-        /* A writable property's type has a codec. */
-        TB_ASSERT(codec != NULL);
-        if (fresh.type == value.type && codec->equal(&value, &fresh))
-        {
-            continue;
-        }
-        chosen[count] = property;
-        count++;
-        (void)tb_widget_set(scratch, property->name, &value);
     }
     return count;
 }
@@ -1527,6 +1799,120 @@ static void tb_gui_save_widget(tb_gui_saver *saver, tb_widget widget, size_t dep
     tb_gui_saver_check(saver, tb_json_write_end_object(saver->writer));
 }
 
+/* The variables a widget's tree names, each once, in the order of the tree. */
+static void tb_gui_collect_vars(tb_gui_saver *saver, tb_widget widget, size_t depth, tb_var **vars,
+                                size_t *count, size_t *capacity)
+{
+    if (depth > TB_GUI_FILE_MOST_DEPTH)
+    {
+        return;
+    }
+    for (size_t index = 0; index < tb_widget_property_count(widget); index++)
+    {
+        const tb_gui_property *const property = tb_widget_property_at(widget, index);
+        tb_gui_value value = {0};
+        bool seen = false;
+        if (property->type != TB_GUI_TYPE_VARIABLE ||
+            !tb_widget_get(widget, property->name, &value) ||
+            tb_gui_named_name_of(saver->gui, &value) == NULL)
+        {
+            continue;
+        }
+        for (size_t found = 0; found < *count && !seen; found++)
+        {
+            seen = tb_var_equal((*vars)[found], value.variable);
+        }
+        if (seen)
+        {
+            continue;
+        }
+        if (*count == *capacity)
+        {
+            *capacity = *capacity == 0 ? 4u : *capacity * 2;
+            *vars = tb_realloc_array(*vars, *capacity, sizeof(**vars));
+        }
+        (*vars)[*count] = value.variable;
+        (*count)++;
+    }
+    for (tb_widget child = tb_widget_first_child(widget); tb_widget_alive(child);
+         child = tb_widget_next_sibling(child))
+    {
+        tb_gui_collect_vars(saver, child, depth + 1, vars, count, capacity);
+    }
+}
+
+/* A variable's value, left out when it is its type's zero or a setting
+ * gives it. */
+static void tb_gui_save_variable_value(tb_gui_saver *saver, tb_var var)
+{
+    const tb_gui_type type = tb_var_type(var);
+    const double number = type == TB_GUI_TYPE_FLOAT ? tb_var_get_float(var) : 0.0;
+
+    if (type == TB_GUI_TYPE_BOOL && tb_var_get_bool(var))
+    {
+        tb_gui_write_key(saver, "value");
+        tb_gui_saver_check(saver, tb_json_write_bool(saver->writer, true));
+    }
+    else if (type == TB_GUI_TYPE_INT && tb_var_get_int(var) != 0)
+    {
+        tb_gui_write_key(saver, "value");
+        tb_gui_saver_check(saver, tb_json_write_int64(saver->writer, tb_var_get_int(var)));
+    }
+    else if (type == TB_GUI_TYPE_FLOAT && number != 0.0)
+    {
+        tb_gui_write_key(saver, "value");
+        tb_gui_write_float(saver, (float)number);
+    }
+    else if (type == TB_GUI_TYPE_TEXT && tb_var_get_text(var).length > 0)
+    {
+        tb_gui_write_key(saver, "value");
+        tb_gui_write_string(saver, tb_var_get_text(var));
+    }
+}
+
+static void tb_gui_save_variables(tb_gui_saver *saver, tb_widget widget)
+{
+    tb_var *vars = NULL;
+    size_t count = 0;
+    size_t capacity = 0;
+
+    tb_gui_collect_vars(saver, widget, 1, &vars, &count, &capacity);
+    if (count == 0)
+    {
+        return;
+    }
+    tb_gui_write_key(saver, "variables");
+    tb_gui_saver_check(saver, tb_json_write_begin_array(saver->writer));
+    for (size_t index = 0; index < count; index++)
+    {
+        const tb_gui_type type = tb_var_type(vars[index]);
+        const tb_setting *const setting = tb_var_setting(vars[index]);
+        tb_gui_saver_check(saver, tb_json_write_begin_object(saver->writer));
+        tb_gui_write_key(saver, "name");
+        tb_gui_write_string(saver, tb_var_name(vars[index]));
+        tb_gui_write_key(saver, "type");
+        for (size_t named = 0; named < TB_GUI_COUNT_OF(tb_gui_variable_type_of); named++)
+        {
+            if (tb_gui_variable_type_of[named] == type)
+            {
+                tb_gui_write_string(saver, tb_text_from_cstr(tb_gui_variable_types[named]));
+            }
+        }
+        if (setting == NULL)
+        {
+            tb_gui_save_variable_value(saver, vars[index]);
+        }
+        else
+        {
+            tb_gui_write_key(saver, "setting");
+            tb_gui_write_string(saver, tb_text_from_cstr(tb_setting_name(setting)));
+        }
+        tb_gui_saver_check(saver, tb_json_write_end_object(saver->writer));
+    }
+    tb_gui_saver_check(saver, tb_json_write_end_array(saver->writer));
+    tb_free(vars);
+}
+
 tb_gui_file_result tb_gui_save(tb_widget widget, tb_stream *sink)
 {
     tb_gui_saver saver = {0};
@@ -1544,6 +1930,7 @@ tb_gui_file_result tb_gui_save(tb_widget widget, tb_stream *sink)
     tb_gui_write_string(&saver, TB_TEXT(TB_GUI_FILE_FORMAT));
     tb_gui_write_key(&saver, "version");
     tb_gui_saver_check(&saver, tb_json_write_int64(saver.writer, TB_GUI_FILE_VERSION));
+    tb_gui_save_variables(&saver, widget);
     tb_gui_write_key(&saver, "root");
     tb_gui_save_widget(&saver, widget, 1);
     tb_gui_saver_check(&saver, tb_json_write_end_object(saver.writer));

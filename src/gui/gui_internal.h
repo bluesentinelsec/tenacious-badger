@@ -89,6 +89,13 @@ typedef struct tb_gui_node
     bool bindings_cleared; /* some were removed during events */
 } tb_gui_node;
 
+/* What a widget draws in its popup, above every widget: see
+ * tb_gui_popup_open(). */
+typedef void tb_gui_popup_draw(tb_widget owner, const void *data, tb_gui_paint *paint);
+
+/* The variables, and the clipboard (gui_var.c). */
+typedef struct tb_gui_values tb_gui_values;
+
 /* A font opened from the catalog for a spec, or NULL when it has none. */
 typedef struct tb_gui_font_entry
 {
@@ -180,6 +187,15 @@ struct tb_gui
     bool wants_keyboard;
     tb_cursor cursor;
 
+    /* The popup: a rectangle above every widget, which its owner draws and
+     * takes the mouse in, such as a combo box's list. */
+    tb_widget popup;
+    tb_canvas_rect popup_rect;
+    tb_gui_popup_draw *popup_draw;
+
+    /* Variables, and the clipboard; made when first used. */
+    tb_gui_values *values;
+
     /* What tb_gui_draw() draws. */
     tb_arena *arena;
     tb_ui_paint paint;
@@ -188,6 +204,7 @@ struct tb_gui
     tb_gui_named *names;
     size_t name_count;
     size_t name_capacity;
+    tb_settings *settings; /* that layout files bind variables to; borrowed */
     tb_gui_watch_entry *watches;
     size_t watch_count;
     size_t watch_capacity;
@@ -236,6 +253,18 @@ void tb_gui_dispatch_resized(tb_gui *gui);
 void tb_gui_refresh_hover(tb_gui *gui);
 void tb_gui_finish_input(tb_gui *gui);
 bool tb_gui_modal_contains(const tb_gui *gui, uint32_t index);
+/* An event of a kind for a widget, its mouse and modifiers the GUI's; and
+ * an event given to a widget, its bindings then its kind: whether the kind
+ * used it. */
+tb_gui_event tb_gui_event_for(tb_widget widget, tb_gui_event_kind kind);
+bool tb_gui_send(tb_widget widget, tb_gui_event *event);
+/* Open a popup a widget owns, over every widget and modal one: the mouse
+ * finds the owner in it, a press outside it closes it, and `draw` draws it
+ * with a paint of its rectangle. Closed too when its owner is hidden,
+ * disabled, or destroyed. One is open at a time. */
+void tb_gui_popup_open(tb_widget owner, tb_canvas_rect rect, tb_gui_popup_draw *draw);
+void tb_gui_popup_close(tb_gui *gui);
+bool tb_gui_popup_owned(const tb_gui *gui, tb_widget owner);
 
 /* gui_draw.c: the commands of a frame. */
 void tb_gui_build_commands(tb_gui *gui);
@@ -246,9 +275,9 @@ void tb_gui_register_builtins(tb_gui *gui);
 /* gui_names.c: objects named for layout files. A type of value is named
  * when a file refers to its values by name rather than writing them. */
 bool tb_gui_type_is_named(tb_gui_type type);
-bool tb_gui_named_find(const tb_gui *gui, tb_gui_type type, tb_text name, tb_gui_value *value);
-/* The name of a value of a named type; NULL when it has none. */
-const char *tb_gui_named_name_of(const tb_gui *gui, const tb_gui_value *value);
+bool tb_gui_named_find(tb_gui *gui, tb_gui_type type, tb_text name, tb_gui_value *value);
+/* The name of a value of a named type, that finds it; NULL when it has none. */
+const char *tb_gui_named_name_of(tb_gui *gui, const tb_gui_value *value);
 void tb_gui_names_free(tb_gui *gui);
 
 /* gui_file.c: a file's bytes read through a VFS, with a terminator after
@@ -260,5 +289,13 @@ tb_gui_file_result tb_gui_read_file(struct tb_vfs *vfs, const char *path, char *
 /* gui_watch.c: files loaded again when they change. */
 void tb_gui_watches_poll(tb_gui *gui);
 void tb_gui_watches_free(tb_gui *gui);
+
+/* gui_var.c: variables polled against their settings, their observers run,
+ * and their memory released with the GUI's. */
+void tb_gui_vars_update(tb_gui *gui);
+void tb_gui_vars_free(tb_gui *gui);
+
+/* gui_values.c: the kinds that edit values, registered with the others. */
+void tb_gui_register_value_kinds(tb_gui *gui);
 
 #endif

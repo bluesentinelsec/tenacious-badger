@@ -3,10 +3,12 @@
  * the window as it is resized: its middle column takes the extra width, an
  * empty row the extra height, and the status line stays at the bottom.
  * Nested grids hold rows of buttons of one width, and a modal dialog asks
- * to confirm. A panel on the right is built from a layout file in the
- * sandbox's resources, and built again whenever the file is saved. The
- * window events go to the GUI first, which takes the mouse over the form
- * and the keys while a button has the focus; the fly camera has the rest. */
+ * to confirm. On the right, a panel of options edits the engine's own
+ * settings through variables (sandbox_gui_options.c), and below it a panel
+ * is built from a layout file in the sandbox's resources, and built again
+ * whenever the file is saved. The window events go to the GUI first, which
+ * takes the mouse over the form and the keys while a button has the focus;
+ * the fly camera has the rest. */
 #include "sandbox.h"
 
 #include "badger/canvas.h"
@@ -45,6 +47,7 @@ typedef struct gui_scene
     tb_widget status;
     tb_widget dialog;
     tb_vfs *resources; /* where the panel's file is read from; outlives the GUI */
+    gui_options *options;
     size_t name_index;
     int volume_percent;
     int applies;
@@ -379,6 +382,7 @@ bool gui_scene_create(sandbox *box, void **state)
     (void)tb_grid_column_configure(root, 1, &(tb_grid_track){.weight = 1.0f});
     (void)tb_grid_row_configure(root, 0, &(tb_grid_track){.weight = 1.0f});
     gui_build_form(scene, root, &title);
+    scene->options = gui_options_create(root, 1, box->engine);
     gui_build_panel(scene, root);
     gui_build_dialog(scene, root);
     return true;
@@ -399,6 +403,10 @@ void gui_scene_destroy(sandbox *box, void *state)
     }
     tb_gui_destroy(scene->gui);
     tb_vfs_destroy(scene->resources);
+    if (scene->options != NULL)
+    {
+        gui_options_destroy(scene->options);
+    }
     for (size_t font = 0; font < TB_UI_FONT_COUNT; font++)
     {
         if (scene->fonts.fonts[font] != NULL)

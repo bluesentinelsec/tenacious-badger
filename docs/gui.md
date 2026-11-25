@@ -318,6 +318,172 @@ the catalog does not have. A spec of weight 0 is the theme's font, and a
 size of 0 the theme's size. Text wider than its rectangle starts at the
 rectangle's left edge, and is cut off at its right.
 
+## Variables and the widgets that edit values
+
+A variable, `tb_var`, holds a value the GUI owns, after Tk's `BooleanVar`,
+`IntVar`, `DoubleVar`, and `StringVar`: a bool, an integer, a number, or
+text. Widgets show a variable's value and set it when they are used, so
+several widgets on one variable stay in step, as a slider and a spin box on
+one field of view; callbacks watch it; and it may be bound to an engine
+setting, so that an options menu needs no code between its widgets and its
+settings.
+
+```c
+tb_var fov = tb_var_float(gui, 90.0);
+tb_var_bind_setting(fov, engine.graphics.field_of_view);
+
+tb_widget slider = tb_scale(form, &(tb_scale_desc){.variable = fov, .from = 60, .to = 120,
+                                                   .resolution = 1, .show_value = true});
+tb_widget spin = tb_spinbox(form, &(tb_spinbox_desc){.variable = fov, .from = 60, .to = 120});
+tb_var_trace(fov, on_fov_changed, game);
+```
+
+A variable is a handle, as a widget is: its GUI, a slot, and a
+generation. It lives until `tb_var_destroy` or its GUI is destroyed, and a
+handle to it then goes stale: every function given one does nothing, and a
+widget that showed it shows nothing, as if it had none.
+
+**Values.** Each variable reads as every type and is set from every type,
+as Tk's read as text: `tb_var_get_bool`, `tb_var_get_int`, `tb_var_get_float`, and
+`tb_var_get_text` read it; `tb_var_set_bool`, `tb_var_set_int`,
+`tb_var_set_float`, and `tb_var_set_text` set it, converted to its type.
+
+| Variable | Takes text | Takes a number | Reads as text |
+| --- | --- | --- | --- |
+| bool | `true`, `false`, `1`, `0`, `on`, `off`, `yes`, `no`, in any case | true for any but 0 | `1` or `0` |
+| integer | decimal digits, with a sign | the nearest whole number, within 32 bits | its digits |
+| number | a decimal number | the number, finite | the shortest digits that read back as it |
+| text | the text | the shortest digits | the text |
+
+A value that does not convert is refused: the setter returns false and the
+variable keeps its value. Setting a variable to its value changes nothing.
+
+**Observers.** `tb_var_trace` calls a function when a variable changes,
+Tk's `trace_add`. Observers run during `tb_gui_update`, after the events
+that changed the variable, once for each variable changed since they last
+ran, however many times it changed: a change made outside an update runs
+them in the next. An observer may set variables, whose observers then run
+in the same update, and may remove itself or destroy its variable.
+
+**Names.** `tb_var_set_name` names a variable, and `tb_gui_find_var` finds
+it by its name, as layout files will. A widget's `variable` property is of
+the type `TB_GUI_TYPE_VARIABLE`, set and read by name like any other: a
+variable alive, or none.
+
+### Variables bound to settings
+
+`tb_var_bind_setting` binds a variable to a setting of the engine's
+(`badger/settings.h`). The variable takes the setting's value at once; the
+setting takes the variable's each time the variable is set, there and
+then; and the variable takes the setting's each time it changes elsewhere
+(a console, a file, another thread), at the start and the end of each
+`tb_gui_update`, when its observers run. Values are set at the setting's
+runtime layer, as an options menu's are, and saved with the player's
+choices.
+
+| Variable | Settings it binds to |
+| --- | --- |
+| bool | boolean |
+| integer | integer; choice, by its index |
+| number | number; integer, rounded to the nearest |
+| text | text; choice, by its name; boolean, integer, and number, as a file writes them |
+
+The setting checks each value as it checks any: its range, its choices,
+its length. A bool, integer, or number variable refuses what its setting
+refuses: the setter returns false, and the variable and the setting keep
+their values, so a slider past a setting's range stops at its end. A text
+variable keeps the text it is given, which an entry is typing, and its
+setting takes the text only when it accepts it: `-` typed on its way to
+`-0.5` stays in the entry, and `tb_var_setting_accepts` says whether the
+setting holds the variable's value. `tb_var_bind_setting(var, NULL)` ends
+the binding.
+
+### What a change sends
+
+`TB_GUI_EVENT_CHANGED` is sent to a widget when its value changes through
+input: a check button toggled, text typed, a slider dragged, an item
+chosen; and by `tb_widget_invoke`, which acts as input does. A program that
+sets a widget's value, or its variable, sends none; observers see both. A
+widget's `command` is called after its `CHANGED` bindings, with the same
+event.
+
+`TB_GUI_EVENT_VALIDATE` is sent before text changes, Tk's
+`validatecommand`: the event's `text` is the text proposed, and
+`tb_gui_refuse_edit` keeps the old. An entry's or a spin box's `validate`
+command is called after its `VALIDATE` bindings.
+
+`TB_GUI_EVENT_MOTION` is sent to the widget a button is held on as the
+mouse moves: a slider's drag, and a selection's.
+
+### The widgets
+
+Each is a kind of its own, registered by its name, with its properties in
+its table. Each takes the focus from Tab and is used from the keyboard;
+those marked *click* take it from a click too.
+
+| Kind | Properties | What |
+| --- | --- | --- |
+| `checkbutton` | `text`, `variable`, `on_value`, `off_value`, `selected`, `command` | a box ticked while its variable holds its on value; a click, Space, or invoking sets the other |
+| `radiobutton` | `text`, `variable`, `value`, `selected`, `command` | one of a group on one variable, chosen while the variable holds its value; the arrows choose the one before or after among its siblings, and move the focus there |
+| `entry` (*click*) | `text`, `variable`, `placeholder`, `show`, `width`, `max_length`, `read_only`, `validate` | a line of text typed |
+| `text` (*click*) | `text`, `variable`, `width`, `height`, `wrap`, `max_length`, `read_only` | several lines, wrapped at its width or not, scrolled to keep the caret in sight and by the wheel |
+| `spinbox` (*click*) | `value`, `variable`, `from`, `to`, `increment`, `format`, `width`, `wrap`, `command`, `validate` | a number stepped by its arrows, Up and Down, Page Up and Page Down by ten, and the wheel; or typed, and taken on Enter or when the focus leaves |
+| `scale` (*click*) | `value`, `variable`, `from`, `to`, `resolution`, `big_increment`, `orient`, `length`, `show_value`, `format`, `command` | a slider: a press moves it there, a drag moves it; Left and Up step toward `from`, Right and Down toward `to`, by its resolution; Page Up and Page Down by its big increment; Home and End to the ends |
+| `progressbar` | `value`, `variable`, `maximum`, `mode`, `orient`, `length` | a trough filled as far as its value is to its maximum; indeterminate, a block that moves to and fro by the time `tb_gui_update` is given; it takes no input |
+| `combobox` (*click*) | `values`, `current`, `variable`, `width`, `height`, `command` | one of a list of values, chosen from a list that drops down over every widget |
+
+**Values as text.** A check button's and a radio button's values are text,
+as Tk's are, read in their variable's type: `"1"` and `"0"` fit bool and
+integer variables alike, `"2.50"` holds a number variable of 2.5, and a
+text variable holds them as they are. Without a variable, a check button
+and a radio button keep their own state, `selected`.
+
+**Numbers.** A spin box, a slider, and a progress bar keep their own
+`value` without a variable, and with one, set it in its type: an integer
+variable takes the nearest whole number. A spin box's and a slider's value
+is kept within `from` and `to`; a slider's is rounded to multiples of its
+`resolution` from `from` (0 for none). A `format` is a `printf` conversion
+of a `double`, as Tk's: one conversion of `f`, `e`, or `g` with its flags,
+width, and precision, and text around it (`"%.1f dB"`, `"%.0f%%"`); any
+other is refused. With none, a spin box writes the digits of its
+increment, and a slider those of its resolution.
+
+**Editing text.** An entry, a text box, and a spin box's text edit alike,
+with the editing the immediate interface's text field shares
+(`src/ui/ui_editor.c`): typed text (`TB_GUI_EVENT_TEXT`) goes in at the
+caret, in place of the selection; Left and Right move by characters, or by
+words with Control; Home and End to the line's ends; Backspace and Delete
+erase; Shift with each selects; Control with A, C, X, and V selects all,
+copies, cuts, and pastes through the GUI's clipboard (`tb_gui_clipboard`,
+which a game may connect to the system's). A click places the caret, a drag
+selects, and a double click selects a word; Tab's focus selects a line's
+whole text. A text box takes Enter as a line break; Up and Down move by
+lines, Page Up and Page Down by its height, and Control with Home and End
+to the text's ends. An entry leaves Enter, Escape, Up, and Down to its
+ancestors, a dialog's default button and its cancel. `show` draws a mark
+for each character, a password's, which copying and cutting then leave
+alone; `max_length` counts characters; `read_only` text is selected and
+copied, never changed. `tb_widget_selection` and `tb_widget_select` read
+and place the caret and the selection by byte offsets.
+
+**A list over every widget.** A combo box's list drops below it, or above
+when it fits only there, in the GUI's popup: one rectangle, owned by one
+widget, drawn above every widget and modal one, in which the mouse finds
+its owner. A press outside it closes it, as do its owner losing the focus,
+being hidden, disabled, or destroyed. A click, Space, or Alt+Down opens the
+list; there the mouse, Up and Down, Page Up and Page Down, Home and End
+pick a value, and a click, Enter, or Space chooses it, and Escape or
+Alt+Up closes it. Closed, Up and Down choose the value before or after,
+and so does the wheel with the focus. A combo box's `values` are text, one
+a line. A text variable holds the value chosen, an integer one its index.
+
+**Sizes.** Every one measures from the theme's font at the view's scale:
+entries, text boxes, spin boxes, and combo boxes in characters of "0" and
+lines, check buttons by their text beside an indicator a line high,
+sliders and progress bars by their `length` and a line's thickness, a
+slider's value beside it as wide as its widest. So each is one size in
+units at any scale, and its text is drawn at the display's own pixels.
+
 ## Layout files
 
 A widget, and the widgets in it, is written as a JSON file and built from
@@ -344,6 +510,13 @@ tb_widget apply = tb_widget_find(options, "video/apply");
 {
   "format": "badger-gui",
   "version": 1,
+  "variables": [
+    {
+      "name": "fov",
+      "type": "float",
+      "setting": "graphics.fov"
+    }
+  ],
   "root": {
     "kind": "frame",
     "name": "options",
@@ -367,11 +540,22 @@ tb_widget apply = tb_widget_find(options, "video/apply");
     ],
     "children": [
       {
+        "kind": "scale",
+        "properties": {
+          "variable": "fov",
+          "from": 60,
+          "to": 120
+        },
+        "grid": {
+          "column": 1
+        }
+      },
+      {
         "kind": "button",
         "name": "apply",
         "properties": {
-          "text": "Apply",
-          "command": "apply_settings"
+          "command": "apply_settings",
+          "text": "Apply"
         },
         "grid": {
           "row": 1,
@@ -383,9 +567,10 @@ tb_widget apply = tb_widget_find(options, "video/apply");
 }
 ```
 
-A file is an object of three members: `format`, always `"badger-gui"`;
-`version`, the version of the format, 1; and `root`, the widget the file
-builds. A file of a newer version than the engine reads is refused. A
+A file is an object of these members: `format`, always `"badger-gui"`;
+`version`, the version of the format, 1; `variables`, optional, the
+variables its widgets edit; and `root`, the widget the file builds. A file
+of a newer version than the engine reads is refused. A
 widget is an object of these members, each but `kind` left out when it has
 nothing to say:
 
@@ -412,6 +597,18 @@ A value is written by its property's type:
 | flags | an array of the names of the bits set | `"sticky": ["e", "w"]` |
 | font | an object of `role` (by name, `"heading"`), `weight`, `italic`, and `size` | `"font": {"role": "heading", "size": 26}` |
 | command | the name it is registered by | `"command": "apply_settings"` |
+| variable | the variable's name | `"variable": "fov"` |
+
+**Variables.** A file names the variables its widgets show and edit, as a
+variable's own name (`tb_var_set_name`, `tb_gui_find_var`). It may declare
+them, under `variables`, each with its `name`, its `type` (`bool`, `int`,
+`float`, or `string`), its first `value` (the type's zero when left out),
+and the `setting` it is bound to by name (`tb_var_bind_setting`), found in
+the settings given the GUI with `tb_gui_set_settings`. A declared variable
+whose name the GUI already has is used as it is, its value and binding
+kept, when it is of the type, so a game may make its own first, and a file
+loaded again finds the variables it made the first time. A file that fails
+destroys the variables it made.
 
 ### Loading
 
@@ -439,8 +636,8 @@ column, a reason, and a message of all of them for a log.
 `tb_gui_save` writes a widget, and the widgets in it, to a
 [stream](streams.md). The text is the same for the same widgets, byte for
 byte: indented two spaces, the members of each widget in the order of the
-table above, properties in the order of the kind's table and then the
-common ones, the grid's options in the order listed, and numbers in the
+table above, properties in the order of the kind's table, its references to
+variables and commands first and its others after, then the common ones, the grid's options in the order listed, and numbers in the
 fewest digits that read back as the same float (`0.1`, `100`).
 
 A property is left out when loading would give it its value without it:
@@ -449,8 +646,14 @@ before it are set. A file holds what was chosen, and a change to a default
 reaches every file that did not choose. A property whose setter changes
 another, as a frame's `background` changes its `mouse_filter`, is written
 first; the one it changed is written after it when the widget holds
-another value. Read-only properties are not written, nor a command set in
-code that has no name.
+another value. A slider's `value`, which its variable gives it, is not
+written at all. Read-only properties are not written, nor a command set in
+code that has no name, nor a variable with no name, or a name another
+variable made before it holds.
+
+The variables the widgets name are declared under `variables`, each once,
+in the order the tree first names them: one bound to a setting with the
+setting's name, any other with its value now.
 
 Saving a file that was loaded gives the same text when the file was
 written so: the tests load files, save them, and compare the bytes. A file
@@ -470,9 +673,8 @@ that finds a widget, when every widget on the way has a name.
 A file refers to what code holds by name. `tb_gui_register_command` names a
 callback and its argument; a property of type command is written as the
 name, and saving writes the first name registered for a callback and
-argument. The registry keeps a value of any named type under each name,
-each type a namespace of its own, so that variables join it as a type
-named the same way.
+argument. A variable carries its own name. Each named type is a namespace
+of its own: a command and a variable may share a name.
 
 ### Hot reload
 
@@ -509,8 +711,9 @@ hands them to a renderer's canvas. What changes after an update is drawn
 after the next.
 
 The caller owns the GUI, its theme's fonts, the catalog, and the VFS of
-each file watched, which outlive it. The GUI owns its widgets, their text, and the fonts it opened from the
-catalog; `tb_gui_forget_fonts` tells the renderer's canvas to forget those
+each file watched, which outlive it. The GUI owns its widgets, their text,
+its variables, and the fonts it opened from the catalog;
+`tb_gui_forget_fonts` tells the renderer's canvas to forget those
 before `tb_gui_destroy` closes them. A kind's table, and its properties'
 names, outlive every widget of it.
 
@@ -522,8 +725,10 @@ thread that renders. GUIs are independent of one another.
 
 ## Not done yet
 
-- Variables (`tb_var`) and the widgets that edit values: check buttons,
-  radio buttons, entries, sliders, and the rest.
+- A combo box typed in (Tk's editable `ttk.Combobox`), and a spin box of
+  a list of values; undo in text.
+- Scrolling frames; a text box scrolls its own text, but no frame scrolls
+  its widgets yet.
 - Containers and overlays: scrolling, lists, tabs, menus, tooltips.
 - Style classes and theme files; the `style` property is kept for them.
 - Focus moved by arrows and a gamepad.
@@ -543,11 +748,18 @@ and hidden and disabled widgets, buttons' commands, Tab's focus, keys and the
 wheel given up the tree, modal widgets, cursors, bindings, and widgets
 destroyed from inside callbacks; the stretch modes and text measured at the
 display's pixels; and the commands each widget draws, drawn on the null
-backend's canvas. `gui_file_test.c`, `gui_names_test.c`, and
-`gui_watch_test.c` cover layout files: a file of every part saved back byte
-for byte, every type of property written and read again, defaults left
-out, each error's path, line, and reason, thousands of damaged files that
-must neither crash nor leave a widget behind, paths, commands by name, and
-a file in a VFS of memory changed, broken, removed, and mended under a
-watch. The sandbox's `gui` scene shows a form by eye
+backend's canvas. Variables are read and set across their types, their
+observers run in updates, and they follow settings and are followed by
+them, with the settings' checks; each kind that edits values is driven by
+the mouse and the keys, its variable kept in step with its twin's, its
+`CHANGED` events and commands counted, its properties set to what they
+read, and its size measured at scales 1, 1.5, and 2.
+`gui_file_test.c`, `gui_names_test.c`, and `gui_watch_test.c` cover layout
+files: a file of every part saved back byte for byte, every type of
+property written and read again, every kind that edits values saved and
+loaded again, defaults left out, each error's path, line, and reason,
+thousands of damaged files that must neither crash nor leave a widget
+behind, paths, commands and variables by name, and a file in a VFS of
+memory changed, broken, removed, and mended under a watch. The sandbox's
+`gui` scene shows a form by eye
 ([sandbox](sandbox.md)), and the tests draw it on WARP at two scales.

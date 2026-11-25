@@ -1,7 +1,8 @@
-/* Objects named for layout files: a file refers to a command by its name,
- * and the GUI finds the command by the name, and the name by the command.
- * The registry holds values of any named type, each type a namespace of
- * its own, so that other kinds of objects join it by their type. */
+/* Objects named for layout files: a file refers to a command or a variable
+ * by its name, and the GUI finds the object by the name, and the name by
+ * the object. Each named type is a namespace of its own. Commands are
+ * named here; variables carry their own names (tb_var_set_name()), and are
+ * found through them. */
 #include "gui_internal.h"
 
 #include "badger/assert.h"
@@ -15,7 +16,7 @@
 
 bool tb_gui_type_is_named(tb_gui_type type)
 {
-    return type == TB_GUI_TYPE_COMMAND;
+    return type == TB_GUI_TYPE_COMMAND || type == TB_GUI_TYPE_VARIABLE;
 }
 
 /* Whether two values of one named type are the same object. */
@@ -28,6 +29,10 @@ static bool tb_gui_named_same(const tb_gui_value *a, const tb_gui_value *b)
     if (a->type == TB_GUI_TYPE_COMMAND)
     {
         return a->command.callback == b->command.callback && a->command.user == b->command.user;
+    }
+    if (a->type == TB_GUI_TYPE_VARIABLE)
+    {
+        return tb_var_equal(a->variable, b->variable);
     }
     return false;
 }
@@ -45,9 +50,42 @@ static size_t tb_gui_named_index(const tb_gui *gui, tb_gui_type type, tb_text na
     return SIZE_MAX;
 }
 
-bool tb_gui_named_find(const tb_gui *gui, tb_gui_type type, tb_text name, tb_gui_value *value)
+/* A variable by its name, as a value; the name is terminated, as a
+ * document's strings are. */
+static bool tb_gui_named_variable(tb_gui *gui, tb_text name, tb_gui_value *value)
 {
-    const size_t index = tb_gui_named_index(gui, type, name);
+    const tb_var var = tb_gui_find_var(gui, name.bytes);
+
+    TB_ASSERT(name.bytes[name.length] == '\0');
+    if (!tb_var_alive(var))
+    {
+        return false;
+    }
+    *value = tb_gui_variable(var);
+    return true;
+}
+
+/* A variable's name, when it is the variable the name finds. */
+static const char *tb_gui_variable_name(tb_gui *gui, tb_var var)
+{
+    const tb_text name = tb_var_name(var);
+
+    if (name.length == 0 || !tb_var_equal(tb_gui_find_var(gui, name.bytes), var))
+    {
+        return NULL;
+    }
+    return name.bytes;
+}
+
+bool tb_gui_named_find(tb_gui *gui, tb_gui_type type, tb_text name, tb_gui_value *value)
+{
+    size_t index = 0;
+
+    if (type == TB_GUI_TYPE_VARIABLE)
+    {
+        return tb_gui_named_variable(gui, name, value);
+    }
+    index = tb_gui_named_index(gui, type, name);
 
     if (index == SIZE_MAX)
     {
@@ -57,8 +95,12 @@ bool tb_gui_named_find(const tb_gui *gui, tb_gui_type type, tb_text name, tb_gui
     return true;
 }
 
-const char *tb_gui_named_name_of(const tb_gui *gui, const tb_gui_value *value)
+const char *tb_gui_named_name_of(tb_gui *gui, const tb_gui_value *value)
 {
+    if (value->type == TB_GUI_TYPE_VARIABLE)
+    {
+        return tb_gui_variable_name(gui, value->variable);
+    }
     for (size_t index = 0; index < gui->name_count; index++)
     {
         if (tb_gui_named_same(&gui->names[index].value, value))
@@ -103,6 +145,12 @@ static bool tb_gui_named_remove(tb_gui *gui, tb_gui_type type, const char *name)
     return true;
 }
 
+void tb_gui_set_settings(tb_gui *gui, tb_settings *settings)
+{
+    TB_ASSERT(gui != NULL);
+    gui->settings = settings;
+}
+
 void tb_gui_names_free(tb_gui *gui)
 {
     for (size_t index = 0; index < gui->name_count; index++)
@@ -136,7 +184,7 @@ bool tb_gui_unregister_command(tb_gui *gui, const char *name)
     return tb_gui_named_remove(gui, TB_GUI_TYPE_COMMAND, name);
 }
 
-bool tb_gui_find_command(const tb_gui *gui, const char *name, tb_gui_command *command)
+bool tb_gui_find_command(tb_gui *gui, const char *name, tb_gui_command *command)
 {
     tb_gui_value value = {0};
 

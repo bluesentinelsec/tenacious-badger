@@ -202,6 +202,20 @@ static void tb_gui_send_kind(tb_gui *gui, tb_gui_event_kind kind, tb_widget targ
     (void)tb_gui_deliver(gui, target, &event);
 }
 
+tb_gui_event tb_gui_event_for(tb_widget widget, tb_gui_event_kind kind)
+{
+    return tb_gui_event_of(widget.gui, kind, widget);
+}
+
+bool tb_gui_send(tb_widget widget, tb_gui_event *event)
+{
+    if (!tb_widget_alive(widget))
+    {
+        return false;
+    }
+    return tb_gui_deliver(widget.gui, widget, event);
+}
+
 bool tb_bind(tb_widget widget, tb_gui_event_kind kind, tb_gui_callback *callback, void *user)
 {
     tb_gui_node *const node = tb_gui_node_of(widget);
@@ -384,8 +398,42 @@ void tb_widget_end_modal(tb_widget widget)
     tb_gui_remove_modal(widget.gui, widget.index);
 }
 
+/* ---------------------------------------------------------------------------
+ * The popup.
+ * ------------------------------------------------------------------------- */
+
+void tb_gui_popup_open(tb_widget owner, tb_canvas_rect rect, tb_gui_popup_draw *draw)
+{
+    tb_gui *const gui = owner.gui;
+
+    TB_ASSERT(draw != NULL);
+    if (!tb_widget_alive(owner))
+    {
+        return;
+    }
+    gui->popup = owner;
+    gui->popup_rect = rect;
+    gui->popup_draw = draw;
+}
+
+void tb_gui_popup_close(tb_gui *gui)
+{
+    gui->popup = TB_WIDGET_NONE;
+    gui->popup_rect = (tb_canvas_rect){0};
+    gui->popup_draw = NULL;
+}
+
+bool tb_gui_popup_owned(const tb_gui *gui, tb_widget owner)
+{
+    return tb_widget_alive(owner) && tb_widget_equal(gui->popup, owner);
+}
+
 void tb_gui_forget_widget(tb_gui *gui, tb_widget widget)
 {
+    if (tb_widget_equal(gui->popup, widget))
+    {
+        tb_gui_popup_close(gui);
+    }
     if (tb_widget_equal(gui->hovered, widget))
     {
         gui->hovered = TB_WIDGET_NONE;
@@ -548,6 +596,11 @@ static tb_widget tb_gui_find(tb_gui *gui)
     {
         return TB_WIDGET_NONE;
     }
+    if (tb_widget_alive(gui->popup) && tb_gui_reachable(gui, gui->popup) &&
+        tb_ui_rect_contains(gui->popup_rect, gui->mouse))
+    {
+        return gui->popup;
+    }
     found = tb_gui_hit(gui, modal.gui != NULL ? modal.index : 0, gui->mouse, all);
     return tb_gui_handle(gui, found);
 }
@@ -595,6 +648,10 @@ static void tb_gui_move_mouse(tb_gui *gui, const tb_window_event *event)
     gui->mouse_inside = true;
     gui->modifiers = event->modifiers;
     tb_gui_refresh_hover(gui);
+    if (tb_widget_alive(gui->pressed))
+    {
+        tb_gui_send_kind(gui, TB_GUI_EVENT_MOTION, gui->pressed);
+    }
 }
 
 static void tb_gui_press(tb_gui *gui, const tb_window_event *event)
@@ -603,6 +660,11 @@ static void tb_gui_press(tb_gui *gui, const tb_window_event *event)
     tb_gui_event press = tb_gui_event_of(gui, TB_GUI_EVENT_PRESS, target);
 
     press.button = event->button;
+    if (tb_widget_alive(gui->popup) && !tb_widget_equal(target, gui->popup))
+    {
+        /* A press outside a popup closes it, and goes on to what it is on. */
+        tb_gui_popup_close(gui);
+    }
     if (tb_widget_alive(gui->pressed))
     {
         /* Another button is held: the widget pressed has every button. */
@@ -821,6 +883,11 @@ void tb_gui_finish_input(tb_gui *gui)
     if (tb_widget_alive(gui->pressed) && !tb_gui_node_shown_enabled(gui, gui->pressed.index))
     {
         gui->pressed = TB_WIDGET_NONE;
+    }
+    if (tb_widget_alive(gui->popup) &&
+        (!tb_gui_node_shown_enabled(gui, gui->popup.index) || !tb_gui_reachable(gui, gui->popup)))
+    {
+        tb_gui_popup_close(gui);
     }
     gui->wants_mouse = gui->modal_count > 0 || tb_gui_stops_mouse(gui->pressed) ||
                        tb_gui_stops_mouse(gui->hovered);
