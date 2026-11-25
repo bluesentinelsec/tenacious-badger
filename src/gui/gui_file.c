@@ -71,9 +71,13 @@ static bool tb_gui_listed(const char *const *list, size_t count, const char *nam
 static void tb_gui_append(char *buffer, size_t capacity, size_t *used, const char *text)
 {
     const size_t length = tb_str_length(text);
-    const size_t room = *used < capacity ? capacity - *used - 1 : 0;
-    const size_t taken = length < room ? length : room;
+    size_t room = 0;
+    size_t taken = 0;
 
+    /* The terminator is always in the buffer: `used` stays below `capacity`. */
+    TB_ASSERT(capacity > 0 && *used < capacity);
+    room = capacity - *used - 1;
+    taken = length < room ? length : room;
     memcpy(buffer + *used, text, taken);
     *used += taken;
     buffer[*used] = '\0';
@@ -1370,7 +1374,10 @@ static size_t tb_gui_choose(const tb_gui_saver *saver, tb_widget widget, tb_widg
         {
             continue;
         }
-        if (fresh.type == value.type && tb_gui_codec_of(property->type)->equal(&value, &fresh))
+        const tb_gui_codec *const codec = tb_gui_codec_of(property->type);
+        /* A writable property's type has a codec. */
+        TB_ASSERT(codec != NULL);
+        if (fresh.type == value.type && codec->equal(&value, &fresh))
         {
             continue;
         }
@@ -1396,7 +1403,9 @@ static void tb_gui_save_properties(tb_gui_saver *saver, tb_widget widget, tb_wid
             tb_gui_value value = {0};
             (void)tb_widget_get(widget, chosen[index]->name, &value);
             tb_gui_write_key(saver, chosen[index]->name);
-            tb_gui_codec_of(chosen[index]->type)->write_value(saver, chosen[index], &value);
+            const tb_gui_codec *const codec = tb_gui_codec_of(chosen[index]->type);
+            TB_ASSERT(codec != NULL);
+            codec->write_value(saver, chosen[index], &value);
         }
         tb_gui_saver_check(saver, tb_json_write_end_object(saver->writer));
     }
@@ -1417,16 +1426,21 @@ static void tb_gui_save_grid(tb_gui_saver *saver, tb_widget widget, tb_widget sc
     {
         const tb_gui_property *const property =
             tb_widget_find_property(widget, tb_gui_placement[index]);
+        const tb_gui_codec *codec = NULL;
         tb_gui_value value = {0};
         tb_gui_value fresh = {0};
+        /* Every widget has the common placement properties, of types with codecs. */
+        TB_ASSERT(property != NULL);
+        codec = tb_gui_codec_of(property->type);
+        TB_ASSERT(codec != NULL);
         (void)tb_widget_get(widget, property->name, &value);
         (void)tb_widget_get(scratch, property->name, &fresh);
-        if (tb_gui_codec_of(property->type)->equal(&value, &fresh))
+        if (codec->equal(&value, &fresh))
         {
             continue;
         }
         tb_gui_write_key(saver, property->name);
-        tb_gui_codec_of(property->type)->write_value(saver, property, &value);
+        codec->write_value(saver, property, &value);
     }
     tb_gui_saver_check(saver, tb_json_write_end_object(saver->writer));
 }
