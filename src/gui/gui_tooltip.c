@@ -167,9 +167,10 @@ void tb_gui_update_tooltips(tb_gui *gui)
     }
     gui->tooltip = found;
     (void)tb_widget_popup(
-        found, &(tb_gui_popup_options){.anchor = {gui->mouse.x, gui->mouse.y + TB_GUI_TOOLTIP_DROP},
-                                       .placement = TB_GUI_POPUP_AT,
-                                       .passive = true});
+        found, &(tb_gui_popup_options){
+                   .anchor = {.x = gui->mouse.x, .y = gui->mouse.y + TB_GUI_TOOLTIP_DROP},
+                   .placement = TB_GUI_POPUP_AT,
+                   .passive = true});
 }
 
 void tb_gui_register_tooltip(tb_gui *gui)

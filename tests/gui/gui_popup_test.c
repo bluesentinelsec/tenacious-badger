@@ -83,7 +83,7 @@ TB_TEST(gui_popup, a_popup_is_shown_in_front_at_its_natural_size_unclipped_by_it
 
     /* Popped up again, it moves; the root never is one. */
     TB_TEST_REQUIRE(
-        tb_widget_popup(made.popup, &(tb_gui_popup_options){.anchor = {200.0f, 100.0f},
+        tb_widget_popup(made.popup, &(tb_gui_popup_options){.anchor = {.x = 200.0f, .y = 100.0f},
                                                             .placement = TB_GUI_POPUP_AT,
                                                             .min_size = {150.0f, 0.0f}}));
     gui_update(&fixture);
@@ -112,7 +112,7 @@ TB_TEST(gui_popup, a_popup_is_kept_inside_the_gui_flipped_beside_its_anchor)
     expect_rect(tb_widget_rect(made.popup), 550.0f, 10.0f, 100.0f, 80.0f);
     /* At a point near the corner: up and left of it. */
     TB_TEST_REQUIRE(
-        tb_widget_popup(made.popup, &(tb_gui_popup_options){.anchor = {790.0f, 590.0f},
+        tb_widget_popup(made.popup, &(tb_gui_popup_options){.anchor = {.x = 790.0f, .y = 590.0f},
                                                             .placement = TB_GUI_POPUP_AT}));
     gui_update(&fixture);
     expect_rect(tb_widget_rect(made.popup), 690.0f, 510.0f, 100.0f, 80.0f);
@@ -322,7 +322,7 @@ TB_TEST(gui_popup, a_popup_is_in_front_of_a_modal_widget_and_takes_input_with_it
     TB_TEST_REQUIRE(tb_grid(inside, NULL));
     TB_TEST_REQUIRE(tb_widget_show_modal(dialog));
     TB_TEST_REQUIRE(
-        tb_widget_popup(made.popup, &(tb_gui_popup_options){.anchor = {300.0f, 300.0f}}));
+        tb_widget_popup(made.popup, &(tb_gui_popup_options){.anchor = {.x = 300.0f, .y = 300.0f}}));
     gui_update(&fixture);
     TB_TEST_REQUIRE(command_of(&fixture, made.popup, &popup_command));
     TB_TEST_REQUIRE(command_of(&fixture, dialog, &dialog_command));
