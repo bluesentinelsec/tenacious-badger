@@ -72,9 +72,10 @@ TB_TEST(gui_choice, a_check_button_toggles_its_variable_by_its_values)
     TB_TEST_EXPECT(tb_widget_invoke(check));
     TB_TEST_EXPECT(selected(twin));
     TB_TEST_EXPECT_INT(command.count, ==, 3);
-    /* Enter is left to its ancestors. */
+    /* Enter, Accept, toggles it too. */
     gui_key(&fixture, TB_KEY_ENTER, 0);
-    TB_TEST_EXPECT_INT(command.count, ==, 3);
+    TB_TEST_EXPECT_INT(command.count, ==, 4);
+    TB_TEST_EXPECT(tb_text_equal(tb_var_get_text(music), TB_TEXT("off")));
 
     /* Set by a program: no event, no command; its twin follows. */
     TB_TEST_EXPECT(tb_var_set_text(music, "off"));
@@ -83,8 +84,8 @@ TB_TEST(gui_choice, a_check_button_toggles_its_variable_by_its_values)
     const tb_gui_value on = tb_gui_bool(true);
     TB_TEST_EXPECT(tb_widget_set(twin, "selected", &on));
     TB_TEST_EXPECT(selected(check));
-    TB_TEST_EXPECT_INT(command.count, ==, 3);
-    TB_TEST_EXPECT_UINT(gui_log_count(&log, TB_GUI_EVENT_CHANGED, check), ==, 3);
+    TB_TEST_EXPECT_INT(command.count, ==, 4);
+    TB_TEST_EXPECT_UINT(gui_log_count(&log, TB_GUI_EVENT_CHANGED, check), ==, 4);
 
     /* A value of neither makes it cleared. */
     TB_TEST_EXPECT(tb_var_set_text(music, "loud"));
@@ -257,6 +258,8 @@ TB_TEST(gui_choice, they_draw_their_state_and_measure_their_text)
     TB_TEST_EXPECT(tb_widget_invoke(check));
     TB_TEST_EXPECT(tb_widget_invoke(radio));
     TB_TEST_REQUIRE(tb_widget_focus(check));
+    /* The focus ring is drawn while the focus is shown. */
+    tb_gui_set_focus_visible(fixture.gui, true);
     gui_update(&fixture);
     /* Ticked: a tick of two lines; chosen: a dot. */
     TB_TEST_EXPECT_UINT(drawn(&fixture, check, TB_UI_COMMAND_LINE), ==, 2);

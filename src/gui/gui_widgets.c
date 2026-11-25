@@ -352,7 +352,7 @@ static void tb_gui_button_draw(tb_widget widget, const void *data, tb_gui_paint 
     tb_gui_paint_fill(paint, rect, theme->frame_rounding, theme->colors[tb_gui_button_fill(state)]);
     tb_gui_paint_outline(paint, rect, theme->frame_rounding, theme->border,
                          theme->colors[TB_UI_COLOR_BORDER]);
-    if ((state & TB_WIDGET_FOCUSED) != 0)
+    if ((state & TB_WIDGET_FOCUS_VISIBLE) != 0)
     {
         tb_gui_paint_outline(paint, rect, theme->frame_rounding, 2.0f * theme->border,
                              theme->colors[TB_UI_COLOR_ACCENT]);
@@ -404,6 +404,7 @@ static bool tb_gui_button_event(tb_widget widget, void *data, const tb_gui_event
     case TB_GUI_EVENT_MOTION:
     case TB_GUI_EVENT_VALIDATE:
     case TB_GUI_EVENT_POPUP_CLOSE:
+    case TB_GUI_EVENT_BACK:
     case TB_GUI_EVENT_COUNT:
         break;
     }

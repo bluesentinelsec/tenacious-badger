@@ -23,6 +23,7 @@ static const char *const tb_gui_filter_names[] = {"stop", "pass", "ignore"};
 static const char *const tb_gui_sticky_names[] = {"n", "s", "e", "w"};
 static const char *const tb_gui_anchor_names[] = {"center", "n",  "ne", "e", "se",
                                                   "s",      "sw", "w",  "nw"};
+static const char *const tb_gui_wrap_names[] = {"horizontal", "vertical"};
 
 #define TB_GUI_COUNT_OF(array) (sizeof(array) / sizeof((array)[0]))
 
@@ -382,6 +383,14 @@ static const tb_gui_property tb_gui_common[] = {
                   tb_gui_set_ipady),
     TB_GUI_COMMON_NAMED("grid_anchor", TB_GUI_PROPERTY_LAYOUT, tb_gui_get_anchor, tb_gui_set_anchor,
                         tb_gui_anchor_names),
+    TB_GUI_COMMON("default_focus", TB_GUI_TYPE_BOOL, 0, tb_gui_get_default_focus,
+                  tb_gui_set_default_focus),
+    {.name = "focus_wrap",
+     .type = TB_GUI_TYPE_FLAGS,
+     .names = tb_gui_wrap_names,
+     .name_count = TB_GUI_COUNT_OF(tb_gui_wrap_names),
+     .get = tb_gui_get_focus_wrap,
+     .set = tb_gui_set_focus_wrap},
 };
 
 const tb_gui_property *tb_gui_common_properties(size_t *count)

@@ -134,11 +134,14 @@ static void tb_gui_compact_bindings(tb_gui *gui)
     }
 }
 
-/* Give an event to a widget: its bindings, then its kind. Returns whether
- * the kind used it. */
-static bool tb_gui_deliver(tb_gui *gui, tb_widget widget, tb_gui_event *event)
+/* Give an event to a widget: its bindings, until one accepts it, then its
+ * kind, unless `kind` is false. Returns whether the kind used it, or a
+ * binding accepted it. */
+static bool tb_gui_deliver_to(tb_gui *gui, tb_widget widget, tb_gui_event *event, bool kind)
 {
     tb_gui_node *node = tb_gui_node_of(widget);
+    const bool outer_accepted = gui->event_accepted;
+    bool accepted = false;
     bool used = false;
 
     if (node == NULL)
@@ -152,8 +155,9 @@ static bool tb_gui_deliver(tb_gui *gui, tb_widget widget, tb_gui_event *event)
     event->widget = widget;
     event->local = (tb_vec2){event->position.x - node->rect.x, event->position.y - node->rect.y};
     gui->dispatch_depth++;
+    gui->event_accepted = false;
     const size_t count = node->binding_count;
-    for (size_t index = 0; index < count; index++)
+    for (size_t index = 0; index < count && !gui->event_accepted; index++)
     {
         node = tb_gui_node_of(widget);
         if (node == NULL || index >= node->binding_count)
@@ -166,8 +170,14 @@ static bool tb_gui_deliver(tb_gui *gui, tb_widget widget, tb_gui_event *event)
             binding.callback(event, binding.user);
         }
     }
+    accepted = gui->event_accepted;
+    gui->event_accepted = outer_accepted;
     node = tb_gui_node_of(widget);
-    if (node != NULL && node->kind->event != NULL)
+    if (accepted)
+    {
+        used = true;
+    }
+    else if (kind && node != NULL && node->kind->event != NULL)
     {
         used = node->kind->event(widget, node->data, event);
     }
@@ -180,22 +190,50 @@ static bool tb_gui_deliver(tb_gui *gui, tb_widget widget, tb_gui_event *event)
     return used;
 }
 
+static bool tb_gui_deliver(tb_gui *gui, tb_widget widget, tb_gui_event *event)
+{
+    return tb_gui_deliver_to(gui, widget, event, true);
+}
+
+/* Give an event to a widget, then to each ancestor until a kind uses it;
+ * the widget's own kind is passed over when `skip_kind`. Returns whether
+ * one did, and in `by_target` whether the widget itself did. */
+static bool tb_gui_bubble_from(tb_gui *gui, tb_widget target, tb_gui_event *event, bool skip_kind,
+                               bool *by_target)
+{
+    tb_widget widget = target;
+    bool first = true;
+
+    *by_target = false;
+    while (tb_widget_alive(widget))
+    {
+        const tb_widget parent = tb_widget_parent(widget);
+        if (tb_gui_deliver_to(gui, widget, event, !(first && skip_kind)))
+        {
+            *by_target = first;
+            return true;
+        }
+        first = false;
+        widget = parent;
+    }
+    return false;
+}
+
 /* Give an event to a widget, then to each ancestor until a kind uses it.
  * Returns whether one did. */
 static bool tb_gui_bubble(tb_gui *gui, tb_widget target, tb_gui_event *event)
 {
-    tb_widget widget = target;
+    bool by_target = false;
+    return tb_gui_bubble_from(gui, target, event, false, &by_target);
+}
 
-    while (tb_widget_alive(widget))
+void tb_gui_accept_event(const tb_gui_event *event)
+{
+    TB_ASSERT(event != NULL);
+    if (event->widget.gui != NULL)
     {
-        const tb_widget parent = tb_widget_parent(widget);
-        if (tb_gui_deliver(gui, widget, event))
-        {
-            return true;
-        }
-        widget = parent;
+        event->widget.gui->event_accepted = true;
     }
-    return false;
 }
 
 static void tb_gui_send_kind(tb_gui *gui, tb_gui_event_kind kind, tb_widget target)
@@ -332,7 +370,7 @@ static void tb_gui_remove_modal(tb_gui *gui, uint32_t index)
     gui->modal_count = kept;
 }
 
-static tb_widget tb_gui_top_modal(const tb_gui *gui)
+tb_widget tb_gui_top_modal(const tb_gui *gui)
 {
     return gui->modal_count > 0 ? gui->modals[gui->modal_count - 1] : TB_WIDGET_NONE;
 }
@@ -355,6 +393,7 @@ static void tb_gui_set_focus(tb_gui *gui, tb_widget target)
         return;
     }
     gui->focus = target;
+    gui->focus_engaged = false;
     if (tb_widget_alive(old))
     {
         tb_gui_send_kind(gui, TB_GUI_EVENT_FOCUS_OUT, old);
@@ -366,6 +405,13 @@ static void tb_gui_set_focus(tb_gui *gui, tb_widget target)
     }
 }
 
+void tb_gui_give_focus(tb_gui *gui, tb_widget target, bool engaged)
+{
+    tb_gui_forget_restore(gui);
+    tb_gui_set_focus(gui, target);
+    gui->focus_engaged = engaged && tb_widget_equal(gui->focus, target) && tb_widget_alive(target);
+}
+
 bool tb_widget_show_modal(tb_widget widget)
 {
     tb_gui_node *const node = tb_gui_node_of(widget);
@@ -374,6 +420,10 @@ bool tb_widget_show_modal(tb_widget widget)
     if (node == NULL || node->parent == TB_GUI_NO_NODE)
     {
         return false;
+    }
+    if (!tb_gui_modal_contains(gui, widget.index))
+    {
+        tb_gui_remember_focus(gui, widget);
     }
     tb_gui_remove_modal(gui, widget.index);
     if (gui->modal_count == gui->modal_capacity)
@@ -391,16 +441,24 @@ bool tb_widget_show_modal(tb_widget widget)
     {
         tb_gui_set_focus(gui, TB_WIDGET_NONE);
     }
+    /* A modal widget with a default focus gives it the focus at once. */
+    const tb_widget chosen = tb_gui_default_focus_in(gui, widget.index);
+    if (tb_widget_alive(chosen))
+    {
+        tb_gui_give_focus(gui, chosen, false);
+    }
     return true;
 }
 
 void tb_widget_end_modal(tb_widget widget)
 {
-    if (!tb_widget_alive(widget))
+    if (!tb_widget_alive(widget) || !tb_gui_modal_contains(widget.gui, widget.index))
     {
         return;
     }
     tb_gui_remove_modal(widget.gui, widget.index);
+    tb_gui_holder_closed(widget.gui, widget.index);
+    tb_gui_restore_focus(widget.gui);
 }
 
 void tb_gui_forget_widget(tb_gui *gui, tb_widget widget)
@@ -425,7 +483,11 @@ void tb_gui_forget_widget(tb_gui *gui, tb_widget widget)
     {
         gui->tooltip = TB_WIDGET_NONE;
     }
-    tb_gui_remove_modal(gui, widget.index);
+    if (tb_gui_modal_contains(gui, widget.index))
+    {
+        tb_gui_remove_modal(gui, widget.index);
+        tb_gui_holder_closed(gui, widget.index);
+    }
     tb_gui_forget_popup(gui, widget.index);
 }
 
@@ -433,7 +495,7 @@ void tb_gui_forget_widget(tb_gui *gui, tb_widget widget)
  * The focus.
  * ------------------------------------------------------------------------- */
 
-static bool tb_gui_takes_focus(tb_gui *gui, tb_widget widget, uint32_t flags)
+bool tb_gui_takes_focus(tb_gui *gui, tb_widget widget, uint32_t flags)
 {
     const tb_gui_node *const node = tb_gui_node_of(widget);
 
@@ -448,19 +510,25 @@ bool tb_widget_focus(tb_widget widget)
     {
         return false;
     }
-    tb_gui_set_focus(widget.gui, widget);
+    tb_gui_give_focus(widget.gui, widget, true);
     return true;
 }
 
 void tb_gui_clear_focus(tb_gui *gui)
 {
     TB_ASSERT(gui != NULL);
-    tb_gui_set_focus(gui, TB_WIDGET_NONE);
+    tb_gui_give_focus(gui, TB_WIDGET_NONE, false);
+}
+
+bool tb_gui_focus_walks(tb_gui *gui, uint32_t index, uint32_t scope)
+{
+    const tb_gui_node *const node = tb_gui_node_at(gui, index);
+    return node->shown && (index == scope || (!tb_gui_modal_contains(gui, index) && !node->popup));
 }
 
 /* The slot after one in the order of the tree, within a scope, skipping
  * the children of those whose children are not walked. */
-static uint32_t tb_gui_walk_next(tb_gui *gui, uint32_t index, uint32_t scope, bool into)
+uint32_t tb_gui_walk_next(tb_gui *gui, uint32_t index, uint32_t scope, bool into)
 {
     const tb_gui_node *const node = tb_gui_node_at(gui, index);
 
@@ -490,11 +558,16 @@ void tb_gui_focus_next(tb_gui *gui, bool backward)
     uint32_t chosen = TB_GUI_NO_NODE;
 
     TB_ASSERT(gui != NULL);
+    const tb_widget neighbor =
+        tb_gui_neighbor_taking_focus(gui->focus, backward ? TB_GUI_NAV_PREVIOUS : TB_GUI_NAV_NEXT);
+    if (tb_widget_alive(neighbor))
+    {
+        tb_gui_give_focus(gui, neighbor, true);
+        return;
+    }
     for (uint32_t at = scope; at != TB_GUI_NO_NODE;)
     {
-        const tb_gui_node *const node = tb_gui_node_at(gui, at);
-        const bool walked =
-            node->shown && (at == scope || (!tb_gui_modal_contains(gui, at) && !node->popup));
+        const bool walked = tb_gui_focus_walks(gui, at, scope);
         const tb_widget widget = tb_gui_handle(gui, at);
         if (walked && tb_gui_takes_focus(gui, widget, TB_WIDGET_CLASS_FOCUSABLE))
         {
@@ -527,7 +600,7 @@ void tb_gui_focus_next(tb_gui *gui, bool backward)
     {
         chosen = passed && after != TB_GUI_NO_NODE ? after : first;
     }
-    tb_gui_set_focus(gui, tb_gui_handle(gui, chosen));
+    tb_gui_give_focus(gui, tb_gui_handle(gui, chosen), true);
 }
 
 /* ---------------------------------------------------------------------------
@@ -684,6 +757,8 @@ static void tb_gui_press(tb_gui *gui, const tb_window_event *event)
         (void)tb_gui_deliver(gui, gui->pressed, &held);
         return;
     }
+    /* The mouse is used: the focus is no longer shown. */
+    gui->focus_visible = false;
     if (!tb_gui_press_popups(gui, target))
     {
         return;
@@ -697,7 +772,7 @@ static void tb_gui_press(tb_gui *gui, const tb_window_event *event)
             tb_widget_alive(target) && tb_gui_popup_level(gui, target.index, false) != SIZE_MAX;
         if (focuses || !in_popup)
         {
-            tb_gui_set_focus(gui, focuses ? target : TB_WIDGET_NONE);
+            tb_gui_give_focus(gui, focuses ? target : TB_WIDGET_NONE, focuses);
         }
     }
     if (!tb_widget_alive(target) || !tb_gui_enabled_chain(gui, target.index))
@@ -753,93 +828,242 @@ static void tb_gui_release_button(tb_gui *gui, const tb_window_event *event)
 }
 
 /* ---------------------------------------------------------------------------
- * Keys and text.
+ * Keys, text, and navigation.
  * ------------------------------------------------------------------------- */
 
+/* A key pressed, or the key an action fed stands for, and its action. */
+typedef struct tb_gui_key_press
+{
+    tb_key key;
+    uint32_t modifiers;
+    bool repeat;
+    tb_gui_nav action;
+} tb_gui_key_press;
+
+/* Whether a key is the one its action stands for, as a fed action's is. */
+static bool tb_gui_is_action_key(const tb_gui_key_press *press)
+{
+    uint32_t modifiers = 0;
+    const tb_key key = tb_gui_action_key(press->action, &modifiers);
+    return key == press->key && modifiers == press->modifiers;
+}
+
+/* Give a key that happened to `origin` to a widget, and to its ancestors
+ * when `bubble`, its own kind passed over when `skip_kind`; then, when
+ * nothing used it, the key its action stands for, so that a key mapped to
+ * Accept is Enter to the kinds. Returns whether a kind used either, and in
+ * `by_target` whether the widget itself did. */
+static bool tb_gui_offer_key(tb_gui *gui, tb_widget target, tb_widget origin,
+                             const tb_gui_key_press *press, bool bubble, bool skip_kind,
+                             bool *by_target)
+{
+    tb_key keys[2] = {press->key, TB_KEY_UNKNOWN};
+    uint32_t modifiers[2] = {press->modifiers, 0};
+    size_t count = 1;
+
+    *by_target = false;
+    if (press->action != TB_GUI_NAV_NONE && !tb_gui_is_action_key(press))
+    {
+        keys[1] = tb_gui_action_key(press->action, &modifiers[1]);
+        count = 2;
+    }
+    for (size_t index = 0; index < count && tb_widget_alive(target); index++)
+    {
+        tb_gui_event key = tb_gui_event_of(gui, TB_GUI_EVENT_KEY, target);
+        key.target = origin;
+        key.key = keys[index];
+        key.modifiers = modifiers[index];
+        key.repeat = press->repeat;
+        if (bubble && tb_gui_bubble_from(gui, target, &key, skip_kind, by_target))
+        {
+            return true;
+        }
+        if (!bubble && tb_gui_deliver_to(gui, target, &key, !skip_kind))
+        {
+            *by_target = true;
+            return true;
+        }
+    }
+    return false;
+}
+
 /* A key while a popup takes input: to the popup in front, unless the focus
- * is in it, then to its ancestors; Escape that nothing uses closes it. */
-static void tb_gui_popup_key(tb_gui *gui, tb_widget popup, tb_gui_event *key)
+ * is in it, then to its ancestors; Back that nothing uses closes it. */
+static void tb_gui_popup_key(tb_gui *gui, tb_widget popup, const tb_gui_key_press *press)
 {
     const bool focused =
         tb_widget_alive(gui->focus) && tb_gui_node_inside(gui, gui->focus.index, popup.index);
     const tb_widget target = focused ? gui->focus : popup;
-    bool used = false;
+    bool by_target = false;
 
-    key->widget = target;
-    key->target = target;
-    if (focused)
-    {
-        used = tb_gui_bubble(gui, target, key);
-    }
-    else
-    {
-        used = tb_gui_deliver(gui, popup, key);
-    }
-    if (used || !tb_widget_is_popup(popup))
+    if (tb_gui_offer_key(gui, target, target, press, focused, false, &by_target) ||
+        !tb_widget_is_popup(popup))
     {
         return;
     }
-    if (key->key == TB_KEY_ESCAPE)
+    if (press->action == TB_GUI_NAV_BACK)
     {
         tb_widget_close_popup(popup);
         return;
     }
-    if (!focused && tb_gui_bubble(gui, tb_widget_parent(popup), key))
+    if (!focused &&
+        tb_gui_offer_key(gui, tb_widget_parent(popup), popup, press, true, false, &by_target))
     {
         return;
     }
     /* Tab that nothing used closes the popups, then moves the focus. */
-    if (key->key == TB_KEY_TAB &&
-        (key->modifiers & (TB_MODIFIER_CONTROL | TB_MODIFIER_ALT | TB_MODIFIER_SUPER)) == 0)
+    if (press->action == TB_GUI_NAV_NEXT || press->action == TB_GUI_NAV_PREVIOUS)
     {
         tb_gui_close_popups(gui);
-        tb_gui_focus_next(gui, (key->modifiers & TB_MODIFIER_SHIFT) != 0);
+        tb_gui_focus_next(gui, press->action == TB_GUI_NAV_PREVIOUS);
+    }
+}
+
+static bool tb_gui_kind_engages(tb_widget widget)
+{
+    const tb_gui_node *const node = tb_gui_node_of(widget);
+    return node != NULL && (node->kind->flags & TB_WIDGET_CLASS_ENGAGES) != 0;
+}
+
+/* The scope navigation stays within: the modal widget in front, or the
+ * root. */
+static uint32_t tb_gui_navigation_scope(const tb_gui *gui)
+{
+    const tb_widget modal = tb_gui_top_modal(gui);
+    return modal.gui != NULL ? modal.index : 0;
+}
+
+/* Back that no kind used: let go of the widget engaged; or else send
+ * TB_GUI_EVENT_BACK up the tree; or else hide the modal widget in front. */
+static void tb_gui_back(tb_gui *gui)
+{
+    tb_widget target = gui->focus;
+
+    if (tb_gui_kind_engages(target) && gui->focus_engaged)
+    {
+        gui->focus_engaged = false;
+        return;
+    }
+    if (!tb_widget_alive(target))
+    {
+        target = tb_gui_handle(gui, tb_gui_navigation_scope(gui));
+    }
+    tb_gui_event back = tb_gui_event_of(gui, TB_GUI_EVENT_BACK, target);
+    if (tb_gui_bubble(gui, target, &back))
+    {
+        return;
+    }
+    const tb_widget modal = tb_gui_top_modal(gui);
+    if (tb_widget_alive(modal))
+    {
+        tb_widget_set_visible(modal, false);
+    }
+}
+
+/* A key, or an action fed: to the popup in front; or as Tab; or to the
+ * widget with the focus and its ancestors, then done as its action when no
+ * kind used it. */
+static void tb_gui_press_key(tb_gui *gui, const tb_gui_key_press *press)
+{
+    const tb_widget popup = tb_gui_active_popup(gui);
+    const tb_gui_nav action = press->action;
+    tb_widget target = gui->focus;
+    bool by_target = false;
+
+    if (tb_widget_alive(popup))
+    {
+        tb_gui_popup_key(gui, popup, press);
+        return;
+    }
+    if (action == TB_GUI_NAV_NEXT || action == TB_GUI_NAV_PREVIOUS)
+    {
+        tb_gui_focus_next(gui, action == TB_GUI_NAV_PREVIOUS);
+        return;
+    }
+    if (!tb_widget_alive(target))
+    {
+        /* With nothing focused, a direction or Accept goes to the default. */
+        const bool moves =
+            (action >= TB_GUI_NAV_UP && action <= TB_GUI_NAV_RIGHT) || action == TB_GUI_NAV_ACCEPT;
+        const tb_widget chosen =
+            moves ? tb_gui_default_focus_in(gui, tb_gui_navigation_scope(gui)) : TB_WIDGET_NONE;
+        if (tb_widget_alive(chosen))
+        {
+            tb_gui_give_focus(gui, chosen, false);
+            return;
+        }
+        target = tb_gui_top_modal(gui);
+    }
+    /* A kind that engages keeps none of the keys of navigation until it is
+     * engaged: Accept engages it. */
+    const bool engages = tb_widget_alive(gui->focus) && tb_gui_kind_engages(gui->focus);
+    const bool idle = engages && !gui->focus_engaged;
+    if (idle && action == TB_GUI_NAV_ACCEPT)
+    {
+        gui->focus_engaged = true;
+        return;
+    }
+    const bool skip_kind = idle && action != TB_GUI_NAV_NONE;
+    if (tb_gui_offer_key(gui, target, target, press, true, skip_kind, &by_target))
+    {
+        if (by_target && engages && tb_widget_equal(target, gui->focus))
+        {
+            gui->focus_engaged = true;
+        }
+        return;
+    }
+    if (action >= TB_GUI_NAV_UP && action <= TB_GUI_NAV_RIGHT)
+    {
+        (void)tb_gui_focus_direction(gui, action);
+    }
+    else if (action == TB_GUI_NAV_BACK)
+    {
+        tb_gui_back(gui);
     }
 }
 
 static void tb_gui_key(tb_gui *gui, const tb_window_event *event)
 {
-    const uint32_t chords = TB_MODIFIER_CONTROL | TB_MODIFIER_ALT | TB_MODIFIER_SUPER;
-    const tb_widget popup = tb_gui_active_popup(gui);
-    tb_widget target = gui->focus;
+    const tb_gui_key_press press = {.key = event->key,
+                                    .modifiers = event->modifiers,
+                                    .repeat = event->repeat,
+                                    .action = tb_gui_key_action(gui, event->key, event->modifiers)};
 
     gui->modifiers = event->modifiers;
     gui->tooltip_spent = true;
-    tb_gui_event key = tb_gui_event_of(gui, TB_GUI_EVENT_KEY, target);
-    key.key = event->key;
-    key.repeat = event->repeat;
-    if (tb_widget_alive(popup))
+    if (press.action != TB_GUI_NAV_NONE)
     {
-        tb_gui_popup_key(gui, popup, &key);
-        return;
+        gui->focus_visible = true;
     }
-    if (event->key == TB_KEY_TAB && (event->modifiers & chords) == 0)
-    {
-        tb_gui_focus_next(gui, (event->modifiers & TB_MODIFIER_SHIFT) != 0);
-        return;
-    }
-    if (!tb_widget_alive(target))
-    {
-        target = tb_gui_top_modal(gui);
-    }
-    if (!tb_widget_alive(target))
-    {
-        return;
-    }
-    key.widget = target;
-    key.target = target;
-    (void)tb_gui_bubble(gui, target, &key);
+    tb_gui_press_key(gui, &press);
+}
+
+/* An action fed: the key it stands for, pressed. */
+static void tb_gui_navigate(tb_gui *gui, tb_gui_nav action)
+{
+    tb_gui_key_press press = {.action = action};
+
+    press.key = tb_gui_action_key(action, &press.modifiers);
+    gui->tooltip_spent = true;
+    gui->focus_visible = true;
+    tb_gui_press_key(gui, &press);
 }
 
 static void tb_gui_type_text(tb_gui *gui, const tb_window_event *event)
 {
-    if (!tb_widget_alive(gui->focus))
+    const tb_widget target = gui->focus;
+
+    if (!tb_widget_alive(target))
     {
         return;
     }
-    tb_gui_event text = tb_gui_event_of(gui, TB_GUI_EVENT_TEXT, gui->focus);
+    tb_gui_event text = tb_gui_event_of(gui, TB_GUI_EVENT_TEXT, target);
     text.text = event->text;
-    (void)tb_gui_deliver(gui, gui->focus, &text);
+    /* Text typed into a field engages it. */
+    if (tb_gui_deliver(gui, target, &text) && tb_widget_equal(gui->focus, target))
+    {
+        gui->focus_engaged = true;
+    }
 }
 
 static void tb_gui_handle_event(tb_gui *gui, const tb_window_event *event)
@@ -902,16 +1126,32 @@ static void tb_gui_handle_event(tb_gui *gui, const tb_window_event *event)
 
 void tb_gui_process_input(tb_gui *gui)
 {
-    /* Callbacks may feed more events; those wait for the next update. */
+    /* Callbacks may feed more events and actions; those wait for the next
+     * update. Actions are taken in their order among the events. */
     const size_t count = gui->queue_count;
+    tb_gui_nav action = TB_GUI_NAV_NONE;
 
-    for (size_t index = 0; index < count; index++)
+    tb_gui_actions_begin(gui);
+    for (size_t index = 0; index <= count; index++)
     {
+        while (tb_gui_take_action(gui, index, &action))
+        {
+            tb_gui_layout(gui);
+            tb_gui_dispatch_resized(gui);
+            tb_gui_navigate(gui, action);
+            tb_gui_restore_focus(gui);
+        }
+        if (index == count)
+        {
+            break;
+        }
         const tb_window_event event = gui->queue[index];
         tb_gui_layout(gui);
         tb_gui_dispatch_resized(gui);
         tb_gui_handle_event(gui, &event);
+        tb_gui_restore_focus(gui);
     }
+    tb_gui_actions_end(gui, count);
     if (count == 0)
     {
         return;
@@ -950,6 +1190,7 @@ static bool tb_gui_stops_mouse(tb_widget widget)
 
 void tb_gui_finish_input(tb_gui *gui)
 {
+    tb_gui_restore_focus(gui);
     if (tb_widget_alive(gui->focus) &&
         (!tb_gui_node_shown_enabled(gui, gui->focus.index) || !tb_gui_reachable(gui, gui->focus)))
     {

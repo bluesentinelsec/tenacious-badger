@@ -308,7 +308,7 @@ TB_TEST(gui_tree, the_common_properties_are_every_widgets)
                                          tb_widget_property_at(label, other)->name));
         }
     }
-    TB_TEST_EXPECT_STRING(common[count - 1].name, ==, "grid_anchor");
+    TB_TEST_EXPECT_STRING(common[count - 1].name, ==, "focus_wrap");
 
     tb_widget_set_name(label, "greeting");
     tb_widget_set_style(label, "title");

@@ -262,7 +262,8 @@ keys again. Keys go to the widget with the focus (`TB_GUI_EVENT_KEY`), and
 typed text (`TB_GUI_EVENT_TEXT`). `TB_GUI_EVENT_FOCUS_IN` and
 `TB_GUI_EVENT_FOCUS_OUT` say when the focus comes and goes.
 `tb_widget_focus`, `tb_gui_clear_focus`, and `tb_gui_focus_next` move it by
-hand.
+hand. The arrows, Enter, and Escape that no kind uses navigate (see
+[navigation](#navigation)).
 
 **Up the tree.** A key and the wheel are given to the widget, then to each
 of its ancestors, until a kind uses it: a frame's binding to a key sees the
@@ -424,12 +425,12 @@ those marked *click* take it from a click too.
 
 | Kind | Properties | What |
 | --- | --- | --- |
-| `checkbutton` | `text`, `variable`, `on_value`, `off_value`, `selected`, `command` | a box ticked while its variable holds its on value; a click, Space, or invoking sets the other |
-| `radiobutton` | `text`, `variable`, `value`, `selected`, `command` | one of a group on one variable, chosen while the variable holds its value; the arrows choose the one before or after among its siblings, and move the focus there |
+| `checkbutton` | `text`, `variable`, `on_value`, `off_value`, `selected`, `command` | a box ticked while its variable holds its on value; a click, Space, Enter, or invoking sets the other |
+| `radiobutton` | `text`, `variable`, `value`, `selected`, `command` | one of a group on one variable, chosen while the variable holds its value; the arrows choose the one before or after among its siblings, and move the focus there, and past the group's ends move the focus on |
 | `entry` (*click*) | `text`, `variable`, `placeholder`, `show`, `width`, `max_length`, `read_only`, `validate` | a line of text typed |
 | `text` (*click*) | `text`, `variable`, `width`, `height`, `wrap`, `max_length`, `read_only` | several lines, wrapped at its width or not, scrolled to keep the caret in sight and by the wheel |
 | `spinbox` (*click*) | `value`, `variable`, `from`, `to`, `increment`, `format`, `width`, `wrap`, `command`, `validate` | a number stepped by its arrows, Up and Down, Page Up and Page Down by ten, and the wheel; or typed, and taken on Enter or when the focus leaves |
-| `scale` (*click*) | `value`, `variable`, `from`, `to`, `resolution`, `big_increment`, `orient`, `length`, `show_value`, `format`, `command` | a slider: a press moves it there, a drag moves it; Left and Up step toward `from`, Right and Down toward `to`, by its resolution; Page Up and Page Down by its big increment; Home and End to the ends |
+| `scale` (*click*) | `value`, `variable`, `from`, `to`, `resolution`, `big_increment`, `orient`, `length`, `show_value`, `format`, `command` | a slider: a press moves it there, a drag moves it; the arrows along it step, Left or Up toward `from`, Right or Down toward `to`, by its resolution, and those across it move the focus on; Page Up and Page Down by its big increment; Home and End to the ends |
 | `progressbar` | `value`, `variable`, `maximum`, `mode`, `orient`, `length` | a trough filled as far as its value is to its maximum; indeterminate, a block that moves to and fro by the time `tb_gui_update` is given; it takes no input |
 | `combobox` (*click*) | `values`, `current`, `variable`, `width`, `height`, `command` | one of a list of values, chosen from a list that drops down over every widget |
 
@@ -471,11 +472,13 @@ and place the caret and the selection by byte offsets.
 when it fits only there, as a [popup](#popups): a child of the combo box,
 as wide as it, drawn above every widget and modal one. A press outside it
 closes it, and is used by it, as do the combo box losing the focus, being
-hidden, disabled, or destroyed. A click, Space, or Alt+Down opens the
-list; there the mouse, Up and Down, Page Up and Page Down, Home and End
+hidden, disabled, or destroyed. A click, Space, Enter, or Alt+Down opens
+the list; there the mouse, Up and Down, Page Up and Page Down, Home and End
 pick a value, and a click, Enter, or Space chooses it, and Escape or
-Alt+Up closes it. Closed, Up and Down choose the value before or after,
-and so does the wheel with the focus. A combo box's `values` are text, one
+Alt+Up closes it. Closed, Up and Down choose the value before or after
+while it is engaged, focused by a click or Tab; reached by navigation,
+they move the focus on (see [engagement](#engagement)). The wheel chooses
+with the focus. A combo box's `values` are text, one
 a line. A text variable holds the value chosen, an integer one its index.
 
 **Sizes.** Every one measures from the theme's font at the view's scale:
@@ -690,7 +693,8 @@ message wrapped at 360 units, and a row of buttons of one width
 `_RETRY_CANCEL`). It is made of a frame, labels, and buttons in grids,
 gridded over every cell of the root's grid, and shown modally in their
 middle. The first button has the focus, so Enter or Space chooses it;
-Escape chooses Cancel, No, or OK, the last of them the dialog has.
+Back, Escape or a gamepad's B, chooses Cancel, No, or OK, the last of them
+the dialog has.
 Choosing a button destroys the dialog, then calls the callback with the
 answer.
 
@@ -708,6 +712,166 @@ A `canvas` widget's content is drawn by the caller: its callback is given
 the paint functions each update, clipped to the widget and its ancestors,
 and its input comes by bindings. It takes the focus on a click, so that a
 viewport has the keys. `tb_gui_paint_image` draws an image from any kind.
+
+## Navigation
+
+A game's menus are used with a gamepad alone or a keyboard alone, as
+Godot's focus navigation and Unreal's UMG navigation are: the arrows and a
+gamepad's d-pad move the focus from widget to widget, Accept activates the
+one focused, and Back goes back.
+
+```c
+/* once: the screen's first widget, and its list going around */
+tb_widget_set(play, "default_focus", &(tb_gui_value){TB_GUI_TYPE_BOOL, {.boolean = true}});
+tb_widget_set(menu, "focus_wrap", &(tb_gui_value){TB_GUI_TYPE_FLAGS, {.flags = TB_GUI_WRAP_VERTICAL}});
+tb_bind(options, TB_GUI_EVENT_BACK, on_back_to_main_menu, game);
+
+/* for each gamepad button pressed, or a direction held, repeated */
+tb_gui_feed_navigation(gui, TB_GUI_NAV_DOWN);
+```
+
+### Actions
+
+What a player asks is an action, `tb_gui_nav`. The keys become actions by
+the GUI's key map; a gamepad's are fed by the game with
+`tb_gui_feed_navigation`, and handled in their order among the window
+events fed, in the next update. The engine has no gamepad input yet, so a
+game reads its gamepad itself and repeats a direction held, as a key
+repeats.
+
+| Action | Keys | A gamepad |
+| --- | --- | --- |
+| `TB_GUI_NAV_UP`, `_DOWN`, `_LEFT`, `_RIGHT` | the arrows | the d-pad, the left stick |
+| `TB_GUI_NAV_ACCEPT` | Enter, Space | A, Cross |
+| `TB_GUI_NAV_BACK` | Escape | B, Circle |
+| `TB_GUI_NAV_NEXT`, `_PREVIOUS` | Tab, Shift+Tab | |
+| `TB_GUI_NAV_TAB_NEXT`, `_TAB_PREVIOUS` | Control+Tab, Control+Shift+Tab, Control+Page Down and Up | the right and left shoulders |
+
+The key map is data the game changes, for players who rebind their keys:
+`tb_gui_map_key(gui, key, modifiers, action)` maps a key, with exactly
+those modifiers held, in place of what it was mapped to, and
+`TB_GUI_NAV_NONE` unmaps it; `tb_gui_key_action` reads it;
+`tb_gui_clear_key_map` unmaps every key, and `tb_gui_reset_key_map` maps
+them as a GUI starts.
+
+An action is first the key it stands for: Up, Down, Left, Right, Enter,
+Escape, Tab, Shift+Tab, Control+Tab, or Control+Shift+Tab. It is given to
+the widget with the focus, and its ancestors, as a key is; so a slider
+steps by a gamepad's d-pad as by the arrows, a button is pressed by A as
+by Enter, and a key mapped to Accept is Enter to the kinds. What no kind
+uses, the GUI does:
+
+| Action | Done by the GUI |
+| --- | --- |
+| a direction | the focus moves that way (below) |
+| Accept | the widget focused is engaged, when its kind engages and it is not |
+| Back | the widget engaged is let go; or else the popup in front is closed; or else `TB_GUI_EVENT_BACK` is sent; or else the modal widget in front is hidden |
+| next, previous | the focus moves as Tab moves it, before any kind sees the key |
+
+`TB_GUI_EVENT_BACK` goes to the widget with the focus, or the modal widget
+in front, or the root, then up the tree: a menu binds it to go to the
+previous menu. A binding that handles an event accepts it with
+`tb_gui_accept_event`, as Godot's `accept_event` and Tk's `break`: the
+bindings after it, the widget's kind, and its ancestors are not given it,
+and a key accepted so is not taken as an action. A message dialog answers
+Back as it answers Escape.
+
+With nothing focused, a direction or Accept gives the focus to the widget
+marked `default_focus` in the modal widget in front, or in the GUI, and does
+no more; when none is marked, it does nothing, so that a game's own keys
+stay its own while its interface has no focus.
+
+### Moving by direction
+
+A direction moves the focus to the focused widget's **neighbour** on that
+side, when it names one that takes the focus; or else to the nearest
+widget that takes the focus that way, by geometry (`tb_gui_focus_direction`
+does the same, now):
+
+- **Candidates.** A widget is a candidate when it lies wholly past the
+  focused widget's edge on that side, as Godot has it, within the popup or
+  modal widget the focus is in, or the GUI. Hidden and disabled widgets
+  are not, nor widgets behind a modal widget; widgets scrolled out of a
+  scroll frame's view are, and it scrolls to show them.
+- **In line first.** A candidate in line with the focused widget,
+  overlapping it across the direction, wins over any that is not, as
+  Unreal's swept band does: Down from a narrow button goes to the wide one
+  under it, not to a nearer one off to its side.
+- **The nearest.** Among those, the nearest wins, by the shortest distance
+  between the two rectangles, as Godot measures it; a tie goes to the first
+  in the order of the tree.
+- **Containers.** A widget with widgets shown inside it, as a notebook has
+  its page, is placed by its largest part beside them, its tabs: Down from
+  the tabs goes into the page, and Up from the page's top comes back to
+  them.
+
+**Neighbours.** `tb_widget_set_focus_neighbor(widget, side, neighbor)` names
+the widget the focus goes to from one, on a side, as Godot's
+`focus_neighbor_*` and Unreal's explicit navigation: Up, Down, Left, Right,
+or Next and Previous, which Tab and Shift+Tab follow. A neighbour hidden,
+disabled, or destroyed is passed over, and the geometry decides.
+
+**Wrapping.** A container's `focus_wrap` flags, `horizontal` and
+`vertical`, keep the focus inside it along an axis: when the nearest
+ancestor of the focused widget that wraps along a direction's axis has no
+candidate inside it that way, the search goes around, from its far edge,
+among its own widgets, as Unreal's `Wrap` rule. A list of a menu wraps so
+that Down from its last item comes to its first.
+
+| Property | Type | What |
+| --- | --- | --- |
+| `default_focus` | bool | the widget a screen or a modal widget gives the focus first |
+| `focus_wrap` | flags | `horizontal`, `vertical`: the axes along which navigation goes around inside it |
+
+### The default focus, and the focus given back
+
+`tb_widget_focus_default(container)` gives the focus to a screen's first
+widget: the first, in the order of the tree, marked `default_focus`, or
+else the first that takes the focus. A game calls it when it shows a menu.
+A modal widget shown gives the focus to its widget marked so, when it has
+one; it traps the focus, as every input, inside it, so the arrows and Tab
+go around its own widgets only.
+
+When a modal widget or a popup closes, ended, hidden, or destroyed, with
+the focus in it or nowhere, the focus goes back to the widget that had it
+when it was shown, if that widget still takes it. A modal widget ended
+gives it back at once; one destroyed, at the end of the event.
+
+### Engagement
+
+Some kinds use the arrows themselves: a field for its caret, a list for its
+items. The widget with the focus is **engaged** when it has the keys of
+navigation to itself (`tb_widget_engaged`, and the state
+`TB_WIDGET_ENGAGED`). Focus given by the mouse, by Tab, or by
+`tb_widget_focus` engages it, as a desktop's controls are used; focus moved
+by a direction, or given to a default, does not, as a game's menu is
+walked. A kind of `TB_WIDGET_CLASS_ENGAGES` is given none of the keys
+mapped to actions while it is not engaged: they move the focus on. Accept
+engages it, and so does any other key it uses, or text typed; Back lets
+it go, and the focus stays. `tb_widget_engage` engages the widget focused,
+or lets it go, by hand.
+
+| Kind | Not engaged | Engaged |
+| --- | --- | --- |
+| `entry` | the arrows move the focus; Accept or typing engages | Left and Right move the caret; Up and Down move the focus; Back lets go |
+| `text` | the arrows move the focus; Accept or typing engages | every arrow moves the caret, and Enter is a line break; Back lets go |
+| `spinbox` | the arrows move the focus; Accept or typing engages | Up and Down step, Left and Right move the caret; Back lets go |
+| `listbox`, `treeview` | the arrows move the focus; Accept engages | the arrows move among the items; Enter and Space choose; Back lets go |
+| `combobox` | the arrows move the focus; Accept opens its list | Up and Down choose the value before or after; open, its list has every key: Accept chooses, Back closes |
+| `scale` | the arrows along it step its value; those across it move the focus | the same |
+| `radiobutton` | the arrows choose the one before or after in its group, and move the focus there; past its ends they move the focus on | the same |
+| `button`, `checkbutton` | Accept presses or toggles; the arrows move the focus | the same |
+| `notebook` | on its tabs, Left and Right go from tab to tab; Up and Down move the focus; from anywhere in it, the tab actions go around the tabs, and the focus comes to the tabs | the same |
+| a menu, a combo box's list | a popup in front has every key: the arrows move among its items, Accept chooses, Back closes it | |
+
+### The focus shown
+
+The focus is shown once the keyboard or a gamepad navigates, and hidden
+once a mouse button is pressed, as CSS's `:focus-visible`:
+`tb_gui_focus_visible` says which, and `tb_gui_set_focus_visible` sets it
+until the next input. A kind draws its focus ring by the state
+`TB_WIDGET_FOCUS_VISIBLE`, not `TB_WIDGET_FOCUSED`, so a button clicked is
+not ringed; fields show their caret by `TB_WIDGET_FOCUSED` either way.
 
 ## Drawing and ownership
 
@@ -738,8 +902,9 @@ thread that renders. GUIs are independent of one another.
   opened by Alt and its titles' mnemonics.
 - Style classes and theme files; the `style` property is kept for them.
 - Layout files in JSON, and finding widgets by path; the `name` property is
-  kept for them.
-- Focus moved by arrows and a gamepad.
+  kept for them; focus neighbours named by path in them.
+- Gamepads read by the engine and fed to navigation; until then a game
+  feeds their actions itself.
 
 ## Tests
 
@@ -759,7 +924,11 @@ lists in each selection mode, and long ones drawing only what is seen;
 menus by the mouse and the keyboard; trees by the mouse and the keyboard,
 with headings resized; notebooks' tabs; paned windows' shares and sashes;
 message dialogs answered every way; images fitted; canvases drawn by their
-callbacks; the stretch modes and text measured
+callbacks; navigation by the arrows and by actions fed, in grids regular
+and not, with neighbours, wrapping, each kind's engagement, Accept and
+Back, modal widgets that trap the focus and give it back, scroll frames
+that follow it, the focus shown and hidden, and keys rebound; the stretch
+modes and text measured
 at the display's pixels; and the commands each widget draws, drawn on the null
 backend's canvas. Variables are read and set across their types, their
 observers run in updates, and they follow settings and are followed by

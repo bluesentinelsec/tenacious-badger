@@ -120,6 +120,7 @@ set(TB_TEST_CASE_SOURCES
     gui/gui_grid_test.c
     gui/gui_listbox_test.c
     gui/gui_menu_test.c
+    gui/gui_navigation_test.c
     gui/gui_notebook_test.c
     gui/gui_popup_test.c
     gui/gui_range_test.c

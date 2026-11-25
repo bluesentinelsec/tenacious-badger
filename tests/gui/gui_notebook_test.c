@@ -114,8 +114,8 @@ TB_TEST(gui_notebook, control_tab_from_inside_and_the_arrows_on_it_go_from_tab_t
     gui_key(&made.fixture, TB_KEY_TAB, TB_MODIFIER_CONTROL | TB_MODIFIER_SHIFT);
     TB_TEST_EXPECT_UINT(tb_notebook_selected(made.book), ==, 2);
     TB_TEST_EXPECT_INT(made.switches, ==, 1);
-    /* The field's page is hidden: the focus left it. */
-    TB_TEST_EXPECT(!tb_gui_wants_keyboard(made.fixture.gui));
+    /* The field's page is hidden: the focus came to the tabs. */
+    TB_TEST_EXPECT((tb_widget_state(made.book) & TB_WIDGET_FOCUSED) != 0);
 
     /* With the focus on the notebook itself. */
     TB_TEST_REQUIRE(tb_widget_focus(made.book));
