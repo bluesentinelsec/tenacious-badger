@@ -237,6 +237,30 @@ static void tb_gui_unlink(tb_gui *gui, uint32_t child)
     node->previous = TB_GUI_NO_NODE;
 }
 
+void tb_gui_move_before(tb_gui *gui, uint32_t child, uint32_t sibling)
+{
+    tb_gui_node *const anchor = tb_gui_node_at(gui, sibling);
+    const uint32_t parent = anchor->parent;
+    tb_gui_node *node = NULL;
+
+    TB_ASSERT(child != sibling && tb_gui_node_at(gui, child)->parent == parent);
+    tb_gui_unlink(gui, child);
+    node = tb_gui_node_at(gui, child);
+    node->parent = parent;
+    node->next = sibling;
+    node->previous = anchor->previous;
+    if (anchor->previous != TB_GUI_NO_NODE)
+    {
+        tb_gui_node_at(gui, anchor->previous)->next = child;
+    }
+    else
+    {
+        tb_gui_node_at(gui, parent)->first_child = child;
+    }
+    anchor->previous = child;
+    tb_gui_mark_layout(gui);
+}
+
 /* Release the memory of a slot whose widget was destroyed, and free it. */
 static void tb_gui_release(tb_gui *gui, uint32_t index)
 {
@@ -342,6 +366,8 @@ void tb_gui_destroy(tb_gui *gui)
         return;
     }
     tb_gui_flush_deferred(gui);
+    tb_gui_watches_free(gui);
+    tb_gui_names_free(gui);
     tb_gui_vars_free(gui);
     for (size_t index = 0; index < gui->node_count; index++)
     {
@@ -436,6 +462,7 @@ void tb_gui_update(tb_gui *gui, double delta_seconds)
     TB_ASSERT(gui != NULL);
     TB_ASSERT_MSG(gui->dispatch_depth == 0, "a GUI updated from one of its callbacks");
     gui->time += delta_seconds;
+    tb_gui_watches_poll(gui);
     tb_gui_vars_update(gui);
     tb_gui_layout(gui);
     tb_gui_dispatch_resized(gui);

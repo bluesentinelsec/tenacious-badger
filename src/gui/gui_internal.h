@@ -111,6 +111,17 @@ typedef struct tb_gui_font_entry
     tb_font *font;
 } tb_gui_font_entry;
 
+/* An object a layout file refers to by name: a command, by its value's
+ * type. Each type is a namespace of its own. */
+typedef struct tb_gui_named
+{
+    char *name; /* owned */
+    tb_gui_value value;
+} tb_gui_named;
+
+/* A file whose widget is loaded again when it changes (gui_watch.c). */
+typedef struct tb_gui_watch_entry tb_gui_watch_entry;
+
 /* A font resolved for text: the font, its size in units, and its measures. */
 typedef struct tb_gui_resolved_font
 {
@@ -196,6 +207,15 @@ struct tb_gui
     /* What tb_gui_draw() draws. */
     tb_arena *arena;
     tb_ui_paint paint;
+
+    /* Objects named for layout files, and the files watched. */
+    tb_gui_named *names;
+    size_t name_count;
+    size_t name_capacity;
+    tb_settings *settings; /* that layout files bind variables to; borrowed */
+    tb_gui_watch_entry *watches;
+    size_t watch_count;
+    size_t watch_capacity;
 };
 
 /* What a kind draws with: the widget, its rectangle, and its clip. */
@@ -220,6 +240,8 @@ void tb_gui_string_set(tb_gui_string *string, tb_text text);
 void tb_gui_string_free(tb_gui_string *string);
 tb_text tb_gui_string_text(const tb_gui_string *string);
 tb_gui_resolved_font tb_gui_resolve_font(tb_gui *gui, tb_font_spec spec);
+/* Move a widget among its siblings, to just before another of them. */
+void tb_gui_move_before(tb_gui *gui, uint32_t child, uint32_t sibling);
 
 /* gui_property.c: the common properties. */
 const tb_gui_property *tb_gui_property_find(const tb_gui_node *node, const char *name);
@@ -327,6 +349,24 @@ void tb_gui_register_canvas(tb_gui *gui);
 tb_vec2 tb_gui_measure_block(tb_widget widget, const tb_gui_text_block *block);
 /* The height of a line of the theme's font, in units. */
 float tb_gui_line_height(tb_gui *gui);
+
+/* gui_names.c: objects named for layout files. A type of value is named
+ * when a file refers to its values by name rather than writing them. */
+bool tb_gui_type_is_named(tb_gui_type type);
+bool tb_gui_named_find(tb_gui *gui, tb_gui_type type, tb_text name, tb_gui_value *value);
+/* The name of a value of a named type, that finds it; NULL when it has none. */
+const char *tb_gui_named_name_of(tb_gui *gui, const tb_gui_value *value);
+void tb_gui_names_free(tb_gui *gui);
+
+/* gui_file.c: a file's bytes read through a VFS, with a terminator after
+ * them, for the caller to free; the error says why not. */
+struct tb_vfs;
+tb_gui_file_result tb_gui_read_file(struct tb_vfs *vfs, const char *path, char **bytes,
+                                    size_t *length, tb_gui_file_error *error);
+
+/* gui_watch.c: files loaded again when they change. */
+void tb_gui_watches_poll(tb_gui *gui);
+void tb_gui_watches_free(tb_gui *gui);
 
 /* gui_var.c: variables polled against their settings, their observers run,
  * and their memory released with the GUI's. */

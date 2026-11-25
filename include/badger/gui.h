@@ -72,8 +72,12 @@
  * viewport, scrolled and clipped (tb_widget_class::viewport); a widget may
  * be shown as a popup in front of every other (tb_widget_popup()).
  *
- * **Not done yet.** Style classes; layout files; focus moved by arrows or
- * a gamepad.
+ * **Layout files.** A widget tree is written as JSON (tb_gui_save()) and
+ * built from it (tb_gui_load()), its commands and variables connected by
+ * name, and found by path (tb_widget_find()); a file is loaded again as it
+ * changes (tb_gui_watch()).
+ *
+ * **Not done yet.** Style classes; focus moved by arrows or a gamepad.
  *
  * @par Threading
  * Externally synchronized: a GUI and its widgets are used by one thread at
@@ -88,6 +92,7 @@
 #include "badger/font_catalog.h"
 #include "badger/math.h"
 #include "badger/renderer.h"
+#include "badger/stream.h"
 #include "badger/text.h"
 #include "badger/ui.h"
 #include "badger/window.h"
@@ -95,6 +100,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+
+struct tb_vfs;
 
 /** @brief A GUI: its widgets, their layout, and their input. Made by
  * tb_gui_create(); owned by the caller; destroyed by tb_gui_destroy(). */
@@ -708,6 +715,12 @@ struct tb_widget_class
      * the mouse only within the clip. NULL lays them out in the rectangle
      * less the insets. */
     tb_gui_viewport (*viewport)(tb_widget widget, void *data, tb_canvas_rect inner);
+    /** For a kind whose widgets hold what no property of it expresses, set
+     * by functions (a menu's items, a tree's): what a widget holds now, a
+     * short phrase such as "menu items", or NULL when it holds none. Layout
+     * files cannot hold it yet, and saving such a widget fails rather than
+     * drop it (tb_gui_save()). NULL for a kind whose properties say all. */
+    const char *(*unsaved)(tb_widget widget, const void *data);
 };
 
 /**
@@ -1199,6 +1212,10 @@ TB_API tb_widget tb_button(tb_widget parent, const tb_button_desc *desc);
 /** @brief A setting of the engine's, which a variable may be bound to: see
  * badger/settings.h. */
 typedef struct tb_setting tb_setting;
+
+/** @brief The engine's settings, which layout files bind variables to by
+ * name: see tb_gui_set_settings() and badger/settings.h. */
+typedef struct tb_settings tb_settings;
 
 /** @brief A variable's observer: see tb_var_trace().
  * @param var The variable that changed. @param user The trace's. */
@@ -2318,5 +2335,236 @@ TB_API const tb_widget_class *tb_message_box_class(void);
 TB_API const tb_widget_class *tb_image_widget_class(void);
 /** @brief See tb_treeview_class(). @par Threading Thread-safe. */
 TB_API const tb_widget_class *tb_canvas_widget_class(void);
+
+/* ---------------------------------------------------------------------------
+ * Finding widgets by path.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * @brief Find a widget by its path from another: the names of its children,
+ * their children, and so on, joined by `/`, as Godot's `get_node` and Tk's
+ * paths. Each name is that of the first child of that name, in the order of
+ * the tree.
+ * @code
+ * const tb_widget apply = tb_widget_find(tb_gui_root(gui), "options/video/apply");
+ * @endcode
+ * @param from Where the path starts.
+ * @param path Required; UTF-8, terminated. "" is `from` itself.
+ * @return The widget; none when no widget has the path, a name in it is
+ * empty, or `from` is stale.
+ */
+TB_API tb_widget tb_widget_find(tb_widget from, const char *path);
+
+/**
+ * @brief The path of a widget from its GUI's root, which tb_widget_find()
+ * from the root finds it by: the names of its ancestors below the root,
+ * and its own, joined by `/`. The root's path is "".
+ * @param[out] buffer Receives the path and a terminator, when it fits;
+ * optional when `capacity` is 0.
+ * @param capacity Bytes of `buffer`.
+ * @param[out] length Optional; the bytes the path needs, the terminator not
+ * counted, whether or not it fits.
+ * @return false when the handle is stale, a widget on the way has no name
+ * or a name with `/` in it, or the path does not fit.
+ */
+TB_API bool tb_widget_path(tb_widget widget, char *buffer, size_t capacity, size_t *length);
+
+/* ---------------------------------------------------------------------------
+ * Names: commands and variables a layout file refers to.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * @brief Name a command, so that a layout file's properties of type
+ * #TB_GUI_TYPE_COMMAND refer to it: `"command": "apply_settings"`. Saving
+ * writes a command by the name it was registered under.
+ *
+ * Register a callback and argument once: when two names hold the same pair,
+ * saving writes the first registered.
+ * @param name Required; UTF-8; copied.
+ * @param callback Required.
+ * @param user Given to the callback.
+ * @return false, changing nothing, when a command of that name is registered.
+ */
+TB_API bool tb_gui_register_command(tb_gui *gui, const char *name, tb_gui_callback *callback,
+                                    void *user);
+
+/** @brief Forget a command's name; widgets that hold it keep it.
+ * @param name Required. @return false when none is registered by that name. */
+TB_API bool tb_gui_unregister_command(tb_gui *gui, const char *name);
+
+/** @brief A command registered by name. @param name Required.
+ * @param[out] command Required; unchanged when there is none.
+ * @return false when none is registered by that name. */
+TB_API bool tb_gui_find_command(tb_gui *gui, const char *name, tb_gui_command *command);
+
+/**
+ * @brief Give the GUI the settings a layout file's variables bind to by
+ * name (`"setting": "graphics.fov"`, tb_var_bind_setting()).
+ * @param settings Optional; NULL for none. Borrowed: it outlives the GUI, or
+ * is replaced first.
+ */
+TB_API void tb_gui_set_settings(tb_gui *gui, tb_settings *settings);
+
+/* ---------------------------------------------------------------------------
+ * Layout files.
+ * ------------------------------------------------------------------------- */
+
+/** @brief What became of reading or writing a layout file. */
+typedef enum tb_gui_file_result
+{
+    TB_GUI_FILE_OK,           /**< Success. */
+    TB_GUI_FILE_NOT_FOUND,    /**< The VFS has no such file. */
+    TB_GUI_FILE_INPUT_FAILED, /**< The VFS could not read it. */
+    TB_GUI_FILE_MALFORMED,    /**< The text is not JSON. */
+    /** It is JSON, but not a layout the GUI can build: another format or a
+     * newer version, an unknown kind, property, or command, a value of the
+     * wrong type, or one a property refuses. */
+    TB_GUI_FILE_INVALID,
+    TB_GUI_FILE_OUTPUT_FAILED /**< The stream refused what was written. */
+} tb_gui_file_result;
+
+/** @brief Bytes of the path, and of the message, of #tb_gui_file_error. */
+#define TB_GUI_FILE_ERROR_CAPACITY 256
+
+/** @brief Where a layout file is wrong, and why. */
+typedef struct tb_gui_file_error
+{
+    tb_gui_file_result result; /**< As the function returned. */
+    /** The JSON path of the value at fault, such as
+     * `$.root.children[2].properties.colour`; "" when the fault is not in a
+     * value, as for text that is not JSON. Cut short when it is too long. */
+    char path[TB_GUI_FILE_ERROR_CAPACITY];
+    size_t line;        /**< In the text, from 1; 0 when the fault is not in the text. */
+    size_t column;      /**< Byte in the line, from 1; 0 as `line`. */
+    const char *reason; /**< A short phrase: "unknown property"; static; "" for none. */
+    /** All of it, for a log: "gui.json:12:5: $.root.properties.colour:
+     * unknown property \"colour\"". */
+    char message[TB_GUI_FILE_ERROR_CAPACITY];
+} tb_gui_file_error;
+
+/** @brief The format a layout file names: `"format": "badger-gui"`. */
+#define TB_GUI_FILE_FORMAT "badger-gui"
+
+/** @brief The version of the format this engine writes, and the newest it reads. */
+#define TB_GUI_FILE_VERSION 1
+
+/**
+ * @brief Build a widget, and the widgets in it, from a layout file's text,
+ * as the last child of `parent`.
+ *
+ * The file is JSON (see `docs/gui.md`): a format, a version, and a root
+ * widget, each widget its kind's registered name, its name, its properties
+ * by name, its place in its parent's grid, its rows and columns, and its
+ * children. Loading is all or nothing: on any error nothing is left of what
+ * was built, and the error says where.
+ *
+ * Properties are set in the order of the file, with tb_widget_set(); a
+ * command is found by its name (tb_gui_register_command()), and a variable
+ * by its own (tb_gui_find_var()). Variables the file declares are made
+ * first, unless the GUI has one of the name and type, which is used as it
+ * is; a file that fails destroys those it made. No callback is called
+ * while the widgets are built.
+ *
+ * @param parent A widget alive.
+ * @param text The file; NULL only at length zero. Not kept.
+ * @param length Bytes of `text`.
+ * @param name Optional: the file's name, for the error's message.
+ * @param[out] widget Required: the widget built, or none on failure.
+ * @param[out] error Optional: where and why it failed.
+ * @return OK, MALFORMED, or INVALID; INVALID too for a stale parent.
+ */
+TB_API tb_gui_file_result tb_gui_load(tb_widget parent, const char *text, size_t length,
+                                      const char *name, tb_widget *widget,
+                                      tb_gui_file_error *error);
+
+/**
+ * @brief tb_gui_load() of a file read through a VFS.
+ * @param vfs Required. @param path The file's name in the VFS; required.
+ * @param[out] widget Required. @param[out] error Optional.
+ * @return As tb_gui_load(), or NOT_FOUND or INPUT_FAILED.
+ */
+TB_API tb_gui_file_result tb_gui_load_file(tb_widget parent, struct tb_vfs *vfs, const char *path,
+                                           tb_widget *widget, tb_gui_file_error *error);
+
+/**
+ * @brief Write a widget, and the widgets in it, as a layout file that
+ * tb_gui_load() builds again.
+ *
+ * The text is the same for the same widgets, byte for byte: indented JSON,
+ * the keys of each widget in one order, its properties in the order of its
+ * kind's table and then the common ones, numbers in the fewest digits that
+ * read back as the same value. A property is left out when loading would
+ * give it its value without it: when it is its kind's default, after the
+ * properties written before it, a kind's variables and commands first.
+ * Read-only properties are not written. The variables named are declared
+ * in the file, with their values or settings. Saving a file that was
+ * loaded gives the same text when the file was written so.
+ *
+ * Nothing is dropped silently. A widget that holds what a file cannot
+ * hold yet (tb_widget_class::unsaved: menu items, tree items, tabs, panes,
+ * an image, a draw callback), a property of a type with no form in a file,
+ * a command set in code with no registered name, and a variable no name
+ * finds, each fail the save, and the error says which and where.
+ *
+ * @param sink Required open stream that can write; borrowed. On failure it
+ * holds part of a file, or a file with `null` where the failure was.
+ * @param[out] error Optional: where and why it failed; its path is that of
+ * the value in the file written (`$.root.children[1]`).
+ * @return OK; INVALID for a stale handle, text that is not UTF-8, widgets
+ * nested too deep, or what a file cannot hold; OUTPUT_FAILED when the
+ * stream refused.
+ */
+TB_API tb_gui_file_result tb_gui_save(tb_widget widget, tb_stream *sink, tb_gui_file_error *error);
+
+/* ---------------------------------------------------------------------------
+ * Hot reload.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * @brief Called when a watched file was loaded again, or failed to be.
+ * @param widget The widget built from it, which replaced the last; on
+ * failure, the widget kept.
+ * @param error NULL when it loaded; otherwise where and why not, borrowed
+ * for the call.
+ * @param user As watched.
+ */
+typedef void tb_gui_reload_callback(tb_widget widget, const tb_gui_file_error *error, void *user);
+
+/** @brief How a file is watched. Zero is every default. */
+typedef struct tb_gui_watch_options
+{
+    /** Seconds between looks at the file; 0 is a half. */
+    double interval;
+    tb_gui_reload_callback *callback; /**< Optional: told of each reload. */
+    void *user;                       /**< Given to the callback. */
+} tb_gui_watch_options;
+
+/**
+ * @brief Load a widget again from its file whenever the file changes: for
+ * development, where an author edits a layout while the game runs.
+ *
+ * tb_gui_update() reads the file through the VFS every interval, and when
+ * its bytes have changed, builds it again under the same parent, in the
+ * same place among its siblings, and destroys the old widget, whose handles
+ * go stale: the callback is given the new one. A file that fails to load
+ * leaves the old widget as it was, and the callback is told why; it is
+ * loaded again when it next changes. A file missing for a moment, as an
+ * editor saves it, is waited for.
+ *
+ * The watch ends when the widget is destroyed other than by a reload, or
+ * with tb_gui_unwatch(). A shipped game, whose files are in packages, need
+ * not watch them.
+ *
+ * @param widget A widget alive, loaded from the file.
+ * @param vfs Required; borrowed until the watch ends or the GUI is destroyed.
+ * @param path Required; the file's name in the VFS; copied.
+ * @param options Optional; NULL is every default.
+ * @return false for a stale handle or the root.
+ */
+TB_API bool tb_gui_watch(tb_widget widget, struct tb_vfs *vfs, const char *path,
+                         const tb_gui_watch_options *options);
+
+/** @brief Stop watching a widget's file. @return false when it was not watched. */
+TB_API bool tb_gui_unwatch(tb_widget widget);
 
 #endif

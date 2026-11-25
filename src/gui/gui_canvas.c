@@ -102,6 +102,15 @@ static const tb_gui_property tb_gui_canvas_properties[] = {
     {.name = "background", .type = TB_GUI_TYPE_BOOL, .offset = offsetof(tb_gui_canvas, background)},
 };
 
+/* What a layout file cannot hold yet (tb_widget_class::unsaved). */
+static const char *tb_gui_canvas_unsaved(tb_widget widget, const void *data)
+{
+    const tb_gui_canvas *const canvas = data;
+
+    (void)widget;
+    return canvas->draw != NULL ? "a draw callback" : NULL;
+}
+
 static const tb_widget_class tb_gui_canvas_kind = {.name = "canvas",
                                                    .data_size = sizeof(tb_gui_canvas),
                                                    .properties = tb_gui_canvas_properties,
@@ -110,7 +119,8 @@ static const tb_widget_class tb_gui_canvas_kind = {.name = "canvas",
                                                    .flags = TB_WIDGET_CLASS_FOCUS_ON_CLICK,
                                                    .mouse_filter = TB_GUI_MOUSE_STOP,
                                                    .measure = tb_gui_canvas_measure,
-                                                   .draw = tb_gui_canvas_draw};
+                                                   .draw = tb_gui_canvas_draw,
+                                                   .unsaved = tb_gui_canvas_unsaved};
 
 static tb_gui_canvas *tb_gui_canvas_of(tb_widget widget)
 {
