@@ -19,6 +19,11 @@
 #define TB_ENGINE_MOST_PIXELS ((int64_t)16384)
 #define TB_ENGINE_MOST_HERTZ ((int64_t)1000)
 
+/* The least size of a window by default: a third of 1080p, below which an
+ * interface laid out for 1080p no longer reads. */
+#define TB_ENGINE_LEAST_WINDOW_WIDTH ((int64_t)640)
+#define TB_ENGINE_LEAST_WINDOW_HEIGHT ((int64_t)360)
+
 static const tb_settings_family tb_engine_families[] = {
     {.name = "gameplay",
      .title = "Gameplay",
@@ -228,6 +233,26 @@ static void tb_engine_add_display(tb_settings *settings, const tb_engine_setting
         "The height of the window in windowed mode, before the display's scaling; 0 to fit the "
         "display.",
         0, 0, TB_ENGINE_MOST_PIXELS);
+    engine->display.window_min_width = tb_engine_integer(
+        settings, "display.window_min_width",
+        "The least width the window may be resized to in windowed mode, before the display's "
+        "scaling.",
+        TB_ENGINE_LEAST_WINDOW_WIDTH, 0, TB_ENGINE_MOST_PIXELS);
+    engine->display.window_min_height = tb_engine_integer(
+        settings, "display.window_min_height",
+        "The least height the window may be resized to in windowed mode, before the display's "
+        "scaling.",
+        TB_ENGINE_LEAST_WINDOW_HEIGHT, 0, TB_ENGINE_MOST_PIXELS);
+    engine->display.window_aspect_width =
+        tb_engine_integer(settings, "display.window_aspect_width",
+                          "The aspect the window keeps while it is resized in windowed mode, "
+                          "width to height, as 16 to 9; 0 for any aspect.",
+                          0, 0, TB_ENGINE_MOST_PIXELS);
+    engine->display.window_aspect_height =
+        tb_engine_integer(settings, "display.window_aspect_height",
+                          "The height part of the aspect the window keeps while it is resized; "
+                          "0 for any aspect.",
+                          0, 0, TB_ENGINE_MOST_PIXELS);
     engine->display.fullscreen_width =
         tb_engine_integer(settings, "display.fullscreen_width",
                           "The width of the fullscreen resolution in pixels; 0 for the display's "
@@ -518,6 +543,10 @@ void tb_engine_settings_window_options(const tb_engine_settings *engine, const c
         .display = (size_t)tb_setting_integer(engine->display.monitor),
         .width = tb_engine_unsigned(engine->display.window_width),
         .height = tb_engine_unsigned(engine->display.window_height),
+        .min_width = tb_engine_unsigned(engine->display.window_min_width),
+        .min_height = tb_engine_unsigned(engine->display.window_min_height),
+        .aspect_width = tb_engine_unsigned(engine->display.window_aspect_width),
+        .aspect_height = tb_engine_unsigned(engine->display.window_aspect_height),
         .fullscreen_width = tb_engine_unsigned(engine->display.fullscreen_width),
         .fullscreen_height = tb_engine_unsigned(engine->display.fullscreen_height),
         .refresh_rate = tb_engine_unsigned(engine->display.refresh_rate)};

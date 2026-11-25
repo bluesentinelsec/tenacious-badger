@@ -1,14 +1,16 @@
 /* The game loop must tick at the tick rate whatever the frame rate, put each
  * frame between two ticks, count a long frame as only so long, stop ticking
  * while paused, pace frames by the frame limits, stop after a frame count,
- * apply changed display settings to its window, and quit as players expect:
- * at once in a developer build, after asking in a release build.
+ * apply changed display settings to its window, switch it to fullscreen and
+ * back on the platform's shortcut, and quit as players expect: at once in a
+ * developer build, after asking in a release build.
  *
  * Most cases run without a window on a clock of their own, which a frame
  * advances by as long as the frame takes, so that every count is exact. */
 #include "badger/assert.h"
 #include "badger/game_loop.h"
 #include "badger/memory.h"
+#include "badger/platform.h"
 #include "badger/settings.h"
 #include "badger/str.h"
 
@@ -16,6 +18,9 @@
 
 #define MILLISECOND UINT64_C(1000000)
 #define SECOND (UINT64_C(1000) * MILLISECOND)
+
+/* How long a case with a window waits for the system to answer. */
+#define SETTLE_NANOSECONDS (UINT64_C(500) * MILLISECOND)
 
 /* A clock that only moves when told: by a frame, or by a wait. */
 typedef struct fake_clock
@@ -413,8 +418,194 @@ TB_TEST(game_loop, a_game_may_take_escape_for_itself)
 }
 
 /* ---------------------------------------------------------------------------
+ * Fullscreen and back.
+ * ------------------------------------------------------------------------- */
+
+static tb_window_event key_down(tb_key key, uint32_t modifiers)
+{
+    return (tb_window_event){.type = TB_WINDOW_EVENT_KEY_DOWN, .key = key, .modifiers = modifiers};
+}
+
+/* Each platform's own shortcut, pressed, not repeated, with exactly its
+ * modifiers: Control+Command+F on a Mac, Alt+Enter elsewhere. */
+TB_TEST(game_loop, the_fullscreen_shortcut_is_the_platforms_own)
+{
+    static const tb_window_backend alt_enter[] = {TB_WINDOW_BACKEND_AUTOMATIC,
+                                                  TB_WINDOW_BACKEND_WIN32,
+                                                  TB_WINDOW_BACKEND_WAYLAND, TB_WINDOW_BACKEND_X11};
+    const tb_window_event control_command_f =
+        key_down(TB_KEY_F, TB_MODIFIER_CONTROL | TB_MODIFIER_SUPER);
+    tb_window_event repeated = key_down(TB_KEY_ENTER, TB_MODIFIER_ALT);
+    tb_window_event released = key_down(TB_KEY_ENTER, TB_MODIFIER_ALT);
+
+    repeated.repeat = true;
+    released.type = TB_WINDOW_EVENT_KEY_UP;
+    for (size_t index = 0; index < TB_TEST_COUNT_OF(alt_enter); index++)
+    {
+        const tb_window_backend backend = alt_enter[index];
+        const tb_window_event alt_enter_event = key_down(TB_KEY_ENTER, TB_MODIFIER_ALT);
+        const tb_window_event shift_alt_enter =
+            key_down(TB_KEY_ENTER, TB_MODIFIER_ALT | TB_MODIFIER_SHIFT);
+        const tb_window_event enter = key_down(TB_KEY_ENTER, 0);
+        TB_TEST_CONTEXT("%s", tb_window_backend_name(backend));
+        TB_TEST_EXPECT(tb_game_loop_is_fullscreen_shortcut(backend, &alt_enter_event));
+        TB_TEST_EXPECT(!tb_game_loop_is_fullscreen_shortcut(backend, &shift_alt_enter));
+        TB_TEST_EXPECT(!tb_game_loop_is_fullscreen_shortcut(backend, &enter));
+        TB_TEST_EXPECT(!tb_game_loop_is_fullscreen_shortcut(backend, &repeated));
+        TB_TEST_EXPECT(!tb_game_loop_is_fullscreen_shortcut(backend, &released));
+        TB_TEST_EXPECT(!tb_game_loop_is_fullscreen_shortcut(backend, &control_command_f));
+    }
+    {
+        const tb_window_event alt_enter_event = key_down(TB_KEY_ENTER, TB_MODIFIER_ALT);
+        const tb_window_event command_f = key_down(TB_KEY_F, TB_MODIFIER_SUPER);
+        TB_TEST_EXPECT(
+            tb_game_loop_is_fullscreen_shortcut(TB_WINDOW_BACKEND_COCOA, &control_command_f));
+        TB_TEST_EXPECT(!tb_game_loop_is_fullscreen_shortcut(TB_WINDOW_BACKEND_COCOA, &command_f));
+        TB_TEST_EXPECT(
+            !tb_game_loop_is_fullscreen_shortcut(TB_WINDOW_BACKEND_COCOA, &alt_enter_event));
+    }
+}
+
+/* Alt+Enter switches the window mode setting between windowed and
+ * borderless, in the runtime layer that the options menu shows, and never
+ * in the player's file. Exclusive fullscreen goes back to a window too. */
+TB_TEST(game_loop, alt_enter_switches_the_window_mode_setting)
+{
+    game state = {.confirm_answer = -1};
+    fixture made = make_loop(&state, true, NULL);
+    const tb_window_event alt_enter = key_down(TB_KEY_ENTER, TB_MODIFIER_ALT);
+    tb_setting *const mode = made.engine->display.window_mode;
+
+    TB_TEST_REQUIRE_UINT(tb_setting_choice(mode), ==, TB_WINDOW_MODE_WINDOWED);
+    tb_game_loop_inject(made.loop, &alt_enter);
+    TB_TEST_EXPECT_UINT(tb_setting_choice(mode), ==, TB_WINDOW_MODE_BORDERLESS);
+    TB_TEST_EXPECT_UINT(tb_setting_source(mode), ==, TB_SETTING_LAYER_RUNTIME);
+    TB_TEST_EXPECT(!tb_setting_has_layer(mode, TB_SETTING_LAYER_PLAYER_FILE));
+    step(&made, 1);
+    tb_game_loop_inject(made.loop, &alt_enter);
+    TB_TEST_EXPECT_UINT(tb_setting_choice(mode), ==, TB_WINDOW_MODE_WINDOWED);
+
+    TB_TEST_REQUIRE_UINT(tb_setting_set_choice(mode, TB_WINDOW_MODE_FULLSCREEN), ==, TB_SETTING_OK);
+    tb_game_loop_inject(made.loop, &alt_enter);
+    TB_TEST_EXPECT_UINT(tb_setting_choice(mode), ==, TB_WINDOW_MODE_WINDOWED);
+    TB_TEST_EXPECT(!tb_game_loop_quitting(made.loop));
+    release_loop(&made);
+}
+
+/* A game turns the shortcut off, for a binding of its own. */
+TB_TEST(game_loop, a_game_may_turn_the_fullscreen_shortcut_off)
+{
+    tb_settings *const settings = tb_settings_create();
+    tb_engine_settings engine = {0};
+    tb_game_loop *loop = NULL;
+    const tb_window_event alt_enter = key_down(TB_KEY_ENTER, TB_MODIFIER_ALT);
+
+    tb_engine_settings_add(settings, &(tb_engine_settings_options){.developer = true}, &engine);
+    loop = tb_game_loop_create(
+        &(tb_game_loop_options){.settings = &engine, .disable_fullscreen_shortcut = true});
+    tb_game_loop_inject(loop, &alt_enter);
+    TB_TEST_EXPECT_UINT(tb_setting_choice(engine.display.window_mode), ==, TB_WINDOW_MODE_WINDOWED);
+    tb_game_loop_destroy(loop);
+    tb_settings_destroy(settings);
+}
+
+/* ---------------------------------------------------------------------------
  * A window, where there is one.
  * ------------------------------------------------------------------------- */
+
+/* Run frames until the window is in a mode at a size, or a while passes:
+ * an X server or a compositor answers when it answers. A size of 0 is any
+ * size. */
+static void step_until(tb_game_loop *loop, tb_window_system *system, tb_window *window,
+                       tb_window_mode mode, uint32_t width, uint32_t height)
+{
+    const uint64_t deadline = tb_platform_clock_nanoseconds() + SETTLE_NANOSECONDS;
+    tb_window_state state = {0};
+
+    do
+    {
+        TB_TEST_EXPECT(tb_game_loop_step(loop));
+        tb_window_state_of(window, &state);
+        if (state.mode == mode && (width == 0 || (state.width == width && state.height == height)))
+        {
+            return;
+        }
+        tb_window_system_wait(system, UINT64_C(10) * MILLISECOND);
+    } while (tb_platform_clock_nanoseconds() < deadline);
+}
+
+/* The platform's fullscreen shortcut, from a window in the state it is in. */
+static tb_window_event fullscreen_shortcut(tb_window_system *system, tb_window *window)
+{
+    tb_window_event event = key_down(TB_KEY_ENTER, TB_MODIFIER_ALT);
+
+    if (tb_window_system_backend(system) == TB_WINDOW_BACKEND_COCOA)
+    {
+        event = key_down(TB_KEY_F, TB_MODIFIER_CONTROL | TB_MODIFIER_SUPER);
+    }
+    event.window = window;
+    tb_window_state_of(window, &event.state);
+    return event;
+}
+
+/* Back from fullscreen, a window has the size the player gave it before,
+ * not the size the settings give, until those settings change. */
+TB_TEST(game_loop, back_from_fullscreen_a_window_has_its_size_again)
+{
+    tb_window_system *system = NULL;
+    tb_window *window = NULL;
+    tb_window_options options = {0};
+    tb_window_state state = {0};
+    tb_window_event shortcut = {0};
+    tb_settings *const settings = tb_settings_create();
+    tb_engine_settings engine = {0};
+    tb_game_loop *loop = NULL;
+
+    if (tb_window_system_open(NULL, &system, NULL) != TB_WINDOW_OK)
+    {
+        tb_settings_destroy(settings);
+        TB_TEST_SKIP("no windowing here");
+    }
+    tb_engine_settings_add(settings, &(tb_engine_settings_options){.developer = true}, &engine);
+    (void)tb_settings_set(settings, TB_SETTING_LAYER_RUNTIME, "display.window_width", "640");
+    (void)tb_settings_set(settings, TB_SETTING_LAYER_RUNTIME, "display.window_height", "360");
+    tb_engine_settings_window_options(&engine, "loop", &options);
+    TB_TEST_REQUIRE_UINT(tb_window_create(system, &options, &window, NULL), ==, TB_WINDOW_OK);
+    loop = tb_game_loop_create(
+        &(tb_game_loop_options){.system = system, .window = window, .settings = &engine});
+    TB_TEST_EXPECT(tb_game_loop_step(loop));
+    /* The player makes the window larger, as by dragging its border. */
+    options.width = 800;
+    options.height = 450;
+    TB_TEST_REQUIRE_UINT(tb_window_configure(window, &options, NULL), ==, TB_WINDOW_OK);
+    step_until(loop, system, window, TB_WINDOW_MODE_WINDOWED, 800, 450);
+
+    shortcut = fullscreen_shortcut(system, window);
+    tb_game_loop_inject(loop, &shortcut);
+    step_until(loop, system, window, TB_WINDOW_MODE_BORDERLESS, 0, 0);
+    tb_window_state_of(window, &state);
+    TB_TEST_EXPECT_UINT(state.mode, ==, TB_WINDOW_MODE_BORDERLESS);
+
+    shortcut = fullscreen_shortcut(system, window);
+    tb_game_loop_inject(loop, &shortcut);
+    step_until(loop, system, window, TB_WINDOW_MODE_WINDOWED, 800, 450);
+    tb_window_state_of(window, &state);
+    TB_TEST_EXPECT_UINT(state.mode, ==, TB_WINDOW_MODE_WINDOWED);
+    TB_TEST_EXPECT_UINT(state.width, ==, 800);
+    TB_TEST_EXPECT_UINT(state.height, ==, 450);
+
+    /* A size the settings give replaces it. */
+    (void)tb_settings_set(settings, TB_SETTING_LAYER_RUNTIME, "display.window_width", "720");
+    (void)tb_settings_set(settings, TB_SETTING_LAYER_RUNTIME, "display.window_height", "405");
+    step_until(loop, system, window, TB_WINDOW_MODE_WINDOWED, 720, 405);
+    tb_window_state_of(window, &state);
+    TB_TEST_EXPECT_UINT(state.width, ==, 720);
+    TB_TEST_EXPECT_UINT(state.height, ==, 405);
+    tb_game_loop_destroy(loop);
+    tb_window_destroy(window);
+    tb_window_system_close(system);
+    tb_settings_destroy(settings);
+}
 
 /* Changing the window mode setting while the game runs changes the window
  * before the next frame, and the loop reads the window's events. */

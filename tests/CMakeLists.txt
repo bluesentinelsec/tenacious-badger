@@ -252,7 +252,8 @@ set(TB_INTERNAL_TEST_CASE_SOURCES
     shader/shader_dxc_test.c
     shader/shader_form_test.c
     shader/shader_parse_test.c
-    platform/window_input_test.c)
+    platform/window_input_test.c
+    platform/window_size_test.c)
 # Input that a platform sends only to the window in front is handed to its
 # backend's handling directly.
 if(WIN32)
