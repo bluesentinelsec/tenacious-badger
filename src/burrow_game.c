@@ -125,8 +125,11 @@ static bool burrow_menus_take(burrow_game *game, const tb_window_event *event, b
         *taken = burrow_menus_event(game->menus, event);
         return true;
     }
-    if ((type == TB_WINDOW_EVENT_KEY_DOWN && event->key == TB_KEY_ESCAPE) ||
-        type == TB_WINDOW_EVENT_FOCUS_LOST)
+    /* The window losing the focus pauses as `gameplay.pause_when_unfocused`
+     * says, as the game loop pauses the world. */
+    const bool unfocused = type == TB_WINDOW_EVENT_FOCUS_LOST &&
+                           tb_setting_boolean(game->engine->gameplay.pause_when_unfocused);
+    if ((type == TB_WINDOW_EVENT_KEY_DOWN && event->key == TB_KEY_ESCAPE) || unfocused)
     {
         (void)burrow_menus_choose(game->menus, BURROW_CHOICE_PAUSE);
         *taken = type == TB_WINDOW_EVENT_KEY_DOWN;

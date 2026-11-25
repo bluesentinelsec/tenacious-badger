@@ -54,7 +54,7 @@ they look the same in any window, letterboxed where its shape is not 16:9.
 | Screen | Shows | Back |
 | --- | --- | --- |
 | Main menu | Burrow's title over the room, which a camera circles; Play, Options, and Quit | asks whether to quit |
-| Pause menu | Escape while playing, or the window losing the focus, over the room frozen and shaded; Resume, Options, Quit to menu, and Quit | resumes |
+| Pause menu | Escape while playing, or the window losing the focus as `gameplay.pause_when_unfocused` says, over the room frozen and shaded; Resume, Options, Quit to menu, and Quit | resumes |
 | Options | A notebook of four tabs, Display, Graphics, Controls, and Audio; Defaults, Revert, Apply, and Back | goes back to the menu it was opened from |
 
 The game starts at the main menu, with the world paused and the mouse the

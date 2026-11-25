@@ -7,7 +7,9 @@ given navigation actions one a frame with --navigate; it writes each screen
 its menus show, which the test follows. The player's settings file is the
 test's own, in a temporary directory. Where there is no display, as on a
 headless CI runner, the test is skipped with exit status 77, which CTest
-reports as skipped.
+reports as skipped. The game does not pause when its window loses the
+focus, which a window on a CI runner may never have, so that every run
+follows its script.
 """
 from pathlib import Path
 import subprocess
@@ -37,7 +39,8 @@ with tempfile.TemporaryDirectory(prefix='tb-burrow-menus-') as temporary:
     player = Path(temporary) / 'settings.cfg'
     common = ['--settings-file', str(player), '--renderer=null', '--set',
               'display.window_mode=windowed', '--set', 'display.window_width=960', '--set',
-              'display.window_height=540', '--set', 'developer.quit_without_asking=true']
+              'display.window_height=540', '--set', 'developer.quit_without_asking=true',
+              '--set', 'gameplay.pause_when_unfocused=false']
 
     # A word that is no action is refused before a window opens.
     status, out, err = run(*common, '--frames=3', '--navigate=down,jump')

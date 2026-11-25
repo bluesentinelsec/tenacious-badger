@@ -30,7 +30,8 @@ def expect(condition, message, output):
 
 
 with tempfile.TemporaryDirectory(prefix='tb-burrow-play-') as temporary:
-    common = ['--settings-file', str(Path(temporary) / 'settings.cfg')]
+    common = ['--settings-file', str(Path(temporary) / 'settings.cfg'), '--set',
+              'gameplay.pause_when_unfocused=false']
 
     # --frames is the escape hatch: the same as developer.frame_count.
     status, out, err = run(*common, '--frames=3', 'settings')
