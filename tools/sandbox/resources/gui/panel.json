@@ -1,0 +1,114 @@
+{
+  "format": "badger-gui",
+  "version": 1,
+  "root": {
+    "kind": "frame",
+    "name": "panel",
+    "properties": {
+      "padding": 16,
+      "background": true,
+      "border": true
+    },
+    "grid": {
+      "column": 1,
+      "sticky": [
+        "s",
+        "e"
+      ],
+      "padx": [
+        0,
+        16
+      ],
+      "pady": [
+        0,
+        16
+      ]
+    },
+    "columns": [
+      {
+        "weight": 1,
+        "uniform": "buttons"
+      },
+      {
+        "weight": 1,
+        "uniform": "buttons"
+      }
+    ],
+    "children": [
+      {
+        "kind": "label",
+        "name": "title",
+        "properties": {
+          "text": "From a file",
+          "font": {
+            "role": "heading",
+            "weight": 400,
+            "size": 20
+          }
+        },
+        "grid": {
+          "column_span": 2,
+          "sticky": [
+            "w"
+          ]
+        }
+      },
+      {
+        "kind": "label",
+        "name": "about",
+        "properties": {
+          "text": "This panel is built from gui/panel.json, in the sandbox's resources. Edit the file and save it while the sandbox runs: the panel is built again, and a mistake keeps it as it was.",
+          "wrap_length": 260
+        },
+        "grid": {
+          "row": 1,
+          "column_span": 2,
+          "sticky": [
+            "w"
+          ],
+          "pady": [
+            6,
+            12
+          ]
+        }
+      },
+      {
+        "kind": "button",
+        "name": "hello",
+        "properties": {
+          "command": "say_hello",
+          "text": "Say hello",
+          "cursor": "hand"
+        },
+        "grid": {
+          "row": 2,
+          "sticky": [
+            "e",
+            "w"
+          ]
+        }
+      },
+      {
+        "kind": "button",
+        "name": "reset",
+        "properties": {
+          "command": "show_reset_dialog",
+          "text": "Reset...",
+          "cursor": "hand"
+        },
+        "grid": {
+          "row": 2,
+          "column": 1,
+          "sticky": [
+            "e",
+            "w"
+          ],
+          "padx": [
+            6,
+            0
+          ]
+        }
+      }
+    ]
+  }
+}

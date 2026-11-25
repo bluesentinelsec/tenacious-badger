@@ -228,6 +228,15 @@ TB_API tb_json_result tb_json_parse(const char *text, size_t length, const tb_js
 TB_API tb_json_type tb_json_type_of(const tb_json_value *value);
 
 /**
+ * @brief Where a value begins in the text it was parsed from: the byte
+ * offset of its first byte, the `[`, `{`, or `"` of a container or a
+ * string. A caller that checks what a document means reports its errors
+ * there.
+ * @param value Required. @return The offset, from 0.
+ */
+TB_API size_t tb_json_offset_of(const tb_json_value *value);
+
+/**
  * @brief A boolean's value. @param value Required.
  * @param[out] out Required; unchanged on failure. @return false for any other type.
  */
