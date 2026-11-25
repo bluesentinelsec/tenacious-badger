@@ -15,7 +15,7 @@ static const char *const tb_gui_anchor_names[] = {"center", "n",  "ne", "e", "se
 
 /* The states a kind's look follows. */
 #define TB_GUI_DRAWN_STATES                                                                        \
-    (TB_WIDGET_HOVERED | TB_WIDGET_PRESSED | TB_WIDGET_FOCUSED | TB_WIDGET_DISABLED |       \
+    (TB_WIDGET_HOVERED | TB_WIDGET_PRESSED | TB_WIDGET_FOCUSED | TB_WIDGET_DISABLED |              \
      TB_WIDGET_FOCUS_VISIBLE | TB_WIDGET_ENGAGED)
 
 /* ---------------------------------------------------------------------------

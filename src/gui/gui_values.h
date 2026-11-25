@@ -95,7 +95,7 @@ enum
 
 /* The states the look of a kind follows. */
 #define TB_GUI_VALUES_STATES                                                                       \
-    (TB_WIDGET_HOVERED | TB_WIDGET_PRESSED | TB_WIDGET_FOCUSED | TB_WIDGET_DISABLED |       \
+    (TB_WIDGET_HOVERED | TB_WIDGET_PRESSED | TB_WIDGET_FOCUSED | TB_WIDGET_DISABLED |              \
      TB_WIDGET_FOCUS_VISIBLE | TB_WIDGET_ENGAGED)
 
 /* Whether a key event is a press of a key with none of Control, Alt, or

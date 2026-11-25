@@ -483,7 +483,7 @@ TB_TEST(gui_style, the_tool_themes_follow_their_palettes)
     TB_TEST_EXPECT_FLOAT(tb_style_in(button, TB_WIDGET_FOCUSED)->focus_width, ==, 0.0f);
     TB_TEST_EXPECT_FLOAT(
         tb_style_in(button, TB_WIDGET_FOCUSED | TB_WIDGET_FOCUS_VISIBLE)->focus_width, ==,
-                         2.0f * palette->border);
+        2.0f * palette->border);
     TB_TEST_EXPECT(same_color(tb_style_in(check, TB_WIDGET_SELECTED)->background,
                               palette->colors[TB_UI_COLOR_ACCENT]));
 
