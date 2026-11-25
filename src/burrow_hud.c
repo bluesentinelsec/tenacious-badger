@@ -33,6 +33,10 @@
 static const char burrow_controls_looking[] =
     "WASD move    Space / Ctrl up and down    Shift sprint    Esc frees the mouse";
 static const char burrow_controls_free[] = "Click to look around    Esc quits";
+/* With menus, Escape pauses wherever the mouse is. */
+static const char burrow_controls_paused[] =
+    "WASD move    Space / Ctrl up and down    Shift sprint    Esc pauses";
+static const char burrow_controls_free_paused[] = "Click to look around    Esc pauses";
 
 struct burrow_hud
 {
@@ -177,12 +181,22 @@ static void burrow_hud_crosshair(tb_renderer *renderer, tb_vec2 middle, float op
                         color);
 }
 
+/* The controls the HUD names, as the mouse is and as Escape does. */
+static const char *burrow_hud_controls(bool captured, bool escape_pauses)
+{
+    if (escape_pauses)
+    {
+        return captured ? burrow_controls_paused : burrow_controls_free_paused;
+    }
+    return captured ? burrow_controls_looking : burrow_controls_free;
+}
+
 void burrow_hud_draw(burrow_hud *hud, tb_renderer *renderer, const tb_engine_settings *engine,
-                     bool captured)
+                     bool captured, bool escape_pauses)
 {
     const float opacity = (float)tb_setting_number(engine->user_interface.hud_opacity);
     const tb_canvas_view view = tb_canvas_view_logical(renderer);
-    const char *const controls = captured ? burrow_controls_looking : burrow_controls_free;
+    const char *const controls = burrow_hud_controls(captured, escape_pauses);
     uint32_t width = 0;
     uint32_t height = 0;
     tb_vec2 extent = {0};

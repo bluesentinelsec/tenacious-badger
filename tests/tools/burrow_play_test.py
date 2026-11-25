@@ -30,7 +30,8 @@ def expect(condition, message, output):
 
 
 with tempfile.TemporaryDirectory(prefix='tb-burrow-play-') as temporary:
-    common = ['--settings-file', str(Path(temporary) / 'settings.cfg')]
+    common = ['--settings-file', str(Path(temporary) / 'settings.cfg'), '--set',
+              'gameplay.pause_when_unfocused=false']
 
     # --frames is the escape hatch: the same as developer.frame_count.
     status, out, err = run(*common, '--frames=3', 'settings')
@@ -43,8 +44,9 @@ with tempfile.TemporaryDirectory(prefix='tb-burrow-play-') as temporary:
                            'display.frame_limit=0')
     expect(status == 0, f'headless: status {status}', err)
 
-    # In a window, the room and the HUD go through the renderer.
-    status, out, err = run(*common, '--frames=5', '--renderer=null', '--set',
+    # In a window, the room and the HUD go through the renderer: Play, the
+    # main menu's first button, is pressed at the first frame.
+    status, out, err = run(*common, '--frames=5', '--renderer=null', '--navigate=accept', '--set',
                            'display.window_mode=windowed', '--set', 'display.window_width=640',
                            '--set', 'display.window_height=360')
     if status != 0 and 'no window' in err:
@@ -58,6 +60,7 @@ with tempfile.TemporaryDirectory(prefix='tb-burrow-play-') as temporary:
     for hud in (['interface.performance_overlay=detailed', 'interface.crosshair=false'],
                 ['interface.performance_overlay=off'], ['interface.hud_opacity=0']):
         settings = [argument for value in hud for argument in ('--set', value)]
-        status, out, err = run(*common, '--frames=3', '--renderer=null', '--set',
+        status, out, err = run(*common, '--frames=3', '--renderer=null', '--navigate=accept',
+                               '--set',
                                'display.window_mode=windowed', *settings)
         expect(status == 0, f'{hud}: status {status}', err)

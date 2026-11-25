@@ -23,12 +23,13 @@ static tb_ui_id tb_gui_id_of(tb_widget widget)
 static bool tb_gui_run_of(tb_widget widget, const tb_gui_text_block *block, tb_ui_text_run *run)
 {
     const tb_gui_resolved_font resolved = tb_gui_widget_font(widget, block->font);
+    const tb_font *const font = block->face != NULL ? block->face : resolved.font;
 
-    if (resolved.font == NULL)
+    if (font == NULL)
     {
         return false;
     }
-    *run = (tb_ui_text_run){.font = resolved.font,
+    *run = (tb_ui_text_run){.font = font,
                             .size = resolved.size,
                             .wrap_width = block->wrap_length > 0.0f ? block->wrap_length : 0.0f,
                             .align = block->justify};
@@ -191,6 +192,14 @@ static void tb_gui_draw_node(tb_gui *gui, uint32_t index, tb_canvas_rect clip, i
 void tb_gui_build_commands(tb_gui *gui)
 {
     const tb_canvas_rect all = {0.0f, 0.0f, gui->view.size.x, gui->view.size.y};
+    /* The whole frame, in units: in keep-aspect stretch, the root and the
+     * bars beside it, which the shade behind a modal widget covers too. */
+    const float scale = gui->view.scale > 0.0f ? gui->view.scale : 1.0f;
+    const bool framed = gui->frame_width > 0 && gui->frame_height > 0;
+    const tb_canvas_rect frame =
+        framed ? (tb_canvas_rect){-gui->view.origin.x / scale, -gui->view.origin.y / scale,
+                                  (float)gui->frame_width / scale, (float)gui->frame_height / scale}
+               : all;
     tb_vec4 shade = {0};
 
     tb_gui_layout(gui);
@@ -211,7 +220,7 @@ void tb_gui_build_commands(tb_gui *gui)
         {
             continue;
         }
-        tb_ui_paint_fill(&gui->paint, layer, all, all, 0.0f, shade, 0);
+        tb_ui_paint_fill(&gui->paint, layer, frame, frame, 0.0f, shade, 0);
         tb_gui_draw_node(gui, modal.index, all, layer);
     }
     for (size_t index = 0; index < gui->popup_count; index++)

@@ -104,6 +104,46 @@ def verify_shader_libraries(folder, metadata, system):
                 f'Shader library differs from the build: {name}')
 
 
+def content_directory(folder, system):
+    """Where an export keeps Burrow's content, its menus' layout files and
+    their theme: beside the executable, or in a macOS bundle's Resources,
+    where Burrow looks, as for the shader libraries."""
+    if system == 'Darwin':
+        return folder / 'Burrow.app/Contents/Resources/Content'
+    return folder / 'Content'
+
+
+def built_content(build, system):
+    """The content the build copied beside its executable."""
+    if system == 'Darwin':
+        return build / 'bin/burrow.app/Contents/Resources/Content'
+    return build / 'bin/Content'
+
+
+def copy_content(build, folder, system):
+    """Burrow's content as the build laid it out; the macOS bundle carries
+    it already. Returns each file's digest by its path in the content, for
+    the check of the export."""
+    built = built_content(build, system)
+    require(built.is_dir(), 'The build wrote no content for Burrow')
+    if system != 'Darwin':
+        shutil.copytree(built, content_directory(folder, system))
+    return {path.relative_to(built).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in sorted(built.rglob('*')) if path.is_file()}
+
+
+def verify_content(folder, metadata, system):
+    """Every file of Burrow's content travels with the export, whole: the
+    menus' files among them, which `burrow check` then builds."""
+    files = metadata['content_sha256']
+    require('UI/main_menu.json' in files, 'The export carries no main menu')
+    for name, expected in files.items():
+        path = content_directory(folder, system) / name
+        require(path.is_file(), f'Missing content: {name}')
+        require(hashlib.sha256(path.read_bytes()).hexdigest() == expected,
+                f'Content differs from the build: {name}')
+
+
 def metadata_check(folder, metadata, system):
     version = metadata['version']
     publisher = metadata['publisher']
@@ -112,6 +152,7 @@ def metadata_check(folder, metadata, system):
     require(publisher in (folder / 'NOTICE').read_text(), 'Missing personal attribution')
     verify_font_licenses(folder)
     verify_shader_libraries(folder, metadata, system)
+    verify_content(folder, metadata, system)
     if system == 'Windows':
         verify_windows_signatures(folder, publisher)
         executable = folder / 'burrow.exe'
@@ -226,13 +267,14 @@ def main():
         metadata['shader_library_sha256'] = {
             name: hashlib.sha256((build / 'bin/Shaders' / name).read_bytes()).hexdigest()
             for name in metadata['shader_libraries']}
+        metadata['content_sha256'] = copy_content(build, folder, system)
         if system == 'Darwin' and metadata['shader_libraries']:
             # The bundle's seal covers its resources: sign it again with them.
             run(['codesign', '--force', '--sign', '-', '--timestamp=none', folder / 'Burrow.app'])
         for document in ['LICENSE', 'NOTICE']:
             shutil.copy2(ROOT / document, folder / document)
         copy_font_licenses(folder)
-        (folder / 'README.txt').write_text(f"Tenacious Badger — under construction\n\n{launch}\n\nBurrow draws a graybox room to fly through: the mouse looks, WASD moves, Space and Ctrl rise and sink, and Shift sprints. Escape frees the mouse, and quits once it is free. The renderer's compiled shaders, where the platform has them, are in Shaders/ (Contents/Resources/Shaders in the macOS bundle). Run it with check to print a line that proves it starts, and with --help for its options.\nPublisher: {metadata['publisher']}\nLicense: Apache-2.0\n", encoding='utf-8')
+        (folder / 'README.txt').write_text(f"Tenacious Badger — under construction\n\n{launch}\n\nBurrow draws a graybox room to fly through: the mouse looks, WASD moves, Space and Ctrl rise and sink, and Shift sprints. It starts at its main menu; Escape pauses, and the pause menu has the options. The renderer's compiled shaders, where the platform has them, are in Shaders/, and the menus' files in Content/ (Contents/Resources in the macOS bundle). Run it with check to print a line that proves it starts, and with --help for its options.\nPublisher: {metadata['publisher']}\nLicense: Apache-2.0\n", encoding='utf-8')
         (folder / 'BUILD-INFO.json').write_text(json.dumps(metadata, indent=2) + '\n')
         metadata_check(folder, metadata, system)
         if system == 'Linux':

@@ -40,6 +40,7 @@ bottom left corner of every scene, and printed every two seconds.
 | `ui` | [The interface](ui.md) over the shapes: an inspector of every widget (headers, checkboxes, combos, sliders, dragged numbers, a color, text fields, radio buttons, a swatch, a progress bar, buttons with tooltips, and a tree) and a window of statistics (a heading, wrapped text, a table, and a panel that scrolls) |
 | `gui` | [The GUI](gui.md) over the shapes: a form laid out by grid that follows the window as it is resized (a title in the heading font, a wrapped paragraph, fields with their labels, rows of buttons of one width in nested grids, a row of radio buttons that switches the theme, a status line at the bottom) and a modal dialog that asks to confirm; and a panel of options of every widget that edits a value, bound to the engine's settings; and, below it, a panel built from a [layout file](gui.md#layout-files), `tools/sandbox/resources/gui/panel.json`, built again whenever it is saved |
 | `gui_tool` | [The GUI](gui.md) in the shape of an editor: a menu bar (cascades, check and radio items, accelerators' text, mnemonics) over a paned window of an outliner, a tree view with a column of types, and a notebook of an asset list in a scroll frame with a context menu, a page of details with tooltips, and a viewport drawn by a canvas callback beside an image; message dialogs confirm quitting and deleting |
+| `gui_fonts` | [The GUI](gui.md) as a small tool built from code alone, in the dark tool theme: a font browser over the [font catalog](fonts.md), with a tree view of its families and their styles and weights, an entry of sample text, a preview of the chosen font at the size of each of the catalog's roles drawn by a canvas widget in the font itself, and the font's facts (family, style, weight, italic, category, license, pixel size, file) in a grid, beside the tree in a paned window |
 | `triangle` | A triangle of three colored corners, turning, drawn through the RHI itself inside the renderer's scene pass |
 | `textured` | A checkerboard made in memory, sampled through the texture's and sampler's bindless indices |
 | `clear` | The swap chain cleared to a plain color |
@@ -135,3 +136,10 @@ The `gui_tool` scene covers the window with the GUI, which takes every key
 but Escape, unless a menu, a dialog, or a widget with the focus takes
 Escape too. Drag the sash between the outliner and the notebook, and a
 heading's right edge to widen its column.
+
+The `gui_fonts` scene covers the window as `gui_tool` does. It is made in
+C alone, with no layout file, as a tool is written with Tkinter: a paned
+window, a tree view filled from the catalog, an entry on a text variable,
+a canvas widget whose callback draws the sample at each role's size in the
+chosen font (`tb_gui_text_block::face`), and a grid of labels set when the
+tree's selection changes. It starts on the UI role's font.

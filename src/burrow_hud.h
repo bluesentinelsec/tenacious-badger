@@ -46,9 +46,10 @@ void burrow_hud_destroy(burrow_hud *hud, tb_renderer *renderer);
 void burrow_hud_count_frame(burrow_hud *hud, double seconds);
 
 /* Draw the HUD this frame, over the scene, between the renderer's begin and
- * end. `captured` says whether the mouse is the player's, which changes the
- * controls it names. */
+ * end. `captured` says whether the mouse is the player's, and
+ * `escape_pauses` whether Escape opens a pause menu or, without menus,
+ * frees the mouse and quits, which change the controls it names. */
 void burrow_hud_draw(burrow_hud *hud, tb_renderer *renderer, const tb_engine_settings *engine,
-                     bool captured);
+                     bool captured, bool escape_pauses);
 
 #endif

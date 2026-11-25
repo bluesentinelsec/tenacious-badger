@@ -76,6 +76,7 @@ game makes its own the same way, and nothing in the GUI tells them apart.
 | `draw` | each update: drawn under its children, with `tb_gui_paint_*` |
 | `event` | after its bindings: returns whether it used the event |
 | `unsaved` | when it is saved: what it holds that no property says, which a [layout file](#layout-files) cannot hold yet |
+| `loaded` | when a layout file has built it and its children: what it takes from them, as a notebook makes its children its tabs |
 
 `flags` say whether Tab gives a widget the focus (`TB_WIDGET_CLASS_FOCUSABLE`),
 and whether a click does (`TB_WIDGET_CLASS_FOCUS_ON_CLICK`, for fields to
@@ -88,7 +89,9 @@ when a GUI is made. A widget is made of any kind, registered or not.
 
 A kind draws through a `tb_gui_paint`: rectangles filled and outlined,
 lines, and text set in a rectangle by its anchor (`tb_gui_paint_text`), each
-clipped to the widget and its ancestors. `tb_widget_state` says whether a
+clipped to the widget and its ancestors. Text is in a font of the
+catalog's by its spec, or in one the caller opened
+(`tb_gui_text_block::face`), as a font browser previews any font. `tb_widget_state` says whether a
 widget is hovered, pressed, focused, or disabled, and its style in that
 state (`tb_style_of`) what to draw it with.
 
@@ -282,7 +285,8 @@ other, on a canvas layer above them, over a shade, and alone in taking
 input: the mouse finds nothing outside it, Tab goes around its own widgets,
 and keys with no focus go to it. Modal widgets stack; the last shown is in
 front. One ends with `tb_widget_end_modal`, or when it is hidden or
-destroyed. A modal widget is in the tree like any other, placed by its
+destroyed. The shade covers the whole frame, the bars beside a
+keep-aspect root as well. A modal widget is in the tree like any other, placed by its
 parent's grid: a dialog is a frame gridded over the root's cells.
 
 **Callbacks.** `tb_bind(widget, kind, callback, user)` calls a function
@@ -402,6 +406,40 @@ setting takes the text only when it accepts it: `-` typed on its way to
 `-0.5` stays in the entry, and `tb_var_setting_accepts` says whether the
 setting holds the variable's value. `tb_var_bind_setting(var, NULL)` ends
 the binding.
+
+### Changes held until applied
+
+An options menu changes its settings when the player applies them, not as
+each widget moves. `tb_var_bind_setting_deferred` binds a variable so: it
+takes the setting's value at once, as any binding does, but a value it is
+then given is held, and the setting takes it only when it is applied.
+
+```c
+tb_var fov = tb_var_float(gui, 90.0);
+tb_var_bind_setting_deferred(fov, engine.graphics.field_of_view);
+/* a slider moves it: the setting keeps its value */
+tb_gui_apply_settings(gui);              /* Apply: every deferred variable */
+tb_gui_revert_settings(gui);             /* Revert */
+tb_gui_restore_default_settings(gui);    /* Defaults, held until applied */
+if (tb_gui_settings_pending(gui)) { /* Back asks whether to keep them */ }
+```
+
+| Function | What |
+| --- | --- |
+| `tb_var_pending` | whether a variable holds a value its setting does not |
+| `tb_var_apply` | the setting takes the value held, at its runtime layer; false, the value kept, when the setting refuses it |
+| `tb_var_revert` | the variable takes its setting's value again |
+| `tb_var_restore_default` | the variable takes its setting's default: the game's default file's value, or else the definition's, without the player's choices or the command line's |
+| `tb_gui_apply_settings`, `_revert_settings`, `_restore_default_settings`, `_settings_pending` | the same, for every deferred variable of a GUI |
+
+A value is checked as the setting would check it (its range, its choices,
+its length) and refused as a bound variable refuses it, so a slider stops
+at its setting's ends; text is kept as typed, and
+`tb_var_setting_accepts` says whether the setting would take it. While a
+deferred variable holds nothing of its own, it follows its setting's
+changes made elsewhere, as any bound variable does; while it holds a value,
+it keeps it. `tb_var_restore_default` given a variable bound at once gives
+its setting the default there and then.
 
 ### What a change sends
 
@@ -671,7 +709,11 @@ edge is dragged to resize its column, down to its `minwidth`.
 
 A `notebook` is a row of tabs over a page; each page is a child widget
 added with `tb_notebook_add`, placed in the notebook's grid, and shown
-only while its tab is chosen. A click on a tab chooses it; from a widget in
+only while its tab is chosen. A layout file holds its tabs as its
+children, in order, their texts in its `tabs` property, a line each: once
+the file has built them, each child becomes a page, its tab's text the
+line of its place, or its name where there is none, and the tab `selected`
+names is chosen. A click on a tab chooses it; from a widget in
 the notebook with the focus, Control+Tab and Control+Shift+Tab, or
 Control+Page Down and Up, go around the tabs; with the focus on the
 notebook itself, Left and Right do. Its `command` is called when the user
@@ -838,7 +880,9 @@ variable's own name (`tb_var_set_name`, `tb_gui_find_var`). It may declare
 them, under `variables`, each with its `name`, its `type` (`bool`, `int`,
 `float`, or `string`), its first `value` (the type's zero when left out),
 and the `setting` it is bound to by name (`tb_var_bind_setting`), found in
-the settings given the GUI with `tb_gui_set_settings`. A declared variable
+the settings given the GUI with `tb_gui_set_settings`; `"deferred": true`
+binds it with `tb_var_bind_setting_deferred`, for an options menu that
+applies its changes. A declared variable
 whose name the GUI already has is used as it is, its value and binding
 kept, when it is of the type, so a game may make its own first, and a file
 loaded again finds the variables it made the first time. A file that fails
@@ -890,9 +934,9 @@ write a file that loads to less than the widgets were:
 
 - a widget whose kind says it holds what no property says
   (`tb_widget_class::unsaved`): menu items and a menu bar's entries, tree
-  items and columns, notebook tabs, a paned window's panes, an image
-  widget's image, a canvas widget's draw callback, and a message box's
-  answers. Layout files have no types for them yet (issue #337); the same
+  items and columns, a notebook's children that are not its tabs in their
+  order, a paned window's panes, an image widget's image, a canvas
+  widget's draw callback, and a message box's answers. Layout files have no types for them yet (issue #337); the same
   kinds empty save and load as any other;
 - a property of a type layout files have no form for;
 - a command set in code with no registered name, and a variable with no
@@ -1385,9 +1429,12 @@ thread that renders. GUIs are independent of one another.
 
 - A combo box typed in (Tk's editable `ttk.Combobox`), and a spin box of
   a list of values; undo in text.
-- Menus', lists', trees', and tabs' items in layout files, which have no
-  type for a list yet, nor for an image or a draw callback; a menu bar
-  opened by Alt and its titles' mnemonics.
+- Menus', lists', and trees' items in layout files, which have no type
+  for a list yet, nor for an image or a draw callback; a menu bar opened
+  by Alt and its titles' mnemonics; a notebook as large as its largest
+  page, rather than its chosen one (#337).
+- A slider's value written scaled, as a volume of 0 to 1 shown as a
+  percentage.
 - A theme saved to a file, and a widget's own theme (`tb_widget_set_style_theme`)
   in layout files; a theme's images loaded from their paths by the engine,
   which has no image decoder at run time yet.
@@ -1395,6 +1442,24 @@ thread that renders. GUIs are independent of one another.
   feeds their actions itself.
 - Files watched by the system's own notices of change, rather than read
   every interval.
+
+## Examples
+
+Two programs show the GUI at work, one of each of its uses:
+
+- **A game's menus, from layout files.** [Burrow's](burrow.md#the-menus)
+  main, pause, and options menus are JSON files, read through a VFS and
+  loaded again as they are saved, their buttons connected to commands by
+  name, and their options bound to the engine's settings by variables
+  that hold their changes until applied, with Apply, Revert, Defaults, and
+  a message dialog when Back would lose changes. They are laid out at a
+  reference size of 1920 by 1080 with the keep-aspect stretch, drawn in the
+  game theme with a theme file over it, and walked by the keyboard and a
+  gamepad's actions alone.
+- **A tool, from code.** The sandbox's [`gui_fonts`](sandbox.md#the-gui-scene)
+  scene is a font browser written in C as a Tkinter tool is written: a
+  paned window of a tree view and a pane of an entry, a canvas widget, and
+  a grid of labels, in the dark tool theme.
 
 ## Tests
 
@@ -1433,6 +1498,12 @@ loaded again, defaults left out, each error's path, line, and reason,
 thousands of damaged files that must neither crash nor leave a widget
 behind, paths, commands and variables by name, and a file in a VFS of
 memory changed, broken, removed, and mended under a watch.
+`gui_deferred_test.c` covers what an options menu needs: variables bound
+deferred, applied, reverted, and set to their defaults, their values
+checked as their settings check them and their settings' changes followed
+while they hold nothing; the same declared by a layout file; a notebook's
+tabs saved and loaded; text drawn in a font of the caller's; and the shade
+of a modal dialog over a letterboxed frame.
 `gui_style_test.c`, `gui_theme_file_test.c`, and `canvas_slice_test.c`
 cover styles: resolved along their classes' chains, by the ranks of their
 states, from overrides and the themes of subtrees, and resolved again only

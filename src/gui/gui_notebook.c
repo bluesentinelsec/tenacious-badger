@@ -2,14 +2,17 @@
  * one page a child widget, the others hidden. A tab is chosen by a click,
  * by Control+Tab and Control+Page Up and Down from inside the notebook,
  * and by the arrows while the notebook has the focus. Its pages share its
- * grid's one cell. */
+ * grid's one cell. A layout file holds its tabs as its children, their
+ * texts a line each in its `tabs` property, and the tab chosen. */
 #include "gui_internal.h"
 
 #include "badger/assert.h"
 #include "badger/memory.h"
+#include "badger/size.h"
 
 #include <math.h>
 #include <stddef.h>
+#include <string.h>
 
 #define TB_GUI_COUNT_OF(array) (sizeof(array) / sizeof((array)[0]))
 
@@ -31,6 +34,9 @@ typedef struct tb_gui_notebook
     float padding;
     tb_gui_command command;
     size_t hot;
+    tb_gui_string titles; /* the `tabs` set before its pages were added */
+    tb_gui_string joined; /* the tabs' texts, a line each, as last read */
+    size_t wanted;        /* the tab `selected` chose before there was one; SIZE_MAX for none */
 } tb_gui_notebook;
 
 static tb_gui_notebook *tb_gui_notebook_of(tb_widget widget);
@@ -42,6 +48,7 @@ static void tb_gui_notebook_init(tb_widget widget, void *data)
     (void)widget;
     notebook->selected = SIZE_MAX;
     notebook->hot = SIZE_MAX;
+    notebook->wanted = SIZE_MAX;
 }
 
 static void tb_gui_notebook_destroy(tb_widget widget, void *data)
@@ -54,6 +61,8 @@ static void tb_gui_notebook_destroy(tb_widget widget, void *data)
         tb_gui_string_free(&notebook->tabs[index].text);
     }
     tb_free(notebook->tabs);
+    tb_gui_string_free(&notebook->titles);
+    tb_gui_string_free(&notebook->joined);
 }
 
 /* Forget the tabs whose pages were destroyed. */
@@ -332,7 +341,17 @@ static bool tb_gui_notebook_set_selected(tb_widget widget, void *data, const tb_
 {
     tb_gui_notebook *const notebook = data;
 
-    if (value->integer < 0 || (size_t)value->integer >= notebook->count)
+    if (value->integer < 0)
+    {
+        return false;
+    }
+    if (notebook->count == 0)
+    {
+        /* A layout file chooses the tab before it adds the pages. */
+        notebook->wanted = (size_t)value->integer;
+        return true;
+    }
+    if ((size_t)value->integer >= notebook->count)
     {
         return false;
     }
@@ -371,6 +390,88 @@ static bool tb_gui_notebook_get_padding(tb_widget widget, const void *data, tb_g
     return true;
 }
 
+/* Line `index` of text, a line each; false past its last. */
+static bool tb_gui_notebook_line(tb_text text, size_t index, tb_text *line)
+{
+    size_t start = 0;
+    size_t at_line = 0;
+
+    for (size_t at = 0; at <= text.length && text.length > 0; at++)
+    {
+        if (at < text.length && text.bytes[at] != '\n')
+        {
+            continue;
+        }
+        if (at_line == index)
+        {
+            *line = tb_text_make(text.bytes + start, at - start);
+            return true;
+        }
+        at_line++;
+        start = at + 1;
+    }
+    return false;
+}
+
+static bool tb_gui_notebook_set_tabs(tb_widget widget, void *data, const tb_gui_value *value)
+{
+    tb_gui_notebook *const notebook = data;
+    tb_text line = {0};
+
+    tb_gui_string_set(&notebook->titles, value->text);
+    for (size_t index = 0; index < notebook->count; index++)
+    {
+        if (tb_gui_notebook_line(value->text, index, &line))
+        {
+            tb_gui_string_set(&notebook->tabs[index].text, line);
+        }
+    }
+    tb_gui_mark_layout(widget.gui);
+    return true;
+}
+
+static bool tb_gui_notebook_get_tabs(tb_widget widget, const void *data, tb_gui_value *value)
+{
+    tb_gui_notebook *const notebook = tb_widget_data(widget);
+    size_t length = 1;
+    size_t at = 0;
+    bool fits = true;
+
+    (void)data;
+    if (notebook->count == 0)
+    {
+        *value = tb_gui_text(tb_gui_string_text(&notebook->titles));
+        return true;
+    }
+    /* Each line and its break, and the terminator. */
+    for (size_t index = 0; index < notebook->count && fits; index++)
+    {
+        fits = tb_size_add(length, notebook->tabs[index].text.length, &length) &&
+               tb_size_add(length, 1, &length);
+    }
+    TB_ASSERT_MSG(fits, "a notebook's tabs are larger than memory");
+    char *const bytes = tb_malloc(length);
+    for (size_t index = 0; index < notebook->count; index++)
+    {
+        const tb_gui_string *const tab = &notebook->tabs[index].text;
+        if (index > 0)
+        {
+            bytes[at] = '\n';
+            at++;
+        }
+        if (tab->length > 0)
+        {
+            memcpy(bytes + at, tab->bytes, tab->length);
+        }
+        at += tab->length;
+    }
+    bytes[at] = '\0';
+    tb_gui_string_free(&notebook->joined);
+    notebook->joined = (tb_gui_string){.bytes = bytes, .length = at};
+    *value = tb_gui_text(tb_gui_string_text(&notebook->joined));
+    return true;
+}
+
 static const tb_gui_property tb_gui_notebook_properties[] = {
     {.name = "selected",
      .type = TB_GUI_TYPE_INT,
@@ -383,15 +484,70 @@ static const tb_gui_property tb_gui_notebook_properties[] = {
      .get = tb_gui_notebook_get_padding,
      .set = tb_gui_notebook_set_padding},
     {.name = "command", .type = TB_GUI_TYPE_COMMAND, .offset = offsetof(tb_gui_notebook, command)},
+    {.name = "tabs",
+     .type = TB_GUI_TYPE_TEXT,
+     .flags = TB_GUI_PROPERTY_LAYOUT,
+     .get = tb_gui_notebook_get_tabs,
+     .set = tb_gui_notebook_set_tabs},
 };
 
-/* What a layout file cannot hold yet (tb_widget_class::unsaved). */
+/* What a layout file cannot hold (tb_widget_class::unsaved): tabs of
+ * pages other than its children in their order, which a file, holding the
+ * tabs as the children, cannot say. */
 static const char *tb_gui_notebook_unsaved(tb_widget widget, const void *data)
 {
     const tb_gui_notebook *const notebook = data;
+    tb_widget child = tb_widget_first_child(widget);
+    size_t index = 0;
 
-    (void)widget;
-    return notebook->count > 0 ? "notebook tabs" : NULL;
+    for (; tb_widget_alive(child); child = tb_widget_next_sibling(child))
+    {
+        if (index >= notebook->count || !tb_widget_equal(notebook->tabs[index].page, child))
+        {
+            return "notebook children that are not its tabs, in their order";
+        }
+        index++;
+    }
+    return NULL;
+}
+
+/* A layout file built it: each child not yet a page becomes one, its tab's
+ * text the line of `tabs` of its place, or else its name; then the tab the
+ * file chose is shown. */
+static void tb_gui_notebook_loaded(tb_widget widget, void *data)
+{
+    tb_gui_notebook *const notebook = data;
+    const tb_text titles = tb_gui_string_text(&notebook->titles);
+    size_t place = 0;
+
+    for (tb_widget child = tb_widget_first_child(widget); tb_widget_alive(child);
+         child = tb_widget_next_sibling(child))
+    {
+        bool added = false;
+        for (size_t index = 0; index < notebook->count && !added; index++)
+        {
+            added = tb_widget_equal(notebook->tabs[index].page, child);
+        }
+        if (!added)
+        {
+            tb_text line = tb_widget_name(child);
+            (void)tb_gui_notebook_line(titles, place, &line);
+            char *const text = tb_malloc(line.length + 1);
+            if (line.length > 0)
+            {
+                memcpy(text, line.bytes, line.length);
+            }
+            text[line.length] = '\0';
+            (void)tb_notebook_add(widget, child, text);
+            tb_free(text);
+        }
+        place++;
+    }
+    if (notebook->wanted < notebook->count)
+    {
+        tb_gui_notebook_show(widget, notebook, notebook->wanted, false);
+    }
+    notebook->wanted = SIZE_MAX;
 }
 
 static const tb_widget_class tb_gui_notebook_kind = {
@@ -409,7 +565,8 @@ static const tb_widget_class tb_gui_notebook_kind = {
     .draw = tb_gui_notebook_draw,
     .event = tb_gui_notebook_event,
     .style = &tb_gui_notebook_style,
-    .unsaved = tb_gui_notebook_unsaved};
+    .unsaved = tb_gui_notebook_unsaved,
+    .loaded = tb_gui_notebook_loaded};
 
 static tb_gui_notebook *tb_gui_notebook_of(tb_widget widget)
 {

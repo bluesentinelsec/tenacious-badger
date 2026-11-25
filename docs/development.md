@@ -78,7 +78,8 @@ time into shader libraries; the build runs it on the engine's own shaders.
 
 [`burrow`](burrow.md) loads its [settings](settings.md#burrow), opens its
 [window](windows.md), and runs [the game loop](game-loop.md#burrow), drawing a
-graybox room the player flies through with the mouse and the keyboard;
+graybox room the player flies through with the mouse and the keyboard, under
+[menus](burrow.md#the-menus) built with [the GUI](gui.md) from layout files;
 `burrow --frames=N` stops after N frames, `burrow --headless` runs without a
 window, `burrow check` prints `2 + 3 = 5` to show it starts against the engine,
 `burrow settings` lists every setting, and `burrow --help` and

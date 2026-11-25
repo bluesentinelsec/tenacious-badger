@@ -75,13 +75,37 @@ if(TB_BUILD_BURROW)
         COMMENT "Embedding Burrow's default settings"
         VERBATIM)
     # The game's logic and data, which its tests build too: the room, the
-    # world grid's texture, the player, and the HUD.
+    # world grid's texture, the player, the HUD, and the menus.
     set(TB_BURROW_SOURCES
         "${CMAKE_CURRENT_SOURCE_DIR}/burrow_grid.c"
         "${CMAKE_CURRENT_SOURCE_DIR}/burrow_hud.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/burrow_menu.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/burrow_menus.c"
         "${CMAKE_CURRENT_SOURCE_DIR}/burrow_player.c"
         "${CMAKE_CURRENT_SOURCE_DIR}/burrow_room.c"
         CACHE INTERNAL "Burrow's sources that its tests build")
+    # Burrow's content, resources/burrow/Content: the menus' layout files and
+    # their theme, read at run time through a VFS. The build copies it
+    # beside the executable, or into a macOS bundle's Resources, where the
+    # game and its exports find it, as they find the shader libraries.
+    set(TB_BURROW_CONTENT "${PROJECT_SOURCE_DIR}/resources/burrow"
+        CACHE INTERNAL "Burrow's content, under Content/")
+    file(GLOB_RECURSE burrow_content_files CONFIGURE_DEPENDS
+        "${TB_BURROW_CONTENT}/Content/*")
+    if(APPLE)
+        set(burrow_content_destination "$<TARGET_BUNDLE_CONTENT_DIR:burrow>/Resources/Content")
+    else()
+        set(burrow_content_destination "$<TARGET_FILE_DIR:burrow>/Content")
+    endif()
+    set(burrow_content_stamp "${CMAKE_CURRENT_BINARY_DIR}/burrow_content.stamp")
+    add_custom_command(OUTPUT "${burrow_content_stamp}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory "${TB_BURROW_CONTENT}/Content"
+            "${burrow_content_destination}"
+        COMMAND "${CMAKE_COMMAND}" -E touch "${burrow_content_stamp}"
+        DEPENDS ${burrow_content_files}
+        COMMENT "Copying Burrow's content"
+        VERBATIM)
+    add_custom_target(burrow_content ALL DEPENDS "${burrow_content_stamp}")
     add_executable(burrow main.c burrow_game.c burrow_scene.c burrow_settings.c
         ${TB_BURROW_SOURCES} "${burrow_defaults_source}")
     target_link_libraries(burrow PRIVATE TenaciousBadger::badger)
@@ -89,6 +113,12 @@ if(TB_BUILD_BURROW)
     # MinSizeRel are release builds.
     target_compile_definitions(burrow PRIVATE
         "BURROW_DEVELOPER=$<IF:$<CONFIG:Release,MinSizeRel>,0,1>")
+    # A developer build reads its content from the source tree before the
+    # copy, so that the menus' files load again as an author saves them; a
+    # release build knows no source tree.
+    target_compile_definitions(burrow PRIVATE
+        "$<$<NOT:$<CONFIG:Release,MinSizeRel>>:BURROW_SOURCE_CONTENT=\"${TB_BURROW_CONTENT}\">")
+    add_dependencies(burrow burrow_content)
     tb_configure_target(burrow)
     tb_analyze_target(burrow)
     tb_strip_release(burrow)
