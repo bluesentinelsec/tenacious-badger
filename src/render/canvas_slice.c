@@ -32,15 +32,16 @@ static float tb_canvas_slice_texel(const tb_canvas_nine_slice *slice, float pixe
     return pixels / pixels_per_unit;
 }
 
-/* One axis of a panel: the texels its four cuts are at, and the units its
- * four edges are drawn at. */
+/* One axis of a panel: where it starts in the image, the texels its four
+ * cuts are at from there, and the units its four edges are drawn at. */
 typedef struct tb_canvas_slice_axis
 {
+    int32_t start;
     uint32_t cuts[4];
     float edges[4];
 } tb_canvas_slice_axis;
 
-static tb_canvas_slice_axis tb_canvas_slice_cut(uint32_t start, uint32_t length, uint32_t before,
+static tb_canvas_slice_axis tb_canvas_slice_cut(int32_t start, uint32_t length, uint32_t before,
                                                 uint32_t after, float position, float size,
                                                 float texel, float pixels_per_unit)
 {
@@ -57,10 +58,11 @@ static tb_canvas_slice_axis tb_canvas_slice_cut(uint32_t start, uint32_t length,
         near *= fit;
         far *= fit;
     }
-    axis.cuts[0] = start;
-    axis.cuts[1] = start + first;
-    axis.cuts[2] = start + length - last;
-    axis.cuts[3] = start + length;
+    axis.start = start;
+    axis.cuts[0] = 0;
+    axis.cuts[1] = first;
+    axis.cuts[2] = length - last;
+    axis.cuts[3] = length;
     axis.edges[0] = tb_canvas_slice_snap(position, pixels_per_unit);
     axis.edges[3] = tb_canvas_slice_snap(position + size, pixels_per_unit);
     axis.edges[1] = fminf(tb_canvas_slice_snap(position + near, pixels_per_unit), axis.edges[3]);
@@ -89,20 +91,22 @@ size_t tb_canvas_nine_slice_layout(const tb_canvas_nine_slice *slice, uint32_t i
         tb_canvas_slice_cut(source.x, source.width, slice->left, slice->right, rect.x, rect.width,
                             texel, pixels_per_unit);
     const tb_canvas_slice_axis down =
-        tb_canvas_slice_cut(source.y, source.height, slice->top, slice->bottom, rect.y,
-                            rect.height, texel, pixels_per_unit);
+        tb_canvas_slice_cut(source.y, source.height, slice->top, slice->bottom, rect.y, rect.height,
+                            texel, pixels_per_unit);
 
     for (size_t row = 0; row < 3; row++)
     {
         for (size_t column = 0; column < 3; column++)
         {
+            /* A source within an image is far inside 32 bits. */
             const tb_canvas_slice part = {
-                .source = {across.cuts[column], down.cuts[row],
+                .source = {(int32_t)((int64_t)across.start + (int64_t)across.cuts[column]),
+                           (int32_t)((int64_t)down.start + (int64_t)down.cuts[row]),
                            across.cuts[column + 1] - across.cuts[column],
                            down.cuts[row + 1] - down.cuts[row]},
-                .rect = {across.edges[column], down.edges[row],
-                         across.edges[column + 1] - across.edges[column],
-                         down.edges[row + 1] - down.edges[row]}};
+                                          .rect = {across.edges[column], down.edges[row],
+                                                   across.edges[column + 1] - across.edges[column],
+                                                   down.edges[row + 1] - down.edges[row]}};
             const bool middle = row == 1 && column == 1;
             if ((middle && slice->hollow) || part.source.width == 0 || part.source.height == 0 ||
                 !(part.rect.width > 0.0f) || !(part.rect.height > 0.0f))

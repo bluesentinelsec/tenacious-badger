@@ -63,31 +63,50 @@ static tb_game_look tb_game_look_of(tb_game_part part)
     switch (part)
     {
     case TB_GAME_PANEL:
-        return (tb_game_look){rim, tb_game_rgb(0.62f, 0.46f, 0.24f), tb_game_rgb(0.33f, 0.22f, 0.11f),
-                              tb_game_rgb(0.20f, 0.21f, 0.24f), tb_game_rgb(0.12f, 0.13f, 0.15f),
+        return (tb_game_look){rim,
+                              tb_game_rgb(0.62f, 0.46f, 0.24f),
+                              tb_game_rgb(0.33f, 0.22f, 0.11f),
+                              tb_game_rgb(0.20f, 0.21f, 0.24f),
+                              tb_game_rgb(0.12f, 0.13f, 0.15f),
                               false};
     case TB_GAME_BUTTON:
-        return (tb_game_look){rim, tb_game_rgb(0.86f, 0.66f, 0.36f), tb_game_rgb(0.40f, 0.26f, 0.12f),
-                              tb_game_rgb(0.58f, 0.40f, 0.20f), tb_game_rgb(0.42f, 0.28f, 0.13f),
+        return (tb_game_look){rim,
+                              tb_game_rgb(0.86f, 0.66f, 0.36f),
+                              tb_game_rgb(0.40f, 0.26f, 0.12f),
+                              tb_game_rgb(0.58f, 0.40f, 0.20f),
+                              tb_game_rgb(0.42f, 0.28f, 0.13f),
                               false};
     case TB_GAME_BUTTON_HOT:
-        return (tb_game_look){rim, tb_game_rgb(0.98f, 0.80f, 0.48f), tb_game_rgb(0.48f, 0.32f, 0.15f),
-                              tb_game_rgb(0.70f, 0.50f, 0.26f), tb_game_rgb(0.52f, 0.35f, 0.17f),
+        return (tb_game_look){rim,
+                              tb_game_rgb(0.98f, 0.80f, 0.48f),
+                              tb_game_rgb(0.48f, 0.32f, 0.15f),
+                              tb_game_rgb(0.70f, 0.50f, 0.26f),
+                              tb_game_rgb(0.52f, 0.35f, 0.17f),
                               false};
     case TB_GAME_BUTTON_PRESSED:
-        return (tb_game_look){rim, tb_game_rgb(0.86f, 0.66f, 0.36f), tb_game_rgb(0.30f, 0.19f, 0.09f),
-                              tb_game_rgb(0.34f, 0.22f, 0.10f), tb_game_rgb(0.46f, 0.31f, 0.15f),
+        return (tb_game_look){rim,
+                              tb_game_rgb(0.86f, 0.66f, 0.36f),
+                              tb_game_rgb(0.30f, 0.19f, 0.09f),
+                              tb_game_rgb(0.34f, 0.22f, 0.10f),
+                              tb_game_rgb(0.46f, 0.31f, 0.15f),
                               true};
     case TB_GAME_FIELD:
-        return (tb_game_look){rim, tb_game_rgb(0.40f, 0.30f, 0.17f), tb_game_rgb(0.05f, 0.05f, 0.06f),
-                              tb_game_rgb(0.06f, 0.06f, 0.07f), tb_game_rgb(0.10f, 0.10f, 0.11f),
+        return (tb_game_look){rim,
+                              tb_game_rgb(0.40f, 0.30f, 0.17f),
+                              tb_game_rgb(0.05f, 0.05f, 0.06f),
+                              tb_game_rgb(0.06f, 0.06f, 0.07f),
+                              tb_game_rgb(0.10f, 0.10f, 0.11f),
                               true};
     case TB_GAME_FILL:
     case TB_GAME_PART_COUNT:
         break;
     }
-    return (tb_game_look){rim, tb_game_rgb(1.0f, 0.90f, 0.55f), tb_game_rgb(0.62f, 0.42f, 0.10f),
-                          tb_game_rgb(0.96f, 0.76f, 0.30f), tb_game_rgb(0.80f, 0.56f, 0.16f), false};
+    return (tb_game_look){rim,
+                          tb_game_rgb(1.0f, 0.90f, 0.55f),
+                          tb_game_rgb(0.62f, 0.42f, 0.10f),
+                          tb_game_rgb(0.96f, 0.76f, 0.30f),
+                          tb_game_rgb(0.80f, 0.56f, 0.16f),
+                          false};
 }
 
 /* Whether a texel lies outside a smooth panel's rounded corner. */
@@ -205,8 +224,8 @@ static void tb_game_number(tb_theme *theme, const char *style_class, const char 
 
 static void tb_game_padding(tb_theme *theme, const char *style_class, float across, float down)
 {
-    const bool set =
-        tb_theme_set_edges(theme, style_class, "padding", 0, (tb_gui_edges){across, down, across, down});
+    const bool set = tb_theme_set_edges(theme, style_class, "padding", 0,
+                                        (tb_gui_edges){across, down, across, down});
     TB_ASSERT(set);
     (void)set;
 }
@@ -214,9 +233,9 @@ static void tb_game_padding(tb_theme *theme, const char *style_class, float acro
 static void tb_game_font(tb_theme *theme, const char *style_class, tb_font_role role)
 {
     /* Never bold: the role's family at its regular weight, at its size. */
-    const bool set = tb_theme_set_font(
-        theme, style_class, "font", 0,
-        (tb_font_spec){.role = role, .weight = TB_FONT_WEIGHT_REGULAR});
+    const bool set =
+        tb_theme_set_font(theme, style_class, "font", 0,
+                          (tb_font_spec){.role = role, .weight = TB_FONT_WEIGHT_REGULAR});
     TB_ASSERT(set);
     (void)set;
 }
@@ -255,8 +274,8 @@ static void tb_game_fill_panels(tb_theme *theme, const tb_style_image *panel,
                                 const tb_style_image *field, bool retro)
 {
     const char *const panels[] = {"Frame", "Menu", "Tooltip", "ComboboxList", "Notebook"};
-    const float edge = retro ? TB_GAME_RETRO_SCALE * (float)TB_GAME_RETRO_INSET
-                             : (float)TB_GAME_INSET;
+    const float edge =
+        retro ? TB_GAME_RETRO_SCALE * (float)TB_GAME_RETRO_INSET : (float)TB_GAME_INSET;
 
     for (size_t index = 0; index < sizeof(panels) / sizeof(panels[0]); index++)
     {
@@ -280,8 +299,11 @@ static void tb_game_fill_panels(tb_theme *theme, const tb_style_image *panel,
     tb_game_padding(theme, "Menubar", edge, 4.0f);
     tb_game_color(theme, "Notebook", "tab_background", 0, tb_game_rgb(0.16f, 0.15f, 0.16f));
     tb_game_color(theme, "Notebook", "tab_hot_background", 0, tb_game_rgb(0.24f, 0.21f, 0.18f));
-    tb_game_color(theme, "Notebook", "tab_selected_background", 0, tb_game_rgb(0.20f, 0.21f, 0.24f));
+    tb_game_color(theme, "Notebook", "tab_selected_background", 0,
+                  tb_game_rgb(0.20f, 0.21f, 0.24f));
     tb_game_color(theme, "Notebook", "tab_line_color", 0, tb_game_rgb(1.0f, 0.80f, 0.30f));
+    tb_game_color(theme, "Notebook", "tab_line_color", TB_WIDGET_FOCUSED,
+                  tb_game_rgb(1.0f, 0.92f, 0.60f));
     tb_game_number(theme, "Notebook", "tab_line_width", 0, 2.0f);
     tb_game_color(theme, "Panedwindow", "sash_color", 0, tb_game_rgb(0.40f, 0.28f, 0.14f));
     tb_game_color(theme, "Panedwindow", "sash_active_color", 0, tb_game_rgb(1.0f, 0.80f, 0.30f));
@@ -314,6 +336,7 @@ static void tb_game_fill_buttons(tb_theme *theme, const tb_style_image images[TB
                       &images[TB_GAME_BUTTON_PRESSED]);
     tb_game_color(theme, "Button", "text_color", 0, tb_game_rgb(1.0f, 0.95f, 0.82f));
     tb_game_color(theme, "Button", "default_color", 0, tb_game_rgb(1.0f, 0.80f, 0.30f));
+    tb_game_number(theme, "Button", "default_width", 0, 1.0f);
     const char *const titles[] = {"Title.Label", "Heading.Label"};
     for (size_t index = 0; index < sizeof(titles) / sizeof(titles[0]); index++)
     {
@@ -349,18 +372,28 @@ static void tb_game_fill_fields(tb_theme *theme, const tb_style_image images[TB_
         tb_game_color(theme, choices[index], "background", 0, dark);
         tb_game_color(theme, choices[index], "background", TB_WIDGET_HOVERED,
                       tb_game_rgb(0.14f, 0.12f, 0.10f));
+        tb_game_color(theme, choices[index], "background", TB_WIDGET_HOVERED | TB_WIDGET_PRESSED,
+                      tb_game_rgb(0.22f, 0.17f, 0.11f));
         tb_game_color(theme, choices[index], "border_color", 0, bronze);
         tb_game_number(theme, choices[index], "border_width", 0, 2.0f);
         tb_game_number(theme, choices[index], "radius", 0, retro ? 0.0f : 3.0f);
         tb_game_number(theme, choices[index], "focus_width", TB_WIDGET_FOCUSED, 2.0f);
         tb_game_number(theme, choices[index], "spacing", 0, 8.0f);
     }
+    /* Each state the default theme gives a look of its own is given here too,
+     * as it would otherwise outrank this theme's look at rest. */
     tb_game_color(theme, "Checkbutton", "background", TB_WIDGET_SELECTED, gold);
+    tb_game_color(theme, "Checkbutton", "border_color", TB_WIDGET_SELECTED, bronze);
+    tb_game_color(theme, "Checkbutton", "background", TB_WIDGET_SELECTED | TB_WIDGET_DISABLED,
+                  tb_game_rgb(0.40f, 0.34f, 0.24f));
+    tb_game_color(theme, "Checkbutton", "border_color", TB_WIDGET_SELECTED | TB_WIDGET_DISABLED,
+                  bronze);
     tb_game_color(theme, "Checkbutton", "mark_color", 0, dark);
     tb_game_color(theme, "Radiobutton", "mark_color", 0, gold);
 
     tb_game_color(theme, "Scale", "background", 0, bronze);
-    tb_game_color(theme, "Scale", "background", TB_WIDGET_HOVERED, tb_game_rgb(0.78f, 0.58f, 0.30f));
+    tb_game_color(theme, "Scale", "background", TB_WIDGET_HOVERED,
+                  tb_game_rgb(0.78f, 0.58f, 0.30f));
     tb_game_color(theme, "Scale", "background", TB_WIDGET_PRESSED, gold);
     tb_game_color(theme, "Scale", "border_color", 0, tb_game_rgb(0.10f, 0.07f, 0.04f));
     tb_game_number(theme, "Scale", "border_width", 0, 2.0f);

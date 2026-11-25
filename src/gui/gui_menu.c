@@ -124,8 +124,7 @@ static const tb_style_element tb_gui_menubar_elements[TB_GUI_MENUBAR_ELEMENTS] =
 static const tb_widget_style_desc tb_gui_menubar_style = {.name = "Menubar",
                                                           .states = TB_WIDGET_DISABLED,
                                                           .elements = tb_gui_menubar_elements,
-                                                          .element_count =
-                                                              TB_GUI_MENUBAR_ELEMENTS};
+                                                          .element_count = TB_GUI_MENUBAR_ELEMENTS};
 
 /* Draw a label at the left of a rectangle, its mnemonic underlined. */
 static void tb_gui_menu_draw_label(tb_gui_paint *paint, const tb_gui_menu_label *label,
@@ -272,8 +271,8 @@ static tb_vec2 tb_gui_menu_measure(tb_widget widget, const void *data)
     }
     if (accelerators > 0.0f)
     {
-        accelerators += tb_gui_widget_font(widget, (tb_font_spec){0}).size *
-                        TB_GUI_MENU_ACCELERATOR_GAP;
+        accelerators +=
+            tb_gui_widget_font(widget, (tb_font_spec){0}).size * TB_GUI_MENU_ACCELERATOR_GAP;
     }
     /* A column for checks on the left, and for cascades' arrows on the right. */
     return (tb_vec2){2.0f * row + labels + accelerators + style->padding.left +

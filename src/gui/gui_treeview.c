@@ -624,14 +624,14 @@ bool tb_treeview_set_column_width(tb_widget treeview, size_t column, float width
  * marks'. Its padding is each row's and each heading's. */
 enum
 {
-    TB_GUI_TREE_SELECTION,        /* a chosen row */
-    TB_GUI_TREE_HOT,              /* the row under the mouse */
-    TB_GUI_TREE_ACTIVE,           /* the ring of the focus item, with the focus */
-    TB_GUI_TREE_HEADING,          /* the headings' background */
-    TB_GUI_TREE_HEADING_TEXT,     /* their text */
-    TB_GUI_TREE_SEPARATOR,        /* the lines between headings */
-    TB_GUI_TREE_INDENT,           /* units each level is indented */
-    TB_GUI_TREE_MARK_WIDTH,       /* units the open and closed marks' lines are wide */
+    TB_GUI_TREE_SELECTION,    /* a chosen row */
+    TB_GUI_TREE_HOT,          /* the row under the mouse */
+    TB_GUI_TREE_ACTIVE,       /* the ring of the focus item, with the focus */
+    TB_GUI_TREE_HEADING,      /* the headings' background */
+    TB_GUI_TREE_HEADING_TEXT, /* their text */
+    TB_GUI_TREE_SEPARATOR,    /* the lines between headings */
+    TB_GUI_TREE_INDENT,       /* units each level is indented */
+    TB_GUI_TREE_MARK_WIDTH,   /* units the open and closed marks' lines are wide */
     TB_GUI_TREE_ELEMENTS = TB_GUI_TREE_MARK_WIDTH + 1 + TB_GUI_BAR_ELEMENTS
 };
 
@@ -646,11 +646,11 @@ static const tb_style_element tb_gui_tree_elements[TB_GUI_TREE_ELEMENTS] = {
     [TB_GUI_TREE_MARK_WIDTH] = {"mark_width", TB_STYLE_NUMBER},
     TB_GUI_BAR_STYLE_ELEMENTS};
 
-static const tb_widget_style_desc tb_gui_treeview_style = {
-    .name = "Treeview",
-    .states = TB_WIDGET_FOCUSED | TB_WIDGET_DISABLED,
-    .elements = tb_gui_tree_elements,
-    .element_count = TB_GUI_TREE_ELEMENTS};
+static const tb_widget_style_desc tb_gui_treeview_style = {.name = "Treeview",
+                                                           .states = TB_WIDGET_FOCUSED |
+                                                                     TB_WIDGET_DISABLED,
+                                                           .elements = tb_gui_tree_elements,
+                                                           .element_count = TB_GUI_TREE_ELEMENTS};
 
 static float tb_gui_tree_row_height(tb_widget widget)
 {
@@ -842,8 +842,7 @@ static void tb_gui_treeview_draw_headings(const tb_gui_treeview *tree, tb_gui_pa
     float left = tree->headings.x;
 
     headings.clip = tb_ui_rect_intersect(paint->clip, tree->headings);
-    tb_gui_paint_fill(&headings, tree->headings, 0.0f,
-                      tb_style_color(style, TB_GUI_TREE_HEADING));
+    tb_gui_paint_fill(&headings, tree->headings, 0.0f, tb_style_color(style, TB_GUI_TREE_HEADING));
     for (size_t column = 0; column < tree->column_count; column++)
     {
         const float width = tree->columns[column].width;

@@ -146,8 +146,7 @@ enum
 };
 
 static const tb_style_element tb_gui_spinbox_elements[TB_GUI_SPINBOX_ELEMENTS] = {
-    TB_GUI_FIELD_STYLE_ELEMENTS,
-    [TB_GUI_SPINBOX_PRESSED] = {"arrow_pressed_color", TB_STYLE_COLOR},
+    TB_GUI_FIELD_STYLE_ELEMENTS, [TB_GUI_SPINBOX_PRESSED] = {"arrow_pressed_color", TB_STYLE_COLOR},
     [TB_GUI_SPINBOX_SEPARATOR] = {"separator_color", TB_STYLE_COLOR},
     [TB_GUI_SPINBOX_MARK_WIDTH] = {"mark_width", TB_STYLE_NUMBER}};
 
@@ -180,8 +179,7 @@ static tb_vec2 tb_gui_spinbox_measure(tb_widget widget, const void *data)
  * padding at the right. */
 static tb_canvas_rect tb_gui_spinbox_arrows(tb_widget widget, tb_canvas_rect rect)
 {
-    const float width =
-        tb_gui_spinbox_arrow_width(widget) + tb_style_in(widget, 0)->padding.right;
+    const float width = tb_gui_spinbox_arrow_width(widget) + tb_style_in(widget, 0)->padding.right;
 
     return (tb_canvas_rect){rect.x + rect.width - width, rect.y, width, rect.height};
 }

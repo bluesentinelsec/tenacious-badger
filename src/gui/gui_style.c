@@ -69,7 +69,7 @@ tb_style_standard tb_style_standard_of(const char *name)
 {
     for (size_t index = 0; index < TB_STYLE_STANDARD_COUNT; index++)
     {
-        if (strcmp(tb_style_standard_names[index], name) == 0)
+        if (tb_str_equal(tb_style_standard_names[index], name))
         {
             return (tb_style_standard)index;
         }
@@ -199,7 +199,7 @@ const tb_theme_class *tb_theme_find_class(const tb_theme *theme, const char *nam
 {
     for (size_t index = 0; index < theme->class_count; index++)
     {
-        if (strcmp(theme->classes[index].name, name) == 0)
+        if (tb_str_equal(theme->classes[index].name, name))
         {
             return &theme->classes[index];
         }
@@ -214,7 +214,7 @@ static const tb_theme_class *tb_theme_find_span(const tb_theme *theme, const cha
     for (size_t index = 0; index < theme->class_count; index++)
     {
         const char *const found = theme->classes[index].name;
-        if (strlen(found) == length && memcmp(found, name, length) == 0)
+        if (tb_str_length(found) == length && memcmp(found, name, length) == 0)
         {
             return &theme->classes[index];
         }
@@ -249,7 +249,7 @@ static void tb_style_entries_set(tb_gui_style_entry **entries, size_t *count, si
     for (size_t index = 0; index < *count; index++)
     {
         tb_gui_style_entry *const entry = &(*entries)[index];
-        if (entry->states == states && strcmp(entry->name, name) == 0)
+        if (entry->states == states && tb_str_equal(entry->name, name))
         {
             entry->value = *value;
             return;
@@ -289,8 +289,8 @@ bool tb_theme_set(tb_theme *theme, const char *style_class, const char *name, ui
     return true;
 }
 
-bool tb_theme_set_color(tb_theme *theme, const char *style_class, const char *name,
-                        uint32_t states, tb_vec4 color)
+bool tb_theme_set_color(tb_theme *theme, const char *style_class, const char *name, uint32_t states,
+                        tb_vec4 color)
 {
     const tb_style_value value = {.type = TB_STYLE_COLOR, .color = color};
     return tb_theme_set(theme, style_class, name, states, &value);
@@ -303,30 +303,30 @@ bool tb_theme_set_number(tb_theme *theme, const char *style_class, const char *n
     return tb_theme_set(theme, style_class, name, states, &value);
 }
 
-bool tb_theme_set_edges(tb_theme *theme, const char *style_class, const char *name,
-                        uint32_t states, tb_gui_edges edges)
+bool tb_theme_set_edges(tb_theme *theme, const char *style_class, const char *name, uint32_t states,
+                        tb_gui_edges edges)
 {
     const tb_style_value value = {.type = TB_STYLE_EDGES, .edges = edges};
     return tb_theme_set(theme, style_class, name, states, &value);
 }
 
-bool tb_theme_set_font(tb_theme *theme, const char *style_class, const char *name,
-                       uint32_t states, tb_font_spec font)
+bool tb_theme_set_font(tb_theme *theme, const char *style_class, const char *name, uint32_t states,
+                       tb_font_spec font)
 {
     const tb_style_value value = {.type = TB_STYLE_FONT, .font = font};
     return tb_theme_set(theme, style_class, name, states, &value);
 }
 
-bool tb_theme_set_image(tb_theme *theme, const char *style_class, const char *name,
-                        uint32_t states, const tb_style_image *image)
+bool tb_theme_set_image(tb_theme *theme, const char *style_class, const char *name, uint32_t states,
+                        const tb_style_image *image)
 {
     TB_ASSERT(image != NULL);
     const tb_style_value value = {.type = TB_STYLE_IMAGE, .image = *image};
     return tb_theme_set(theme, style_class, name, states, &value);
 }
 
-bool tb_theme_get(const tb_theme *theme, const char *style_class, const char *name,
-                  uint32_t states, tb_style_value *value)
+bool tb_theme_get(const tb_theme *theme, const char *style_class, const char *name, uint32_t states,
+                  tb_style_value *value)
 {
     TB_ASSERT(theme != NULL);
     TB_ASSERT(style_class != NULL);
@@ -340,7 +340,7 @@ bool tb_theme_get(const tb_theme *theme, const char *style_class, const char *na
     }
     for (size_t index = 0; index < found->count; index++)
     {
-        if (found->entries[index].states == states && strcmp(found->entries[index].name, name) == 0)
+        if (found->entries[index].states == states && tb_str_equal(found->entries[index].name, name))
         {
             *value = found->entries[index].value;
             return true;
@@ -356,7 +356,7 @@ void tb_theme_add_image(tb_theme *theme, const char *path, const tb_image *image
     TB_ASSERT(image != NULL);
     for (size_t index = 0; index < theme->image_count; index++)
     {
-        if (strcmp(theme->images[index].path, path) == 0)
+        if (tb_str_equal(theme->images[index].path, path))
         {
             theme->images[index].image = image;
             theme->generation++;
@@ -381,7 +381,7 @@ const tb_image *tb_theme_image(const tb_theme *theme, const char *path)
     TB_ASSERT(path != NULL);
     for (size_t index = 0; index < theme->image_count; index++)
     {
-        if (strcmp(theme->images[index].path, path) == 0)
+        if (tb_str_equal(theme->images[index].path, path))
         {
             return theme->images[index].image;
         }
@@ -656,7 +656,7 @@ bool tb_widget_override_style(tb_widget widget, const char *name, uint32_t state
         for (size_t index = 0; index < node->override_count; index++)
         {
             tb_gui_style_entry *const entry = &node->overrides[index];
-            if (entry->states == states && strcmp(entry->name, name) == 0)
+            if (entry->states == states && tb_str_equal(entry->name, name))
             {
                 tb_str_free(NULL, entry->name);
                 node->overrides[index] = node->overrides[node->override_count - 1];
@@ -720,7 +720,7 @@ static tb_style_chain tb_style_chain_of(const tb_gui_node *node)
     const char *const kind_class = desc != NULL ? desc->name : NULL;
     const tb_text own = tb_gui_string_text(&node->style);
     const char *const name = own.length > 0 ? own.bytes : kind_class;
-    const size_t length = own.length > 0 ? own.length : (name != NULL ? strlen(name) : 0);
+    const size_t length = own.length > 0 ? own.length : (name != NULL ? tb_str_length(name) : 0);
     size_t last = 0;
 
     /* "Primary.Button", then "Button": each suffix after a dot. */
@@ -734,7 +734,7 @@ static tb_style_chain tb_style_chain_of(const tb_gui_node *node)
     }
     if (kind_class != NULL)
     {
-        const size_t kind_length = strlen(kind_class);
+        const size_t kind_length = tb_str_length(kind_class);
         const bool ends_in_kind = chain.count > 0 && chain.lengths[last] == kind_length &&
                                   memcmp(chain.names[last], kind_class, kind_length) == 0;
         if (!ends_in_kind)
@@ -742,7 +742,7 @@ static tb_style_chain tb_style_chain_of(const tb_gui_node *node)
             tb_style_chain_add(&chain, kind_class, kind_length);
         }
     }
-    tb_style_chain_add(&chain, TB_STYLE_ROOT_CLASS, strlen(TB_STYLE_ROOT_CLASS));
+    tb_style_chain_add(&chain, TB_STYLE_ROOT_CLASS, tb_str_length(TB_STYLE_ROOT_CLASS));
     return chain;
 }
 
@@ -815,7 +815,7 @@ static void tb_style_consider(const tb_gui_style_entry *entries, size_t count, c
     for (size_t index = 0; index < count; index++)
     {
         const tb_gui_style_entry *const entry = &entries[index];
-        if ((entry->states & ~states) != 0 || strcmp(entry->name, name) != 0)
+        if ((entry->states & ~states) != 0 || !tb_str_equal(entry->name, name))
         {
             continue;
         }
@@ -844,8 +844,8 @@ static const tb_style_value *tb_style_pick(const tb_style_sources *sources, cons
     int32_t best_rank = -1;
     const int32_t most = tb_style_rank(states);
 
-    tb_style_consider(sources->node->overrides, sources->node->override_count, name, states,
-                      &best, &best_rank);
+    tb_style_consider(sources->node->overrides, sources->node->override_count, name, states, &best,
+                      &best_rank);
     for (size_t index = 0; index < sources->class_count && best_rank < most; index++)
     {
         const tb_theme_class *const found = sources->classes[index];
@@ -900,8 +900,7 @@ static tb_style *tb_style_resolve(tb_gui *gui, uint32_t index, uint32_t states)
     const size_t element_count = desc != NULL ? desc->element_count : 0;
     const tb_style_chain chain = tb_style_chain_of(node);
     const size_t theme_count = tb_style_themes_of(gui, index);
-    const tb_theme_class **const classes =
-        tb_calloc(theme_count, chain.count * sizeof(*classes));
+    const tb_theme_class **const classes = tb_calloc(theme_count, chain.count * sizeof(*classes));
     tb_style_sources sources = {.node = node, .classes = classes};
     char *block = NULL;
 
@@ -969,6 +968,7 @@ const tb_style *tb_style_in(tb_widget widget, uint32_t states)
         tb_gui_style_cache_clear(cache);
         cache->epoch = widget.gui->style_epoch;
     }
+    TB_ASSERT(drawn < TB_STYLE_STATE_SETS);
     if (cache->styles[drawn] == NULL)
     {
         cache->styles[drawn] = tb_style_resolve(widget.gui, widget.index, drawn);
@@ -986,7 +986,7 @@ const tb_style *tb_style_of(tb_widget widget)
  * ------------------------------------------------------------------------- */
 
 static const tb_style_value *tb_style_element_typed(const tb_style *style, size_t element,
-                                              tb_style_type type)
+                                                    tb_style_type type)
 {
     TB_ASSERT(style != NULL);
     if (element >= style->element_count || style->elements[element].type != type)
@@ -1032,7 +1032,7 @@ const tb_style_value *tb_style_find(const tb_style *style, const char *name)
     TB_ASSERT(name != NULL);
     for (size_t index = 0; index < style->element_count; index++)
     {
-        if (strcmp(style->desc->elements[index].name, name) == 0)
+        if (tb_str_equal(style->desc->elements[index].name, name))
         {
             return &style->elements[index];
         }

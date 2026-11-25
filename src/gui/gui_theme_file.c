@@ -36,9 +36,9 @@
 /* What a document is being read into, and where it failed. */
 typedef struct tb_theme_reader
 {
-    tb_theme *target;  /* whose images are named */
-    tb_theme *loaded;  /* the classes read */
-    const char *name;  /* the file's, for messages; never NULL */
+    tb_theme *target; /* whose images are named */
+    tb_theme *loaded; /* the classes read */
+    const char *name; /* the file's, for messages; never NULL */
     char path[TB_THEME_FILE_ERROR_CAPACITY];
     tb_theme_file_error *error;
 } tb_theme_reader;
@@ -61,8 +61,7 @@ static tb_theme_file_result tb_theme_fail(tb_theme_reader *reader, tb_theme_file
     }
     else
     {
-        (void)tb_fmt_buffer(error->message, sizeof(error->message), "%s: %s", reader->name,
-                            reason);
+        (void)tb_fmt_buffer(error->message, sizeof(error->message), "%s: %s", reader->name, reason);
     }
     return result;
 }
@@ -183,8 +182,8 @@ static const char *const tb_theme_role_names[TB_FONT_ROLE_COUNT] = {
     [TB_FONT_ROLE_PIXEL] = "pixel"};
 
 /* A member's key is one of a list of names. */
-static bool tb_theme_known_keys(const tb_json_value *object, const char *const *names,
-                                size_t count, const char **unknown)
+static bool tb_theme_known_keys(const tb_json_value *object, const char *const *names, size_t count,
+                                const char **unknown)
 {
     for (size_t member = 0; member < tb_json_count(object); member++)
     {
@@ -194,7 +193,7 @@ static bool tb_theme_known_keys(const tb_json_value *object, const char *const *
         (void)tb_json_member_at(object, member, &key, &length);
         for (size_t index = 0; index < count; index++)
         {
-            known = known || strcmp(names[index], key) == 0;
+            known = known || tb_str_equal(names[index], key);
         }
         if (!known)
         {
@@ -205,8 +204,8 @@ static bool tb_theme_known_keys(const tb_json_value *object, const char *const *
     return true;
 }
 
-static tb_theme_file_result tb_theme_read_font(tb_theme_reader *reader,
-                                               const tb_json_value *value, tb_font_spec *font)
+static tb_theme_file_result tb_theme_read_font(tb_theme_reader *reader, const tb_json_value *value,
+                                               tb_font_spec *font)
 {
     static const char *const keys[] = {"role", "weight", "italic", "size"};
     const tb_json_value *const role = tb_json_find(value, "role", 4);
@@ -226,7 +225,7 @@ static tb_theme_file_result tb_theme_read_font(tb_theme_reader *reader,
     for (size_t index = 0; role_name != NULL && index < TB_FONT_ROLE_COUNT; index++)
     {
         if (tb_json_type_of(role) == TB_JSON_STRING &&
-            strcmp(role_name, tb_theme_role_names[index]) == 0)
+            tb_str_equal(role_name, tb_theme_role_names[index]))
         {
             font->role = (tb_font_role)index;
         }
@@ -309,8 +308,8 @@ static bool tb_theme_read_source(const tb_json_value *value, tb_rhi_rect *source
     return true;
 }
 
-static tb_theme_file_result tb_theme_read_image(tb_theme_reader *reader,
-                                                const tb_json_value *value, tb_style_image *image)
+static tb_theme_file_result tb_theme_read_image(tb_theme_reader *reader, const tb_json_value *value,
+                                                tb_style_image *image)
 {
     static const char *const keys[] = {"image",        "insets", "source", "scale",
                                        "whole_pixels", "hollow", "tint"};
@@ -350,8 +349,8 @@ static tb_theme_file_result tb_theme_read_image(tb_theme_reader *reader,
         return tb_theme_fail(reader, TB_THEME_FILE_INVALID,
                              "an image's source: [x, y, width, height] in texels");
     }
-    if (scale != NULL && (!tb_theme_read_number(scale, &image->slice.scale) ||
-                          !(image->slice.scale > 0.0f)))
+    if (scale != NULL &&
+        (!tb_theme_read_number(scale, &image->slice.scale) || !(image->slice.scale > 0.0f)))
     {
         return tb_theme_fail(reader, TB_THEME_FILE_INVALID, "an image's scale: more than 0");
     }
@@ -392,8 +391,8 @@ static tb_style_type tb_theme_shape_of(const tb_json_value *value)
 /* Sizes that must not be negative. */
 static bool tb_theme_unsigned_name(const char *name)
 {
-    return strcmp(name, "border_width") == 0 || strcmp(name, "radius") == 0 ||
-           strcmp(name, "focus_width") == 0 || strcmp(name, "padding") == 0;
+    return tb_str_equal(name, "border_width") || tb_str_equal(name, "radius") ||
+           tb_str_equal(name, "focus_width") || tb_str_equal(name, "padding");
 }
 
 static tb_theme_file_result tb_theme_read_value(tb_theme_reader *reader, const char *name,
@@ -484,7 +483,7 @@ static bool tb_theme_read_key(const char *key, size_t length, char *name, size_t
         bool found = false;
         for (size_t index = 0; index < TB_STYLE_STATE_BITS; index++)
         {
-            if (strlen(tb_theme_state_names[index]) == word &&
+            if (tb_str_length(tb_theme_state_names[index]) == word &&
                 memcmp(tb_theme_state_names[index], at, word) == 0)
             {
                 *states |= tb_theme_state_flags[index];
@@ -556,7 +555,7 @@ static tb_theme_file_result tb_theme_read_document(tb_theme_reader *reader,
     tb_theme_at(reader, NULL, "format");
     const char *const format_name = format != NULL ? tb_json_as_text(format, &length) : NULL;
     if (format_name == NULL || tb_json_type_of(format) != TB_JSON_STRING ||
-        strcmp(format_name, TB_THEME_FILE_FORMAT) != 0)
+        !tb_str_equal(format_name, TB_THEME_FILE_FORMAT))
     {
         return tb_theme_fail(reader, TB_THEME_FILE_INVALID,
                              "a theme's format: \"" TB_THEME_FILE_FORMAT "\"");
@@ -610,8 +609,8 @@ tb_theme_file_result tb_theme_load(tb_theme *theme, const char *text, size_t len
     tb_theme_reader reader = {.target = theme,
                               .name = name != NULL ? name : "theme",
                               .error = error != NULL ? error : &ignored};
-    const tb_json_options options = {.flags = TB_JSON_ALLOW_COMMENTS |
-                                              TB_JSON_ALLOW_TRAILING_COMMAS};
+    const tb_json_options options = {.flags =
+                                         TB_JSON_ALLOW_COMMENTS | TB_JSON_ALLOW_TRAILING_COMMAS};
     tb_json_error json_error = {0};
     const tb_json_value *root = NULL;
     tb_arena *const arena = tb_arena_create(TB_THEME_FILE_ARENA_CHUNK);
@@ -626,9 +625,8 @@ tb_theme_file_result tb_theme_load(tb_theme *theme, const char *text, size_t len
         result = tb_theme_fail(&reader, TB_THEME_FILE_SYNTAX, json_error.reason);
         reader.error->line = json_error.line;
         reader.error->column = json_error.column;
-        (void)tb_fmt_buffer(reader.error->message, sizeof(reader.error->message),
-                            "%s:%zu:%zu: %s", reader.name, json_error.line, json_error.column,
-                            json_error.reason);
+        (void)tb_fmt_buffer(reader.error->message, sizeof(reader.error->message), "%s:%zu:%zu: %s",
+                            reader.name, json_error.line, json_error.column, json_error.reason);
         goto cleanup;
     }
     result = tb_theme_read_document(&reader, root);
@@ -647,9 +645,8 @@ cleanup:
  * ------------------------------------------------------------------------- */
 
 /* A file's bytes through a VFS, a terminator after them; tb_free() them. */
-static tb_theme_file_result tb_theme_read_file(struct tb_vfs *vfs, const char *path,
-                                               char **bytes, size_t *length,
-                                               tb_theme_file_error *error)
+static tb_theme_file_result tb_theme_read_file(struct tb_vfs *vfs, const char *path, char **bytes,
+                                               size_t *length, tb_theme_file_error *error)
 {
     tb_theme_reader reader = {.name = path, .error = error};
     tb_stream stream = {0};
@@ -754,13 +751,13 @@ bool tb_gui_watch_theme(tb_gui *gui, tb_theme *theme, struct tb_vfs *vfs, const 
     {
         return false;
     }
-    tb_gui_theme_watch watch = {
-        .theme = theme,
-        .vfs = vfs,
-        .path = tb_str_dup(NULL, path),
-        .interval = chosen->interval > 0.0 ? chosen->interval : TB_THEME_WATCH_INTERVAL,
-        .callback = chosen->callback,
-        .user = chosen->user};
+    tb_gui_theme_watch watch = {.theme = theme,
+                                .vfs = vfs,
+                                .path = tb_str_dup(NULL, path),
+                                .interval = chosen->interval > 0.0 ? chosen->interval
+                                                                   : TB_THEME_WATCH_INTERVAL,
+                                .callback = chosen->callback,
+                                .user = chosen->user};
     watch.next = gui->time + watch.interval;
     /* The file as it is now is the one loaded: only a change loads it again. */
     if (tb_theme_read_file(vfs, path, &bytes, &length, &ignored) == TB_THEME_FILE_OK)
@@ -771,9 +768,8 @@ bool tb_gui_watch_theme(tb_gui *gui, tb_theme *theme, struct tb_vfs *vfs, const 
     tb_free(bytes);
     if (gui->theme_watch_count == gui->theme_watch_capacity)
     {
-        gui->theme_watch_capacity = gui->theme_watch_capacity == 0
-                                        ? TB_THEME_FIRST_WATCHES
-                                        : gui->theme_watch_capacity * 2u;
+        gui->theme_watch_capacity = gui->theme_watch_capacity == 0 ? TB_THEME_FIRST_WATCHES
+                                                                   : gui->theme_watch_capacity * 2u;
         gui->theme_watches = tb_realloc_array(gui->theme_watches, gui->theme_watch_capacity,
                                               sizeof(*gui->theme_watches));
     }
@@ -808,8 +804,7 @@ static bool tb_gui_theme_watch_look(tb_gui_theme_watch *watch, tb_theme_file_err
 
     /* A file that cannot be read now, as while an editor replaces it, is
      * looked at again later. */
-    if (tb_theme_read_file(watch->vfs, watch->path, &bytes, &length, &ignored) !=
-        TB_THEME_FILE_OK)
+    if (tb_theme_read_file(watch->vfs, watch->path, &bytes, &length, &ignored) != TB_THEME_FILE_OK)
     {
         return false;
     }

@@ -50,16 +50,17 @@ TB_TEST(canvas_slice, corners_keep_their_units_at_every_scale)
     for (size_t at = 0; at < sizeof(scales) / sizeof(scales[0]); at++)
     {
         tb_canvas_slice slices[TB_CANVAS_NINE_SLICES] = {0};
-        const size_t count = tb_canvas_nine_slice_layout(&slice, SIDE, SIDE, rect, scales[at], slices);
+        const size_t count =
+            tb_canvas_nine_slice_layout(&slice, SIDE, SIDE, rect, scales[at], slices);
         TB_TEST_REQUIRE_UINT(count, ==, 9);
         TB_TEST_CONTEXT("scale %.2f", (double)scales[at]);
         /* The top left corner: 8 by 8 texels, drawn 8 by 8 units. */
-        TB_TEST_EXPECT_UINT(slices[0].source.x, ==, 0);
+        TB_TEST_EXPECT_INT(slices[0].source.x, ==, 0);
         TB_TEST_EXPECT_UINT(slices[0].source.width, ==, INSET);
         TB_TEST_EXPECT_FLOAT_NEAR(slices[0].rect.width, 8.0f, 1e-4f);
         TB_TEST_EXPECT_FLOAT_NEAR(slices[0].rect.height, 8.0f, 1e-4f);
         /* The middle: the texels between the cuts, stretched over the rest. */
-        TB_TEST_EXPECT_UINT(slices[4].source.x, ==, INSET);
+        TB_TEST_EXPECT_INT(slices[4].source.x, ==, INSET);
         TB_TEST_EXPECT_UINT(slices[4].source.width, ==, SIDE - 2u * INSET);
         TB_TEST_EXPECT_FLOAT_NEAR(slices[4].rect.width, 84.0f, 1e-4f);
         TB_TEST_EXPECT_FLOAT_NEAR(slices[4].rect.height, 24.0f, 1e-4f);
@@ -75,7 +76,8 @@ TB_TEST(canvas_slice, corners_keep_their_units_at_every_scale)
 TB_TEST(canvas_slice, edges_land_on_whole_pixels_off_the_grid)
 {
     static const float scales[] = {1.0f, 1.5f, 2.0f};
-    const tb_canvas_nine_slice slice = {.left = 5, .top = 3, .right = 7, .bottom = 4, .scale = 1.3f};
+    const tb_canvas_nine_slice slice = {
+        .left = 5, .top = 3, .right = 7, .bottom = 4, .scale = 1.3f};
     const tb_canvas_rect rect = {3.3f, 7.7f, 61.1f, 29.9f};
 
     for (size_t at = 0; at < sizeof(scales) / sizeof(scales[0]); at++)
@@ -154,7 +156,8 @@ TB_TEST(canvas_slice, hollow_panels_and_sources)
 {
     tb_canvas_slice slices[TB_CANVAS_NINE_SLICES] = {0};
     const tb_canvas_rect rect = {0, 0, 50, 50};
-    const tb_canvas_nine_slice hollow = {.left = 2, .top = 2, .right = 2, .bottom = 2, .hollow = true};
+    const tb_canvas_nine_slice hollow = {
+        .left = 2, .top = 2, .right = 2, .bottom = 2, .hollow = true};
 
     TB_TEST_EXPECT_UINT(tb_canvas_nine_slice_layout(&hollow, 8, 8, rect, 1.0f, slices), ==, 8);
     for (size_t index = 0; index < 8; index++)
@@ -165,10 +168,10 @@ TB_TEST(canvas_slice, hollow_panels_and_sources)
     const tb_canvas_nine_slice framed = {
         .source = {32, 16, 16, 16}, .left = 4, .top = 4, .right = 4, .bottom = 4};
     TB_TEST_REQUIRE_UINT(tb_canvas_nine_slice_layout(&framed, 64, 64, rect, 1.0f, slices), ==, 9);
-    TB_TEST_EXPECT_UINT(slices[0].source.x, ==, 32);
-    TB_TEST_EXPECT_UINT(slices[0].source.y, ==, 16);
-    TB_TEST_EXPECT_UINT(slices[8].source.x, ==, 44);
-    TB_TEST_EXPECT_UINT(slices[8].source.y + slices[8].source.height, ==, 32);
+    TB_TEST_EXPECT_INT(slices[0].source.x, ==, 32);
+    TB_TEST_EXPECT_INT(slices[0].source.y, ==, 16);
+    TB_TEST_EXPECT_INT(slices[8].source.x, ==, 44);
+    TB_TEST_EXPECT_INT(slices[8].source.y + (int32_t)slices[8].source.height, ==, 32);
 
     const tb_canvas_nine_slice plain = {0};
     TB_TEST_REQUIRE_UINT(tb_canvas_nine_slice_layout(&plain, 8, 8, rect, 1.0f, slices), ==, 1);

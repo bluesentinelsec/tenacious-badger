@@ -4,7 +4,9 @@
  * empty row the extra height, and the status line stays at the bottom.
  * Nested grids hold rows of buttons of one width, and a modal dialog asks
  * to confirm. On the right, a panel of options edits the engine's own
- * settings through variables (sandbox_gui_options.c). The window events go
+ * settings through variables (sandbox_gui_options.c). A row of radio
+ * buttons switches the GUI's theme as it runs: the dark and light tool
+ * themes, and the sample game theme and its retro look. The window events go
  * to the GUI first, which takes the mouse
  * over the form and the keys while a button has the focus; the fly camera
  * has the rest. */
@@ -33,6 +35,19 @@
 static const char *const gui_names[] = {"Badger", "Honey badger", "Ferret-badger", "Hog badger"};
 static const char *const gui_difficulties[] = {"Easy", "Normal", "Hard"};
 
+/* The themes the form switches between; the first is the GUI's default. */
+typedef enum gui_theme_choice
+{
+    GUI_THEME_DARK,
+    GUI_THEME_LIGHT,
+    GUI_THEME_GAME,
+    GUI_THEME_RETRO,
+    GUI_THEME_COUNT
+} gui_theme_choice;
+
+static const char *const gui_theme_names[GUI_THEME_COUNT] = {"Dark", "Light", "Game", "Retro"};
+static const char *const gui_theme_values[GUI_THEME_COUNT] = {"0", "1", "2", "3"};
+
 typedef struct gui_scene
 {
     void *shapes;
@@ -43,6 +58,8 @@ typedef struct gui_scene
     tb_widget status;
     tb_widget dialog;
     gui_options *options;
+    tb_theme *themes[GUI_THEME_COUNT]; /* NULL for the default */
+    tb_var theme;
     size_t name_index;
     int volume_percent;
     int applies;
@@ -110,6 +127,21 @@ static void gui_on_apply(const tb_gui_event *event, void *user)
     scene->applies++;
     (void)tb_fmt_buffer(scene->text, sizeof(scene->text), "Applied %d %s.", scene->applies,
                         scene->applies == 1 ? "time" : "times");
+    gui_set_status(scene, scene->text);
+}
+
+/* Draw the GUI by the theme chosen, from the next update on. */
+static void gui_on_theme(tb_var var, void *user)
+{
+    gui_scene *const scene = user;
+    const int32_t chosen = tb_var_get_int(var);
+
+    if (chosen < 0 || chosen >= GUI_THEME_COUNT)
+    {
+        return;
+    }
+    tb_gui_set_style_theme(scene->gui, scene->themes[chosen]);
+    (void)tb_fmt_buffer(scene->text, sizeof(scene->text), "Theme: %s.", gui_theme_names[chosen]);
     gui_set_status(scene, scene->text);
 }
 
@@ -232,9 +264,24 @@ static void gui_build_fields(gui_scene *scene, tb_widget form)
     (void)tb_grid(louder, &(tb_grid_options){.column = 2, .ipadx = 6.0f});
     /* The number's column is as wide as "100%", so the buttons stay still. */
     (void)tb_grid_column_configure(volume, 1, &(tb_grid_track){.minsize = 44.0f});
+
+    gui_field_label(form, 5, "Theme");
+    const tb_widget themes = tb_frame(form, NULL);
+    tb_grid_options row = field;
+    row.row = 5;
+    (void)tb_grid(themes, &row);
+    for (size_t index = 0; index < GUI_THEME_COUNT; index++)
+    {
+        const tb_widget choice =
+            tb_radiobutton(themes, &(tb_radiobutton_desc){.text = gui_theme_names[index],
+                                                          .variable = scene->theme,
+                                                          .value = gui_theme_values[index]});
+        (void)tb_grid(choice, &(tb_grid_options){.column = (int32_t)index,
+                                                 .padx = {index > 0 ? GUI_GAP : 0.0f, 0.0f}});
+    }
 }
 
-static void gui_build_form(gui_scene *scene, tb_widget root, const tb_font_spec *title_font)
+static void gui_build_form(gui_scene *scene, tb_widget root)
 {
     static const char *const actions[] = {"Reset...", "Apply"};
     const tb_widget form = tb_frame(
@@ -244,8 +291,10 @@ static void gui_build_form(gui_scene *scene, tb_widget root, const tb_font_spec 
                                            .padx = {GUI_MARGIN, 0.0f},
                                            .pady = {GUI_MARGIN, GUI_BOTTOM_MARGIN}});
 
-    const tb_widget title =
-        tb_label(form, &(tb_label_desc){.text = "Player settings", .font = *title_font});
+    /* A title's family is its style's: the size alone is asked for. */
+    const tb_widget title = tb_label(
+        form, &(tb_label_desc){.text = "Player settings", .font = {.size = GUI_TITLE_SIZE}});
+    tb_widget_set_style(title, "Title.Label");
     (void)tb_grid(title, &(tb_grid_options){.column_span = 3, .sticky = TB_STICKY_W});
     const tb_widget paragraph = tb_label(
         form, &(tb_label_desc){.text = "A form laid out by grid. Resize the window: the middle "
@@ -259,14 +308,14 @@ static void gui_build_form(gui_scene *scene, tb_widget root, const tb_font_spec 
     gui_build_fields(scene, form);
 
     /* The empty row takes the height; the middle column the width. */
-    (void)tb_grid_row_configure(form, 5, &(tb_grid_track){.weight = 1.0f});
+    (void)tb_grid_row_configure(form, 6, &(tb_grid_track){.weight = 1.0f});
     (void)tb_grid_column_configure(form, 1, &(tb_grid_track){.weight = 1.0f});
 
     scene->status = tb_label(form, &(tb_label_desc){.text = "Ready."});
     (void)tb_grid(scene->status,
-                  &(tb_grid_options){.row = 6, .column_span = 2, .sticky = TB_STICKY_W});
+                  &(tb_grid_options){.row = 7, .column_span = 2, .sticky = TB_STICKY_W});
     const tb_widget bar = tb_frame(form, NULL);
-    (void)tb_grid(bar, &(tb_grid_options){.row = 6, .column = 2, .sticky = TB_STICKY_E});
+    (void)tb_grid(bar, &(tb_grid_options){.row = 7, .column = 2, .sticky = TB_STICKY_E});
     const tb_widget reset = gui_button(bar, actions[0], gui_on_show_dialog, scene, false);
     const tb_widget apply = gui_button(bar, actions[1], gui_on_apply, scene, true);
     (void)tb_grid(reset, &(tb_grid_options){.column = 0, .sticky = TB_STICKY_EW});
@@ -308,8 +357,6 @@ bool gui_scene_create(sandbox *box, void **state)
 {
     gui_scene *const scene = tb_calloc(1, sizeof(*scene));
     tb_ui_theme theme = tb_ui_theme_dark();
-    const tb_font_spec title = tb_font_spec_sized(
-        tb_font_spec_of_role(box->catalog, TB_FONT_ROLE_HEADING), GUI_TITLE_SIZE);
 
     *state = scene;
     (void)shapes_create(box, &scene->shapes);
@@ -324,12 +371,17 @@ bool gui_scene_create(sandbox *box, void **state)
     scene->gui = tb_gui_create(
         &(tb_gui_options){.theme = &theme, .catalog = box->catalog, .scale = box->ui_scale});
     const tb_widget root = tb_gui_root(scene->gui);
+    scene->themes[GUI_THEME_LIGHT] = tb_theme_create_light();
+    scene->themes[GUI_THEME_GAME] = tb_theme_create_game(box->renderer, TB_THEME_GAME_FANTASY);
+    scene->themes[GUI_THEME_RETRO] = tb_theme_create_game(box->renderer, TB_THEME_GAME_RETRO);
+    scene->theme = tb_var_int(scene->gui, GUI_THEME_DARK);
+    (void)tb_var_trace(scene->theme, gui_on_theme, scene);
     /* The form on the left, the shapes on the right: the form takes the
      * width it wants and half of what is left. */
     (void)tb_grid_column_configure(root, 0, &(tb_grid_track){.weight = 1.0f});
     (void)tb_grid_column_configure(root, 1, &(tb_grid_track){.weight = 1.0f});
     (void)tb_grid_row_configure(root, 0, &(tb_grid_track){.weight = 1.0f});
-    gui_build_form(scene, root, &title);
+    gui_build_form(scene, root);
     scene->options = gui_options_create(root, 1, box->engine);
     gui_build_dialog(scene, root);
     return true;
@@ -349,6 +401,10 @@ void gui_scene_destroy(sandbox *box, void *state)
         tb_gui_forget_fonts(scene->gui, box->renderer);
     }
     tb_gui_destroy(scene->gui);
+    for (size_t index = 0; index < GUI_THEME_COUNT; index++)
+    {
+        tb_theme_destroy(scene->themes[index]);
+    }
     if (scene->options != NULL)
     {
         gui_options_destroy(scene->options);

@@ -118,8 +118,7 @@ static tb_canvas_rect tb_gui_indicator_rect(tb_widget widget, tb_canvas_rect rec
 }
 
 static void tb_gui_choice_draw_text(tb_widget widget, const tb_gui_choice *choice,
-                                    tb_gui_paint *paint, tb_canvas_rect rect,
-                                    const tb_style *style)
+                                    tb_gui_paint *paint, tb_canvas_rect rect, const tb_style *style)
 {
     const float offset = tb_gui_indicator_side(widget) + tb_gui_indicator_gap(widget);
     const tb_gui_text_block block = {.text = tb_gui_string_text(&choice->text),

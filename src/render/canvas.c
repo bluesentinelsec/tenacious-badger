@@ -338,12 +338,12 @@ void tb_canvas_draw_nine_slice(tb_renderer *renderer, const tb_canvas_nine_slice
     for (size_t index = 0; index < count; index++)
     {
         tb_canvas_draw_sprite(
-            renderer, &(tb_canvas_sprite){.image = slice->image,
-                                          .source = slices[index].source,
-                                          .position = {slices[index].rect.x, slices[index].rect.y},
-                                          .size = {slices[index].rect.width,
-                                                   slices[index].rect.height},
-                                          .tint = tint});
+            renderer,
+            &(tb_canvas_sprite){.image = slice->image,
+                                .source = slices[index].source,
+                                .position = {slices[index].rect.x, slices[index].rect.y},
+                                .size = {slices[index].rect.width, slices[index].rect.height},
+                                .tint = tint});
     }
 }
 

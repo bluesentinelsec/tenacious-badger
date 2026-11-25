@@ -388,7 +388,7 @@ typedef enum tb_ui_command_type
     TB_UI_COMMAND_CIRCLE,  /**< A filled circle in `rect`, of `radius`. */
     TB_UI_COMMAND_LINE,    /**< A line from `from` to `to`, `thickness` wide. */
     TB_UI_COMMAND_TEXT,    /**< Text, its box's top left at `rect`'s. */
-    TB_UI_COMMAND_IMAGE    /**< An image, or its `source`, stretched over `rect`, tinted by `color`. */
+    TB_UI_COMMAND_IMAGE /**< An image, or its `source`, stretched over `rect`, tinted by `color`. */
 } tb_ui_command_type;
 
 /** @brief Something to draw, in units, as tb_ui_draw() draws it. */

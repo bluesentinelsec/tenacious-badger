@@ -106,8 +106,8 @@ typedef struct tb_gui_node
     size_t binding_capacity;
     bool bindings_cleared; /* some were removed during events */
     /* Styles. */
-    tb_theme *style_theme;            /* its own, borrowed; NULL for its ancestors' */
-    tb_gui_style_entry *overrides;    /* its own values, before every theme's */
+    tb_theme *style_theme;         /* its own, borrowed; NULL for its ancestors' */
+    tb_gui_style_entry *overrides; /* its own values, before every theme's */
     size_t override_count;
     size_t override_capacity;
     tb_gui_style_cache *style_cache; /* NULL until a style is asked for */
@@ -362,7 +362,9 @@ float tb_gui_bar_width(tb_widget widget);
 #define TB_GUI_BAR_STYLE_ELEMENTS                                                                  \
     {"scrollbar_width", TB_STYLE_NUMBER}, {"scrollbar_inset", TB_STYLE_NUMBER},                    \
         {"scrollbar_trough", TB_STYLE_COLOR}, {"scrollbar_thumb", TB_STYLE_COLOR},                 \
-        {"scrollbar_thumb_hot", TB_STYLE_COLOR}
+    {                                                                                              \
+        "scrollbar_thumb_hot", TB_STYLE_COLOR                                                      \
+    }
 #define TB_GUI_BAR_ELEMENTS 5u
 
 /* An element of a style by its name, of a type: zero when it is not. */

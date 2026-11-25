@@ -107,6 +107,7 @@ static void tb_theme_fill_buttons(tb_theme *theme, const tb_ui_theme *palette)
     tb_theme_edges(theme, "Button", "padding", tb_theme_padding(palette->frame_padding));
     tb_theme_focus_ring(theme, palette, "Button");
     tb_theme_color(theme, "Button", "default_color", 0, colors[TB_UI_COLOR_ACCENT]);
+    tb_theme_number(theme, "Button", "default_width", 0, palette->border);
 
     /* A combo box is a button that stays pressed while its list is open. */
     tb_theme_box(theme, palette, "Combobox", colors[TB_UI_COLOR_BUTTON], palette->frame_rounding);
@@ -180,8 +181,7 @@ static void tb_theme_fill_ranges(tb_theme *theme, const tb_ui_theme *palette)
 
     /* A slider's box is its handle's. */
     tb_theme_box(theme, palette, "Scale", colors[TB_UI_COLOR_BUTTON], 0.0f);
-    tb_theme_color(theme, "Scale", "background", TB_WIDGET_HOVERED,
-                   colors[TB_UI_COLOR_BUTTON_HOT]);
+    tb_theme_color(theme, "Scale", "background", TB_WIDGET_HOVERED, colors[TB_UI_COLOR_BUTTON_HOT]);
     tb_theme_color(theme, "Scale", "background", TB_WIDGET_PRESSED,
                    colors[TB_UI_COLOR_BUTTON_ACTIVE]);
     tb_theme_focus_ring(theme, palette, "Scale");
@@ -191,8 +191,7 @@ static void tb_theme_fill_ranges(tb_theme *theme, const tb_ui_theme *palette)
                    colors[TB_UI_COLOR_FRAME_ACTIVE]);
     tb_theme_number(theme, "Scale", "spacing", 0, palette->frame_padding.x);
 
-    tb_theme_box(theme, palette, "Progressbar", colors[TB_UI_COLOR_FRAME],
-                 palette->frame_rounding);
+    tb_theme_box(theme, palette, "Progressbar", colors[TB_UI_COLOR_FRAME], palette->frame_rounding);
     tb_theme_color(theme, "Progressbar", "fill_color", 0, colors[TB_UI_COLOR_ACCENT]);
     tb_theme_color(theme, "Progressbar", "fill_color", TB_WIDGET_DISABLED,
                    colors[TB_UI_COLOR_FRAME_ACTIVE]);
@@ -246,11 +245,11 @@ static void tb_theme_fill_containers(tb_theme *theme, const tb_ui_theme *palette
     tb_theme_number(theme, "Messagebox", "frame_padding", 0, 2.0f * palette->window_padding.x);
     tb_theme_number(theme, "Messagebox", "spacing", 0, 2.0f * palette->item_spacing.y);
     tb_theme_number(theme, "Messagebox", "button_spacing", 0, palette->item_spacing.x);
-    const bool titled = tb_theme_set_font(
-        theme, "Title.Label", "font", 0,
-        (tb_font_spec){.role = TB_FONT_ROLE_HEADING,
-                       .weight = TB_FONT_WEIGHT_REGULAR,
-                       .size = palette->font_size * TB_THEME_TITLE_EMS});
+    const bool titled =
+        tb_theme_set_font(theme, "Title.Label", "font", 0,
+                          (tb_font_spec){.role = TB_FONT_ROLE_HEADING,
+                                         .weight = TB_FONT_WEIGHT_REGULAR,
+                                         .size = palette->font_size * TB_THEME_TITLE_EMS});
     TB_ASSERT(titled);
     (void)titled;
 }

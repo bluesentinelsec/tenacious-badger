@@ -140,8 +140,7 @@ void tb_gui_bar_draw(tb_gui_paint *paint, const tb_gui_bar *bar, bool hot, const
     const tb_canvas_rect thumb = tb_ui_rect_inset(tb_gui_bar_thumb(bar), inset, inset);
     const char *const grab = hot ? "scrollbar_thumb_hot" : "scrollbar_thumb";
 
-    tb_gui_paint_fill(paint, bar->track, 0.0f,
-                      tb_gui_style_color_named(style, "scrollbar_trough"));
+    tb_gui_paint_fill(paint, bar->track, 0.0f, tb_gui_style_color_named(style, "scrollbar_trough"));
     tb_gui_paint_fill(paint, thumb, fminf(thumb.width, thumb.height) * 0.5f,
                       tb_gui_style_color_named(style, grab));
 }
@@ -155,11 +154,10 @@ float tb_gui_bar_width(tb_widget widget)
 static const tb_style_element tb_gui_scrollbar_elements[TB_GUI_BAR_ELEMENTS] = {
     TB_GUI_BAR_STYLE_ELEMENTS};
 
-static const tb_widget_style_desc tb_gui_scrollbar_style = {
-    .name = "Scrollbar",
-    .states = TB_WIDGET_DISABLED,
-    .elements = tb_gui_scrollbar_elements,
-    .element_count = TB_GUI_BAR_ELEMENTS};
+static const tb_widget_style_desc tb_gui_scrollbar_style = {.name = "Scrollbar",
+                                                            .states = TB_WIDGET_DISABLED,
+                                                            .elements = tb_gui_scrollbar_elements,
+                                                            .element_count = TB_GUI_BAR_ELEMENTS};
 
 /* ---------------------------------------------------------------------------
  * The scrollbar kind.

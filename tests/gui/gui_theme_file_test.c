@@ -46,7 +46,8 @@ static const char full_theme[] =
     "      \"radius\": 4,\n"
     "      \"focus_width:focused\": 2,\n"
     "      \"glow\": \"#FFFFFF\",\n"
-    "      \"background_image:disabled\": {\"image\": \"/Game/UI/button.png\", \"insets\": [4, 5],\n"
+    "      \"background_image:disabled\": {\"image\": \"/Game/UI/button.png\", \"insets\": [4, "
+    "5],\n"
     "          \"source\": [0, 0, 16, 16], \"scale\": 2, \"whole_pixels\": true,\n"
     "          \"hollow\": false, \"tint\": \"#808080\"},\n"
     "    },\n"
@@ -75,8 +76,8 @@ TB_TEST(gui_theme_file, every_kind_of_value_loads)
     TB_TEST_EXPECT_FLOAT(value.font.size, ==, tb_font_default_role(TB_FONT_ROLE_BODY).size);
     TB_TEST_REQUIRE(tb_theme_get(theme, "Button", "background", 0, &value));
     TB_TEST_EXPECT_FLOAT_NEAR(value.color.w, 128.0f / 255.0f, 1e-6f);
-    TB_TEST_REQUIRE(tb_theme_get(theme, "Button", "background",
-                                 TB_WIDGET_HOVERED | TB_WIDGET_PRESSED, &value));
+    TB_TEST_REQUIRE(
+        tb_theme_get(theme, "Button", "background", TB_WIDGET_HOVERED | TB_WIDGET_PRESSED, &value));
     TB_TEST_EXPECT(same_color(value.color, (tb_vec4){0, 0, 1, 1}));
     TB_TEST_REQUIRE(tb_theme_get(theme, "Button", "padding", 0, &value));
     TB_TEST_EXPECT_FLOAT(value.edges.left, ==, 6.0f);
@@ -85,8 +86,7 @@ TB_TEST(gui_theme_file, every_kind_of_value_loads)
     TB_TEST_EXPECT_FLOAT(value.number, ==, 2.0f);
     TB_TEST_REQUIRE(tb_theme_get(theme, "Button", "glow", 0, &value));
     TB_TEST_EXPECT(same_color(value.color, (tb_vec4){1, 1, 1, 1}));
-    TB_TEST_REQUIRE(
-        tb_theme_get(theme, "Button", "background_image", TB_WIDGET_DISABLED, &value));
+    TB_TEST_REQUIRE(tb_theme_get(theme, "Button", "background_image", TB_WIDGET_DISABLED, &value));
     TB_TEST_EXPECT_POINTER(value.image.slice.image, ==, STAND_IN_IMAGE);
     TB_TEST_EXPECT_UINT(value.image.slice.left, ==, 4);
     TB_TEST_EXPECT_UINT(value.image.slice.top, ==, 5);
@@ -145,8 +145,9 @@ TB_TEST(gui_theme_file, syntax_errors_say_where)
     tb_style_value value = {0};
 
     TB_TEST_REQUIRE(tb_theme_set_number(theme, "Button", "radius", 0, 7.0f));
-    TB_TEST_EXPECT_UINT(load(theme, "{\n  \"format\": \"badger-theme\",\n  \"version\" 1\n}", &error),
-                        ==, TB_THEME_FILE_SYNTAX);
+    TB_TEST_EXPECT_UINT(
+        load(theme, "{\n  \"format\": \"badger-theme\",\n  \"version\" 1\n}", &error), ==,
+        TB_THEME_FILE_SYNTAX);
     TB_TEST_EXPECT_UINT(error.result, ==, TB_THEME_FILE_SYNTAX);
     TB_TEST_EXPECT_UINT(error.line, ==, 3);
     TB_TEST_EXPECT_UINT(error.column, >, 1);

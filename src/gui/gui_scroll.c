@@ -144,11 +144,11 @@ static void tb_gui_scrollframe_init(tb_widget widget, void *data)
 static const tb_style_element tb_gui_scrollframe_elements[TB_GUI_BAR_ELEMENTS] = {
     TB_GUI_BAR_STYLE_ELEMENTS};
 
-static const tb_widget_style_desc tb_gui_scrollframe_style = {
-    .name = "Scrollframe",
-    .states = TB_WIDGET_DISABLED,
-    .elements = tb_gui_scrollframe_elements,
-    .element_count = TB_GUI_BAR_ELEMENTS};
+static const tb_widget_style_desc tb_gui_scrollframe_style = {.name = "Scrollframe",
+                                                              .states = TB_WIDGET_DISABLED,
+                                                              .elements =
+                                                                  tb_gui_scrollframe_elements,
+                                                              .element_count = TB_GUI_BAR_ELEMENTS};
 
 static tb_vec2 tb_gui_scrollframe_measure(tb_widget widget, const void *data)
 {

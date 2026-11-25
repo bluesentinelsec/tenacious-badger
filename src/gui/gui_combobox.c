@@ -191,11 +191,11 @@ static const tb_style_element tb_gui_combo_list_elements[TB_GUI_COMBO_LIST_ELEME
     [TB_GUI_COMBO_LIST_SELECTION] = {"selection", TB_STYLE_COLOR},
     [TB_GUI_COMBO_LIST_THUMB] = {"thumb_color", TB_STYLE_COLOR}};
 
-static const tb_widget_style_desc tb_gui_combo_list_style = {
-    .name = "ComboboxList",
-    .states = 0,
-    .elements = tb_gui_combo_list_elements,
-    .element_count = TB_GUI_COMBO_LIST_ELEMENTS};
+static const tb_widget_style_desc tb_gui_combo_list_style = {.name = "ComboboxList",
+                                                             .states = 0,
+                                                             .elements = tb_gui_combo_list_elements,
+                                                             .element_count =
+                                                                 TB_GUI_COMBO_LIST_ELEMENTS};
 
 /* A row of the list: a line of its font, and its padding above and below. */
 static float tb_gui_combo_item_height(tb_widget list)

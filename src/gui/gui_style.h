@@ -74,12 +74,10 @@ const tb_theme_class *tb_theme_find_class(const tb_theme *theme, const char *nam
 void tb_theme_take_classes(tb_theme *into, tb_theme *from);
 /* Make an image the theme owns, on its renderer. */
 const tb_image *tb_theme_make_image(tb_theme *theme, tb_renderer *renderer,
-                                    const tb_image_desc *desc, const uint8_t *pixels,
-                                    size_t size);
+                                    const tb_image_desc *desc, const uint8_t *pixels, size_t size);
 /* Whether a value may be set by a name: of a standard value's type, and of
  * some type; a font given no size takes its role's. */
-bool tb_style_value_check(const char *name, const tb_style_value *value,
-                          tb_style_value *checked);
+bool tb_style_value_check(const char *name, const tb_style_value *value, tb_style_value *checked);
 
 /* The tool theme's values, of a palette, into a theme (gui_theme_tool.c). */
 void tb_theme_fill_tool(tb_theme *theme, const tb_ui_theme *palette);

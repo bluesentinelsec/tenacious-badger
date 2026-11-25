@@ -1,8 +1,11 @@
 /* What the GUI's widgets look like, drawn on D3D12 on WARP, where Windows
- * builds it: forms and containers in each of their states, each frame
- * matched with its golden image (tests/data/golden), so that a change to
- * the way widgets are drawn shows as a frame that differs. */
+ * builds it: forms and containers in each of their states in the default
+ * dark theme, and forms in the light theme and the sample game theme and
+ * its retro look, each frame matched with its golden image
+ * (tests/data/golden), so that a change to the way widgets are drawn shows
+ * as a frame that differs. */
 #include "badger/canvas.h"
+#include "badger/font_catalog.h"
 #include "badger/gui.h"
 #include "badger/window.h"
 
@@ -98,11 +101,10 @@ static tb_widget look_form(tb_widget root)
 
 static void place(tb_widget widget, int32_t row, int32_t column)
 {
-    TB_TEST_REQUIRE(tb_grid(widget, &(tb_grid_options){.row = row,
-                                                       .column = column,
-                                                       .sticky = TB_STICKY_W,
-                                                       .padx = {2, 2},
-                                                       .pady = {1, 1}}));
+    TB_TEST_REQUIRE(tb_grid(
+        widget,
+        &(tb_grid_options){
+            .row = row, .column = column, .sticky = TB_STICKY_W, .padx = {2, 2}, .pady = {1, 1}}));
 }
 
 /* Rest the mouse on a widget, as last laid out. */
@@ -115,16 +117,11 @@ static void hover(gui_fixture *fixture, tb_widget widget)
 
 /* Buttons focused, hovered as a default, and disabled; a check button
  * ticked; radio buttons, one chosen; an entry, a slider, a progress bar, a
- * combo box, and a spin box. */
-TB_TEST(gui_look, forms_match_their_golden_image_on_d3d12)
+ * combo box, and a spin box: drawn, and matched with a golden image. */
+static void expect_forms(look_screen *opened, gui_fixture *fixture, const char *name)
 {
-    look_screen opened = {0};
-    gui_fixture fixture = {0};
-
-    open_look_screen(&opened);
-    open_look_gui(&fixture);
-    const tb_widget form = look_form(tb_gui_root(fixture.gui));
-    const tb_var choice = tb_var_string(fixture.gui, "a");
+    const tb_widget form = look_form(tb_gui_root(fixture->gui));
+    const tb_var choice = tb_var_string(fixture->gui, "a");
     const tb_widget apply = tb_button(form, &(tb_button_desc){.text = "Apply"});
     const tb_widget ok = tb_button(form, &(tb_button_desc){.text = "OK", .is_default = true});
     const tb_widget off = tb_button(form, &(tb_button_desc){.text = "Off"});
@@ -153,14 +150,73 @@ TB_TEST(gui_look, forms_match_their_golden_image_on_d3d12)
     place(combo, 2, 1);
     place(spin, 3, 1);
     place(entry, 4, 1);
-    TB_TEST_REQUIRE(tb_widget_set(grid, "selected", &(tb_gui_value){TB_GUI_TYPE_BOOL, {.boolean = true}}));
+    TB_TEST_REQUIRE(
+        tb_widget_set(grid, "selected", &(tb_gui_value){TB_GUI_TYPE_BOOL, {.boolean = true}}));
     tb_widget_set_enabled(off, false);
-    gui_update(&fixture);
+    gui_update(fixture);
     TB_TEST_REQUIRE(tb_widget_focus(apply));
-    hover(&fixture, ok);
-    expect_look(&opened, &fixture, "gui_forms");
+    hover(fixture, ok);
+    expect_look(opened, fixture, name);
+}
+
+TB_TEST(gui_look, forms_match_their_golden_image_on_d3d12)
+{
+    look_screen opened = {0};
+    gui_fixture fixture = {0};
+
+    open_look_screen(&opened);
+    open_look_gui(&fixture);
+    expect_forms(&opened, &fixture, "gui_forms");
     gui_fixture_close(&fixture);
     close_look_screen(&opened);
+}
+
+/* The light theme, and the sample game theme in both its looks, in the
+ * fonts of their roles: the forms, matched with their golden images. */
+TB_TEST(gui_look, themes_match_their_golden_images_on_d3d12)
+{
+    static const char *const names[] = {"gui_light", "gui_game", "gui_retro"};
+    /* The game's looks are drawn smaller, as an options menu's scale would,
+     * so that the form fits the golden image: its panels at a scale that
+     * is no whole number; pixel art at its own size, two pixels a texel. */
+    static const float scales[] = {1.0f, 0.6f, 1.0f};
+    look_screen opened = {0};
+    tb_font_catalog *const catalog = tb_font_catalog_create(NULL);
+    size_t found = 0;
+
+    if (!tb_font_catalog_find_role(catalog, TB_FONT_ROLE_HEADING, &found) ||
+        !tb_font_catalog_find_role(catalog, TB_FONT_ROLE_BODY, &found) ||
+        !tb_font_catalog_find_role(catalog, TB_FONT_ROLE_PIXEL, &found))
+    {
+        tb_font_catalog_destroy(catalog);
+        TB_TEST_SKIP("this build carries no fonts of the game theme's roles");
+    }
+    open_look_screen(&opened);
+    tb_theme *const themes[] = {tb_theme_create_light(),
+                                tb_theme_create_game(opened.renderer, TB_THEME_GAME_FANTASY),
+                                tb_theme_create_game(opened.renderer, TB_THEME_GAME_RETRO)};
+    for (size_t index = 0; index < sizeof(themes) / sizeof(themes[0]); index++)
+    {
+        gui_fixture fixture = {0};
+        open_look_gui(&fixture);
+        /* The fixture's GUI, with the catalog the roles' fonts come from. */
+        const tb_ui_theme palette = *tb_gui_theme(fixture.gui);
+        tb_gui_destroy(fixture.gui);
+        fixture.gui = tb_gui_create(&(tb_gui_options){.theme = &palette,
+                                                      .catalog = catalog,
+                                                      .style_theme = themes[index],
+                                                      .scale = scales[index]});
+        gui_resize(&fixture, GOLDEN_WIDTH, GOLDEN_HEIGHT, 1.0f);
+        TB_TEST_CONTEXT("%s", names[index]);
+        expect_forms(&opened, &fixture, names[index]);
+        gui_fixture_close(&fixture);
+    }
+    for (size_t index = 0; index < sizeof(themes) / sizeof(themes[0]); index++)
+    {
+        tb_theme_destroy(themes[index]);
+    }
+    close_look_screen(&opened);
+    tb_font_catalog_destroy(catalog);
 }
 
 /* A menu bar; a notebook of two tabs, its page a tree with an item open
@@ -186,10 +242,10 @@ TB_TEST(gui_look, containers_match_their_golden_image_on_d3d12)
     TB_TEST_REQUIRE(tb_menu_add(file, &(tb_menu_item_desc){.label = "&Open"}) != SIZE_MAX);
     TB_TEST_REQUIRE(tb_menubar_add(bar, "&File", file) != SIZE_MAX);
     TB_TEST_REQUIRE(tb_menubar_add(bar, "&Edit", tb_menu(bar)) != SIZE_MAX);
-    TB_TEST_REQUIRE(tb_grid(bar, &(tb_grid_options){.row = 0, .column_span = 2,
-                                                    .sticky = TB_STICKY_EW}));
-    const tb_tree_item lights =
-        tb_treeview_insert(tree, TB_TREE_ROOT, SIZE_MAX, &(tb_tree_item_desc){.text = "Lights", .open = true});
+    TB_TEST_REQUIRE(
+        tb_grid(bar, &(tb_grid_options){.row = 0, .column_span = 2, .sticky = TB_STICKY_EW}));
+    const tb_tree_item lights = tb_treeview_insert(
+        tree, TB_TREE_ROOT, SIZE_MAX, &(tb_tree_item_desc){.text = "Lights", .open = true});
     const tb_tree_item sun =
         tb_treeview_insert(tree, lights, SIZE_MAX, &(tb_tree_item_desc){.text = "Sun"});
     (void)tb_treeview_insert(tree, lights, SIZE_MAX, &(tb_tree_item_desc){.text = "Lamp"});

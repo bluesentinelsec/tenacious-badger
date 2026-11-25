@@ -78,8 +78,7 @@ static const tb_style_element tb_gui_message_elements[TB_GUI_MESSAGE_ELEMENTS] =
 
 static const tb_widget_style_desc tb_gui_message_style = {.name = "Messagebox",
                                                           .elements = tb_gui_message_elements,
-                                                          .element_count =
-                                                              TB_GUI_MESSAGE_ELEMENTS};
+                                                          .element_count = TB_GUI_MESSAGE_ELEMENTS};
 
 static const tb_widget_class tb_gui_message_kind = {.name = "messagebox",
                                                     .data_size = sizeof(tb_gui_message),
@@ -178,10 +177,10 @@ tb_widget tb_gui_message_box(tb_gui *gui, const char *title, const char *text,
     const tb_style *const style = tb_style_in(dialog, 0);
     const float spacing = tb_style_number(style, TB_GUI_MESSAGE_SPACING);
     const float button_spacing = tb_style_number(style, TB_GUI_MESSAGE_BUTTON_SPACING);
-    const tb_widget box = tb_frame(
-        dialog, &(tb_frame_desc){.padding = tb_style_number(style, TB_GUI_MESSAGE_PADDING),
-                                 .background = true,
-                                 .border = true});
+    const tb_widget box =
+        tb_frame(dialog, &(tb_frame_desc){.padding = tb_style_number(style, TB_GUI_MESSAGE_PADDING),
+                                          .background = true,
+                                          .border = true});
     tb_widget_set_style(box, "Dialog.Frame");
     (void)tb_grid(box, NULL);
     tb_gui_message_body(box, title, text, spacing);

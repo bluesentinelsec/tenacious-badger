@@ -612,11 +612,11 @@ static const tb_style_element tb_gui_progress_elements[TB_GUI_PROGRESS_ELEMENTS]
     [TB_GUI_PROGRESS_FILL] = {"fill_color", TB_STYLE_COLOR},
     [TB_GUI_PROGRESS_FILL_IMAGE] = {"fill_image", TB_STYLE_IMAGE}};
 
-static const tb_widget_style_desc tb_gui_progress_style = {
-    .name = "Progressbar",
-    .states = TB_WIDGET_DISABLED,
-    .elements = tb_gui_progress_elements,
-    .element_count = TB_GUI_PROGRESS_ELEMENTS};
+static const tb_widget_style_desc tb_gui_progress_style = {.name = "Progressbar",
+                                                           .states = TB_WIDGET_DISABLED,
+                                                           .elements = tb_gui_progress_elements,
+                                                           .element_count =
+                                                               TB_GUI_PROGRESS_ELEMENTS};
 
 static tb_vec2 tb_gui_progress_measure(tb_widget widget, const void *data)
 {

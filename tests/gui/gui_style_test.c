@@ -4,6 +4,7 @@
  * come from changes; and the built-in themes. */
 #include "badger/canvas.h"
 #include "badger/str.h"
+#include "badger/window.h"
 
 #include "gui_fixture.h"
 #include "tb_test.h"
@@ -179,11 +180,10 @@ TB_TEST(gui_style, states_choose_the_highest_ranked_entry)
                               tb_gui_theme(fixture.gui)->colors[TB_UI_COLOR_BUTTON_HOT]));
     TB_TEST_EXPECT(same_color(tb_style_in(button, held)->background, blue));
     /* Hovered outranks focused. */
-    TB_TEST_EXPECT(same_color(
-        tb_style_in(button, TB_WIDGET_HOVERED | TB_WIDGET_FOCUSED)->background, green));
-    TB_TEST_EXPECT(same_color(tb_style_in(button, TB_WIDGET_FOCUSED)->background, white));
     TB_TEST_EXPECT(
-        same_color(tb_style_in(button, held | TB_WIDGET_DISABLED)->background, gray));
+        same_color(tb_style_in(button, TB_WIDGET_HOVERED | TB_WIDGET_FOCUSED)->background, green));
+    TB_TEST_EXPECT(same_color(tb_style_in(button, TB_WIDGET_FOCUSED)->background, white));
+    TB_TEST_EXPECT(same_color(tb_style_in(button, held | TB_WIDGET_DISABLED)->background, gray));
     /* A button draws no selected state: it is left out. */
     TB_TEST_EXPECT(tb_style_in(button, TB_WIDGET_SELECTED) == tb_style_in(button, 0));
 
@@ -358,10 +358,8 @@ static const tb_style_element swatch_elements[] = {{"glow", TB_STYLE_COLOR},
                                                    {"margin", TB_STYLE_EDGES},
                                                    {"caption", TB_STYLE_FONT},
                                                    {"panel", TB_STYLE_IMAGE}};
-static const tb_widget_style_desc swatch_style = {.name = "Swatch",
-                                                  .states = TB_WIDGET_HOVERED,
-                                                  .elements = swatch_elements,
-                                                  .element_count = 5};
+static const tb_widget_style_desc swatch_style = {
+    .name = "Swatch", .states = TB_WIDGET_HOVERED, .elements = swatch_elements, .element_count = 5};
 static const tb_widget_class swatch_kind = {.name = "swatch", .style = &swatch_style};
 
 TB_TEST(gui_style, a_games_kind_reads_its_own_elements)
@@ -443,8 +441,8 @@ TB_TEST(gui_style, text_is_measured_in_its_styles_font)
     TB_TEST_REQUIRE(tb_grid(label, NULL));
     gui_update(&fixture);
     const tb_vec2 plain = tb_widget_measure_text(label, &block);
-    TB_TEST_REQUIRE(tb_theme_set_font(theme, "Label", "font", 0,
-                                      (tb_font_spec){.size = 2.0f * GUI_FONT_SIZE}));
+    TB_TEST_REQUIRE(
+        tb_theme_set_font(theme, "Label", "font", 0, (tb_font_spec){.size = 2.0f * GUI_FONT_SIZE}));
     gui_update(&fixture);
     const tb_vec2 large = tb_widget_measure_text(label, &block);
     TB_TEST_EXPECT_FLOAT_NEAR(large.x, 2.0f * plain.x, 1.0f);
@@ -486,13 +484,93 @@ TB_TEST(gui_style, the_tool_themes_follow_their_palettes)
 
     tb_gui_set_style_theme(fixture.gui, light);
     gui_update(&fixture);
-    TB_TEST_EXPECT(same_color(tb_style_in(button, 0)->background,
-                              light_palette.colors[TB_UI_COLOR_BUTTON]));
-    TB_TEST_EXPECT(same_color(tb_style_in(button, 0)->text_color,
-                              light_palette.colors[TB_UI_COLOR_TEXT]));
-    TB_TEST_EXPECT(same_color(tb_style_find(tb_style_in(check, TB_WIDGET_SELECTED), "mark_color")
-                                  ->color,
-                              white));
+    TB_TEST_EXPECT(
+        same_color(tb_style_in(button, 0)->background, light_palette.colors[TB_UI_COLOR_BUTTON]));
+    TB_TEST_EXPECT(
+        same_color(tb_style_in(button, 0)->text_color, light_palette.colors[TB_UI_COLOR_TEXT]));
+    TB_TEST_EXPECT(same_color(
+        tb_style_find(tb_style_in(check, TB_WIDGET_SELECTED), "mark_color")->color, white));
     gui_fixture_close(&fixture);
     tb_theme_destroy(light);
+}
+
+/* The game themes draw on a renderer: their nine-slice panels become image
+ * commands, a slice each, which the canvas draws; and the canvas draws a
+ * panel itself. On the null backend, where there is a window. */
+TB_TEST(gui_style, game_themes_draw_nine_slice_panels_on_the_canvas)
+{
+    gui_fixture fixture = {0};
+    tb_window_system *system = NULL;
+    tb_window *window = NULL;
+    tb_renderer *renderer = NULL;
+    tb_rhi_error error = TB_RHI_ERROR_INIT;
+    tb_renderer_options options = {0};
+    tb_canvas_stats stats = {0};
+    tb_camera camera = tb_camera_perspective(1.2f);
+    size_t count = 0;
+    size_t images = 0;
+
+    if (tb_window_system_open(NULL, &system, NULL) != TB_WINDOW_OK)
+    {
+        TB_TEST_SKIP("no windowing here");
+    }
+    TB_TEST_REQUIRE_UINT(
+        tb_window_create(
+            system,
+            &(tb_window_options){.title = "gui", .width = 400, .height = 300, .fixed_size = true},
+            &window, NULL),
+        ==, TB_WINDOW_OK);
+    options.window = window;
+    options.device = (tb_rhi_device_options){.backend = TB_RHI_BACKEND_NULL};
+    TB_TEST_REQUIRE_UINT(tb_renderer_create(&options, &renderer, &error), ==, TB_RHI_OK);
+    tb_theme *const game = tb_theme_create_game(renderer, TB_THEME_GAME_FANTASY);
+    tb_theme *const retro = tb_theme_create_game(renderer, TB_THEME_GAME_RETRO);
+
+    gui_fixture_open(&fixture, 1.5f);
+    tb_gui_set_style_theme(fixture.gui, game);
+    const tb_widget frame =
+        tb_frame(tb_gui_root(fixture.gui), &(tb_frame_desc){.background = true});
+    const tb_widget button = tb_button(frame, &(tb_button_desc){.text = "Play"});
+    const tb_widget bar = tb_progressbar(frame, &(tb_progressbar_desc){.value = 50});
+    TB_TEST_REQUIRE(tb_grid(frame, NULL));
+    TB_TEST_REQUIRE(tb_grid(button, NULL));
+    TB_TEST_REQUIRE(tb_grid(bar, &(tb_grid_options){.row = 1}));
+    gui_update(&fixture);
+    /* A frame's padding is its panel's border while it draws it. */
+    TB_TEST_EXPECT_FLOAT(tb_widget_rect(button).x - tb_widget_rect(frame).x, >=, 8.0f);
+    const tb_ui_command *const commands = tb_gui_commands(fixture.gui, &count);
+    for (size_t index = 0; index < count; index++)
+    {
+        if (commands[index].type == TB_UI_COMMAND_IMAGE)
+        {
+            images++;
+            TB_TEST_EXPECT_UINT(commands[index].source.width, >, 0);
+        }
+    }
+    /* The frame's panel, the button's, and the bar's trough and fill. */
+    TB_TEST_EXPECT_UINT(images, >=, 27);
+
+    tb_gui_set_style_theme(fixture.gui, retro);
+    gui_update(&fixture);
+    TB_TEST_REQUIRE(tb_camera_look_at(&camera, (tb_vec3){0, 0, 5}, (tb_vec3){0, 0, 0}));
+    TB_TEST_REQUIRE(tb_renderer_begin_frame(renderer, &camera, (tb_vec4){0, 0, 0, 1}));
+    tb_gui_draw(fixture.gui, renderer);
+    const tb_style *const panel = tb_style_in(frame, 0);
+    TB_TEST_REQUIRE(panel->image.slice.image != NULL);
+    tb_canvas_draw_nine_slice(renderer, &panel->image.slice, (tb_canvas_rect){10, 10, 100, 60},
+                              (tb_vec4){1, 1, 1, 1});
+    tb_canvas_draw_nine_slice(renderer, &(tb_canvas_nine_slice){0}, (tb_canvas_rect){0, 0, 9, 9},
+                              (tb_vec4){1, 1, 1, 1});
+    TB_TEST_REQUIRE_UINT(tb_renderer_end_frame(renderer), ==, TB_RHI_OK);
+    tb_canvas_stats_of(renderer, &stats);
+    TB_TEST_EXPECT_UINT(stats.dropped, ==, 0);
+    TB_TEST_EXPECT_UINT(stats.quads, >=, 9);
+
+    tb_gui_forget_fonts(fixture.gui, renderer);
+    gui_fixture_close(&fixture);
+    tb_theme_destroy(retro);
+    tb_theme_destroy(game);
+    tb_renderer_destroy(renderer);
+    tb_window_destroy(window);
+    tb_window_system_close(system);
 }

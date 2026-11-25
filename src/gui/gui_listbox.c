@@ -93,11 +93,11 @@ static const tb_style_element tb_gui_listbox_elements[TB_GUI_LISTBOX_ELEMENTS] =
     [TB_GUI_LISTBOX_ACTIVE] = {"active_color", TB_STYLE_COLOR},
     TB_GUI_BAR_STYLE_ELEMENTS};
 
-static const tb_widget_style_desc tb_gui_listbox_style = {
-    .name = "Listbox",
-    .states = TB_WIDGET_FOCUSED | TB_WIDGET_DISABLED,
-    .elements = tb_gui_listbox_elements,
-    .element_count = TB_GUI_LISTBOX_ELEMENTS};
+static const tb_widget_style_desc tb_gui_listbox_style = {.name = "Listbox",
+                                                          .states = TB_WIDGET_FOCUSED |
+                                                                    TB_WIDGET_DISABLED,
+                                                          .elements = tb_gui_listbox_elements,
+                                                          .element_count = TB_GUI_LISTBOX_ELEMENTS};
 
 static float tb_gui_listbox_row_height(tb_widget widget)
 {
@@ -470,10 +470,9 @@ static void tb_gui_listbox_draw_row(tb_widget widget, const tb_gui_listbox *list
     const tb_gui_text_block block = {.text = tb_gui_string_text(&listbox->items[row].text),
                                      .anchor = TB_GUI_ANCHOR_W};
     const bool focused = (tb_widget_state(widget) & TB_WIDGET_FOCUSED) != 0;
-    const tb_canvas_rect text = {rect.x + style->padding.left, rect.y,
-                                 fmaxf(rect.width - style->padding.left - style->padding.right,
-                                       0.0f),
-                                 rect.height};
+    const tb_canvas_rect text = {
+        rect.x + style->padding.left, rect.y,
+        fmaxf(rect.width - style->padding.left - style->padding.right, 0.0f), rect.height};
 
     if (listbox->items[row].selected)
     {

@@ -101,8 +101,7 @@ static void tb_gui_frame_draw(tb_widget widget, const void *data, tb_gui_paint *
     }
     if (frame->border)
     {
-        tb_gui_paint_outline(paint, rect, style->radius, style->border_width,
-                             style->border_color);
+        tb_gui_paint_outline(paint, rect, style->radius, style->border_width, style->border_color);
     }
 }
 
@@ -110,11 +109,11 @@ static void tb_gui_frame_draw(tb_widget widget, const void *data, tb_gui_paint *
  * shown over. */
 static const tb_style_element tb_gui_frame_elements[] = {{"shade", TB_STYLE_COLOR}};
 
-static const tb_widget_style_desc tb_gui_frame_style = {
-    .name = "Frame",
-    .states = TB_WIDGET_DISABLED,
-    .elements = tb_gui_frame_elements,
-    .element_count = TB_GUI_COUNT_OF(tb_gui_frame_elements)};
+static const tb_widget_style_desc tb_gui_frame_style = {.name = "Frame",
+                                                        .states = TB_WIDGET_DISABLED,
+                                                        .elements = tb_gui_frame_elements,
+                                                        .element_count =
+                                                            TB_GUI_COUNT_OF(tb_gui_frame_elements)};
 
 static const tb_gui_property tb_gui_frame_properties[] = {
     {.name = "padding",
@@ -357,11 +356,13 @@ static tb_vec2 tb_gui_button_measure(tb_widget widget, const void *data)
 enum
 {
     TB_GUI_BUTTON_DEFAULT_COLOR, /* the ring of a dialog's default button */
+    TB_GUI_BUTTON_DEFAULT_WIDTH, /* units it is wide */
     TB_GUI_BUTTON_ELEMENTS
 };
 
 static const tb_style_element tb_gui_button_elements[TB_GUI_BUTTON_ELEMENTS] = {
-    [TB_GUI_BUTTON_DEFAULT_COLOR] = {"default_color", TB_STYLE_COLOR}};
+    [TB_GUI_BUTTON_DEFAULT_COLOR] = {"default_color", TB_STYLE_COLOR},
+    [TB_GUI_BUTTON_DEFAULT_WIDTH] = {"default_width", TB_STYLE_NUMBER}};
 
 static const tb_widget_style_desc tb_gui_button_style = {.name = "Button",
                                                          .states = TB_GUI_DRAWN_STATES,
@@ -391,7 +392,8 @@ static void tb_gui_button_draw(tb_widget widget, const void *data, tb_gui_paint 
     /* A dialog's default button is ringed thinly, but for the focus's ring. */
     if (button->is_default && plain)
     {
-        tb_gui_paint_outline(paint, rect, style->radius, style->border_width,
+        tb_gui_paint_outline(paint, rect, style->radius,
+                             tb_style_number(style, TB_GUI_BUTTON_DEFAULT_WIDTH),
                              tb_style_color(style, TB_GUI_BUTTON_DEFAULT_COLOR));
     }
     tb_gui_paint_text(paint, &block, rect, style->text_color);
