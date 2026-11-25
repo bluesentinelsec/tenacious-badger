@@ -49,6 +49,7 @@ target_sources(badger_static PRIVATE ${TB_PLATFORM_SOURCES})
 # and tests.
 set(TB_WINDOW_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/../shared/window.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../shared/window_size.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/window.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/window_wayland.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/window_x11.c"

@@ -27,6 +27,10 @@ desktop runs through Xwayland, for instance.
 Exclusive fullscreen of a game's own resolution is a Windows capability: on
 the other platforms a window asked for it is borderless, and its state says
 so. Modes, displays and sizes change at any time with `tb_window_configure()`.
+The game loop switches a window between windowed and borderless when the
+player presses Alt+Enter, or Control+Command+F on a Mac
+([The game loop](game-loop.md#switching-to-fullscreen)); on Windows, a key
+pressed with Alt is never a menu's, so it does not beep.
 
 Known gaps, each a Wayland limitation or work for later:
 
@@ -62,6 +66,38 @@ readable at arm's length.
 A window given no size is the largest 16:9 size up to 1280 by 720 that fits in
 85% of its display's usable area. A display index that no display has, as a
 settings file may name a monitor since unplugged, is the primary display.
+
+## Limits on resizing
+
+A windowed window's options give the least size the player may drag it to,
+`min_width` and `min_height` in logical units, and an aspect it keeps while
+dragged, `aspect_width` to `aspect_height`, such as 16 to 9. A minimum of 0
+is the engine's least, 64 units; an aspect of 0 is any aspect, the default.
+A game opts into an aspect: one designed for 16:9 sets it, and a tool that
+lays itself out at any size leaves it free. The engine's settings give
+them from `display.window_min_width` and `display.window_min_height`, 640 by
+360 by default, and `display.window_aspect_width` and
+`display.window_aspect_height` ([Settings](settings.md#display)).
+
+The windowed size a window is created or configured with is fitted to them:
+raised to the least size, unless the display's usable area is smaller, and,
+with an aspect, given the height that its width calls for, or less where the
+display is not tall enough. Both apply only to windowed mode; a borderless
+or fullscreen window fills its display whatever its aspect.
+
+| | Least size | Aspect |
+| --- | --- | --- |
+| Windows | `WM_GETMINMAXINFO`, the frame around the least client area at the window's DPI | `WM_SIZING`: the dragged edge moves to keep the client area's aspect, and the edge beside it follows |
+| X11 | `PMinSize` of `WM_NORMAL_HINTS`, in pixels at Xft.dpi | `PAspect`, the same minimum and maximum aspect |
+| Wayland | `xdg_toplevel.set_min_size` | None: unavailable |
+| macOS | `contentMinSize` | `contentAspectRatio` |
+
+xdg-shell has no hint of an aspect, so a Wayland window is sized freely above
+its least size: an unavailable capability, which `tb_window_state`'s
+`aspect_locked` reports as false. A game that needs its aspect on Wayland
+keeps it within the window, letterboxing what it draws. Windows and
+X11 window managers may still give a window a size of another aspect when it
+is maximized or tiled.
 
 ## Events
 

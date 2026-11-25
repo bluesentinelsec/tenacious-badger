@@ -18,9 +18,6 @@
 #define TB_WINDOW_DEFAULT_HEIGHT 720u
 #define TB_WINDOW_DEFAULT_SHARE 0.85
 
-/* The smallest window: a client area smaller than this is unusable. */
-#define TB_WINDOW_SMALLEST 64u
-
 /* What a system that reports no display is given. */
 #define TB_WINDOW_FALLBACK_WIDTH 1280u
 #define TB_WINDOW_FALLBACK_HEIGHT 720u
@@ -177,9 +174,7 @@ void tb_window_place(const tb_window *window, bool units_are_pixels, tb_window_p
         width = (uint32_t)((double)TB_WINDOW_DEFAULT_WIDTH * fit);
         height = (uint32_t)((double)TB_WINDOW_DEFAULT_HEIGHT * fit);
     }
-    width = tb_window_at_least(width < usable_width ? width : usable_width, TB_WINDOW_SMALLEST);
-    height =
-        tb_window_at_least(height < usable_height ? height : usable_height, TB_WINDOW_SMALLEST);
+    tb_window_fit_size(&window->options, usable_width, usable_height, &width, &height);
 
     placement->display = display_index;
     placement->width = width;
@@ -585,6 +580,7 @@ tb_window_result tb_window_create(tb_window_system *system, const tb_window_opti
     created->title = tb_window_copy_title(options->title);
     created->options.title = created->title;
     created->state.content_scale = 1.0;
+    created->state.aspect_locked = system->keeps_aspect && tb_window_wants_aspect(options);
     result = system->ops->create(created, error);
     if (result != TB_WINDOW_OK)
     {
@@ -648,6 +644,7 @@ tb_window_result tb_window_configure(tb_window *window, const tb_window_options 
 {
     tb_window_options previous = {0};
     char *previous_title = NULL;
+    bool previous_aspect_locked = false;
     tb_window_result result = TB_WINDOW_OK;
 
     TB_ASSERT(window != NULL);
@@ -656,7 +653,9 @@ tb_window_result tb_window_configure(tb_window *window, const tb_window_options 
     tb_window_succeed(error);
     previous = window->options;
     previous_title = window->title;
+    previous_aspect_locked = window->state.aspect_locked;
     window->options = *options;
+    window->state.aspect_locked = window->system->keeps_aspect && tb_window_wants_aspect(options);
     window->title = tb_window_copy_title(options->title != NULL ? options->title : previous_title);
     window->options.title = window->title;
     result = window->system->ops->configure(window, &previous, error);
@@ -665,6 +664,7 @@ tb_window_result tb_window_configure(tb_window *window, const tb_window_options 
         tb_free(window->title);
         window->title = previous_title;
         window->options = previous;
+        window->state.aspect_locked = previous_aspect_locked;
         return result;
     }
     tb_free(previous_title);

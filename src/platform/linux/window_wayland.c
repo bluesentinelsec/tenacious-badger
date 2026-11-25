@@ -14,7 +14,9 @@
  * its window, so a new window is wherever the compositor puts it; there is
  * no fullscreen of a client's own mode, so fullscreen is borderless; and
  * decorations are the compositor's when it offers xdg-decoration, which
- * GNOME does not. Scale is the integer scale of the outputs a surface is on.
+ * GNOME does not; and a window keeps no aspect while the player resizes it,
+ * for xdg-shell has no hint of one. Scale is the integer scale of the
+ * outputs a surface is on.
  *
  * The mouse's cursor is the compositor's shape where it offers
  * cursor-shape-v1, else the cursor theme's image from libwayland-cursor.so.0.
@@ -1808,12 +1810,25 @@ static void tb_wl_apply(tb_window *window, bool created)
                              : TB_WINDOW_MODE_BORDERLESS;
     if (window->state.mode == TB_WINDOW_MODE_WINDOWED)
     {
-        const int32_t fixed_width = window->options.fixed_size ? (int32_t)placement.width : 0;
-        const int32_t fixed_height = window->options.fixed_size ? (int32_t)placement.height : 0;
+        /* A fixed size is both the least and the most; else the least is the
+         * options' and there is no most. xdg-shell has no hint of an aspect
+         * to keep, so the player sizes the window freely above its least. */
+        uint32_t least_width = 0;
+        uint32_t least_height = 0;
+        int32_t most_width = 0;
+        int32_t most_height = 0;
+        tb_window_least_size(&window->options, &least_width, &least_height);
+        if (window->options.fixed_size)
+        {
+            least_width = placement.width;
+            least_height = placement.height;
+            most_width = (int32_t)placement.width;
+            most_height = (int32_t)placement.height;
+        }
         (void)native->wl.marshal_flags(record->toplevel, TB_XDG_TOPLEVEL_SET_MIN_SIZE, NULL,
-                                       version, 0, fixed_width, fixed_height);
+                                       version, 0, (int32_t)least_width, (int32_t)least_height);
         (void)native->wl.marshal_flags(record->toplevel, TB_XDG_TOPLEVEL_SET_MAX_SIZE, NULL,
-                                       version, 0, fixed_width, fixed_height);
+                                       version, 0, most_width, most_height);
         if (!created && !was_windowed)
         {
             (void)native->wl.marshal_flags(record->toplevel, TB_XDG_TOPLEVEL_UNSET_FULLSCREEN, NULL,

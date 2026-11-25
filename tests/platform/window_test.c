@@ -267,6 +267,45 @@ TB_TEST(platform_window, a_window_larger_than_its_display_is_clamped)
     for_each_backend(a_window_larger_than_its_display_is_clamped_on);
 }
 
+/* A window asked for less than its minimum is the minimum, and one with an
+ * aspect is of its aspect; the aspect is kept while resized everywhere but
+ * Wayland, and only windowed. */
+static void a_window_keeps_its_limits_on(tb_window_system *system)
+{
+    tb_window *window = NULL;
+    tb_window_state state = {0};
+    tb_window_options options = {
+        .title = "limits", .width = 200, .height = 100, .min_width = 400, .min_height = 300};
+
+    TB_TEST_REQUIRE_UINT(tb_window_create(system, &options, &window, NULL), ==, TB_WINDOW_OK);
+    (void)settle(system, TB_WINDOW_EVENT_RESIZED);
+    tb_window_state_of(window, &state);
+    TB_TEST_EXPECT_UINT(state.width, ==, 400);
+    TB_TEST_EXPECT_UINT(state.height, ==, 300);
+    TB_TEST_EXPECT(!state.aspect_locked);
+
+    options = (tb_window_options){
+        .title = "aspect", .width = 480, .height = 400, .aspect_width = 16, .aspect_height = 9};
+    TB_TEST_REQUIRE_UINT(tb_window_configure(window, &options, NULL), ==, TB_WINDOW_OK);
+    (void)settle(system, TB_WINDOW_EVENT_RESIZED);
+    tb_window_state_of(window, &state);
+    TB_TEST_EXPECT_UINT(state.width, ==, 480);
+    TB_TEST_EXPECT_UINT(state.height, ==, 270);
+    TB_TEST_EXPECT(state.aspect_locked ==
+                   (tb_window_system_backend(system) != TB_WINDOW_BACKEND_WAYLAND));
+
+    options.mode = TB_WINDOW_MODE_BORDERLESS;
+    TB_TEST_REQUIRE_UINT(tb_window_configure(window, &options, NULL), ==, TB_WINDOW_OK);
+    tb_window_state_of(window, &state);
+    TB_TEST_EXPECT(!state.aspect_locked);
+    tb_window_destroy(window);
+}
+
+TB_TEST(platform_window, a_window_keeps_its_limits)
+{
+    for_each_backend(a_window_keeps_its_limits_on);
+}
+
 static void wake_soon(void *argument)
 {
     tb_platform_sleep(UINT64_C(20) * 1000000u);

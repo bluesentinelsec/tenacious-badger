@@ -81,6 +81,7 @@ enum
 #define TB_X11_US_SIZE (1L << 1)
 #define TB_X11_MIN_SIZE (1L << 4)
 #define TB_X11_MAX_SIZE (1L << 5)
+#define TB_X11_ASPECT (1L << 7)
 #define TB_X11_ATOM_TYPE 4ul
 #define TB_X11_CARDINAL_TYPE 6ul
 #define TB_X11_REPLACE 0
@@ -847,6 +848,20 @@ static void tb_x11_send_fullscreen(tb_window *window, long action)
                                &event);
 }
 
+/* A length in logical units in pixels, rounded up so that a limit is never
+ * under what it says. */
+static int tb_x11_pixels(uint32_t units, double scale)
+{
+    const double pixels = (double)units * scale;
+    const int whole = pixels >= (double)INT32_MAX ? INT32_MAX : (int)pixels;
+
+    return (double)whole < pixels ? whole + 1 : whole;
+}
+
+/* WM_NORMAL_HINTS: where the window goes and how large, and, windowed, how
+ * the player may size it: not at all, or no smaller than its least size,
+ * keeping its aspect when it has one. A window that fills its display has
+ * no limits for the window manager to weigh. */
 static void tb_x11_set_hints(tb_window *window, const tb_window_placement *placement)
 {
     tb_x11_system *const native = tb_x11_of(window->system);
@@ -863,6 +878,23 @@ static void tb_x11_set_hints(tb_window *window, const tb_window_placement *place
         hints.max_width = hints.width;
         hints.min_height = hints.height;
         hints.max_height = hints.height;
+    }
+    else if (window->state.mode == TB_WINDOW_MODE_WINDOWED)
+    {
+        uint32_t least_width = 0;
+        uint32_t least_height = 0;
+        tb_window_least_size(&window->options, &least_width, &least_height);
+        hints.flags |= TB_X11_MIN_SIZE;
+        hints.min_width = tb_x11_pixels(least_width, native->scale);
+        hints.min_height = tb_x11_pixels(least_height, native->scale);
+    }
+    if (window->state.aspect_locked)
+    {
+        hints.flags |= TB_X11_ASPECT;
+        hints.min_aspect[0] = (int)window->options.aspect_width;
+        hints.min_aspect[1] = (int)window->options.aspect_height;
+        hints.max_aspect[0] = hints.min_aspect[0];
+        hints.max_aspect[1] = hints.min_aspect[1];
     }
     native->x.set_wm_normal_hints(native->display, tb_x11_handle(window), &hints);
 }
@@ -1607,6 +1639,7 @@ tb_window_result tb_x11_open(tb_window_system *system, tb_window_error *error)
     tb_x11_open_im(native);
     system->backend = TB_WINDOW_BACKEND_X11;
     system->pointer_in_pixels = true;
+    system->keeps_aspect = true;
     system->ops = &tb_x11_ops;
     system->native = native;
     tb_x11_read_displays(system);

@@ -37,6 +37,16 @@ struct tb_game_loop
     const char *quit_title;
     const char *quit_message;
     tb_window_options window_options; /* As the settings last described the window. */
+    tb_window_backend backend;        /* The window system's; automatic without one. */
+    bool fullscreen_shortcut;         /* Alt+Enter switches to fullscreen and back. */
+    /* The window's size when the shortcut last took it out of windowed
+     * mode, which it returns to while the size settings stay at the
+     * versions kept. */
+    bool windowed_remembered;
+    uint32_t windowed_width;
+    uint32_t windowed_height;
+    uint64_t width_version;
+    uint64_t height_version;
     tb_game_time time;
     bool started;
     uint64_t last_frame;  /* When the last frame began. */
@@ -91,6 +101,9 @@ tb_game_loop *tb_game_loop_create(const tb_game_loop_options *options)
             (tb_game_clock){.now = tb_game_platform_now, .wait_until = tb_game_platform_wait_until};
     }
     tb_engine_settings_window_options(loop->settings, NULL, &loop->window_options);
+    loop->backend =
+        loop->system != NULL ? tb_window_system_backend(loop->system) : TB_WINDOW_BACKEND_AUTOMATIC;
+    loop->fullscreen_shortcut = !options->disable_fullscreen_shortcut;
     loop->time.focused = true;
     loop->time.visible = true;
     if (loop->window != NULL)
@@ -167,6 +180,76 @@ static void tb_game_loop_request_quit(tb_game_loop *loop, tb_game_quit_reason re
 }
 
 /* ---------------------------------------------------------------------------
+ * Fullscreen and back.
+ * ------------------------------------------------------------------------- */
+
+bool tb_game_loop_is_fullscreen_shortcut(tb_window_backend backend, const tb_window_event *event)
+{
+    uint32_t held = 0;
+
+    TB_ASSERT(event != NULL);
+    held = event->modifiers &
+           (TB_MODIFIER_SHIFT | TB_MODIFIER_CONTROL | TB_MODIFIER_ALT | TB_MODIFIER_SUPER);
+    if (event->type != TB_WINDOW_EVENT_KEY_DOWN || event->repeat)
+    {
+        return false;
+    }
+    if (backend == TB_WINDOW_BACKEND_COCOA)
+    {
+        return event->key == TB_KEY_F && held == (TB_MODIFIER_CONTROL | TB_MODIFIER_SUPER);
+    }
+    return event->key == TB_KEY_ENTER && held == TB_MODIFIER_ALT;
+}
+
+/* Switch `display.window_mode` between windowed and borderless, at the
+ * runtime layer, which the settings apply before the next frame. Leaving a
+ * window, remember its size, which the event's state has. */
+static void tb_game_loop_toggle_fullscreen(tb_game_loop *loop, const tb_window_event *event)
+{
+    const tb_engine_settings *const settings = loop->settings;
+    tb_setting *const mode = settings->display.window_mode;
+
+    if (tb_setting_choice(mode) != (size_t)TB_WINDOW_MODE_WINDOWED)
+    {
+        (void)tb_setting_set_choice(mode, (size_t)TB_WINDOW_MODE_WINDOWED);
+        return;
+    }
+    if (event->state.mode == TB_WINDOW_MODE_WINDOWED && event->state.width > 0 &&
+        event->state.height > 0)
+    {
+        loop->windowed_remembered = true;
+        loop->windowed_width = event->state.width;
+        loop->windowed_height = event->state.height;
+        loop->width_version = tb_setting_version(settings->display.window_width);
+        loop->height_version = tb_setting_version(settings->display.window_height);
+    }
+    (void)tb_setting_set_choice(mode, (size_t)TB_WINDOW_MODE_BORDERLESS);
+}
+
+/* A windowed window takes the size it had when the shortcut took it out of
+ * a window, unless the size settings changed since, which forgets it. */
+static void tb_game_loop_recall_windowed_size(tb_game_loop *loop, tb_window_options *options)
+{
+    const tb_engine_settings *const settings = loop->settings;
+
+    if (!loop->windowed_remembered)
+    {
+        return;
+    }
+    if (tb_setting_version(settings->display.window_width) != loop->width_version ||
+        tb_setting_version(settings->display.window_height) != loop->height_version)
+    {
+        loop->windowed_remembered = false;
+        return;
+    }
+    if (options->mode == TB_WINDOW_MODE_WINDOWED)
+    {
+        options->width = loop->windowed_width;
+        options->height = loop->windowed_height;
+    }
+}
+
+/* ---------------------------------------------------------------------------
  * Events.
  * ------------------------------------------------------------------------- */
 
@@ -213,6 +296,10 @@ void tb_game_loop_inject(tb_game_loop *loop, const tb_window_event *event)
     {
         tb_game_loop_request_quit(loop, TB_GAME_QUIT_CLOSE_REQUESTED);
     }
+    else if (loop->fullscreen_shortcut && tb_game_loop_is_fullscreen_shortcut(loop->backend, event))
+    {
+        tb_game_loop_toggle_fullscreen(loop, event);
+    }
     else if (event->type == TB_WINDOW_EVENT_KEY_DOWN && event->key == TB_KEY_ESCAPE &&
              !event->repeat)
     {
@@ -245,7 +332,9 @@ static bool tb_game_window_options_equal(const tb_window_options *left,
            left->width == right->width && left->height == right->height &&
            left->fullscreen_width == right->fullscreen_width &&
            left->fullscreen_height == right->fullscreen_height &&
-           left->refresh_rate == right->refresh_rate && left->fixed_size == right->fixed_size;
+           left->refresh_rate == right->refresh_rate && left->fixed_size == right->fixed_size &&
+           left->min_width == right->min_width && left->min_height == right->min_height &&
+           left->aspect_width == right->aspect_width && left->aspect_height == right->aspect_height;
 }
 
 /* Configure the window when the display settings changed since the last
@@ -255,6 +344,7 @@ static void tb_game_loop_apply_settings(tb_game_loop *loop)
     tb_window_options options = {0};
 
     tb_engine_settings_window_options(loop->settings, NULL, &options);
+    tb_game_loop_recall_windowed_size(loop, &options);
     if (tb_game_window_options_equal(&options, &loop->window_options))
     {
         return;

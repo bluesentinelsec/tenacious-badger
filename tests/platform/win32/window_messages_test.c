@@ -147,6 +147,120 @@ TB_TEST(platform_win32_window, closing_is_a_request_that_leaves_the_window_open)
     close_window(&made);
 }
 
+/* Alt with a key types a character that would open a menu, and beep where
+ * there is none: Alt+Enter, which switches to fullscreen, must not. The
+ * window answers it itself, and the key still comes as a key. */
+TB_TEST(platform_win32_window, alt_with_a_key_is_a_key_and_no_menu)
+{
+    fixture made = open_window();
+    tb_window_event event = {0};
+
+    (void)SendMessageW(made.handle, WM_SYSKEYDOWN, VK_RETURN, key_parameter(0x1C, false, true));
+    TB_TEST_REQUIRE(received(made.system, TB_WINDOW_EVENT_KEY_DOWN, &event));
+    TB_TEST_EXPECT_UINT(event.key, ==, TB_KEY_ENTER);
+    TB_TEST_EXPECT_INT(
+        SendMessageW(made.handle, WM_SYSCHAR, '\r', key_parameter(0x1C, false, true)), ==, 0);
+    TB_TEST_EXPECT(!received(made.system, TB_WINDOW_EVENT_TEXT_INPUT, NULL));
+    close_window(&made);
+}
+
+/* The engine's least window, in logical units, when its options give none. */
+#define ENGINE_LEAST 64
+
+/* The frame of a window's least client area, at the window's DPI: the
+ * least size in pixels, rounded up. */
+static RECT least_frame(HWND handle, LONG width, LONG height)
+{
+    const UINT dpi = GetDpiForWindow(handle);
+    RECT frame = {0, 0, (LONG)(((UINT)width * dpi + 95u) / 96u),
+                  (LONG)(((UINT)height * dpi + 95u) / 96u)};
+
+    (void)AdjustWindowRectExForDpi(&frame, (DWORD)GetWindowLongPtrW(handle, GWL_STYLE), FALSE,
+                                   (DWORD)GetWindowLongPtrW(handle, GWL_EXSTYLE), dpi);
+    return frame;
+}
+
+/* Windows asks how small the player may drag the window: the frame around
+ * its least client area. A window that fills its display is not asked
+ * about. */
+TB_TEST(platform_win32_window, the_least_size_limits_dragging)
+{
+    fixture made = open_window();
+    MINMAXINFO limits = {0};
+    RECT frame = least_frame(made.handle, ENGINE_LEAST, ENGINE_LEAST);
+
+    (void)SendMessageW(made.handle, WM_GETMINMAXINFO, 0, (LPARAM)&limits);
+    TB_TEST_EXPECT_INT(limits.ptMinTrackSize.x, ==, frame.right - frame.left);
+    TB_TEST_EXPECT_INT(limits.ptMinTrackSize.y, ==, frame.bottom - frame.top);
+
+    TB_TEST_REQUIRE_UINT(
+        tb_window_configure(
+            made.window,
+            &(tb_window_options){.width = 640, .height = 360, .min_width = 400, .min_height = 300},
+            NULL),
+        ==, TB_WINDOW_OK);
+    frame = least_frame(made.handle, 400, 300);
+    limits = (MINMAXINFO){0};
+    (void)SendMessageW(made.handle, WM_GETMINMAXINFO, 0, (LPARAM)&limits);
+    TB_TEST_EXPECT_INT(limits.ptMinTrackSize.x, ==, frame.right - frame.left);
+    TB_TEST_EXPECT_INT(limits.ptMinTrackSize.y, ==, frame.bottom - frame.top);
+
+    TB_TEST_REQUIRE_UINT(tb_window_configure(made.window,
+                                             &(tb_window_options){.mode = TB_WINDOW_MODE_BORDERLESS,
+                                                                  .min_width = 400,
+                                                                  .min_height = 300},
+                                             NULL),
+                         ==, TB_WINDOW_OK);
+    limits = (MINMAXINFO){0};
+    (void)SendMessageW(made.handle, WM_GETMINMAXINFO, 0, (LPARAM)&limits);
+    TB_TEST_EXPECT_INT(limits.ptMinTrackSize.x, !=, frame.right - frame.left);
+    close_window(&made);
+}
+
+/* Dragging the border of a window with an aspect, the frame Windows
+ * proposes is changed to keep the aspect; without one it is left alone. */
+TB_TEST(platform_win32_window, dragging_keeps_the_aspect)
+{
+    fixture made = open_window();
+    RECT proposed = {0};
+    RECT client = {0};
+    RECT border = least_frame(made.handle, 0, 0);
+    const LONG border_width = border.right - border.left;
+    const LONG border_height = border.bottom - border.top;
+
+    proposed = (RECT){100, 100, 100 + 1000 + border_width, 100 + 300 + border_height};
+    TB_TEST_EXPECT_INT(SendMessageW(made.handle, WM_SIZING, WMSZ_RIGHT, (LPARAM)&proposed), ==,
+                       FALSE);
+    TB_TEST_EXPECT_INT(proposed.bottom, ==, 100 + 300 + border_height);
+
+    TB_TEST_REQUIRE_UINT(tb_window_configure(made.window,
+                                             &(tb_window_options){.width = 640,
+                                                                  .height = 360,
+                                                                  .aspect_width = 16,
+                                                                  .aspect_height = 9},
+                                             NULL),
+                         ==, TB_WINDOW_OK);
+    TB_TEST_EXPECT_INT(SendMessageW(made.handle, WM_SIZING, WMSZ_RIGHT, (LPARAM)&proposed), ==,
+                       TRUE);
+    client = (RECT){proposed.left, proposed.top, proposed.right - border_width,
+                    proposed.bottom - border_height};
+    TB_TEST_EXPECT_INT(proposed.left, ==, 100);
+    TB_TEST_EXPECT_INT(proposed.top, ==, 100);
+    TB_TEST_EXPECT_INT(client.right - client.left, ==, 1000);
+    TB_TEST_EXPECT_INT(client.bottom - client.top, ==, 563);
+
+    /* Dragging the top-left corner keeps the bottom-right one: 1050 wide
+     * and 583 high follows the width. */
+    proposed = (RECT){50, 80, 100 + 1000 + border_width, 100 + 563 + border_height};
+    TB_TEST_EXPECT_INT(SendMessageW(made.handle, WM_SIZING, WMSZ_TOPLEFT, (LPARAM)&proposed), ==,
+                       TRUE);
+    TB_TEST_EXPECT_INT(proposed.right, ==, 100 + 1000 + border_width);
+    TB_TEST_EXPECT_INT(proposed.bottom, ==, 100 + 563 + border_height);
+    TB_TEST_EXPECT_INT(proposed.right - proposed.left - border_width, ==, 1050);
+    TB_TEST_EXPECT_INT(proposed.bottom - proposed.top - border_height, ==, 591);
+    close_window(&made);
+}
+
 /* Moving to a monitor of another scale, Windows suggests a new frame: a
  * windowed window takes it. */
 TB_TEST(platform_win32_window, a_windowed_window_takes_the_frame_a_new_scale_suggests)

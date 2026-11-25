@@ -174,6 +174,10 @@ Games add their own, such as difficulty.
 | `display.monitor` | integer, 0 to 63 | `0`, the primary display | [the window](windows.md) |
 | `display.window_width` | integer, 0 to 16384 | `0`, to fit the display | [the window](windows.md) |
 | `display.window_height` | integer, 0 to 16384 | `0`, to fit the display | [the window](windows.md) |
+| `display.window_min_width` | integer, 0 to 16384 | `640` | [the window](windows.md#limits-on-resizing) |
+| `display.window_min_height` | integer, 0 to 16384 | `360` | [the window](windows.md#limits-on-resizing) |
+| `display.window_aspect_width` | integer, 0 to 16384 | `0`, any aspect | [the window](windows.md#limits-on-resizing) |
+| `display.window_aspect_height` | integer, 0 to 16384 | `0`, any aspect | [the window](windows.md#limits-on-resizing) |
 | `display.fullscreen_width` | integer, 0 to 16384 | `0`, the display's own | [the window](windows.md) |
 | `display.fullscreen_height` | integer, 0 to 16384 | `0`, the display's own | [the window](windows.md) |
 | `display.aspect_ratio` | `auto`, `16_9`, `16_10`, `21_9`, `32_9`, `4_3` | `auto`, the display's own | [the display policy](display.md#the-players-aspect-ratio), through `tb_viewport_aspect_ratio_from_settings()` |
@@ -199,6 +203,13 @@ The `design_*` and `stretch_*` settings and the bar color are the app's
 app gives them in its default file, as Burrow does, rather than a player in
 an options menu. `display.aspect_ratio` is the player's own, which narrows
 the frame before the policy places the design in it.
+
+The least size and the aspect are the game's to choose, in its default file:
+a game designed for 16:9 sets `display.window_aspect_width = 16` and
+`display.window_aspect_height = 9`. Alt+Enter, Control+Command+F on a Mac,
+switches `display.window_mode` between windowed and borderless at the runtime
+layer, so the options menu shows the change; the loop does not save it
+([the game loop](game-loop.md#switching-to-fullscreen)).
 
 ### Graphics
 
