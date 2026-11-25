@@ -101,6 +101,9 @@ typedef struct tb_gui_popup_entry
     tb_gui_popup_options options;
 } tb_gui_popup_entry;
 
+/* The variables, and the clipboard (gui_var.c). */
+typedef struct tb_gui_values tb_gui_values;
+
 /* A font opened from the catalog for a spec, or NULL when it has none. */
 typedef struct tb_gui_font_entry
 {
@@ -187,6 +190,9 @@ struct tb_gui
     bool wants_keyboard;
     tb_cursor cursor;
 
+    /* Variables, and the clipboard; made when first used. */
+    tb_gui_values *values;
+
     /* What tb_gui_draw() draws. */
     tb_arena *arena;
     tb_ui_paint paint;
@@ -232,12 +238,15 @@ float tb_gui_anchor_fraction(int32_t anchor, int axis);
 /* gui_input.c: events, the focus, and modal widgets. */
 void tb_gui_process_input(tb_gui *gui);
 void tb_gui_forget_widget(tb_gui *gui, tb_widget widget);
-/* Give a widget an event of a kind, at the mouse: its bindings, then its kind. */
-void tb_gui_send(tb_gui *gui, tb_gui_event_kind kind, tb_widget target);
 void tb_gui_dispatch_resized(tb_gui *gui);
 void tb_gui_refresh_hover(tb_gui *gui);
 void tb_gui_finish_input(tb_gui *gui);
 bool tb_gui_modal_contains(const tb_gui *gui, uint32_t index);
+/* An event of a kind for a widget, its mouse and modifiers the GUI's; and
+ * an event given to a widget, its bindings then its kind: whether the kind
+ * used it. */
+tb_gui_event tb_gui_event_for(tb_widget widget, tb_gui_event_kind kind);
+bool tb_gui_send(tb_widget widget, tb_gui_event *event);
 
 /* gui_popup.c: popups. The level of the popup a slot is in, from 0 at the
  * back, passive ones counted only when `passive` is true; SIZE_MAX for
@@ -251,6 +260,10 @@ void tb_gui_close_popups_from(tb_gui *gui, size_t level, bool passive);
 void tb_gui_layout_popups(tb_gui *gui);
 /* Take a slot out of the popups, without an event. */
 void tb_gui_forget_popup(tb_gui *gui, uint32_t index);
+/* Close the popups whose parents are hidden, disabled, or out of reach. */
+void tb_gui_close_orphan_popups(tb_gui *gui);
+/* Move a popup's anchor, as its owner is laid out, without laying out again. */
+void tb_gui_move_popup(tb_widget widget, tb_canvas_rect anchor);
 
 /* gui_scroll.c: scroll each ancestor of a slot that scrolls as little as
  * shows a rectangle, in units of the GUI as last laid out. */
@@ -314,5 +327,13 @@ void tb_gui_register_canvas(tb_gui *gui);
 tb_vec2 tb_gui_measure_block(tb_widget widget, const tb_gui_text_block *block);
 /* The height of a line of the theme's font, in units. */
 float tb_gui_line_height(tb_gui *gui);
+
+/* gui_var.c: variables polled against their settings, their observers run,
+ * and their memory released with the GUI's. */
+void tb_gui_vars_update(tb_gui *gui);
+void tb_gui_vars_free(tb_gui *gui);
+
+/* gui_values.c: the kinds that edit values, registered with the others. */
+void tb_gui_register_value_kinds(tb_gui *gui);
 
 #endif

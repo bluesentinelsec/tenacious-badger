@@ -19,7 +19,7 @@
 /* The uniform group of the panes' rows or columns. */
 #define TB_GUI_PANES_GROUP "panes"
 
-static const char *const tb_gui_paned_orient_names[] = {"vertical", "horizontal"};
+static const char *const tb_gui_paned_orient_names[] = {"horizontal", "vertical"};
 
 typedef struct tb_gui_pane
 {
@@ -245,6 +245,8 @@ static bool tb_gui_paned_event(tb_widget widget, void *data, const tb_gui_event 
     case TB_GUI_EVENT_RESIZE:
     case TB_GUI_EVENT_COMMAND:
     case TB_GUI_EVENT_POPUP_CLOSE:
+    case TB_GUI_EVENT_CHANGED:
+    case TB_GUI_EVENT_VALIDATE:
     case TB_GUI_EVENT_COUNT:
         break;
     }

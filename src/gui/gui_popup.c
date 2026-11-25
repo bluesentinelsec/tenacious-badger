@@ -86,7 +86,36 @@ void tb_gui_close_popups_from(tb_gui *gui, size_t level, bool passive)
             continue;
         }
         tb_gui_forget_popup(gui, entry.widget.index);
-        tb_gui_send(gui, TB_GUI_EVENT_POPUP_CLOSE, entry.widget);
+        tb_gui_event closed = tb_gui_event_for(entry.widget, TB_GUI_EVENT_POPUP_CLOSE);
+        (void)tb_gui_send(entry.widget, &closed);
+    }
+}
+
+void tb_gui_close_orphan_popups(tb_gui *gui)
+{
+    for (size_t level = gui->popup_count; level > 0; level--)
+    {
+        if (level > gui->popup_count)
+        {
+            continue;
+        }
+        const tb_widget popup = gui->popups[level - 1].widget;
+        const tb_gui_node *const node = tb_gui_node_of(popup);
+        if (node != NULL && !tb_gui_node_shown_enabled(gui, node->parent))
+        {
+            tb_widget_close_popup(popup);
+        }
+    }
+}
+
+void tb_gui_move_popup(tb_widget widget, tb_canvas_rect anchor)
+{
+    const size_t level =
+        tb_widget_alive(widget) ? tb_gui_popup_index(widget.gui, widget.index) : SIZE_MAX;
+
+    if (level != SIZE_MAX)
+    {
+        widget.gui->popups[level].options.anchor = anchor;
     }
 }
 

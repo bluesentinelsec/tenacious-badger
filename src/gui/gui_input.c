@@ -204,9 +204,18 @@ static void tb_gui_send_kind(tb_gui *gui, tb_gui_event_kind kind, tb_widget targ
     (void)tb_gui_deliver(gui, target, &event);
 }
 
-void tb_gui_send(tb_gui *gui, tb_gui_event_kind kind, tb_widget target)
+tb_gui_event tb_gui_event_for(tb_widget widget, tb_gui_event_kind kind)
 {
-    tb_gui_send_kind(gui, kind, target);
+    return tb_gui_event_of(widget.gui, kind, widget);
+}
+
+bool tb_gui_send(tb_widget widget, tb_gui_event *event)
+{
+    if (!tb_widget_alive(widget))
+    {
+        return false;
+    }
+    return tb_gui_deliver(widget.gui, widget, event);
 }
 
 bool tb_bind(tb_widget widget, tb_gui_event_kind kind, tb_gui_callback *callback, void *user)
@@ -681,8 +690,15 @@ static void tb_gui_press(tb_gui *gui, const tb_window_event *event)
     }
     if (event->button == TB_MOUSE_BUTTON_LEFT)
     {
+        /* A press in a popup, a menu or a list, leaves the focus where it
+         * is, unless it is on a field to type in. */
         const bool focuses = tb_gui_takes_focus(gui, target, TB_WIDGET_CLASS_FOCUS_ON_CLICK);
-        tb_gui_set_focus(gui, focuses ? target : TB_WIDGET_NONE);
+        const bool in_popup =
+            tb_widget_alive(target) && tb_gui_popup_level(gui, target.index, false) != SIZE_MAX;
+        if (focuses || !in_popup)
+        {
+            tb_gui_set_focus(gui, focuses ? target : TB_WIDGET_NONE);
+        }
     }
     if (!tb_widget_alive(target) || !tb_gui_enabled_chain(gui, target.index))
     {
@@ -768,9 +784,16 @@ static void tb_gui_popup_key(tb_gui *gui, tb_widget popup, tb_gui_event *key)
         tb_widget_close_popup(popup);
         return;
     }
-    if (!focused)
+    if (!focused && tb_gui_bubble(gui, tb_widget_parent(popup), key))
     {
-        (void)tb_gui_bubble(gui, tb_widget_parent(popup), key);
+        return;
+    }
+    /* Tab that nothing used closes the popups, then moves the focus. */
+    if (key->key == TB_KEY_TAB &&
+        (key->modifiers & (TB_MODIFIER_CONTROL | TB_MODIFIER_ALT | TB_MODIFIER_SUPER)) == 0)
+    {
+        tb_gui_close_popups(gui);
+        tb_gui_focus_next(gui, (key->modifiers & TB_MODIFIER_SHIFT) != 0);
     }
 }
 
@@ -936,6 +959,7 @@ void tb_gui_finish_input(tb_gui *gui)
     {
         gui->pressed = TB_WIDGET_NONE;
     }
+    tb_gui_close_orphan_popups(gui);
     gui->wants_mouse = gui->modal_count > 0 || tb_gui_stops_mouse(gui->pressed) ||
                        tb_gui_stops_mouse(gui->hovered);
     gui->wants_keyboard = tb_widget_alive(gui->focus) || tb_widget_alive(tb_gui_active_popup(gui));

@@ -3,6 +3,7 @@
 set(TB_UI_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/ui.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/ui_draw.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ui_editor.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/ui_layout.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/ui_paint.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/ui_text_field.c"

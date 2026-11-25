@@ -332,8 +332,10 @@ TB_TEST(gui_scroll, a_scrollbar_alone_is_dragged_paged_and_turned_and_calls_its_
     gui_fixture fixture = {0};
     gui_fixture_open(&fixture, 1.0f);
     int moves = 0;
-    const tb_widget bar = tb_scrollbar(
-        tb_gui_root(fixture.gui), &(tb_scrollbar_desc){.command = count_moves, .user = &moves});
+    const tb_widget bar =
+        tb_scrollbar(tb_gui_root(fixture.gui),
+                     &(tb_scrollbar_desc){
+                         .orient = TB_GUI_ORIENT_VERTICAL, .command = count_moves, .user = &moves});
     float first = 0.0f;
     float last = 0.0f;
 

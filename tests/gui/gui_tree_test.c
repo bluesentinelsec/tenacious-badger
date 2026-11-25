@@ -182,7 +182,7 @@ TB_TEST(gui_tree, a_game_registers_a_kind_found_by_its_name)
     gui_fixture_open(&fixture, 1.0f);
     const size_t engine_kinds = tb_gui_class_count(fixture.gui);
 
-    /* The engine's kinds: frames, labels, and buttons among them. */
+    /* Frames, labels, and buttons among them; other kinds come before a game's too. */
     TB_TEST_EXPECT_UINT(engine_kinds, >=, 3);
     TB_TEST_EXPECT_POINTER(tb_gui_find_class(fixture.gui, "button"), ==, tb_button_class());
     TB_TEST_EXPECT_POINTER(tb_gui_find_class(fixture.gui, "label"), ==, tb_label_class());

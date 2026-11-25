@@ -1,10 +1,12 @@
 /* The text field: one line of the caller's text, edited in place, with a
- * caret and a selection kept by the interface for the field being edited. */
+ * caret and a selection kept by the interface for the field being edited.
+ * The edits themselves are those every field shares (ui_editor.h). */
 #include "ui_internal.h"
+
+#include "ui_editor.h"
 
 #include "badger/assert.h"
 #include "badger/font_layout.h"
-#include "badger/utf8.h"
 
 #include <math.h>
 #include <string.h>
@@ -16,228 +18,16 @@
 typedef struct tb_ui_editing
 {
     tb_ui *ui;
-    char *buffer;
-    size_t capacity;
-    size_t length;
-    tb_ui_edit *edit;
-    bool changed;
+    tb_ui_editor editor;
 } tb_ui_editing;
-
-static bool tb_ui_shortcut(uint32_t modifiers)
-{
-    return (modifiers & (TB_MODIFIER_CONTROL | TB_MODIFIER_SUPER)) != 0;
-}
-
-/* The boundary before the character that ends at `offset`. */
-static size_t tb_ui_before(const tb_ui_editing *editing, size_t offset)
-{
-    uint32_t scalar = 0;
-    size_t previous = 0;
-
-    if (offset == 0)
-    {
-        return 0;
-    }
-    if (tb_utf8_previous(editing->buffer, editing->length, offset, &scalar, &previous))
-    {
-        return previous;
-    }
-    return offset - 1; /* a byte of no character is a character of its own */
-}
-
-/* The boundary after the character that begins at `offset`. */
-static size_t tb_ui_after(const tb_ui_editing *editing, size_t offset)
-{
-    uint32_t scalar = 0;
-    size_t next = 0;
-
-    if (offset >= editing->length)
-    {
-        return editing->length;
-    }
-    if (tb_utf8_decode(editing->buffer, editing->length, offset, &scalar, &next))
-    {
-        return next;
-    }
-    return offset + 1;
-}
-
-/* Words are what lies between spaces and ASCII punctuation. */
-static bool tb_ui_word_byte(char byte)
-{
-    const unsigned char value = (unsigned char)byte;
-
-    if (value >= 0x80)
-    {
-        return true;
-    }
-    return (value >= '0' && value <= '9') || (value >= 'a' && value <= 'z') ||
-           (value >= 'A' && value <= 'Z') || value == '_';
-}
-
-static size_t tb_ui_word_before(const tb_ui_editing *editing, size_t offset)
-{
-    while (offset > 0 && !tb_ui_word_byte(editing->buffer[offset - 1]))
-    {
-        offset = tb_ui_before(editing, offset);
-    }
-    while (offset > 0 && tb_ui_word_byte(editing->buffer[offset - 1]))
-    {
-        offset = tb_ui_before(editing, offset);
-    }
-    return offset;
-}
-
-static size_t tb_ui_word_after(const tb_ui_editing *editing, size_t offset)
-{
-    while (offset < editing->length && tb_ui_word_byte(editing->buffer[offset]))
-    {
-        offset = tb_ui_after(editing, offset);
-    }
-    while (offset < editing->length && !tb_ui_word_byte(editing->buffer[offset]))
-    {
-        offset = tb_ui_after(editing, offset);
-    }
-    return offset;
-}
-
-static size_t tb_ui_selection_start(const tb_ui_edit *edit)
-{
-    return edit->caret < edit->anchor ? edit->caret : edit->anchor;
-}
-
-static size_t tb_ui_selection_end(const tb_ui_edit *edit)
-{
-    return edit->caret < edit->anchor ? edit->anchor : edit->caret;
-}
-
-static void tb_ui_remove(tb_ui_editing *editing, size_t start, size_t end)
-{
-    if (end <= start)
-    {
-        return;
-    }
-    memmove(editing->buffer + start, editing->buffer + end, editing->length - end);
-    editing->length -= end - start;
-    editing->buffer[editing->length] = '\0';
-    editing->edit->caret = start;
-    editing->edit->anchor = start;
-    editing->changed = true;
-}
-
-static bool tb_ui_delete_selection(tb_ui_editing *editing)
-{
-    const size_t start = tb_ui_selection_start(editing->edit);
-    const size_t end = tb_ui_selection_end(editing->edit);
-
-    tb_ui_remove(editing, start, end);
-    return end > start;
-}
-
-/* Insert text at the caret, in place of the selection: as many whole
- * characters as fit, without control characters, which one line has none of. */
-static void tb_ui_insert(tb_ui_editing *editing, tb_text text)
-{
-    size_t room = 0;
-    size_t written = 0;
-
-    (void)tb_ui_delete_selection(editing);
-    room = editing->capacity - 1 - editing->length;
-    for (size_t offset = 0; offset < text.length;)
-    {
-        uint32_t scalar = 0;
-        size_t next = offset + 1;
-        if (!tb_utf8_decode(text.bytes, text.length, offset, &scalar, &next))
-        {
-            scalar = 0xFFFD; /* a byte that begins nothing is dropped below */
-            next = offset + 1;
-        }
-        const size_t size = next - offset;
-        if (scalar < 0x20 || scalar == 0x7F || scalar == 0xFFFD)
-        {
-            offset = next;
-            continue;
-        }
-        if (written + size > room)
-        {
-            break;
-        }
-        /* Make room at the caret, then copy the character in. */
-        const size_t at = editing->edit->caret + written;
-        memmove(editing->buffer + at + size, editing->buffer + at, editing->length - at);
-        memcpy(editing->buffer + at, text.bytes + offset, size);
-        editing->length += size;
-        written += size;
-        offset = next;
-    }
-    editing->buffer[editing->length] = '\0';
-    editing->edit->caret += written;
-    editing->edit->anchor = editing->edit->caret;
-    editing->changed = editing->changed || written > 0;
-}
-
-/* Move the caret, and with Shift the selection's end with it. */
-static void tb_ui_move(tb_ui_editing *editing, size_t offset, uint32_t modifiers)
-{
-    editing->edit->caret = offset;
-    if ((modifiers & TB_MODIFIER_SHIFT) == 0)
-    {
-        editing->edit->anchor = offset;
-    }
-}
-
-/* Left or Right: by a character or a word; without Shift, a selection
- * shuts to its edge on that side. */
-static void tb_ui_arrow(tb_ui_editing *editing, bool right, uint32_t modifiers)
-{
-    tb_ui_edit *const edit = editing->edit;
-    const bool selecting = (modifiers & TB_MODIFIER_SHIFT) != 0;
-    size_t offset = edit->caret;
-
-    if (!selecting && edit->caret != edit->anchor && !tb_ui_shortcut(modifiers))
-    {
-        offset = right ? tb_ui_selection_end(edit) : tb_ui_selection_start(edit);
-    }
-    else if (tb_ui_shortcut(modifiers))
-    {
-        offset = right ? tb_ui_word_after(editing, offset) : tb_ui_word_before(editing, offset);
-    }
-    else
-    {
-        offset = right ? tb_ui_after(editing, offset) : tb_ui_before(editing, offset);
-    }
-    tb_ui_move(editing, offset, modifiers);
-}
-
-static void tb_ui_erase(tb_ui_editing *editing, bool forward, uint32_t modifiers)
-{
-    const size_t caret = editing->edit->caret;
-
-    if (tb_ui_delete_selection(editing))
-    {
-        return;
-    }
-    if (forward)
-    {
-        tb_ui_remove(editing, caret,
-                     tb_ui_shortcut(modifiers) ? tb_ui_word_after(editing, caret)
-                                               : tb_ui_after(editing, caret));
-        return;
-    }
-    tb_ui_remove(editing,
-                 tb_ui_shortcut(modifiers) ? tb_ui_word_before(editing, caret)
-                                           : tb_ui_before(editing, caret),
-                 caret);
-}
 
 static void tb_ui_copy(tb_ui_editing *editing)
 {
-    const size_t start = tb_ui_selection_start(editing->edit);
-    const size_t end = tb_ui_selection_end(editing->edit);
+    const tb_text selection = tb_ui_editor_selection(&editing->editor);
 
-    if (end > start)
+    if (selection.length > 0)
     {
-        tb_ui_set_clipboard(editing->ui, tb_text_make(editing->buffer + start, end - start));
+        tb_ui_set_clipboard(editing->ui, selection);
     }
 }
 
@@ -246,8 +36,7 @@ static bool tb_ui_edit_shortcut(tb_ui_editing *editing, tb_key key)
 {
     if (key == TB_KEY_A)
     {
-        editing->edit->anchor = 0;
-        editing->edit->caret = editing->length;
+        tb_ui_editor_select_all(&editing->editor);
         return true;
     }
     if (key == TB_KEY_C || key == TB_KEY_X)
@@ -255,13 +44,13 @@ static bool tb_ui_edit_shortcut(tb_ui_editing *editing, tb_key key)
         tb_ui_copy(editing);
         if (key == TB_KEY_X)
         {
-            (void)tb_ui_delete_selection(editing);
+            (void)tb_ui_editor_delete_selection(&editing->editor);
         }
         return true;
     }
     if (key == TB_KEY_V)
     {
-        tb_ui_insert(editing, tb_ui_clipboard(editing->ui));
+        (void)tb_ui_editor_insert(&editing->editor, tb_ui_clipboard(editing->ui));
         return true;
     }
     return false;
@@ -270,21 +59,22 @@ static bool tb_ui_edit_shortcut(tb_ui_editing *editing, tb_key key)
 /* A key pressed in the field: true when the field takes it. */
 static bool tb_ui_edit_key(tb_ui_editing *editing, const tb_ui_key_press *press)
 {
+    tb_ui_editor *const editor = &editing->editor;
     const tb_key key = press->key;
 
     if (key == TB_KEY_LEFT || key == TB_KEY_RIGHT)
     {
-        tb_ui_arrow(editing, key == TB_KEY_RIGHT, press->modifiers);
+        tb_ui_editor_arrow(editor, key == TB_KEY_RIGHT, press->modifiers);
         return true;
     }
     if (key == TB_KEY_HOME || key == TB_KEY_END)
     {
-        tb_ui_move(editing, key == TB_KEY_HOME ? 0 : editing->length, press->modifiers);
+        tb_ui_editor_move(editor, key == TB_KEY_HOME ? 0 : editor->length, press->modifiers);
         return true;
     }
     if (key == TB_KEY_BACKSPACE || key == TB_KEY_DELETE)
     {
-        tb_ui_erase(editing, key == TB_KEY_DELETE, press->modifiers);
+        tb_ui_editor_erase(editor, key == TB_KEY_DELETE, press->modifiers);
         return true;
     }
     if (key == TB_KEY_ENTER || key == TB_KEY_ESCAPE)
@@ -293,24 +83,25 @@ static bool tb_ui_edit_key(tb_ui_editing *editing, const tb_ui_key_press *press)
         editing->ui->focus_by_keys = false;
         return true;
     }
-    return tb_ui_shortcut(press->modifiers) && tb_ui_edit_shortcut(editing, key);
+    return tb_ui_editor_shortcut(press->modifiers) && tb_ui_edit_shortcut(editing, key);
 }
 
 /* The frame's keys and text, in the order they came. */
-static void tb_ui_edit_input(tb_ui_editing *editing)
+static void tb_ui_edit_input(tb_ui_editing *editing, tb_ui_id id)
 {
     tb_ui *const ui = editing->ui;
     const tb_ui_input *const input = &ui->input;
     size_t typed = 0;
 
-    for (size_t index = 0; index < input->key_count && ui->focus == editing->edit->id; index++)
+    for (size_t index = 0; index < input->key_count && ui->focus == id; index++)
     {
         const tb_ui_key_press *const press = &input->keys[index];
         const size_t before =
             press->text_offset < input->text_length ? press->text_offset : input->text_length;
         if (before > typed)
         {
-            tb_ui_insert(editing, tb_text_make(input->text + typed, before - typed));
+            (void)tb_ui_editor_insert(&editing->editor,
+                                      tb_text_make(input->text + typed, before - typed));
             typed = before;
         }
         if (!ui->key_used[index] && tb_ui_edit_key(editing, press))
@@ -319,9 +110,10 @@ static void tb_ui_edit_input(tb_ui_editing *editing)
             ui->edit.blink = ui->time;
         }
     }
-    if (ui->focus == editing->edit->id && input->text_length > typed)
+    if (ui->focus == id && input->text_length > typed)
     {
-        tb_ui_insert(editing, tb_text_make(input->text + typed, input->text_length - typed));
+        (void)tb_ui_editor_insert(&editing->editor,
+                                  tb_text_make(input->text + typed, input->text_length - typed));
         ui->edit.blink = ui->time;
     }
 }
@@ -391,8 +183,10 @@ static void tb_ui_draw_field(tb_ui *ui, tb_ui_id id, tb_canvas_rect field, tb_te
                   id);
     if (editing && ui->edit.caret != ui->edit.anchor)
     {
-        const float start = tb_ui_caret_x(ui, layout, tb_ui_selection_start(&ui->edit));
-        const float end = tb_ui_caret_x(ui, layout, tb_ui_selection_end(&ui->edit));
+        const size_t first = ui->edit.caret < ui->edit.anchor ? ui->edit.caret : ui->edit.anchor;
+        const size_t last = ui->edit.caret < ui->edit.anchor ? ui->edit.anchor : ui->edit.caret;
+        const float start = tb_ui_caret_x(ui, layout, first);
+        const float end = tb_ui_caret_x(ui, layout, last);
         tb_ui_fill(ui,
                    tb_ui_rect_intersect(
                        (tb_canvas_rect){left + start, bar_top, end - start, bar_height}, clip),
@@ -411,23 +205,22 @@ static void tb_ui_draw_field(tb_ui *ui, tb_ui_id id, tb_canvas_rect field, tb_te
 bool tb_ui_edit_text(tb_ui *ui, tb_ui_id id, tb_canvas_rect field, char *buffer, size_t capacity,
                      const tb_ui_interaction *interaction)
 {
-    tb_ui_editing editing = {.ui = ui, .buffer = buffer, .capacity = capacity, .edit = &ui->edit};
+    tb_ui_editing editing = {.ui = ui,
+                             .editor = {.buffer = buffer,
+                                        .capacity = capacity,
+                                        .caret = ui->edit.caret,
+                                        .anchor = ui->edit.anchor}};
+    tb_ui_editor *const editor = &editing.editor;
     const tb_canvas_rect inner = tb_ui_rect_inset(field, ui->theme.frame_padding.x, 0.0f);
     tb_font_layout layout = {0};
 
     TB_ASSERT_MSG(capacity > 0, "a text field without room for its terminator");
-    const char *const end = memchr(buffer, '\0', capacity);
-    editing.length = end != NULL ? (size_t)(end - buffer) : capacity;
-    if (editing.length == capacity)
-    {
-        editing.length = capacity - 1;
-        buffer[editing.length] = '\0';
-    }
+    tb_ui_editor_refresh(editor);
     if (interaction->hot || interaction->active)
     {
         ui->cursor = TB_CURSOR_TEXT;
     }
-    tb_ui_layout_field(ui, tb_text_make(buffer, editing.length), &layout);
+    tb_ui_layout_field(ui, tb_text_make(buffer, editor->length), &layout);
     if (interaction->focused)
     {
         ui->focus_text = true;
@@ -435,34 +228,39 @@ bool tb_ui_edit_text(tb_ui *ui, tb_ui_id id, tb_canvas_rect field, char *buffer,
         {
             /* Tab selects the whole text; a click places the caret below. */
             ui->edit = (tb_ui_edit){.id = id,
-                                    .caret = editing.length,
-                                    .anchor = ui->focus_by_keys ? 0 : editing.length,
+                                    .caret = editor->length,
+                                    .anchor = ui->focus_by_keys ? 0 : editor->length,
                                     .blink = ui->time};
+            editor->caret = ui->edit.caret;
+            editor->anchor = ui->edit.anchor;
         }
-        ui->edit.caret = ui->edit.caret < editing.length ? ui->edit.caret : editing.length;
-        ui->edit.anchor = ui->edit.anchor < editing.length ? ui->edit.anchor : editing.length;
     }
     if (interaction->active && interaction->focused)
     {
         const size_t hit = tb_ui_hit(ui, &layout, ui->mouse.x - inner.x + ui->edit.scroll);
         const bool extend = !interaction->pressed || (ui->input.modifiers & TB_MODIFIER_SHIFT) != 0;
-        tb_ui_move(&editing, hit, extend ? TB_MODIFIER_SHIFT : 0);
+        tb_ui_editor_move(editor, hit, extend ? TB_MODIFIER_SHIFT : 0);
         ui->edit.blink = ui->time;
     }
     if (interaction->focused)
     {
-        tb_ui_edit_input(&editing);
+        tb_ui_edit_input(&editing, id);
     }
-    if (editing.changed)
+    if (ui->edit.id == id)
     {
-        tb_ui_layout_field(ui, tb_text_make(buffer, editing.length), &layout);
+        ui->edit.caret = editor->caret;
+        ui->edit.anchor = editor->anchor;
+    }
+    if (editor->changed)
+    {
+        tb_ui_layout_field(ui, tb_text_make(buffer, editor->length), &layout);
     }
     if (ui->edit.id == id && ui->focus == id)
     {
         tb_ui_follow_caret(ui, &layout, inner.width);
     }
-    tb_ui_draw_field(ui, id, field, tb_text_make(buffer, editing.length), &layout, interaction);
-    return editing.changed;
+    tb_ui_draw_field(ui, id, field, tb_text_make(buffer, editor->length), &layout, interaction);
+    return editor->changed;
 }
 
 bool tb_ui_text_field(tb_ui *ui, const char *label, char *buffer, size_t capacity)

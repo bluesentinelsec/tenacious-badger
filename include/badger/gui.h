@@ -63,12 +63,17 @@
  * it, a press holds the widget pressed until its button comes up, Tab moves
  * the keyboard's focus, and callbacks run. See #tb_gui_event_kind.
  *
+ * **Variables** (#tb_var) hold the values widgets edit: check buttons,
+ * radio buttons, entries, text boxes, spin boxes, sliders, progress bars,
+ * and combo boxes, several on one variable kept in step, and a variable
+ * bound to an engine setting. See tb_var_create().
+ *
  * **Scrolling and popups.** A kind may show its children through a
  * viewport, scrolled and clipped (tb_widget_class::viewport); a widget may
  * be shown as a popup in front of every other (tb_widget_popup()).
  *
- * **Not done yet.** Variables, and widgets that edit values; style
- * classes; layout files; focus moved by arrows or a gamepad.
+ * **Not done yet.** Style classes; layout files; focus moved by arrows or
+ * a gamepad.
  *
  * @par Threading
  * Externally synchronized: a GUI and its widgets are used by one thread at
@@ -107,6 +112,20 @@ typedef struct tb_widget
 
 /** @brief No widget. */
 #define TB_WIDGET_NONE ((tb_widget){NULL, 0u, 0u})
+
+/** @brief A handle to a variable: a value that widgets show and edit, and
+ * that callbacks watch, after Tk's `BooleanVar`, `IntVar`, `DoubleVar`, and
+ * `StringVar`. Copy it freely; it goes stale, and is detected as such, when
+ * its variable is destroyed. Zero is no variable. See tb_var_create(). */
+typedef struct tb_var
+{
+    tb_gui *gui;         /**< Its GUI; NULL for no variable. */
+    uint32_t index;      /**< Its slot. */
+    uint32_t generation; /**< Its slot's generation when it was made; never 0. */
+} tb_var;
+
+/** @brief No variable. */
+#define TB_VAR_NONE ((tb_var){NULL, 0u, 0u})
 
 /** @brief A widget's kind: see #tb_widget_class. */
 typedef struct tb_widget_class tb_widget_class;
@@ -314,17 +333,18 @@ TB_API void tb_gui_stats_of(const tb_gui *gui, tb_gui_stats *stats);
 /** @brief The type of a property's value. */
 typedef enum tb_gui_type
 {
-    TB_GUI_TYPE_BOOL,    /**< `bool`. */
-    TB_GUI_TYPE_INT,     /**< `int32_t`. */
-    TB_GUI_TYPE_FLOAT,   /**< `float`. */
-    TB_GUI_TYPE_VEC2,    /**< #tb_vec2: a pair, such as a left and a right. */
-    TB_GUI_TYPE_COLOR,   /**< #tb_vec4: RGBA, straight alpha. */
-    TB_GUI_TYPE_TEXT,    /**< UTF-8, held in a kind's data as a #tb_gui_string. */
-    TB_GUI_TYPE_ENUM,    /**< `int32_t`, one of the property's names. */
-    TB_GUI_TYPE_FLAGS,   /**< `uint32_t`, a bit for each of the property's names. */
-    TB_GUI_TYPE_FONT,    /**< #tb_font_spec. */
-    TB_GUI_TYPE_COMMAND, /**< #tb_gui_command: a callback and its argument. */
-    TB_GUI_TYPE_COUNT    /**< How many there are; not a type. */
+    TB_GUI_TYPE_BOOL,     /**< `bool`. */
+    TB_GUI_TYPE_INT,      /**< `int32_t`. */
+    TB_GUI_TYPE_FLOAT,    /**< `float`. */
+    TB_GUI_TYPE_VEC2,     /**< #tb_vec2: a pair, such as a left and a right. */
+    TB_GUI_TYPE_COLOR,    /**< #tb_vec4: RGBA, straight alpha. */
+    TB_GUI_TYPE_TEXT,     /**< UTF-8, held in a kind's data as a #tb_gui_string. */
+    TB_GUI_TYPE_ENUM,     /**< `int32_t`, one of the property's names. */
+    TB_GUI_TYPE_FLAGS,    /**< `uint32_t`, a bit for each of the property's names. */
+    TB_GUI_TYPE_FONT,     /**< #tb_font_spec. */
+    TB_GUI_TYPE_COMMAND,  /**< #tb_gui_command: a callback and its argument. */
+    TB_GUI_TYPE_VARIABLE, /**< #tb_var: a variable the widget shows and edits; none for none. */
+    TB_GUI_TYPE_COUNT     /**< How many there are; not a type. */
 } tb_gui_type;
 
 /** @brief Text a widget owns: the GUI copies it in when it is set, and
@@ -360,6 +380,7 @@ typedef struct tb_gui_value
         tb_text text;           /**< #TB_GUI_TYPE_TEXT; read, borrowed until it changes. */
         tb_font_spec font;      /**< #TB_GUI_TYPE_FONT. */
         tb_gui_command command; /**< #TB_GUI_TYPE_COMMAND. */
+        tb_var variable;        /**< #TB_GUI_TYPE_VARIABLE. */
     };
 } tb_gui_value;
 
@@ -511,6 +532,13 @@ static inline tb_gui_value tb_gui_command_of(tb_gui_callback *callback, void *us
     return made;
 }
 
+/** @brief A variable, or none. @par Threading Thread-safe. */
+static inline tb_gui_value tb_gui_variable(tb_var value)
+{
+    tb_gui_value made = {TB_GUI_TYPE_VARIABLE, {.variable = value}};
+    return made;
+}
+
 /* ---------------------------------------------------------------------------
  * Events.
  * ------------------------------------------------------------------------- */
@@ -533,7 +561,16 @@ typedef enum tb_gui_event_kind
     TB_GUI_EVENT_FOCUS_OUT,    /**< It lost the focus. */
     TB_GUI_EVENT_RESIZE,       /**< Its size changed when it was laid out. */
     TB_GUI_EVENT_COMMAND,      /**< It was invoked: a button clicked, or tb_widget_invoke(). */
-    TB_GUI_EVENT_MOTION,      /**< The mouse moved over it, or anywhere while it holds the mouse. */
+    /** Its value changed through input: a check button toggled, text typed,
+     * a slider dragged, an item chosen; or tb_widget_invoke(), which acts as
+     * input does. Not when a program sets it, nor its variable. */
+    TB_GUI_EVENT_CHANGED,
+    /** The mouse moved over it, or anywhere while a button pressed on it is
+     * held: a drag. */
+    TB_GUI_EVENT_MOTION,
+    /** Text is about to change, Tk's `validatecommand`: `text` is the text
+     * proposed, and tb_gui_refuse_edit() keeps the old. */
+    TB_GUI_EVENT_VALIDATE,
     TB_GUI_EVENT_POPUP_CLOSE, /**< It was closed as a popup: see tb_widget_popup(). */
     TB_GUI_EVENT_COUNT        /**< How many there are; not a kind. */
 } tb_gui_event_kind;
@@ -1031,9 +1068,12 @@ typedef struct tb_gui_popup_options
  * passive is shown, a press outside every popup closes them all and is
  * used by it; a press inside one closes those in front of it; keys go to
  * the one in front, unless the focus is inside it, and then to its
- * ancestors, and Escape that it does not use closes it. A popup closed is
- * sent #TB_GUI_EVENT_POPUP_CLOSE; one hidden or destroyed is closed
- * without it.
+ * ancestors, and Escape that it does not use closes it; Tab that it does
+ * not use closes them all and moves the focus. A popup closed is sent
+ * #TB_GUI_EVENT_POPUP_CLOSE; one hidden or destroyed is closed
+ * without it; one whose parent is hidden, disabled, or destroyed is closed
+ * with it. A press in a popup leaves the focus where it is, unless it is on
+ * a kind that takes the focus on a click.
  *
  * Showing a widget already a popup moves it by its new options.
  * @param options Optional; NULL is zero.
@@ -1153,15 +1193,494 @@ typedef struct tb_button_desc
 TB_API tb_widget tb_button(tb_widget parent, const tb_button_desc *desc);
 
 /* ---------------------------------------------------------------------------
- * Scroll frames and scroll bars.
+ * Variables.
  * ------------------------------------------------------------------------- */
 
-/** @brief Which way a widget runs. */
+/** @brief A setting of the engine's, which a variable may be bound to: see
+ * badger/settings.h. */
+typedef struct tb_setting tb_setting;
+
+/** @brief A variable's observer: see tb_var_trace().
+ * @param var The variable that changed. @param user The trace's. */
+typedef void tb_var_callback(tb_var var, void *user);
+
+/**
+ * @brief Make a variable, owned by the GUI: a bool, an integer, a number,
+ * or text, after Tk's `BooleanVar`, `IntVar`, `DoubleVar`, and `StringVar`.
+ *
+ * Widgets show a variable's value and set it when they are used: several
+ * widgets on one variable stay in step, as a slider and a spin box on one
+ * volume. Callbacks watch it (tb_var_trace()). It may be bound to an engine
+ * setting, which it then follows, and which follows it
+ * (tb_var_bind_setting()).
+ *
+ * A variable lives until tb_var_destroy() or its GUI is destroyed; widgets
+ * that show one destroyed show nothing, as if they had none.
+ *
+ * @param initial Required: of #TB_GUI_TYPE_BOOL, #TB_GUI_TYPE_INT,
+ * #TB_GUI_TYPE_FLOAT (finite), or #TB_GUI_TYPE_TEXT (copied); its type is
+ * the variable's.
+ * @return The variable; none for a value of another type.
+ */
+TB_API tb_var tb_var_create(tb_gui *gui, const tb_gui_value *initial);
+
+/** @brief Make a bool variable, Tk's `BooleanVar`. */
+TB_API tb_var tb_var_bool(tb_gui *gui, bool value);
+/** @brief Make an integer variable, Tk's `IntVar`. */
+TB_API tb_var tb_var_int(tb_gui *gui, int32_t value);
+/** @brief Make a number variable, Tk's `DoubleVar`. @param value Finite. */
+TB_API tb_var tb_var_float(tb_gui *gui, double value);
+/** @brief Make a text variable, Tk's `StringVar`. @param value Required; copied. */
+TB_API tb_var tb_var_string(tb_gui *gui, const char *value);
+
+/** @brief Destroy a variable: its handles go stale, its traces and its
+ * binding to a setting end. A stale handle is ignored. */
+TB_API void tb_var_destroy(tb_var var);
+
+/** @brief Whether a handle is of a variable alive. */
+TB_API bool tb_var_alive(tb_var var);
+
+/** @brief Whether two handles are of one variable. @par Threading Thread-safe. */
+TB_API bool tb_var_equal(tb_var a, tb_var b);
+
+/** @brief A variable's type: #TB_GUI_TYPE_BOOL, #TB_GUI_TYPE_INT,
+ * #TB_GUI_TYPE_FLOAT, or #TB_GUI_TYPE_TEXT; #TB_GUI_TYPE_COUNT for a stale
+ * handle. */
+TB_API tb_gui_type tb_var_type(tb_var var);
+
+/**
+ * @brief Read a variable.
+ * @param[out] value Required; of the variable's type. Text is borrowed until
+ * the variable changes.
+ * @return false for a stale handle.
+ */
+TB_API bool tb_var_get(tb_var var, tb_gui_value *value);
+
+/**
+ * @brief Set a variable from a value of any of the four types, converted
+ * to the variable's as the typed setters do (tb_var_set_bool(),
+ * tb_var_set_int(), tb_var_set_float(), tb_var_set_text()).
+ * @param value Required.
+ * @return false, changing nothing, when the value does not convert, its
+ * setting refuses it, or the handle is stale.
+ */
+TB_API bool tb_var_set(tb_var var, const tb_gui_value *value);
+
+/**
+ * @brief Set a variable to a bool: a number variable takes 1 or 0, and a
+ * text variable "1" or "0", as Tk's do.
+ * @return false, changing nothing, when its setting refuses it or the
+ * handle is stale. Setting a variable to its value changes nothing.
+ */
+TB_API bool tb_var_set_bool(tb_var var, bool value);
+
+/** @brief Set a variable to an integer: a bool variable is true for any but
+ * 0, and a text variable takes its digits. As tb_var_set_bool(). */
+TB_API bool tb_var_set_int(tb_var var, int32_t value);
+
+/** @brief Set a variable to a number: an integer variable takes the nearest
+ * whole number, and a text variable the shortest digits that read back as
+ * it. As tb_var_set_bool(); false for a number not finite, or out of an
+ * integer's range. */
+TB_API bool tb_var_set_float(tb_var var, double value);
+
+/**
+ * @brief Set a variable from text, as a layout file writes values: a bool
+ * variable takes `true`, `false`, `1`, `0`, `on`, `off`, `yes`, or `no`, in
+ * any case; an integer variable decimal digits with an optional sign; a
+ * number variable a decimal number; a text variable the text itself.
+ * @param text Required; UTF-8.
+ * @return false, changing nothing, when the text is not a value of the
+ * variable's type, its setting refuses it, or the handle is stale.
+ */
+TB_API bool tb_var_set_text(tb_var var, const char *text);
+
+/** @brief A variable as a bool: a number's not 0, text that reads as true.
+ * false for a stale handle. */
+TB_API bool tb_var_get_bool(tb_var var);
+
+/** @brief A variable as an integer: a bool's 1 or 0, a number's nearest,
+ * text's digits; 0 when it reads as none, or for a stale handle. */
+TB_API int32_t tb_var_get_int(tb_var var);
+
+/** @brief A variable as a number: a bool's 1 or 0, text's digits; 0 when
+ * it reads as none, or for a stale handle. */
+TB_API double tb_var_get_float(tb_var var);
+
+/** @brief A variable as text: a bool as "1" or "0", a number in the
+ * shortest digits that read back as it. @return Borrowed until the
+ * variable changes; empty for a stale handle. */
+TB_API tb_text tb_var_get_text(tb_var var);
+
+/** @brief A variable's version: one more each time its value changes.
+ * 0 for a stale handle. */
+TB_API uint64_t tb_var_version(tb_var var);
+
+/**
+ * @brief Call a function when a variable changes, Tk's `trace_add`.
+ *
+ * Observers run during tb_gui_update(), after the events that changed the
+ * variable, in the order they were added, once for each variable that
+ * changed since they last ran, however many times it did. A change made
+ * outside an update runs them in the next. An observer may set variables,
+ * which runs their observers in the same update.
+ *
+ * @param callback Required.
+ * @param user Given to it.
+ * @return false for a stale handle.
+ */
+TB_API bool tb_var_trace(tb_var var, tb_var_callback *callback, void *user);
+
+/** @brief Stop calling a function a variable's change called.
+ * @param callback The function; NULL for every one.
+ * @param user Its argument; ignored when `callback` is NULL.
+ * @return How many were removed. */
+TB_API size_t tb_var_untrace(tb_var var, tb_var_callback *callback, void *user);
+
+/** @brief Name a variable, for layout files to find it by
+ * (tb_gui_find_var()). @param name Required; copied; "" for none. */
+TB_API void tb_var_set_name(tb_var var, const char *name);
+
+/** @brief A variable's name. @return Borrowed until it is named again. */
+TB_API tb_text tb_var_name(tb_var var);
+
+/** @brief A variable by its name. @param name Required.
+ * @return None when no variable alive has it; the first made when several do. */
+TB_API tb_var tb_gui_find_var(tb_gui *gui, const char *name);
+
+/**
+ * @brief Bind a variable to an engine setting, so that an options menu
+ * needs no code between them: the variable takes the setting's value now,
+ * the setting takes the variable's each time it is set, and the variable
+ * takes the setting's each time it changes elsewhere (a console, a file,
+ * another thread), at the start and the end of each tb_gui_update().
+ *
+ * | Variable | Settings it binds to |
+ * | --- | --- |
+ * | bool | boolean |
+ * | integer | integer; choice, by its index |
+ * | number | number; integer, rounded to the nearest |
+ * | text | text; choice, by its name; boolean, integer, and number, as a file writes them |
+ *
+ * The setting checks each value, as it checks any (its range, its choices,
+ * its length). A bool, integer, or number variable refuses what the setting
+ * refuses: tb_var_set() returns false and both keep their values. A text
+ * variable keeps the text it is given, which an entry is typing, and the
+ * setting takes it only when it accepts it: tb_var_setting_accepts() says
+ * whether it did. Values are set at the setting's runtime layer
+ * (#TB_SETTING_LAYER_RUNTIME's), as an options menu's are.
+ *
+ * @param setting Optional; NULL ends the binding. Borrowed: it outlives the
+ * binding, or the variable.
+ * @return false, binding nothing, when the variable's type does not bind to
+ * the setting's, or the handle is stale.
+ */
+TB_API bool tb_var_bind_setting(tb_var var, tb_setting *setting);
+
+/** @brief The setting a variable is bound to; NULL for none. */
+TB_API tb_setting *tb_var_setting(tb_var var);
+
+/** @brief Whether a variable's setting holds the variable's value: true
+ * when it is bound to none. False while a text variable holds text its
+ * setting refused. */
+TB_API bool tb_var_setting_accepts(tb_var var);
+
+/* ---------------------------------------------------------------------------
+ * Text being edited, and the clipboard.
+ * ------------------------------------------------------------------------- */
+
+/** @brief Refuse the edit a #TB_GUI_EVENT_VALIDATE proposes, from its
+ * binding or its widget's `validate` command: the widget keeps its text.
+ * @param widget The event's widget. */
+TB_API void tb_gui_refuse_edit(tb_widget widget);
+
+/**
+ * @brief Where the caret and the selection are in a widget's text: an
+ * entry, a text box, or a spin box.
+ * @param[out] caret Required; a byte offset.
+ * @param[out] anchor Required; the selection's other end, the caret when none.
+ * @return false when it edits no text, or the handle is stale.
+ */
+TB_API bool tb_widget_selection(tb_widget widget, size_t *caret, size_t *anchor);
+
+/** @brief Place the caret and the selection in a widget's text, kept within
+ * it and on characters' boundaries. @return false when it edits no text. */
+TB_API bool tb_widget_select(tb_widget widget, size_t caret, size_t anchor);
+
+/** @brief The text that Ctrl+C and Ctrl+X last copied from a widget.
+ * @return Borrowed until it next changes; empty for none. */
+TB_API tb_text tb_gui_clipboard(const tb_gui *gui);
+
+/** @brief Set the text Ctrl+V pastes: from the system's clipboard, for one.
+ * @param text Copied. */
+TB_API void tb_gui_set_clipboard(tb_gui *gui, tb_text text);
+
+/* ---------------------------------------------------------------------------
+ * Check buttons and radio buttons.
+ * ------------------------------------------------------------------------- */
+
+/** @brief A check button: a box ticked and cleared, Tk's `checkbutton`.
+ * Properties: `text`, `variable`, `on_value`, `off_value`, `selected`,
+ * `command`. */
+typedef struct tb_checkbutton_desc
+{
+    const char *text; /**< Copied; NULL for none. */
+    /** Optional: the variable it sets, of any type; it is ticked while the
+     * variable holds `on_value`. None keeps its own state. */
+    tb_var variable;
+    const char *on_value;     /**< Its variable's value ticked, as text; NULL is "1". */
+    const char *off_value;    /**< Cleared; NULL is "0". */
+    tb_gui_callback *command; /**< Called after it toggles; NULL for none. */
+    void *user;               /**< Given to the command. */
+} tb_checkbutton_desc;
+
+/** @brief Make a check button. A click, Space while it has the focus, or
+ * tb_widget_invoke() toggles it: it sets its variable, sends
+ * #TB_GUI_EVENT_CHANGED, and calls its command. @param desc Optional.
+ * @return None when `parent` is stale. */
+TB_API tb_widget tb_checkbutton(tb_widget parent, const tb_checkbutton_desc *desc);
+
+/** @brief A radio button: one of a group that share a variable, each with
+ * its own value, Tk's `radiobutton`. Properties: `text`, `variable`,
+ * `value`, `selected`, `command`. */
+typedef struct tb_radiobutton_desc
+{
+    const char *text;         /**< Copied; NULL for none. */
+    tb_var variable;          /**< The group's variable, of any type. */
+    const char *value;        /**< Its value, as text, which choosing it sets; NULL is "". */
+    tb_gui_callback *command; /**< Called after it is chosen; NULL for none. */
+    void *user;               /**< Given to the command. */
+} tb_radiobutton_desc;
+
+/** @brief Make a radio button: chosen while its variable holds its value.
+ * A click, Space, or tb_widget_invoke() chooses it; the arrow keys choose
+ * the one before or after it among its siblings of its variable, and move
+ * the focus there. @param desc Optional. @return None when `parent` is stale. */
+TB_API tb_widget tb_radiobutton(tb_widget parent, const tb_radiobutton_desc *desc);
+
+/* ---------------------------------------------------------------------------
+ * Entries and text boxes.
+ * ------------------------------------------------------------------------- */
+
+/** @brief An entry: a line of text to type, Tk's `entry`. Properties:
+ * `text`, `variable`, `placeholder`, `show`, `width`, `max_length`,
+ * `read_only`, `validate`. */
+typedef struct tb_entry_desc
+{
+    const char *text; /**< Its first text, when it has no variable; copied. */
+    /** Optional: a text variable it edits; its text is the variable's. */
+    tb_var variable;
+    const char *placeholder; /**< Shown dimmed while it is empty; NULL for none. */
+    /** Shown for each character in place of it, Tk's `show`: "*" or "•"
+     * for a password, which copying and cutting then leave alone. NULL or
+     * "" shows the text. */
+    const char *show;
+    int32_t width;      /**< Characters of "0" it is wide; 0 is 20. */
+    int32_t max_length; /**< Characters it holds at most; 0 for no limit. */
+    bool read_only;     /**< Its text is selected and copied, never changed. */
+    /** Optional: called before each change, Tk's `validatecommand`, after
+     * its #TB_GUI_EVENT_VALIDATE bindings: the event's `text` is the text
+     * proposed, and tb_gui_refuse_edit() refuses it. */
+    tb_gui_callback *validate;
+    void *user; /**< Given to `validate`. */
+} tb_entry_desc;
+
+/**
+ * @brief Make an entry. A click gives it the focus and places the caret;
+ * a drag selects, a double click selects a word. With the focus it takes
+ * typed text (#TB_GUI_EVENT_TEXT), Left and Right by characters or with
+ * Control by words, Home and End, Backspace and Delete, Shift with each to
+ * select, and Control with A, C, X, and V to select all, copy, cut, and
+ * paste through the GUI's clipboard (tb_gui_clipboard()). Each change sends
+ * #TB_GUI_EVENT_CHANGED. Enter and Escape are left to its ancestors: a
+ * dialog's default button and its cancel.
+ * @param desc Optional. @return None when `parent` is stale.
+ */
+TB_API tb_widget tb_entry(tb_widget parent, const tb_entry_desc *desc);
+
+/** @brief How a text box breaks lines. */
+typedef enum tb_text_wrap
+{
+    TB_TEXT_WRAP_WORD, /**< Lines too long for it break between words. */
+    TB_TEXT_WRAP_NONE  /**< Lines break only at line breaks; it scrolls across. */
+} tb_text_wrap;
+
+/** @brief A text box: several lines of text, read or typed, Tk's `text`.
+ * Properties: `text`, `variable`, `width`, `height`, `wrap`, `max_length`,
+ * `read_only`. */
+typedef struct tb_text_box_desc
+{
+    const char *text;   /**< Its first text, when it has no variable; copied. */
+    tb_var variable;    /**< Optional: a text variable it edits. */
+    int32_t width;      /**< Characters of "0" it is wide; 0 is 40. */
+    int32_t height;     /**< Lines it is high; 0 is 6. */
+    tb_text_wrap wrap;  /**< How it breaks lines. */
+    int32_t max_length; /**< Characters it holds at most; 0 for no limit. */
+    bool read_only;     /**< Its text is read, selected, and copied, never changed. */
+} tb_text_box_desc;
+
+/**
+ * @brief Make a text box. It edits as an entry does, and Enter breaks the
+ * line; Up and Down move by lines, Page Up and Page Down by its height,
+ * Control with Home and End to the start and the end. Text taller than it,
+ * or wider when it does not wrap, scrolls to keep the caret in sight, and
+ * with the wheel.
+ * @param desc Optional. @return None when `parent` is stale.
+ */
+TB_API tb_widget tb_text_box(tb_widget parent, const tb_text_box_desc *desc);
+
+/* ---------------------------------------------------------------------------
+ * Spin boxes, sliders, and progress bars.
+ * ------------------------------------------------------------------------- */
+
+/** @brief Which way a slider or a progress bar runs. */
 typedef enum tb_gui_orient
 {
-    TB_GUI_ORIENT_VERTICAL,  /**< Up and down. */
-    TB_GUI_ORIENT_HORIZONTAL /**< Left and right. */
+    TB_GUI_ORIENT_HORIZONTAL, /**< Across: from the left to the right. */
+    TB_GUI_ORIENT_VERTICAL    /**< Down: from the top to the bottom. */
 } tb_gui_orient;
+
+/** @brief A spin box: a number typed, or stepped with its arrows, Tk's
+ * `spinbox`. Properties: `value`, `variable`, `from`, `to`, `increment`,
+ * `format`, `width`, `wrap`, `command`, `validate`. */
+typedef struct tb_spinbox_desc
+{
+    tb_var variable; /**< Optional: a variable of any type it sets. */
+    float from;      /**< The least value. */
+    float to;        /**< The greatest; when it and `from` are 0, 100. */
+    float increment; /**< A step; 0 is 1. */
+    float value;     /**< Its first value, when it has no variable. */
+    /** How its value is written, a `printf` conversion of a `double` such
+     * as "%.2f" or "%5.1f%%"; NULL or "" writes the shortest digits. */
+    const char *format;
+    int32_t width;             /**< Characters of "0" its text is wide; 0 is 8. */
+    bool wrap;                 /**< A step past an end goes around to the other. */
+    tb_gui_callback *command;  /**< Called after a step; NULL for none. */
+    void *user;                /**< Given to the command and `validate`. */
+    tb_gui_callback *validate; /**< As an entry's. */
+} tb_spinbox_desc;
+
+/**
+ * @brief Make a spin box. Its arrows, Up and Down, Page Up and Page Down
+ * (ten steps), and the wheel step its value, within `from` and `to`. Typed
+ * text is the value when Enter is pressed or it loses the focus: a number
+ * kept within its range, or the value it had when the text is no number.
+ * Each change sends #TB_GUI_EVENT_CHANGED.
+ * @param desc Optional. @return None when `parent` is stale.
+ */
+TB_API tb_widget tb_spinbox(tb_widget parent, const tb_spinbox_desc *desc);
+
+/** @brief A slider, Tk's `scale`. Properties: `value`, `variable`, `from`,
+ * `to`, `resolution`, `big_increment`, `orient`, `length`, `show_value`,
+ * `format`, `command`. */
+typedef struct tb_scale_desc
+{
+    tb_var variable;     /**< Optional: a variable of any type it sets. */
+    float from;          /**< Its value at the left, or the top. */
+    float to;            /**< At the right, or the bottom; when it and `from` are 0, 100. */
+    float resolution;    /**< Values are rounded to multiples of it from `from`; 0 for none. */
+    float big_increment; /**< Page Up's and Page Down's step; 0 is a tenth of the range. */
+    float value;         /**< Its first value, when it has no variable. */
+    tb_gui_orient orient;
+    float length;    /**< Its track's length, in units; 0 is 160. */
+    bool show_value; /**< Its value is written beside the track. */
+    /** How its value is written, as a spin box's; NULL or "" writes the
+     * digits of its resolution. */
+    const char *format;
+    tb_gui_callback *command; /**< Called after its value changes; NULL for none. */
+    void *user;               /**< Given to the command. */
+} tb_scale_desc;
+
+/**
+ * @brief Make a slider. A press on its track moves its handle there and
+ * gives it the focus, and a drag moves it; Left and Up step toward `from`,
+ * Right and Down toward `to`, by its resolution (or a hundredth of the
+ * range), Page Up and Page Down by its big increment, Home and End to its
+ * ends. Each change sends #TB_GUI_EVENT_CHANGED.
+ * @param desc Optional. @return None when `parent` is stale.
+ */
+TB_API tb_widget tb_scale(tb_widget parent, const tb_scale_desc *desc);
+
+/** @brief Whether a progress bar shows how far, or only that work goes on. */
+typedef enum tb_progress_mode
+{
+    TB_PROGRESS_DETERMINATE,  /**< Filled as far as its value is to its maximum. */
+    TB_PROGRESS_INDETERMINATE /**< A block that moves to and fro, by tb_gui_update()'s time. */
+} tb_progress_mode;
+
+/** @brief A progress bar, Tk's `ttk.Progressbar`. Properties: `value`,
+ * `variable`, `maximum`, `mode`, `orient`, `length`. */
+typedef struct tb_progressbar_desc
+{
+    tb_var variable; /**< Optional: a variable of any type it shows. */
+    float maximum;   /**< Its value full; 0 is 100. */
+    float value;     /**< Its value, when it has no variable. */
+    tb_progress_mode mode;
+    tb_gui_orient orient;
+    float length; /**< Units long; 0 is 160. */
+} tb_progressbar_desc;
+
+/** @brief Make a progress bar; it takes no input. @param desc Optional.
+ * @return None when `parent` is stale. */
+TB_API tb_widget tb_progressbar(tb_widget parent, const tb_progressbar_desc *desc);
+
+/* ---------------------------------------------------------------------------
+ * Combo boxes.
+ * ------------------------------------------------------------------------- */
+
+/** @brief A combo box: one of a list of values, chosen from a list that
+ * drops down, Tk's `ttk.Combobox` in its read-only state. Properties:
+ * `values`, `current`, `variable`, `width`, `height`, `command`. */
+typedef struct tb_combobox_desc
+{
+    const char *const *values; /**< Its values, copied; NULL for none. */
+    size_t value_count;        /**< How many. */
+    /** Optional: a text variable, which holds the value chosen, or an
+     * integer one, which holds its index. */
+    tb_var variable;
+    int32_t current;          /**< The index chosen, when it has no variable; -1 for none. */
+    int32_t width;            /**< Characters of "0" wide; 0 is as wide as its widest value. */
+    int32_t height;           /**< Values the list shows at once; 0 is 8. */
+    tb_gui_callback *command; /**< Called after a value is chosen; NULL for none. */
+    void *user;               /**< Given to the command. */
+} tb_combobox_desc;
+
+/**
+ * @brief Make a combo box. A click, Space, or Alt+Down opens its list over
+ * every widget; there the mouse or Up and Down pick a value, and a click,
+ * Enter, or Space chooses it, and Escape, Alt+Up, a click outside, or the
+ * loss of the focus closes it. Closed, Up and Down choose the value before
+ * or after, and the wheel too while it has the focus. Each choice sends
+ * #TB_GUI_EVENT_CHANGED.
+ *
+ * Its `values` property is its values as text, one a line.
+ * @param desc Optional. @return None when `parent` is stale.
+ */
+TB_API tb_widget tb_combobox(tb_widget parent, const tb_combobox_desc *desc);
+
+/** @brief Whether a combo box's list is open. */
+TB_API bool tb_combobox_open(tb_widget widget);
+
+/** @brief The engine's kinds of value widgets. @par Threading Thread-safe. */
+TB_API const tb_widget_class *tb_checkbutton_class(void);
+/** @brief See tb_checkbutton_class(). @par Threading Thread-safe. */
+TB_API const tb_widget_class *tb_radiobutton_class(void);
+/** @brief See tb_checkbutton_class(). @par Threading Thread-safe. */
+TB_API const tb_widget_class *tb_entry_class(void);
+/** @brief See tb_checkbutton_class(). @par Threading Thread-safe. */
+TB_API const tb_widget_class *tb_text_box_class(void);
+/** @brief See tb_checkbutton_class(). @par Threading Thread-safe. */
+TB_API const tb_widget_class *tb_spinbox_class(void);
+/** @brief See tb_checkbutton_class(). @par Threading Thread-safe. */
+TB_API const tb_widget_class *tb_scale_class(void);
+/** @brief See tb_checkbutton_class(). @par Threading Thread-safe. */
+TB_API const tb_widget_class *tb_progressbar_class(void);
+/** @brief See tb_checkbutton_class(). @par Threading Thread-safe. */
+TB_API const tb_widget_class *tb_combobox_class(void);
+
+/* ---------------------------------------------------------------------------
+ * Scroll frames and scroll bars.
+ * ------------------------------------------------------------------------- */
 
 /** @brief A scroll frame: a frame whose grid is laid out at its natural
  * size, or the frame's, whichever is larger, and seen through the frame,
@@ -1190,7 +1709,7 @@ TB_API tb_widget tb_scrollframe(tb_widget parent, const tb_scrollframe_desc *des
  * scrolls what it is for. Properties: `orient`, `first`, `last`, `command`. */
 typedef struct tb_scrollbar_desc
 {
-    tb_gui_orient orient;     /**< Vertical unless chosen. */
+    tb_gui_orient orient;     /**< Horizontal unless chosen. */
     tb_gui_callback *command; /**< Called when it is moved; NULL for none. */
     void *user;               /**< Given to the command. */
 } tb_scrollbar_desc;
@@ -1632,7 +2151,7 @@ TB_API bool tb_notebook_set_tab_text(tb_widget notebook, size_t index, const cha
  * Properties: `orient`, `width`, `height`. */
 typedef struct tb_panedwindow_desc
 {
-    tb_gui_orient orient; /**< Vertical unless chosen: panes one above another. */
+    tb_gui_orient orient; /**< Horizontal unless chosen: panes side by side. */
     float width;          /**< Units across it wants; 0 is its panes'. */
     float height;         /**< Units down it wants; 0 is its panes'. */
 } tb_panedwindow_desc;

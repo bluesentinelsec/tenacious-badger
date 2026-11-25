@@ -239,10 +239,16 @@ TB_TEST(gui_popup, keys_go_to_the_popup_in_front_and_escape_closes_it)
     TB_TEST_EXPECT_INT(parent_keys, ==, 0);
     gui_key(&fixture, TB_KEY_DOWN, 0);
     TB_TEST_EXPECT_INT(parent_keys, ==, 1);
-    /* Tab is a key like another while it is shown. */
+    /* Tab goes to it first; unused, it closes the popups and moves the
+     * focus, as a field's list closes when the focus leaves it. */
     gui_key(&fixture, TB_KEY_TAB, 0);
     TB_TEST_EXPECT_INT(parent_keys, ==, 2);
+    TB_TEST_EXPECT(!tb_widget_is_popup(popup));
+    TB_TEST_EXPECT_INT(closes, ==, 1);
     TB_TEST_EXPECT(tb_widget_equal(stats_of(&fixture).focus, field));
+    TB_TEST_REQUIRE(tb_widget_popup(popup, NULL));
+    gui_update(&fixture);
+    closes = 0;
 
     /* Escape closes it, and goes no further. */
     gui_key(&fixture, TB_KEY_ESCAPE, 0);

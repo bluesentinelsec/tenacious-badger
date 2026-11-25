@@ -342,6 +342,7 @@ void tb_gui_destroy(tb_gui *gui)
         return;
     }
     tb_gui_flush_deferred(gui);
+    tb_gui_vars_free(gui);
     for (size_t index = 0; index < gui->node_count; index++)
     {
         if (gui->nodes[index].in_use)
@@ -435,9 +436,11 @@ void tb_gui_update(tb_gui *gui, double delta_seconds)
     TB_ASSERT(gui != NULL);
     TB_ASSERT_MSG(gui->dispatch_depth == 0, "a GUI updated from one of its callbacks");
     gui->time += delta_seconds;
+    tb_gui_vars_update(gui);
     tb_gui_layout(gui);
     tb_gui_dispatch_resized(gui);
     tb_gui_process_input(gui);
+    tb_gui_vars_update(gui);
     for (int pass = 0; pass < TB_GUI_MOST_SETTLING_PASSES && gui->layout_dirty; pass++)
     {
         tb_gui_layout(gui);
