@@ -174,6 +174,10 @@ Games add their own, such as difficulty.
 | `display.monitor` | integer, 0 to 63 | `0`, the primary display | [the window](windows.md) |
 | `display.window_width` | integer, 0 to 16384 | `0`, to fit the display | [the window](windows.md) |
 | `display.window_height` | integer, 0 to 16384 | `0`, to fit the display | [the window](windows.md) |
+| `display.window_min_width` | integer, 0 to 16384 | `640` | [the window](windows.md#limits-on-resizing) |
+| `display.window_min_height` | integer, 0 to 16384 | `360` | [the window](windows.md#limits-on-resizing) |
+| `display.window_aspect_width` | integer, 0 to 16384 | `0`, any aspect | [the window](windows.md#limits-on-resizing) |
+| `display.window_aspect_height` | integer, 0 to 16384 | `0`, any aspect | [the window](windows.md#limits-on-resizing) |
 | `display.fullscreen_width` | integer, 0 to 16384 | `0`, the display's own | [the window](windows.md) |
 | `display.fullscreen_height` | integer, 0 to 16384 | `0`, the display's own | [the window](windows.md) |
 | `display.aspect_ratio` | `auto`, `16_9`, `16_10`, `21_9`, `32_9`, `4_3` | `auto`, the display's own | the renderer and the options menu, to come |
@@ -186,6 +190,13 @@ Games add their own, such as difficulty.
 
 Exclusive fullscreen exists only where the platform has it; elsewhere the
 window falls back to borderless and says so.
+
+The least size and the aspect are the game's to choose, in its default file:
+a game designed for 16:9 sets `display.window_aspect_width = 16` and
+`display.window_aspect_height = 9`. Alt+Enter, Control+Command+F on a Mac,
+switches `display.window_mode` between windowed and borderless at the runtime
+layer, so the options menu shows the change; the loop does not save it
+([the game loop](game-loop.md#switching-to-fullscreen)).
 
 ### Graphics
 

@@ -112,6 +112,11 @@ typedef struct tb_engine_settings
         tb_setting *window_width; /**< A window's width, in logical units; 0 to fit the display. */
         tb_setting
             *window_height; /**< A window's height, in logical units; 0 to fit the display. */
+        tb_setting *window_min_width;  /**< The least a window's width, in logical units. */
+        tb_setting *window_min_height; /**< The least a window's height, in logical units. */
+        /** The aspect a window keeps while resized, width to height; 0 for any. */
+        tb_setting *window_aspect_width;
+        tb_setting *window_aspect_height; /**< See `window_aspect_width`. */
         tb_setting *fullscreen_width;  /**< Fullscreen width in pixels; 0 for the display's own. */
         tb_setting *fullscreen_height; /**< Fullscreen height in pixels; 0 for the display's own. */
         tb_setting *aspect_ratio;      /**< auto, 16_9, 16_10, 21_9, 32_9 or 4_3. */

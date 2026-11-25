@@ -58,6 +58,9 @@ struct tb_window_system
     /* The backend reads the mouse's position in pixels (Win32, X11), not in
      * logical units (Wayland, Cocoa). */
     bool pointer_in_pixels;
+    /* The backend keeps a window's aspect while the player resizes it: all
+     * but Wayland. */
+    bool keeps_aspect;
 };
 
 struct tb_window
@@ -108,6 +111,63 @@ void tb_window_set_displays(tb_window_system *system, const tb_display *displays
  * X11) or in logical units (Wayland, Cocoa). */
 void tb_window_place(const tb_window *window, bool units_are_pixels,
                      tb_window_placement *placement);
+
+/* ---------------------------------------------------------------------------
+ * Limits on a window's size, in window_size.c: arithmetic alone, so that it
+ * is tested without a window.
+ * ------------------------------------------------------------------------- */
+
+/* The smallest a window's client area may be, in logical units. */
+#define TB_WINDOW_SMALLEST 64u
+
+/* The edge or corner of a window's frame that the player drags. */
+typedef enum tb_window_edge
+{
+    TB_WINDOW_EDGE_LEFT,
+    TB_WINDOW_EDGE_RIGHT,
+    TB_WINDOW_EDGE_TOP,
+    TB_WINDOW_EDGE_BOTTOM,
+    TB_WINDOW_EDGE_TOP_LEFT,
+    TB_WINDOW_EDGE_TOP_RIGHT,
+    TB_WINDOW_EDGE_BOTTOM_LEFT,
+    TB_WINDOW_EDGE_BOTTOM_RIGHT
+} tb_window_edge;
+
+/* A window's frame on the desktop, in pixels; `right` and `bottom` are past
+ * its last pixel. */
+typedef struct tb_window_rect
+{
+    int32_t left;
+    int32_t top;
+    int32_t right;
+    int32_t bottom;
+} tb_window_rect;
+
+/* The least client area the options allow, in logical units: their
+ * minimum, and never less than the smallest. */
+void tb_window_least_size(const tb_window_options *options, uint32_t *width, uint32_t *height);
+
+/* Whether a window of these options keeps their aspect while the player
+ * resizes it: windowed, resizable, and with an aspect. */
+bool tb_window_wants_aspect(const tb_window_options *options);
+
+/* Fit a windowed size, in logical units, to the options and to the room
+ * there is: at least their least size, at most the room, and of their
+ * aspect when the window keeps one. The room wins when they disagree. */
+void tb_window_fit_size(const tb_window_options *options, uint32_t room_width, uint32_t room_height,
+                        uint32_t *width, uint32_t *height);
+
+/* Change a frame that the player is dragging by an edge or a corner so that
+ * its client area keeps an aspect and is at least a least size. The edges
+ * across from those dragged stay where they are: dragging the left or the
+ * right side moves the bottom too, and dragging the top or the bottom moves
+ * the right side. Dragging a corner follows whichever of its two edges makes
+ * the larger window. `border_width` and `border_height` are how much larger
+ * the frame is than its client area; sizes are in pixels; neither part of
+ * the aspect is 0. */
+void tb_window_drag_to_aspect(tb_window_rect *frame, tb_window_edge edge, uint32_t border_width,
+                              uint32_t border_height, uint32_t aspect_width, uint32_t aspect_height,
+                              uint32_t least_width, uint32_t least_height);
 
 /* The display a rectangle in display units overlaps most, the primary when
  * it overlaps none. */

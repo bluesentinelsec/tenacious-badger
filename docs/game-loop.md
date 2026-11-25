@@ -17,7 +17,8 @@ tb_game_loop_destroy(loop);
 Each frame does the same five things, in order:
 
 1. **Events.** The window's events go to the game's `event` callback, then to
-   the loop: focus, minimizing, the close button, and Escape.
+   the loop: focus, minimizing, the close button, Escape, and the fullscreen
+   shortcut.
 2. **Settings.** Display settings that changed since the last frame
    reconfigure the window; frame limits and the tick rate take effect at once.
 3. **Ticks.** The simulation runs as many fixed ticks as the time that passed
@@ -60,6 +61,36 @@ Where the system has no dialog, on Linux until the engine's interface draws
 its own, the player confirms by asking a second time within three seconds;
 the loop says so on standard error. A game that opens a pause menu on Escape
 takes the key in its `event` callback, and the loop leaves it alone.
+
+## Switching to fullscreen
+
+Alt+Enter switches the window between windowed and borderless, as players
+expect of a PC game; on a Mac the shortcut is Control+Command+F, the system's
+own for fullscreen.
+
+| Platform | Shortcut |
+| --- | --- |
+| Windows | Alt+Enter |
+| Linux | Alt+Enter |
+| macOS | Control+Command+F |
+
+The loop does not change the window itself: it sets `display.window_mode` at
+the runtime layer, from windowed to borderless, or from borderless or
+fullscreen to windowed, and the next frame applies the setting as it applies
+any change of it. An options menu showing the setting shows the switch. The
+loop never writes the player's settings file; a game that saves its settings
+saves the runtime layer with the rest, as for any change in its options menu.
+
+Leaving windowed mode, the loop remembers the window's size, which the player
+may have dragged, and a window it returns to takes that size again. The size
+lasts for the session only, and is forgotten once `display.window_width` or
+`display.window_height` changes. Where the window is placed is not
+remembered.
+
+A game takes the shortcut for itself in its `event` callback, or turns it
+off with `disable_fullscreen_shortcut` in the loop's options: an editor that
+binds Alt+Enter to something else, for one. `tb_game_loop_is_fullscreen_shortcut()`
+says which key a platform uses.
 
 ## Without a window
 

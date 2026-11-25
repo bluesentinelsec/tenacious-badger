@@ -186,6 +186,12 @@ static void tb_send_signed(tb_id receiver, const char *selector, long argument)
     ((void (*)(tb_id, tb_sel, long))tb_cocoa.send)(receiver, tb_sel_of(selector), argument);
 }
 
+static void tb_send_size(tb_id receiver, const char *selector, tb_cocoa_size argument)
+{
+    ((void (*)(tb_id, tb_sel, tb_cocoa_size))tb_cocoa.send)(receiver, tb_sel_of(selector),
+                                                            argument);
+}
+
 static unsigned long tb_get_unsigned(tb_id receiver, const char *selector)
 {
     return ((unsigned long (*)(tb_id, tb_sel))tb_cocoa.send)(receiver, tb_sel_of(selector));
@@ -417,11 +423,34 @@ static void tb_cocoa_set_frame(tb_id handle, tb_cocoa_rect frame)
         handle, tb_sel_of("setFrame:display:"), frame, true);
 }
 
+/* How the player may size a windowed window: no smaller than its least
+ * size, keeping its aspect when it has one. Resize increments of one point
+ * are how AppKit is told to forget an aspect. */
+static void tb_cocoa_set_limits(const tb_window *window)
+{
+    const tb_id handle = tb_cocoa_window_of(window)->handle;
+    uint32_t least_width = 0;
+    uint32_t least_height = 0;
+
+    tb_window_least_size(&window->options, &least_width, &least_height);
+    tb_send_size(handle,
+                 "setContentMinSize:", (tb_cocoa_size){(double)least_width, (double)least_height});
+    if (window->state.aspect_locked)
+    {
+        tb_send_size(handle, "setContentAspectRatio:",
+                     (tb_cocoa_size){(double)window->options.aspect_width,
+                                     (double)window->options.aspect_height});
+        return;
+    }
+    tb_send_size(handle, "setContentResizeIncrements:", (tb_cocoa_size){1.0, 1.0});
+}
+
 static void tb_cocoa_apply(tb_window *window)
 {
     const tb_id handle = tb_cocoa_window_of(window)->handle;
     void *const pool = tb_cocoa.pool_push();
 
+    tb_cocoa_set_limits(window);
     if (window->options.mode == TB_WINDOW_MODE_WINDOWED)
     {
         const unsigned long style = tb_cocoa_windowed_style(&window->options);
@@ -1643,6 +1672,7 @@ tb_window_result tb_native_window_open(tb_window_system *system, tb_window_backe
         tb_sel_of("screensChanged:"), tb_cocoa.screens_changed, NULL);
     tb_cocoa.pool_pop(pool);
     system->backend = TB_WINDOW_BACKEND_COCOA;
+    system->keeps_aspect = true;
     system->ops = &tb_cocoa_ops;
     system->native = native;
     tb_cocoa_read_displays(system);

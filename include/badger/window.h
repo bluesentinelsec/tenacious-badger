@@ -48,6 +48,10 @@
  * window given no size is the largest 16:9 size, up to 1280 by 720, that
  * fits in 85% of its display's usable area.
  *
+ * **Limits on resizing.** A windowed window is never smaller than its
+ * options' minimum, and keeps their aspect, when they give one, while the
+ * player drags its border: a game designed for 16:9 opts into that.
+ *
  * **A display that is gone.** A window asked for a display that does not
  * exist, as a settings file may name a monitor since unplugged, opens on the
  * primary display instead.
@@ -191,6 +195,17 @@ typedef struct tb_window_options
     /** The fullscreen refresh rate in hertz; 0 for the display's current. */
     uint32_t refresh_rate;
     bool fixed_size; /**< A windowed window the player cannot resize. */
+    /** The smallest client area a player may size a windowed window to, in
+     * logical units; 0 for the engine's smallest, 64. A windowed size below
+     * it is raised to it, unless the display's usable area is smaller. */
+    uint32_t min_width;
+    uint32_t min_height; /**< See `min_width`. */
+    /** The aspect a windowed window keeps while the player resizes it, as
+     * width to height: 16 and 9, or 1920 and 1080; 0 in either for any
+     * aspect. The windowed size is fitted to it too. Where the system cannot
+     * keep it, tb_window_state::aspect_locked says so. */
+    uint32_t aspect_width;
+    uint32_t aspect_height; /**< See `aspect_width`. */
 } tb_window_options;
 
 /** @brief Where a window is and how large. */
@@ -207,6 +222,10 @@ typedef struct tb_window_state
     bool minimized;        /**< It is minimized, or hidden: nothing of it is seen. */
     /** Its relative mouse mode is on: see tb_window_set_relative_mouse(). */
     bool relative_mouse;
+    /** The system keeps its options' aspect while the player resizes it:
+     * it is windowed, resizable, and has an aspect. Always false on Wayland,
+     * whose windows have no such hint. */
+    bool aspect_locked;
 } tb_window_state;
 
 /** @brief Keys, by their place on the keyboard, whatever its layout: the key

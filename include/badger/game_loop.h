@@ -47,6 +47,15 @@
  * within three seconds. A game that handles Escape itself, to open its pause
  * menu, takes the key in its `event` callback.
  *
+ * **Fullscreen.** Alt+Enter, or Control+Command+F on a Mac, switches the
+ * window between windowed and borderless: the loop sets `display.window_mode`
+ * at the runtime layer, so the switch is applied as any change of the
+ * setting is and an options menu shows it, but the loop never saves it. Back
+ * in a window, the window has the size it had before, for the rest of the
+ * session, unless the windowed size settings changed meanwhile. A game takes
+ * the keys in its `event` callback, or turns the shortcut off with
+ * `disable_fullscreen_shortcut`.
+ *
  * **Without a window.** A loop may have no window: a dedicated server, a
  * replay, or a test. It runs the same, with no events but those given to
  * tb_game_loop_inject().
@@ -137,6 +146,9 @@ typedef struct tb_game_loop_options
     /** The clock; NULL for the platform's, tb_platform_clock_nanoseconds()
      * and tb_platform_wait_until(). */
     const tb_game_clock *clock;
+    /** Leave Alt+Enter, or Control+Command+F on a Mac, alone: the loop does
+     * not switch the window to fullscreen and back. */
+    bool disable_fullscreen_shortcut;
 } tb_game_loop_options;
 
 /**
@@ -199,5 +211,21 @@ TB_API bool tb_game_loop_paused(const tb_game_loop *loop);
  * @param event The event; required. Its window may be NULL.
  */
 TB_API void tb_game_loop_inject(tb_game_loop *loop, const tb_window_event *event);
+
+/**
+ * @brief Whether an event is the key that switches between windowed and
+ * fullscreen where a window system is: Control+Command+F on macOS, where
+ * Command is #TB_MODIFIER_SUPER, and Alt+Enter everywhere else.
+ *
+ * The key pressed, not repeated, with exactly those modifiers.
+ *
+ * @param backend The window system's backend; automatic for a loop without
+ * a window, which takes Alt+Enter.
+ * @param event The event; required.
+ * @return Whether it is the shortcut.
+ * @par Threading Thread-safe.
+ */
+TB_API bool tb_game_loop_is_fullscreen_shortcut(tb_window_backend backend,
+                                                const tb_window_event *event);
 
 #endif

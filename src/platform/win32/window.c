@@ -412,6 +412,102 @@ static void tb_win32_apply(tb_window *window)
 }
 
 /* ---------------------------------------------------------------------------
+ * Limits on resizing.
+ * ------------------------------------------------------------------------- */
+
+/* A length in logical units in pixels at a DPI, rounded up so that a limit
+ * is never under what it says. */
+static uint32_t tb_win32_pixels(uint32_t units, UINT dpi)
+{
+    return (uint32_t)(((uint64_t)units * dpi + 95u) / 96u);
+}
+
+/* How much larger the window's frame is than its client area, in pixels at
+ * its DPI. */
+static void tb_win32_border(HWND handle, UINT dpi, uint32_t *width, uint32_t *height)
+{
+    RECT frame = {0};
+    const DWORD style = (DWORD)GetWindowLongPtrW(handle, GWL_STYLE);
+    const DWORD extended = (DWORD)GetWindowLongPtrW(handle, GWL_EXSTYLE);
+
+    (void)AdjustWindowRectExForDpi(&frame, style, FALSE, extended, dpi);
+    *width = (uint32_t)(frame.right - frame.left);
+    *height = (uint32_t)(frame.bottom - frame.top);
+}
+
+/* The least client area of a windowed window, in pixels at its DPI. */
+static void tb_win32_least_pixels(const tb_window *window, UINT dpi, uint32_t *width,
+                                  uint32_t *height)
+{
+    uint32_t least_width = 0;
+    uint32_t least_height = 0;
+
+    tb_window_least_size(&window->options, &least_width, &least_height);
+    *width = tb_win32_pixels(least_width, dpi);
+    *height = tb_win32_pixels(least_height, dpi);
+}
+
+/* Windows asks how small the player may make a window: its frame around
+ * the least client area. */
+static void tb_win32_on_min_max(const tb_window *window, MINMAXINFO *limits)
+{
+    const HWND handle = tb_win32_window_of(window)->handle;
+    const UINT dpi = GetDpiForWindow(handle);
+    uint32_t least_width = 0;
+    uint32_t least_height = 0;
+    uint32_t border_width = 0;
+    uint32_t border_height = 0;
+
+    tb_win32_least_pixels(window, dpi, &least_width, &least_height);
+    tb_win32_border(handle, dpi, &border_width, &border_height);
+    limits->ptMinTrackSize.x = (LONG)(least_width + border_width);
+    limits->ptMinTrackSize.y = (LONG)(least_height + border_height);
+}
+
+static tb_window_edge tb_win32_edge_of(WPARAM word)
+{
+    switch (word)
+    {
+    case WMSZ_LEFT:
+        return TB_WINDOW_EDGE_LEFT;
+    case WMSZ_RIGHT:
+        return TB_WINDOW_EDGE_RIGHT;
+    case WMSZ_TOP:
+        return TB_WINDOW_EDGE_TOP;
+    case WMSZ_BOTTOM:
+        return TB_WINDOW_EDGE_BOTTOM;
+    case WMSZ_TOPLEFT:
+        return TB_WINDOW_EDGE_TOP_LEFT;
+    case WMSZ_TOPRIGHT:
+        return TB_WINDOW_EDGE_TOP_RIGHT;
+    case WMSZ_BOTTOMLEFT:
+        return TB_WINDOW_EDGE_BOTTOM_LEFT;
+    default:
+        return TB_WINDOW_EDGE_BOTTOM_RIGHT;
+    }
+}
+
+/* The player drags the window's border: the frame Windows proposes is
+ * changed so that its client area keeps the window's aspect. */
+static void tb_win32_on_sizing(const tb_window *window, WPARAM word, RECT *proposed)
+{
+    const HWND handle = tb_win32_window_of(window)->handle;
+    const UINT dpi = GetDpiForWindow(handle);
+    tb_window_rect frame = {proposed->left, proposed->top, proposed->right, proposed->bottom};
+    uint32_t least_width = 0;
+    uint32_t least_height = 0;
+    uint32_t border_width = 0;
+    uint32_t border_height = 0;
+
+    tb_win32_least_pixels(window, dpi, &least_width, &least_height);
+    tb_win32_border(handle, dpi, &border_width, &border_height);
+    tb_window_drag_to_aspect(&frame, tb_win32_edge_of(word), border_width, border_height,
+                             window->options.aspect_width, window->options.aspect_height,
+                             least_width, least_height);
+    *proposed = (RECT){frame.left, frame.top, frame.right, frame.bottom};
+}
+
+/* ---------------------------------------------------------------------------
  * Messages.
  * ------------------------------------------------------------------------- */
 
@@ -865,6 +961,22 @@ static bool tb_win32_on_message(tb_window *window, UINT message, WPARAM word, LP
     case WM_MOVE:
         tb_win32_update_confinement(window);
         return false;
+    case WM_GETMINMAXINFO:
+        if (window->state.mode != TB_WINDOW_MODE_WINDOWED)
+        {
+            return false;
+        }
+        tb_win32_on_min_max(window, (MINMAXINFO *)parameter);
+        *answer = 0;
+        return true;
+    case WM_SIZING:
+        if (!window->state.aspect_locked)
+        {
+            return false;
+        }
+        tb_win32_on_sizing(window, word, (RECT *)parameter);
+        *answer = TRUE;
+        return true;
     case WM_SETFOCUS:
         tb_window_focused(window, true);
         tb_win32_update_confinement(window);
@@ -953,6 +1065,11 @@ static bool tb_win32_on_message(tb_window *window, UINT message, WPARAM word, LP
     case WM_KEYUP:
     case WM_SYSKEYUP:
         tb_win32_on_key(window, parameter, false);
+        *answer = 0;
+        return true;
+    case WM_SYSCHAR:
+        /* The character of a key with Alt, such as Alt+Enter: the window has
+         * no menu for it to open, and Windows would beep for want of one. */
         *answer = 0;
         return true;
     case WM_SYSCOMMAND:
@@ -1109,10 +1226,13 @@ static tb_window_result tb_win32_configure(tb_window *window, const tb_window_op
     (void)SetWindowTextW(native->handle, title != NULL ? title : L"");
     tb_free(title);
     /* A windowed window keeps the place the player moved it to, unless its
-     * mode, display, or size changes. */
+     * mode, display, size, or limits on its size change. */
     if (options->mode != previous->mode || options->display != previous->display ||
         options->width != previous->width || options->height != previous->height ||
-        options->fixed_size != previous->fixed_size ||
+        options->fixed_size != previous->fixed_size || options->min_width != previous->min_width ||
+        options->min_height != previous->min_height ||
+        options->aspect_width != previous->aspect_width ||
+        options->aspect_height != previous->aspect_height ||
         options->fullscreen_width != previous->fullscreen_width ||
         options->fullscreen_height != previous->fullscreen_height ||
         options->refresh_rate != previous->refresh_rate)
@@ -1236,6 +1356,7 @@ tb_window_result tb_native_window_open(tb_window_system *system, tb_window_backe
     (void)SetWindowLongPtrW(native->wake, GWLP_USERDATA, (LONG_PTR)system);
     system->backend = TB_WINDOW_BACKEND_WIN32;
     system->pointer_in_pixels = true;
+    system->keeps_aspect = true;
     system->ops = &tb_win32_ops;
     system->native = native;
     tb_win32_read_displays(system);
