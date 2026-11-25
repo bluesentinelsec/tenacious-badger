@@ -1112,7 +1112,7 @@ const sandbox_scene sandbox_scenes[] = {
      false},
     {"display",
      "the display policy: a lit scene in the viewport, the design's border and grid, a GUI "
-     "panel, and hotkeys F1 to F5 that change the policy and the window",
+     "panel, and hotkeys F1 to F6 that change the policy and the window",
      {0.10f, 0.11f, 0.13f, 1},
      display_scene_create,
      display_scene_draw,

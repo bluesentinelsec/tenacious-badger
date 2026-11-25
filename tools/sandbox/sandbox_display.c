@@ -12,10 +12,12 @@
  * what the window, the frame and the viewport are, where the mouse is in
  * pixels and in units, and the policy.
  *
- * F1 to F5 change the policy and the window through the engine's settings,
+ * F1 to F6 change the policy and the window through the engine's settings,
  * at the runtime layer, as the inspector does, so that the inspector (the
  * backquote) shows them change: the aspect, the scale mode, the render mode,
- * the design size, and the window's mode. */
+ * the design size, the window's mode, and whether resizing the window
+ * keeps the design's aspect. Alt+Enter, the
+ * game loop's own, switches between windowed and borderless. */
 #include "sandbox.h"
 
 #include "badger/canvas.h"
@@ -60,7 +62,7 @@ static const char *const display_window_modes[DISPLAY_WINDOW_MODES] = {"windowed
 #define DISPLAY_LINES_LAYER 10
 #define DISPLAY_OVERLAY_LAYER 900
 #define DISPLAY_LINE_CAPACITY 160u
-#define DISPLAY_LINE_COUNT 12u
+#define DISPLAY_LINE_COUNT 13u
 
 /* What each button of the panel does: a hotkey's action. */
 typedef enum display_action
@@ -70,6 +72,7 @@ typedef enum display_action
     DISPLAY_ACTION_RENDER_MODE,
     DISPLAY_ACTION_DESIGN,
     DISPLAY_ACTION_WINDOW,
+    DISPLAY_ACTION_ASPECT_LOCK,
     DISPLAY_ACTION_COUNT
 } display_action;
 
@@ -129,6 +132,38 @@ static void display_next_design(const tb_engine_settings *engine)
     (void)tb_setting_set_integer(engine->display.design_height, (int64_t)display_presets[next][1]);
 }
 
+/* The greatest common divisor of two numbers, not both 0. */
+static int64_t display_divisor(int64_t a, int64_t b)
+{
+    while (b != 0)
+    {
+        const int64_t rest = a % b;
+        a = b;
+        b = rest;
+    }
+    return a;
+}
+
+/* Lock resizing the window to the design's aspect, reduced (16 by 9 for
+ * 1920 by 1080), or free it again. Without a design size there is no
+ * aspect to keep, and resizing stays free. */
+static void display_toggle_aspect_lock(const tb_engine_settings *engine)
+{
+    const int64_t width = tb_setting_integer(engine->display.design_width);
+    const int64_t height = tb_setting_integer(engine->display.design_height);
+    const bool locked = tb_setting_integer(engine->display.window_aspect_width) != 0;
+
+    if (locked || width == 0 || height == 0)
+    {
+        (void)tb_setting_set_integer(engine->display.window_aspect_width, 0);
+        (void)tb_setting_set_integer(engine->display.window_aspect_height, 0);
+        return;
+    }
+    const int64_t divisor = display_divisor(width, height);
+    (void)tb_setting_set_integer(engine->display.window_aspect_width, width / divisor);
+    (void)tb_setting_set_integer(engine->display.window_aspect_height, height / divisor);
+}
+
 static void display_act(const display_scene *scene, display_action action)
 {
     const tb_engine_settings *const engine = scene->box->engine;
@@ -151,6 +186,10 @@ static void display_act(const display_scene *scene, display_action action)
         /* The game loop applies it to the window. */
         display_next_choice(engine->display.window_mode);
         break;
+    case DISPLAY_ACTION_ASPECT_LOCK:
+        /* The game loop applies it to the window. */
+        display_toggle_aspect_lock(engine);
+        break;
     case DISPLAY_ACTION_COUNT:
         break;
     }
@@ -158,8 +197,9 @@ static void display_act(const display_scene *scene, display_action action)
 
 /* What the panel says a click did, by action. */
 static const char *const display_clicks[DISPLAY_ACTION_COUNT] = {
-    "Clicked: the next aspect", "Clicked: the other scale mode", "Clicked: the other render mode",
-    "Clicked: the next design size", "Clicked: the next window mode"};
+    "Clicked: the next aspect",       "Clicked: the other scale mode",
+    "Clicked: the other render mode", "Clicked: the next design size",
+    "Clicked: the next window mode",  "Clicked: the aspect lock switched"};
 
 static void display_clicked(const tb_gui_event *event, void *user)
 {
@@ -196,6 +236,16 @@ static void display_button_text(const display_scene *scene, display_action actio
     case DISPLAY_ACTION_DESIGN:
         (void)tb_fmt_buffer(text, capacity, "F4  Design: %u x %u", policy.design_width,
                             policy.design_height);
+        return;
+    case DISPLAY_ACTION_ASPECT_LOCK:
+        if (tb_setting_integer(engine->display.window_aspect_width) == 0)
+        {
+            (void)tb_fmt_buffer(text, capacity, "F6  Resize: free");
+            return;
+        }
+        (void)tb_fmt_buffer(text, capacity, "F6  Resize: kept at %lld:%lld",
+                            (long long)tb_setting_integer(engine->display.window_aspect_width),
+                            (long long)tb_setting_integer(engine->display.window_aspect_height));
         return;
     case DISPLAY_ACTION_WINDOW:
     case DISPLAY_ACTION_COUNT:
@@ -339,7 +389,7 @@ void display_scene_destroy(sandbox *box, void *state)
 
 static bool display_hotkey(display_scene *scene, const tb_window_event *event)
 {
-    if (event->key < TB_KEY_F1 || event->key > TB_KEY_F5)
+    if (event->key < TB_KEY_F1 || event->key > TB_KEY_F6)
     {
         return false;
     }
@@ -518,7 +568,10 @@ static size_t display_facts(display_scene *scene, const tb_viewport_policy *poli
                         "in a later change)");
     (void)tb_fmt_buffer(scene->lines[count++], DISPLAY_LINE_CAPACITY,
                         "         F4 design size (1920x1080, 1280x720, 640x360, 320x180), F5 "
-                        "window mode; ` the inspector");
+                        "window mode");
+    (void)tb_fmt_buffer(scene->lines[count++], DISPLAY_LINE_CAPACITY,
+                        "         F6 resizing kept at the design's aspect, Alt+Enter windowed or "
+                        "borderless; ` the inspector");
     (void)tb_fmt_buffer(scene->lines[count++], DISPLAY_LINE_CAPACITY,
                         "Lines    gold: the design, its corners and middle; blue: what the "
                         "viewport shows");

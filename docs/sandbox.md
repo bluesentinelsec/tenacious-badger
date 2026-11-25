@@ -17,7 +17,7 @@ badger-sandbox --renderer null       # no GPU at all
 badger-sandbox --frames 120 --capture shapes.bmp   # stop after 120 frames, saving the last
 badger-sandbox --scene ui --ui-scale 150             # the interface half as large again
 badger-sandbox --scene gui --ui-scale 200            # the GUI twice as large, laid out again
-badger-sandbox --scene display                       # the display policy, changed by F1 to F5
+badger-sandbox --scene display                       # the display policy, changed by F1 to F6
 badger-sandbox --inspector                           # start with the inspector shown
 badger-sandbox --scene skinning --cpu-skinning       # skin on the CPU, as a weaker device does
 ```
@@ -45,7 +45,7 @@ bottom left corner of every scene, and printed every two seconds.
 | `triangle` | A triangle of three colored corners, turning, drawn through the RHI itself inside the renderer's scene pass |
 | `textured` | A checkerboard made in memory, sampled through the texture's and sampler's bindless indices |
 | `clear` | The swap chain cleared to a plain color |
-| `display` | [The display policy](display.md): the shapes, lit under a sky, in the viewport; the design's border, its corners and middle, the edge of what the viewport shows, and a grid, in the design's units; a GUI panel of a button for each hotkey; and what the window, the frame, the viewport, the mouse and the policy are. F1 to F5 change the aspect, the scale mode, the render mode, the design size and the window's mode |
+| `display` | [The display policy](display.md): the shapes, lit under a sky, in the viewport; the design's border, its corners and middle, the edge of what the viewport shows, and a grid, in the design's units; a GUI panel of a button for each hotkey; and what the window, the frame, the viewport, the mouse and the policy are. F1 to F6 change the aspect, the scale mode, the render mode, the design size, the window's mode and whether resizing keeps the design's aspect; Alt+Enter switches windowed and borderless |
 
 Every scene takes the [display policy](display.md) from the settings, as a
 game does: by default a design of 1920 by 1080 kept whole, so the 3D scenes
@@ -172,10 +172,12 @@ badger-sandbox --scene display
 | F3 | The render mode: `canvas` or `viewport`, which is drawn as `canvas` until the viewport mode comes |
 | F4 | The design size: 1920 by 1080, 1280 by 720, 640 by 360, 320 by 180 |
 | F5 | The window's mode: windowed, borderless, fullscreen |
+| F6 | Resizing the window kept at the design's aspect (`display.window_aspect_width` and `_height`, 16 by 9 for 1920 by 1080), or free |
+| Alt+Enter | Windowed or borderless, as in every app on the game loop (Control+Command+F on a Mac) |
 
 Each changes its setting at the runtime layer, as the inspector does, and
 the inspector shows it change; in this scene the backquote alone shows the
-inspector, since the scene takes F1 to F5 first. The panel's buttons do
+inspector, since the scene takes F1 to F6 first. The panel's buttons do
 what the keys do, and a press on the bars beside the viewport reaches none
 of them.
 

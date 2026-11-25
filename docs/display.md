@@ -166,7 +166,9 @@ at (43, 24), 4 pixels a unit; 1024 by 768 is 960 by 540 at (32, 114), 3.
 The sandbox's [`display` scene](sandbox.md#the-display-scene) shows the
 policy at work: a lit scene in the viewport, the design's border and grid,
 a GUI panel, and what the viewport is. F1 to F5 change the aspect, the
-scale mode, the render mode, the design size and the window's mode.
+scale mode, the render mode, the design size and the window's mode; F6
+locks resizing the window to the design's aspect, and Alt+Enter switches
+between windowed and borderless.
 
 ```
 badger-sandbox --scene display
