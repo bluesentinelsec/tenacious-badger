@@ -271,8 +271,7 @@ static void burrow_draw_shade(burrow_game *game)
     tb_canvas_set_layer(game->renderer, BURROW_SHADE_LAYER);
     tb_canvas_fill_rect(
         game->renderer,
-        (tb_canvas_rect){0.0f, 0.0f, (float)width / view.scale, (float)height / view.scale},
-        shade);
+        (tb_canvas_rect){0.0f, 0.0f, (float)width / view.scale, (float)height / view.scale}, shade);
 }
 
 static void burrow_frame(void *context, const tb_game_time *time)

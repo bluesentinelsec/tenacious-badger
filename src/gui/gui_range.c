@@ -219,11 +219,11 @@ static void tb_gui_scale_draw(tb_widget widget, const void *data, tb_gui_paint *
     const tb_gui_text_block block = {.text = tb_gui_scale_written(scale, value, buffer),
                                      .anchor = across ? TB_GUI_ANCHOR_S : TB_GUI_ANCHOR_W};
     const tb_vec2 size = tb_gui_scale_label_size(widget, scale);
-    tb_canvas_rect label =
-        across ? (tb_canvas_rect){at - size.x * 0.5f, rect.y, size.x, parts.label}
-               : (tb_canvas_rect){parts.track.x + parts.track.width +
-                                      tb_style_number(style, TB_GUI_SCALE_SPACING),
-                                  at - size.y * 0.5f, size.x, size.y};
+    tb_canvas_rect label = across
+                               ? (tb_canvas_rect){at - size.x * 0.5f, rect.y, size.x, parts.label}
+                               : (tb_canvas_rect){parts.track.x + parts.track.width +
+                                                      tb_style_number(style, TB_GUI_SCALE_SPACING),
+                                                  at - size.y * 0.5f, size.x, size.y};
     /* Over the handle, but kept inside the slider at its ends, where half
      * of it would be cut off. */
     if (across)

@@ -129,6 +129,13 @@ void gui_tool_scene_draw(sandbox *box, void *state, const sandbox_frame *frame);
 void gui_tool_scene_destroy(sandbox *box, void *state);
 bool gui_tool_scene_event(sandbox *box, void *state, const tb_window_event *event);
 
+/* The retained GUI as a small tool built from code: a font browser over the
+ * font catalog (sandbox_gui_fonts.c). */
+bool gui_fonts_scene_create(sandbox *box, void **state);
+void gui_fonts_scene_draw(sandbox *box, void *state, const sandbox_frame *frame);
+void gui_fonts_scene_destroy(sandbox *box, void *state);
+bool gui_fonts_scene_event(sandbox *box, void *state, const tb_window_event *event);
+
 /* Make a shader for the device's backend from HLSL in memory: compiled to
  * DXIL through DXC for D3D12; the text itself for the null backend, which
  * accepts anything. Errors are printed. */
