@@ -10,7 +10,6 @@
 
 /* Units a dialog's message wraps at, and its title's size in ems. */
 #define TB_GUI_MESSAGE_WRAP 360.0f
-#define TB_GUI_MESSAGE_TITLE_EMS 1.25f
 /* The most buttons a dialog has. */
 #define TB_GUI_MESSAGE_MOST_BUTTONS 3
 
@@ -62,6 +61,25 @@ static tb_gui_message_set tb_gui_message_set_of(tb_message_buttons buttons)
     return (tb_gui_message_set){{"OK"}, {TB_MESSAGE_RESULT_OK}, 1, TB_MESSAGE_RESULT_OK};
 }
 
+/* A message dialog's style: the spaces between its parts. Its frame is a
+ * "Dialog.Frame", and its title a "Title.Label". */
+enum
+{
+    TB_GUI_MESSAGE_PADDING,        /* units between its frame's edges and its parts */
+    TB_GUI_MESSAGE_SPACING,        /* units below its title and its message */
+    TB_GUI_MESSAGE_BUTTON_SPACING, /* units between its buttons */
+    TB_GUI_MESSAGE_ELEMENTS
+};
+
+static const tb_style_element tb_gui_message_elements[TB_GUI_MESSAGE_ELEMENTS] = {
+    [TB_GUI_MESSAGE_PADDING] = {"frame_padding", TB_STYLE_NUMBER},
+    [TB_GUI_MESSAGE_SPACING] = {"spacing", TB_STYLE_NUMBER},
+    [TB_GUI_MESSAGE_BUTTON_SPACING] = {"button_spacing", TB_STYLE_NUMBER}};
+
+static const tb_widget_style_desc tb_gui_message_style = {.name = "Messagebox",
+                                                          .elements = tb_gui_message_elements,
+                                                          .element_count = TB_GUI_MESSAGE_ELEMENTS};
+
 /* What a layout file cannot hold yet (tb_widget_class::unsaved). */
 static const char *tb_gui_message_unsaved(tb_widget widget, const void *data)
 {
@@ -75,6 +93,7 @@ static const char *tb_gui_message_unsaved(tb_widget widget, const void *data)
 static const tb_widget_class tb_gui_message_kind = {.name = "messagebox",
                                                     .data_size = sizeof(tb_gui_message),
                                                     .mouse_filter = TB_GUI_MOUSE_PASS,
+                                                    .style = &tb_gui_message_style,
                                                     .unsaved = tb_gui_message_unsaved};
 
 /* Answer a dialog: it ends, is destroyed, and its callback is called. */
@@ -133,18 +152,13 @@ static void tb_gui_message_on_back(const tb_gui_event *event, void *user)
     }
 }
 
-static void tb_gui_message_body(tb_widget box, const char *title, const char *text)
+static void tb_gui_message_body(tb_widget box, const char *title, const char *text, float gap)
 {
-    const tb_ui_theme *const theme = tb_gui_theme(box.gui);
-    /* The title in the heading role's family, at its regular weight. */
-    const tb_font_spec heading = {.role = TB_FONT_ROLE_HEADING,
-                                  .weight = TB_FONT_WEIGHT_REGULAR,
-                                  .size = theme->font_size * TB_GUI_MESSAGE_TITLE_EMS};
-    const float gap = theme->item_spacing.y * 2.0f;
-
     if (title != NULL && title[0] != '\0')
     {
-        const tb_widget label = tb_label(box, &(tb_label_desc){.text = title, .font = heading});
+        /* The title's font is its style's: the heading role's family. */
+        const tb_widget label = tb_label(box, &(tb_label_desc){.text = title});
+        tb_widget_set_style(label, "Title.Label");
         (void)tb_grid(label, &(tb_grid_options){.sticky = TB_STICKY_W, .pady = {0.0f, gap}});
     }
     const tb_widget message =
@@ -158,7 +172,6 @@ tb_widget tb_gui_message_box(tb_gui *gui, const char *title, const char *text,
 {
     const tb_widget root = tb_gui_root(gui);
     const tb_gui_message_set set = tb_gui_message_set_of(buttons);
-    const tb_ui_theme *const theme = tb_gui_theme(gui);
     size_t columns = 0;
     size_t rows = 0;
 
@@ -174,11 +187,16 @@ tb_widget tb_gui_message_box(tb_gui *gui, const char *title, const char *text,
                                              .column_span = columns > 0 ? (int32_t)columns : 1,
                                              .sticky = TB_STICKY_NSEW});
     tb_grid_anchor(dialog, TB_GUI_ANCHOR_CENTER);
-    const tb_widget box = tb_frame(
-        dialog, &(tb_frame_desc){
-                    .padding = theme->window_padding.x * 2.0f, .background = true, .border = true});
+    const tb_style *const style = tb_style_in(dialog, 0);
+    const float spacing = tb_style_number(style, TB_GUI_MESSAGE_SPACING);
+    const float button_spacing = tb_style_number(style, TB_GUI_MESSAGE_BUTTON_SPACING);
+    const tb_widget box =
+        tb_frame(dialog, &(tb_frame_desc){.padding = tb_style_number(style, TB_GUI_MESSAGE_PADDING),
+                                          .background = true,
+                                          .border = true});
+    tb_widget_set_style(box, "Dialog.Frame");
     (void)tb_grid(box, NULL);
-    tb_gui_message_body(box, title, text);
+    tb_gui_message_body(box, title, text, spacing);
 
     const tb_widget row = tb_frame(box, NULL);
     (void)tb_grid(row, &(tb_grid_options){.row = 2, .sticky = TB_STICKY_E});
@@ -188,7 +206,7 @@ tb_widget tb_gui_message_box(tb_gui *gui, const char *title, const char *text,
             tb_button(row, &(tb_button_desc){.text = set.labels[index],
                                              .command = tb_gui_message_on_button,
                                              .is_default = index == 0});
-        const float gap = index > 0 ? theme->item_spacing.x : 0.0f;
+        const float gap = index > 0 ? button_spacing : 0.0f;
         (void)tb_grid(button, &(tb_grid_options){.column = (int32_t)index,
                                                  .sticky = TB_STICKY_EW,
                                                  .padx = {gap, 0.0f}});

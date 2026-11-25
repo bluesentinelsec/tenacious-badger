@@ -620,9 +620,42 @@ bool tb_treeview_set_column_width(tb_widget treeview, size_t column, float width
  * Rows on the screen.
  * ------------------------------------------------------------------------- */
 
+/* A tree's style: a list's box, rows, and bar, and its headings' and
+ * marks'. Its padding is each row's and each heading's. */
+enum
+{
+    TB_GUI_TREE_SELECTION,    /* a chosen row */
+    TB_GUI_TREE_HOT,          /* the row under the mouse */
+    TB_GUI_TREE_ACTIVE,       /* the ring of the focus item, with the focus */
+    TB_GUI_TREE_HEADING,      /* the headings' background */
+    TB_GUI_TREE_HEADING_TEXT, /* their text */
+    TB_GUI_TREE_SEPARATOR,    /* the lines between headings */
+    TB_GUI_TREE_INDENT,       /* units each level is indented */
+    TB_GUI_TREE_MARK_WIDTH,   /* units the open and closed marks' lines are wide */
+    TB_GUI_TREE_ELEMENTS = TB_GUI_TREE_MARK_WIDTH + 1 + TB_GUI_BAR_ELEMENTS
+};
+
+static const tb_style_element tb_gui_tree_elements[TB_GUI_TREE_ELEMENTS] = {
+    [TB_GUI_TREE_SELECTION] = {"selection", TB_STYLE_COLOR},
+    [TB_GUI_TREE_HOT] = {"hot_color", TB_STYLE_COLOR},
+    [TB_GUI_TREE_ACTIVE] = {"active_color", TB_STYLE_COLOR},
+    [TB_GUI_TREE_HEADING] = {"heading_background", TB_STYLE_COLOR},
+    [TB_GUI_TREE_HEADING_TEXT] = {"heading_text_color", TB_STYLE_COLOR},
+    [TB_GUI_TREE_SEPARATOR] = {"separator_color", TB_STYLE_COLOR},
+    [TB_GUI_TREE_INDENT] = {"indent", TB_STYLE_NUMBER},
+    [TB_GUI_TREE_MARK_WIDTH] = {"mark_width", TB_STYLE_NUMBER},
+    TB_GUI_BAR_STYLE_ELEMENTS};
+
+static const tb_widget_style_desc tb_gui_treeview_style = {.name = "Treeview",
+                                                           .states = TB_WIDGET_FOCUSED |
+                                                                     TB_WIDGET_DISABLED,
+                                                           .elements = tb_gui_tree_elements,
+                                                           .element_count = TB_GUI_TREE_ELEMENTS};
+
 static float tb_gui_tree_row_height(tb_widget widget)
 {
-    return tb_gui_line_height(widget.gui) + tb_gui_theme(widget.gui)->frame_padding.y;
+    const tb_style *const style = tb_style_in(widget, 0);
+    return tb_gui_line_height(widget) + style->padding.top + style->padding.bottom;
 }
 
 static tb_gui_bar tb_gui_tree_bar(tb_widget widget, const tb_gui_treeview *tree)
@@ -675,7 +708,8 @@ static float tb_gui_tree_column_left(const tb_gui_treeview *tree, size_t index)
 /* The left of a row's open and closed mark, which its text follows. */
 static float tb_gui_tree_mark_left(tb_widget widget, const tb_gui_treeview *tree, size_t row)
 {
-    return tree->view.x + (float)tree->depths[row] * tb_gui_theme(widget.gui)->indent;
+    return tree->view.x +
+           (float)tree->depths[row] * tb_style_number(tb_style_in(widget, 0), TB_GUI_TREE_INDENT);
 }
 
 bool tb_treeview_see(tb_widget treeview, tb_tree_item item)
@@ -761,7 +795,7 @@ static void tb_gui_treeview_destroy(tb_widget widget, void *data)
 static tb_vec2 tb_gui_treeview_measure(tb_widget widget, const void *data)
 {
     tb_gui_treeview *const tree = tb_widget_data(widget);
-    const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
+    const float border = tb_style_in(widget, 0)->border_width;
     const float row = tb_gui_tree_row_height(widget);
     float width = 0.0f;
 
@@ -774,16 +808,16 @@ static tb_vec2 tb_gui_treeview_measure(tb_widget widget, const void *data)
     const size_t shown =
         tree->height > 0 ? (size_t)tree->height : (tree->row_count > 0 ? tree->row_count : 1u);
     const float headings = tree->no_headings ? 0.0f : row;
-    const float bar = tree->row_count > shown ? theme->scrollbar_width : 0.0f;
-    return (tb_vec2){width + bar + 2.0f * theme->border,
-                     headings + (float)shown * row + 2.0f * theme->border};
+    const float bar = tree->row_count > shown ? tb_gui_bar_width(widget) : 0.0f;
+    return (tb_vec2){width + bar + 2.0f * border, headings + (float)shown * row + 2.0f * border};
 }
 
 static void tb_gui_treeview_arrange(tb_widget widget, void *data, tb_canvas_rect rect)
 {
     tb_gui_treeview *const tree = data;
-    const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
-    const tb_canvas_rect inner = tb_ui_rect_inset(rect, theme->border, theme->border);
+    const float border = tb_style_in(widget, 0)->border_width;
+    const float bar_width = tb_gui_bar_width(widget);
+    const tb_canvas_rect inner = tb_ui_rect_inset(rect, border, border);
     const float row = tb_gui_tree_row_height(widget);
     const float headings = tree->no_headings ? 0.0f : row;
 
@@ -794,43 +828,41 @@ static void tb_gui_treeview_arrange(tb_widget widget, void *data, tb_canvas_rect
     tree->bar = (float)tree->row_count * row > tree->view.height;
     if (tree->bar)
     {
-        tree->view.width = fmaxf(inner.width - theme->scrollbar_width, 0.0f);
+        tree->view.width = fmaxf(inner.width - bar_width, 0.0f);
     }
-    tree->track = (tb_canvas_rect){tree->view.x + tree->view.width, tree->view.y,
-                                   theme->scrollbar_width, tree->view.height};
+    tree->track = (tb_canvas_rect){tree->view.x + tree->view.width, tree->view.y, bar_width,
+                                   tree->view.height};
     tb_gui_tree_scroll(widget, tree, tree->offset);
 }
 
-static void tb_gui_treeview_draw_headings(tb_widget widget, const tb_gui_treeview *tree,
-                                          tb_gui_paint *paint)
+static void tb_gui_treeview_draw_headings(const tb_gui_treeview *tree, tb_gui_paint *paint,
+                                          const tb_style *style)
 {
-    const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
     tb_gui_paint headings = *paint;
     float left = tree->headings.x;
 
     headings.clip = tb_ui_rect_intersect(paint->clip, tree->headings);
-    tb_gui_paint_fill(&headings, tree->headings, 0.0f, theme->colors[TB_UI_COLOR_HEADER]);
+    tb_gui_paint_fill(&headings, tree->headings, 0.0f, tb_style_color(style, TB_GUI_TREE_HEADING));
     for (size_t column = 0; column < tree->column_count; column++)
     {
         const float width = tree->columns[column].width;
         const tb_canvas_rect cell = {left, tree->headings.y, width, tree->headings.height};
         const tb_gui_text_block block = {.text = tb_gui_string_text(&tree->columns[column].heading),
                                          .anchor = TB_GUI_ANCHOR_W};
-        tb_gui_paint_text(&headings, &block, tb_ui_rect_inset(cell, theme->frame_padding.x, 0.0f),
-                          theme->colors[TB_UI_COLOR_TEXT]);
+        tb_gui_paint_text(&headings, &block, tb_ui_rect_inset(cell, style->padding.left, 0.0f),
+                          tb_style_color(style, TB_GUI_TREE_HEADING_TEXT));
         tb_gui_paint_line(&headings, (tb_vec2){left + width, cell.y},
-                          (tb_vec2){left + width, cell.y + cell.height}, theme->border,
-                          theme->colors[TB_UI_COLOR_SEPARATOR]);
+                          (tb_vec2){left + width, cell.y + cell.height}, style->border_width,
+                          tb_style_color(style, TB_GUI_TREE_SEPARATOR));
         left += width;
     }
 }
 
 static void tb_gui_treeview_draw_mark(tb_gui_paint *paint, const tb_gui_tree_node *node,
-                                      tb_canvas_rect box, tb_vec4 color)
+                                      tb_canvas_rect box, tb_vec4 color, float thickness)
 {
     const float size = box.height * TB_GUI_TREE_MARK;
     const tb_vec2 middle = {box.x + box.height * 0.5f, box.y + box.height * 0.5f};
-    const float thickness = tb_gui_theme(paint->gui)->border * 1.5f;
 
     if (node->first_child == TB_TREE_ROOT)
     {
@@ -851,35 +883,35 @@ static void tb_gui_treeview_draw_mark(tb_gui_paint *paint, const tb_gui_tree_nod
 }
 
 static void tb_gui_treeview_draw_row(tb_widget widget, const tb_gui_treeview *tree,
-                                     tb_gui_paint *rows, size_t row, uint32_t state)
+                                     tb_gui_paint *rows, size_t row, const tb_style *style)
 {
-    const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
     const tb_tree_item item = tree->rows[row];
     const tb_gui_tree_node *const node = &tree->items[item];
     const tb_canvas_rect rect = tb_gui_tree_row_rect(widget, tree, row);
-    const tb_vec4 color =
-        theme->colors[(state & TB_WIDGET_DISABLED) != 0 ? TB_UI_COLOR_TEXT_DIM : TB_UI_COLOR_TEXT];
+    const tb_vec4 color = style->text_color;
+    const bool focused = (tb_widget_state(widget) & TB_WIDGET_FOCUSED) != 0;
     const float mark = tb_gui_tree_mark_left(widget, tree, row);
     float left = tree->view.x;
 
     if (node->selected)
     {
-        tb_gui_paint_fill(rows, rect, 0.0f, theme->colors[TB_UI_COLOR_SELECTION]);
+        tb_gui_paint_fill(rows, rect, 0.0f, tb_style_color(style, TB_GUI_TREE_SELECTION));
     }
     else if (item == tree->hot)
     {
-        tb_gui_paint_fill(rows, rect, 0.0f, theme->colors[TB_UI_COLOR_HEADER_HOT]);
+        tb_gui_paint_fill(rows, rect, 0.0f, tb_style_color(style, TB_GUI_TREE_HOT));
     }
-    if (item == tree->focus && (state & TB_WIDGET_FOCUSED) != 0)
+    if (item == tree->focus && focused)
     {
-        tb_gui_paint_outline(rows, rect, 0.0f, theme->border, theme->colors[TB_UI_COLOR_ACCENT]);
+        tb_gui_paint_outline(rows, rect, 0.0f, style->border_width,
+                             tb_style_color(style, TB_GUI_TREE_ACTIVE));
     }
     tb_gui_treeview_draw_mark(rows, node, (tb_canvas_rect){mark, rect.y, rect.height, rect.height},
-                              color);
+                              color, tb_style_number(style, TB_GUI_TREE_MARK_WIDTH));
     for (size_t column = 0; column < tree->column_count; column++)
     {
         const float width = tree->columns[column].width;
-        const float start = column == 0 ? mark + rect.height : left + theme->frame_padding.x;
+        const float start = column == 0 ? mark + rect.height : left + style->padding.left;
         const tb_text text = column == 0 ? tb_gui_string_text(&node->text)
                                          : (column - 1 < node->value_count
                                                 ? tb_gui_string_text(&node->values[column - 1])
@@ -899,16 +931,15 @@ static void tb_gui_treeview_draw_row(tb_widget widget, const tb_gui_treeview *tr
 static void tb_gui_treeview_draw(tb_widget widget, const void *data, tb_gui_paint *paint)
 {
     const tb_gui_treeview *const tree = data;
-    const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
-    const uint32_t state = tb_widget_state(widget);
+    const tb_style *const style = tb_style_of(widget);
     const float height = tb_gui_tree_row_height(widget);
     tb_gui_paint rows = *paint;
 
     rows.clip = tb_ui_rect_intersect(paint->clip, tree->view);
-    tb_gui_paint_fill(paint, paint->rect, 0.0f, theme->colors[TB_UI_COLOR_FRAME]);
+    tb_gui_paint_box(paint, paint->rect, style);
     if (!tree->no_headings)
     {
-        tb_gui_treeview_draw_headings(widget, tree, paint);
+        tb_gui_treeview_draw_headings(tree, paint, style);
     }
     if (!tb_ui_rect_empty(rows.clip) && height > 0.0f)
     {
@@ -917,17 +948,14 @@ static void tb_gui_treeview_draw(tb_widget widget, const void *data, tb_gui_pain
         const float last = fminf(ceilf((top + rows.clip.height) / height), (float)tree->row_count);
         for (size_t row = (size_t)first; (float)row < last; row++)
         {
-            tb_gui_treeview_draw_row(widget, tree, &rows, row, state);
+            tb_gui_treeview_draw_row(widget, tree, &rows, row, style);
         }
     }
     if (tree->bar)
     {
         const tb_gui_bar bar = tb_gui_tree_bar(widget, tree);
-        tb_gui_bar_draw(paint, &bar, tree->dragging_bar);
+        tb_gui_bar_draw(paint, &bar, tree->dragging_bar, style);
     }
-    tb_gui_paint_outline(
-        paint, paint->rect, 0.0f, theme->border,
-        theme->colors[(state & TB_WIDGET_FOCUSED) != 0 ? TB_UI_COLOR_ACCENT : TB_UI_COLOR_BORDER]);
 }
 
 /* Open or close an item by the user: its rows change, and the open
@@ -1338,6 +1366,7 @@ static const tb_widget_class tb_gui_treeview_kind = {
     .arrange = tb_gui_treeview_arrange,
     .draw = tb_gui_treeview_draw,
     .event = tb_gui_treeview_event,
+    .style = &tb_gui_treeview_style,
     .unsaved = tb_gui_treeview_unsaved};
 
 static tb_gui_treeview *tb_gui_treeview_of(tb_widget widget)

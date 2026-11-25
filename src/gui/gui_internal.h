@@ -53,6 +53,19 @@ typedef struct tb_gui_axis
     size_t capacity; /* of sizes and occupied; edges hold one more */
 } tb_gui_axis;
 
+/* A value of a style for a set of states: a theme's, or a widget's own
+ * override (gui_style.c). */
+typedef struct tb_gui_style_entry
+{
+    char *name; /* owned */
+    uint32_t states;
+    tb_style_value value;
+} tb_gui_style_entry;
+
+/* A widget's styles resolved, one for each set of states asked for, kept
+ * while the GUI's style epoch is the one they were resolved in. */
+typedef struct tb_gui_style_cache tb_gui_style_cache;
+
 /* A slot of a widget. A slot in use holds a widget alive, or one destroyed
  * whose memory waits for the events being given to end. */
 typedef struct tb_gui_node
@@ -92,7 +105,22 @@ typedef struct tb_gui_node
     size_t binding_count;
     size_t binding_capacity;
     bool bindings_cleared; /* some were removed during events */
+    /* Styles. */
+    tb_theme *style_theme;         /* its own, borrowed; NULL for its ancestors' */
+    tb_gui_style_entry *overrides; /* its own values, before every theme's */
+    size_t override_count;
+    size_t override_capacity;
+    tb_gui_style_cache *style_cache; /* NULL until a style is asked for */
 } tb_gui_node;
+
+/* A theme a GUI draws by, and its generation when last looked at: a theme
+ * that changed makes every style be resolved again. */
+typedef struct tb_gui_theme_use
+{
+    const tb_theme *theme;
+    size_t count; /* the widgets, and the GUI, that use it */
+    uint64_t generation;
+} tb_gui_theme_use;
 
 /* A popup shown, and how. */
 typedef struct tb_gui_popup_entry
@@ -211,6 +239,15 @@ struct tb_gui
     /* Variables, and the clipboard; made when first used. */
     tb_gui_values *values;
 
+    /* Styles (gui_style.c). */
+    tb_theme *style_theme;   /* the caller's, borrowed; NULL for the default alone */
+    tb_theme *default_theme; /* the tool theme of the palette, owned */
+    uint64_t style_epoch;    /* grows when any style may have changed */
+    tb_gui_theme_use *theme_uses;
+    size_t theme_use_count;
+    size_t theme_use_capacity;
+    const tb_theme **theme_chain; /* the themes of the widget being resolved */
+    size_t theme_chain_capacity;
     /* Navigation; made with the GUI. */
     tb_gui_navigation *navigation;
 
@@ -249,7 +286,10 @@ void tb_gui_flush_deferred(tb_gui *gui);
 void tb_gui_string_set(tb_gui_string *string, tb_text text);
 void tb_gui_string_free(tb_gui_string *string);
 tb_text tb_gui_string_text(const tb_gui_string *string);
-tb_gui_resolved_font tb_gui_resolve_font(tb_gui *gui, tb_font_spec spec);
+/* The font of a spec against a base: the spec's face, or the base's when
+ * the spec's weight is 0; at the spec's size, or the base's, or else the
+ * palette's. */
+tb_gui_resolved_font tb_gui_resolve_font(tb_gui *gui, tb_font_spec base, tb_font_spec spec);
 /* Move a widget among its siblings, to just before another of them. */
 void tb_gui_move_before(tb_gui *gui, uint32_t child, uint32_t sibling);
 
@@ -395,7 +435,24 @@ float tb_gui_bar_grab(const tb_gui_bar *bar, tb_vec2 point);
 float tb_gui_bar_drag(const tb_gui_bar *bar, tb_vec2 point, float grab);
 /* The offset a press on the track pages to: a view's length toward it. */
 float tb_gui_bar_page(const tb_gui_bar *bar, tb_gui_bar_part part);
-void tb_gui_bar_draw(tb_gui_paint *paint, const tb_gui_bar *bar, bool hot);
+/* A bar drawn by the style of the kind that draws it, which declares the
+ * bar's elements (TB_GUI_BAR_STYLE_ELEMENTS); lit while `hot`. */
+void tb_gui_bar_draw(tb_gui_paint *paint, const tb_gui_bar *bar, bool hot, const tb_style *style);
+/* How wide a kind's bars are, by its style at rest. */
+float tb_gui_bar_width(tb_widget widget);
+
+/* The elements of a style whose kind draws scroll bars, among its others. */
+#define TB_GUI_BAR_STYLE_ELEMENTS                                                                  \
+    {"scrollbar_width", TB_STYLE_NUMBER}, {"scrollbar_inset", TB_STYLE_NUMBER},                    \
+        {"scrollbar_trough", TB_STYLE_COLOR}, {"scrollbar_thumb", TB_STYLE_COLOR},                 \
+    {                                                                                              \
+        "scrollbar_thumb_hot", TB_STYLE_COLOR                                                      \
+    }
+#define TB_GUI_BAR_ELEMENTS 5u
+
+/* An element of a style by its name, of a type: zero when it is not. */
+tb_vec4 tb_gui_style_color_named(const tb_style *style, const char *name);
+float tb_gui_style_number_named(const tb_style *style, const char *name);
 
 /* gui_draw.c: the commands of a frame. */
 void tb_gui_build_commands(tb_gui *gui);
@@ -415,8 +472,8 @@ void tb_gui_register_image(tb_gui *gui);
 void tb_gui_register_canvas(tb_gui *gui);
 /* The size of a text, or of one empty line of its font. */
 tb_vec2 tb_gui_measure_block(tb_widget widget, const tb_gui_text_block *block);
-/* The height of a line of the theme's font, in units. */
-float tb_gui_line_height(tb_gui *gui);
+/* The height of a line of a widget's font, in units. */
+float tb_gui_line_height(tb_widget widget);
 
 /* gui_names.c: objects named for layout files. A type of value is named
  * when a file refers to its values by name rather than writing them. */
@@ -431,8 +488,20 @@ void tb_gui_names_free(tb_gui *gui);
 struct tb_vfs;
 tb_gui_file_result tb_gui_read_file(struct tb_vfs *vfs, const char *path, char **bytes,
                                     size_t *length, tb_gui_file_error *error);
+/* What layout files and theme files share of their errors: text added to a
+ * buffer, cut short at its end; an error's message, of its file's name, its
+ * place, its path, its reason, and what was named (`detail`, or NULL); and
+ * the line and column of an offset in a text, from 1. */
+void tb_gui_append(char *buffer, size_t capacity, size_t *used, const char *text);
+void tb_gui_error_message(tb_gui_file_error *error, const char *file_name, const char *detail);
+void tb_gui_locate(const char *text, size_t length, size_t offset, size_t *line, size_t *column);
+/* Bytes of a float's text: a sign, nine digits, a point, and an exponent. */
+#define TB_GUI_FLOAT_TEXT 32u
+/* A float in the fewest digits that read back as it; the text's length. */
+size_t tb_gui_float_text(float value, char *buffer, size_t capacity);
 
-/* gui_watch.c: files loaded again when they change. */
+/* gui_watch.c: files loaded again when they change: layout files, and
+ * theme files. */
 void tb_gui_watches_poll(tb_gui *gui);
 void tb_gui_watches_free(tb_gui *gui);
 
@@ -443,5 +512,22 @@ void tb_gui_vars_free(tb_gui *gui);
 
 /* gui_values.c: the kinds that edit values, registered with the others. */
 void tb_gui_register_value_kinds(tb_gui *gui);
+
+/* gui_style.c: styles resolved for widgets. Made and freed with the GUI;
+ * the default theme made again from the palette. */
+void tb_gui_styles_init(tb_gui *gui, tb_theme *theme);
+void tb_gui_styles_free(tb_gui *gui);
+void tb_gui_styles_palette_changed(tb_gui *gui);
+/* Look at the themes in use: any changed resolves every style again, and
+ * lays the widgets out again. Called before each layout. */
+void tb_gui_styles_refresh(tb_gui *gui);
+/* A widget's styles are no longer what they were: its own changed. */
+void tb_gui_style_forget(tb_gui *gui, uint32_t index);
+/* A slot's styles, overrides, and theme released with it. */
+void tb_gui_style_release(tb_gui *gui, uint32_t index);
+/* The font of a text in a widget: a spec's face, or its style's when the
+ * spec's weight is 0, at the spec's size, or its style's when it is 0. A
+ * widget's style at rest gives its font in every state. */
+tb_gui_resolved_font tb_gui_widget_font(tb_widget widget, tb_font_spec spec);
 
 #endif

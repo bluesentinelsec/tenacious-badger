@@ -210,6 +210,13 @@ typedef struct tb_ui_theme
  */
 TB_API tb_ui_theme tb_ui_theme_dark(void);
 
+/**
+ * @brief A light theme: light grays with a blue accent, the dark theme's
+ * sizes and spacing, and no fonts.
+ * @par Threading Thread-safe.
+ */
+TB_API tb_ui_theme tb_ui_theme_light(void);
+
 /** @brief Fonts opened for a theme, which the caller closes. */
 typedef struct tb_ui_fonts
 {
@@ -381,7 +388,7 @@ typedef enum tb_ui_command_type
     TB_UI_COMMAND_CIRCLE,  /**< A filled circle in `rect`, of `radius`. */
     TB_UI_COMMAND_LINE,    /**< A line from `from` to `to`, `thickness` wide. */
     TB_UI_COMMAND_TEXT,    /**< Text, its box's top left at `rect`'s. */
-    TB_UI_COMMAND_IMAGE    /**< An image stretched over `rect`, tinted by `color`. */
+    TB_UI_COMMAND_IMAGE /**< An image, or its `source`, stretched over `rect`, tinted by `color`. */
 } tb_ui_command_type;
 
 /** @brief Something to draw, in units, as tb_ui_draw() draws it. */
@@ -409,6 +416,9 @@ typedef struct tb_ui_command
     tb_ui_id id; /**< The widget, or window, that drew it; 0 for none. */
     /** An image's image: borrowed, alive until the frame that draws it ends. */
     const tb_image *image;
+    /** An image's texels drawn; a zero size is the whole image. A
+     * nine-slice panel is an image command for each of its slices. */
+    tb_rhi_rect source;
 } tb_ui_command;
 
 /**

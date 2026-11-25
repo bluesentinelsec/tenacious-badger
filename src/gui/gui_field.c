@@ -188,10 +188,11 @@ static tb_text tb_gui_masked(tb_gui *gui, tb_text text, tb_text show)
 }
 
 /* Lay a field's text out in a rectangle: false when there is no font. */
-static bool tb_gui_field_view_of(tb_gui *gui, const tb_gui_field *field, tb_text text,
+static bool tb_gui_field_view_of(tb_widget widget, const tb_gui_field *field, tb_text text,
                                  tb_canvas_rect rect, tb_gui_field_view *view)
 {
-    const tb_gui_resolved_font resolved = tb_gui_resolve_font(gui, (tb_font_spec){0});
+    tb_gui *const gui = widget.gui;
+    const tb_gui_resolved_font resolved = tb_gui_widget_font(widget, (tb_font_spec){0});
     const float scale = gui->view.scale;
     tb_font_layout_options options = {0};
 
@@ -211,7 +212,7 @@ static bool tb_gui_field_view_of(tb_gui *gui, const tb_gui_field *field, tb_text
                         &view->layout);
     view->origin.x = rect.x - field->scroll.x;
     view->origin.y =
-        field->editor.multiline ? rect.y - field->scroll.y : tb_gui_values_line_top(gui, rect);
+        field->editor.multiline ? rect.y - field->scroll.y : tb_gui_values_line_top(widget, rect);
     return true;
 }
 
@@ -241,7 +242,7 @@ void tb_gui_field_follow(tb_widget widget, tb_gui_field *field, tb_canvas_rect r
 {
     tb_gui_field_view view = {0};
 
-    if (!tb_gui_field_view_of(widget.gui, field, tb_gui_field_text(field), rect, &view))
+    if (!tb_gui_field_view_of(widget, field, tb_gui_field_text(field), rect, &view))
     {
         return;
     }
@@ -517,7 +518,7 @@ static bool tb_gui_field_key(tb_widget widget, tb_gui_field *field, const tb_gui
             return true;
         }
     }
-    if (!tb_gui_field_view_of(widget.gui, field, tb_gui_field_text(field), rect, &view))
+    if (!tb_gui_field_view_of(widget, field, tb_gui_field_text(field), rect, &view))
     {
         return false;
     }
@@ -533,7 +534,7 @@ static void tb_gui_field_point(tb_widget widget, tb_gui_field *field, tb_vec2 po
 {
     tb_gui_field_view view = {0};
 
-    if (tb_gui_field_view_of(widget.gui, field, tb_gui_field_text(field), rect, &view))
+    if (tb_gui_field_view_of(widget, field, tb_gui_field_text(field), rect, &view))
     {
         tb_ui_editor_move(&field->editor, tb_gui_hit_at(&view, point), modifiers);
     }
@@ -546,7 +547,7 @@ static bool tb_gui_field_wheel(tb_widget widget, tb_gui_field *field, const tb_g
     const float before = field->scroll.y;
 
     if (!field->editor.multiline ||
-        !tb_gui_field_view_of(widget.gui, field, tb_gui_field_text(field), rect, &view))
+        !tb_gui_field_view_of(widget, field, tb_gui_field_text(field), rect, &view))
     {
         return false;
     }
@@ -678,7 +679,7 @@ static void tb_gui_field_draw_selection(tb_gui_paint *paint, const tb_gui_field_
     }
     tb_gui_paint_fill(paint,
                       tb_ui_rect_intersect((tb_canvas_rect){left, top, right - left, height}, clip),
-                      0.0f, tb_gui_values_color(paint->widget, TB_UI_COLOR_SELECTION));
+                      0.0f, tb_style_color(tb_style_of(paint->widget), TB_GUI_FIELD_SELECTION));
 }
 
 void tb_gui_field_draw(tb_widget widget, const tb_gui_field *field, tb_gui_paint *paint,
@@ -687,12 +688,12 @@ void tb_gui_field_draw(tb_widget widget, const tb_gui_field *field, tb_gui_paint
     tb_gui *const gui = widget.gui;
     const uint32_t state = tb_widget_state(widget);
     const bool focused = (state & TB_WIDGET_FOCUSED) != 0;
-    const bool disabled = (state & TB_WIDGET_DISABLED) != 0;
+    const tb_style *const style = tb_style_in(widget, state);
     const tb_canvas_rect clip = tb_ui_rect_intersect(paint->clip, rect);
-    const tb_gui_resolved_font resolved = tb_gui_resolve_font(gui, (tb_font_spec){0});
+    const tb_gui_resolved_font resolved = tb_gui_widget_font(widget, (tb_font_spec){0});
     tb_gui_field_view view = {0};
 
-    if (!tb_gui_field_view_of(gui, field, text, rect, &view))
+    if (!tb_gui_field_view_of(widget, field, text, rect, &view))
     {
         return;
     }
@@ -702,7 +703,7 @@ void tb_gui_field_draw(tb_widget widget, const tb_gui_field *field, tb_gui_paint
                                                .anchor = field->editor.multiline ? TB_GUI_ANCHOR_NW
                                                                                  : TB_GUI_ANCHOR_W};
         tb_gui_paint_text(paint, &placeholder, rect,
-                          tb_gui_values_color(widget, TB_UI_COLOR_TEXT_DIM));
+                          tb_style_color(style, TB_GUI_FIELD_PLACEHOLDER));
     }
     const size_t caret = field->editor.caret < text.length ? field->editor.caret : text.length;
     const size_t anchor = field->editor.anchor < text.length ? field->editor.anchor : text.length;
@@ -721,10 +722,8 @@ void tb_gui_field_draw(tb_widget widget, const tb_gui_field *field, tb_gui_paint
             .font = resolved.font,
             .size = resolved.size,
             .wrap_width = field->wraps && field->editor.multiline ? rect.width : 0.0f};
-        tb_ui_paint_text(
-            &gui->paint, paint->layer, clip, &run, view.shown, view.origin,
-            tb_gui_values_color(widget, disabled ? TB_UI_COLOR_TEXT_DIM : TB_UI_COLOR_TEXT),
-            (tb_ui_id)widget.index + 1u);
+        tb_ui_paint_text(&gui->paint, paint->layer, clip, &run, view.shown, view.origin,
+                         style->text_color, (tb_ui_id)widget.index + 1u);
     }
     if (focused && fmod(gui->time - field->blink, 2.0 * TB_GUI_CARET_BLINK) < TB_GUI_CARET_BLINK)
     {
@@ -732,7 +731,7 @@ void tb_gui_field_draw(tb_widget widget, const tb_gui_field *field, tb_gui_paint
         tb_gui_paint_fill(
             paint,
             tb_ui_rect_intersect((tb_canvas_rect){at.x, at.top, 1.0f, at.bottom - at.top}, clip),
-            0.0f, tb_gui_values_color(widget, TB_UI_COLOR_TEXT));
+            0.0f, tb_style_color(style, TB_GUI_FIELD_CARET));
     }
 }
 

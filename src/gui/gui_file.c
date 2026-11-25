@@ -6,7 +6,7 @@
  * grid, and its children. Each type of value has a codec here, which reads
  * it from JSON, writes it, and compares two; a kind added anywhere is read
  * and written with no change to this file. */
-#include "gui_internal.h"
+#include "gui_style.h"
 
 #include "badger/assert.h"
 #include "badger/decimal.h"
@@ -33,8 +33,6 @@
 /* Whole numbers below this, 2 to the 24th, are every one a float, and are
  * written without an exponent. */
 #define TB_GUI_FLOAT_WHOLE 16777216.0f
-/* Bytes of a float's text: a sign, nine digits, a point, and an exponent. */
-#define TB_GUI_FLOAT_TEXT 32u
 
 #define TB_GUI_COUNT_OF(array) (sizeof(array) / sizeof((array)[0]))
 
@@ -53,8 +51,8 @@ static const char *const tb_gui_variable_types[] = {"bool", "int", "float", "str
 static const tb_gui_type tb_gui_variable_type_of[] = {TB_GUI_TYPE_BOOL, TB_GUI_TYPE_INT,
                                                       TB_GUI_TYPE_FLOAT, TB_GUI_TYPE_TEXT};
 
-static const char *const tb_gui_widget_keys[] = {"kind",    "name", "properties", "grid",
-                                                 "columns", "rows", "children"};
+static const char *const tb_gui_widget_keys[] = {"kind", "name",    "properties", "overrides",
+                                                 "grid", "columns", "rows",       "children"};
 static const char *const tb_gui_track_keys[] = {"weight", "minsize", "pad", "uniform"};
 static const char *const tb_gui_font_keys[] = {"role", "weight", "italic", "size"};
 
@@ -75,7 +73,7 @@ static bool tb_gui_listed(const char *const *list, size_t count, const char *nam
  * ------------------------------------------------------------------------- */
 
 /* Text added to a buffer, cut short at its end. */
-static void tb_gui_append(char *buffer, size_t capacity, size_t *used, const char *text)
+void tb_gui_append(char *buffer, size_t capacity, size_t *used, const char *text)
 {
     const size_t length = tb_str_length(text);
     size_t room = 0;
@@ -92,8 +90,7 @@ static void tb_gui_append(char *buffer, size_t capacity, size_t *used, const cha
 
 /* The message: the file's name and place, the path, the reason, and what
  * was named. */
-static void tb_gui_error_message(tb_gui_file_error *error, const char *file_name,
-                                 const char *detail)
+void tb_gui_error_message(tb_gui_file_error *error, const char *file_name, const char *detail)
 {
     char place[64] = {0};
     size_t used = 0;
@@ -128,8 +125,7 @@ static void tb_gui_error_message(tb_gui_file_error *error, const char *file_name
 }
 
 /* The line and column of an offset in a text, from 1. */
-static void tb_gui_locate(const char *text, size_t length, size_t offset, size_t *line,
-                          size_t *column)
+void tb_gui_locate(const char *text, size_t length, size_t offset, size_t *line, size_t *column)
 {
     size_t line_start = 0;
 
@@ -380,7 +376,7 @@ static void tb_gui_write_string(tb_gui_saver *saver, tb_text text)
 
 /* The fewest significant digits that read back as the same float: 0.1, not
  * the double nearest the float 0.1. */
-static size_t tb_gui_float_text(float value, char *buffer, size_t capacity)
+size_t tb_gui_float_text(float value, char *buffer, size_t capacity)
 {
     size_t length = 0;
 
@@ -1118,6 +1114,54 @@ static bool tb_gui_load_children(tb_gui_loader *loader, tb_widget widget,
 }
 
 /* One of a widget's optional members, if it is there, by its loader. */
+/* An image of a widget's style overrides, by the path a theme of it
+ * names it by. */
+static const tb_image *tb_gui_override_image(void *context, const char *path)
+{
+    return tb_gui_style_image_named(*(const tb_widget *)context, path);
+}
+
+/* A widget's style overrides: values by "name" or "name:state+state", as a
+ * theme file's (gui_theme_file.c). */
+static bool tb_gui_load_overrides(tb_gui_loader *loader, tb_widget widget,
+                                  const tb_json_value *object)
+{
+    char name[TB_GUI_FILE_ERROR_CAPACITY] = {0};
+
+    if (tb_json_type_of(object) != TB_JSON_OBJECT)
+    {
+        return tb_gui_fail(loader, object, "expected an object", NULL);
+    }
+    for (size_t index = 0; index < tb_json_count(object); index++)
+    {
+        const char *key = NULL;
+        size_t key_length = 0;
+        uint32_t states = 0;
+        tb_style_value value = {0};
+        const tb_json_value *const member = tb_json_member_at(object, index, &key, &key_length);
+        const size_t back = tb_gui_path_key(loader, key);
+        const char *reason = NULL;
+        if (!tb_style_key_read(key, key_length, name, sizeof(name), &states))
+        {
+            reason = "a style key: a name, then \":\" and states joined by \"+\"";
+        }
+        else
+        {
+            reason = tb_style_value_read(name, member, tb_gui_override_image, &widget, &value);
+        }
+        if (reason == NULL && !tb_widget_override_style(widget, name, states, &value))
+        {
+            reason = "a value the style refuses";
+        }
+        if (reason != NULL)
+        {
+            return tb_gui_fail(loader, member, reason, NULL);
+        }
+        tb_gui_path_back(loader, back);
+    }
+    return true;
+}
+
 static bool tb_gui_load_part(tb_gui_loader *loader, tb_widget widget, const tb_json_value *object,
                              const char *key, size_t depth)
 {
@@ -1137,6 +1181,10 @@ static bool tb_gui_load_part(tb_gui_loader *loader, tb_widget widget, const tb_j
     else if (tb_str_equal(key, "properties"))
     {
         loaded = tb_gui_load_properties(loader, widget, member);
+    }
+    else if (tb_str_equal(key, "overrides"))
+    {
+        loaded = tb_gui_load_overrides(loader, widget, member);
     }
     else if (tb_str_equal(key, "grid"))
     {
@@ -1182,7 +1230,7 @@ static const tb_widget_class *tb_gui_load_kind(tb_gui_loader *loader, const tb_j
 static bool tb_gui_load_widget(tb_gui_loader *loader, tb_widget parent, const tb_json_value *object,
                                size_t depth, tb_widget *made)
 {
-    static const char *const parts[] = {"name",    "properties", "grid",
+    static const char *const parts[] = {"name",    "properties", "overrides", "grid",
                                         "columns", "rows",       "children"};
     const tb_json_value *kind_value = NULL;
     const tb_widget_class *kind = NULL;
@@ -1815,6 +1863,47 @@ static void tb_gui_save_tracks(tb_gui_saver *saver, const tb_gui_axis *axis, con
     tb_gui_saver_check(saver, tb_json_write_end_array(saver->writer));
 }
 
+/* A widget's style overrides, in the order they were set; an image by the
+ * path a theme of the widget names it by. */
+static void tb_gui_save_overrides(tb_gui_saver *saver, tb_widget widget)
+{
+    const tb_gui_node *const node = tb_gui_node_of(widget);
+    char key[TB_GUI_FILE_ERROR_CAPACITY] = {0};
+
+    if (node->override_count == 0)
+    {
+        return;
+    }
+    const size_t back = tb_gui_saver_key(saver, "overrides");
+    tb_gui_write_key(saver, "overrides");
+    tb_gui_saver_check(saver, tb_json_write_begin_object(saver->writer));
+    for (size_t index = 0; index < node->override_count; index++)
+    {
+        const tb_gui_style_entry *const entry = &node->overrides[index];
+        const char *path = NULL;
+        tb_style_key_write(entry->name, entry->states, key, sizeof(key));
+        const size_t item = tb_gui_saver_key(saver, key);
+        tb_gui_write_key(saver, key);
+        if (entry->value.type == TB_STYLE_IMAGE)
+        {
+            path = tb_gui_style_image_path(widget, entry->value.image.slice.image);
+        }
+        if (entry->value.type == TB_STYLE_IMAGE && path == NULL)
+        {
+            /* A file names images by path: one no theme names fails the save. */
+            tb_gui_save_fail(saver, TB_GUI_FILE_INVALID, "an image no theme names by a path", NULL);
+            tb_gui_saver_check(saver, tb_json_write_null(saver->writer));
+        }
+        else
+        {
+            tb_gui_saver_check(saver, tb_style_value_write(saver->writer, &entry->value, path));
+        }
+        tb_gui_saver_back(saver, item);
+    }
+    tb_gui_saver_check(saver, tb_json_write_end_object(saver->writer));
+    tb_gui_saver_back(saver, back);
+}
+
 static void tb_gui_save_widget(tb_gui_saver *saver, tb_widget widget, size_t depth)
 {
     const tb_gui_node *const node = tb_gui_node_of(widget);
@@ -1854,6 +1943,7 @@ static void tb_gui_save_widget(tb_gui_saver *saver, tb_widget widget, size_t dep
         tb_gui_save_properties(saver, widget, scratch);
         tb_gui_saver_back(saver, back);
     }
+    tb_gui_save_overrides(saver, widget);
     tb_gui_save_grid(saver, widget, scratch);
     tb_widget_destroy(scratch);
     tb_gui_save_tracks(saver, &tb_gui_node_of(widget)->axes[TB_GUI_COLUMNS], "columns");

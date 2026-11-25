@@ -80,6 +80,8 @@ game makes its own the same way, and nothing in the GUI tells them apart.
 `flags` say whether Tab gives a widget the focus (`TB_WIDGET_CLASS_FOCUSABLE`),
 and whether a click does (`TB_WIDGET_CLASS_FOCUS_ON_CLICK`, for fields to
 type in). `mouse_filter` is its widgets' filter when they are made.
+`style` says what it draws by: its style class, states, and elements (see
+[styles](#styles)).
 `tb_gui_register_class` registers a kind by its name, so that layout files
 and the editor find it (`tb_gui_find_class`); the engine's are registered
 when a GUI is made. A widget is made of any kind, registered or not.
@@ -87,7 +89,8 @@ when a GUI is made. A widget is made of any kind, registered or not.
 A kind draws through a `tb_gui_paint`: rectangles filled and outlined,
 lines, and text set in a rectangle by its anchor (`tb_gui_paint_text`), each
 clipped to the widget and its ancestors. `tb_widget_state` says whether a
-widget is hovered, pressed, focused, or disabled, to draw it so.
+widget is hovered, pressed, focused, or disabled, and its style in that
+state (`tb_style_of`) what to draw it with.
 
 ## Properties
 
@@ -309,15 +312,15 @@ takes events from the next event on.
 
 | Kind | Properties | What |
 | --- | --- | --- |
-| `frame` | `padding`, `background`, `border` | a container of widgets in its grid; filled with the theme's window color it stops the mouse |
+| `frame` | `padding`, `background`, `border` | a container of widgets in its grid; filled with its style's background it stops the mouse |
 | `label` | `text`, `wrap_length`, `justify`, `anchor`, `font` | text that is read: wrapped at a length, its lines justified against one another, set in its cell by its anchor, in a font asked for by spec |
-| `button` | `text`, `command`, `default` | text that is clicked to call its command; lit under the mouse, darker held, ringed by the accent with the focus, and ringed thinly as a dialog's default |
+| `button` | `text`, `command`, `default` | text that is clicked to call its command; drawn by its style's states: lit under the mouse, darker held, ringed with the focus, and ringed thinly as a dialog's default |
 
-A label's or button's font is the theme's unless it asks for another by
+A label's or button's font is its style's unless it asks for another by
 `tb_font_spec`: the GUI opens it from its catalog (`tb_gui_options::catalog`)
-once, keeps it until it is destroyed, and draws in the theme's font a spec
-the catalog does not have. A spec of weight 0 is the theme's font, and a
-size of 0 the theme's size. Text wider than its rectangle starts at the
+once, keeps it until it is destroyed, and draws in the GUI's font a spec
+the catalog does not have. A spec of weight 0 is the style's font, and a
+size of 0 the style's size ([fonts of styles](#fonts-of-styles)). Text wider than its rectangle starts at the
 rectangle's left edge, and is cut off at its right.
 
 ## Variables and the widgets that edit values
@@ -809,6 +812,7 @@ nothing to say:
 | `kind` | the name its kind is registered by: `"frame"`, `"label"`, `"button"`, or a game's |
 | `name` | its name, for finding it by path; without `/` |
 | `properties` | its properties by name, the common ones and its kind's, but for `name` and its place in the grid |
+| `overrides` | its [style's overrides](#theme-files), by name and states |
 | `grid` | its place in its parent's grid: `row`, `column`, `row_span`, `column_span`, `sticky`, `padx`, `pady`, `ipadx`, `ipady`. A widget without it is not in the grid, and so not shown |
 | `columns`, `rows` | its own grid's columns and rows, from the first, each `weight`, `minsize`, `pad`, and `uniform`; `{}` is one configured with none |
 | `children` | its children, in order |
@@ -945,6 +949,248 @@ Watching is for development: a game turns it on in its development builds,
 and a shipped game, whose files are in packages, does not. The sandbox's
 `gui` scene builds a panel from `tools/sandbox/resources/gui/panel.json`
 and watches it.
+
+## Styles
+
+Every kind draws by a style: colors, sizes, and fonts looked up by name in
+themes, after Tk's ttk styles and Godot's `Theme`. A theme (`tb_theme`)
+holds style classes; a widget's style is resolved from its class, its
+state, its own overrides, and the themes of the GUI and of its ancestors.
+The same widgets take a flat tool's look or a game menu's textured one by
+the theme they are given.
+
+```c
+tb_theme *const theme = tb_theme_create();
+tb_theme_set_color(theme, "Primary.Button", "background", 0, gold);
+tb_theme_set_color(theme, "Primary.Button", "background", TB_WIDGET_HOVERED, bright_gold);
+tb_theme_set_font(theme, "Title.Label", "font", 0,
+                  (tb_font_spec){.role = TB_FONT_ROLE_HEADING, .weight = TB_FONT_WEIGHT_REGULAR});
+tb_gui_set_style_theme(gui, theme);
+
+tb_widget_set_style(apply, "Primary.Button");
+tb_widget_override_style(warning, "text_color", 0,
+                         &(tb_style_value){TB_STYLE_COLOR, {.color = red}});
+```
+
+**What a style holds.** Every style has the standard values, which any
+kind may draw by, and its kind's elements:
+
+| Value | Type | What |
+| --- | --- | --- |
+| `background` | color | the fill behind it; transparent draws none |
+| `background_image` | image | a [nine-slice](#nine-slice-backgrounds) panel drawn in place of the fill |
+| `border_color`, `border_width` | color, number | its outline, inside its edges |
+| `radius` | number | of its corners, its fill's and its outline's |
+| `padding` | edges | between its border and its content |
+| `font` | font | its text's font (see [fonts](#fonts-of-styles)) |
+| `text_color` | color | its text |
+| `focus_color`, `focus_width` | color, number | the ring drawn with the focus: set in a focused state |
+
+A value no theme gives is zero: transparent, of no width, no padding, and
+the GUI's own font. `tb_gui_paint_box` draws a style's box over a
+rectangle, its background, its border, and its focus ring, each where it
+has one; it is what most kinds draw first. The focus ring is no kind's own
+drawing: it is the style of a focused state, so a theme gives it, takes it
+away, or draws focus as a lighter fill instead. The tool themes ring
+buttons, check and radio buttons, sliders, and combo boxes while their
+focus is shown (`focus_width` set for `TB_WIDGET_FOCUS_VISIBLE`: the
+keyboard or a gamepad moved it, see [navigation](#navigation)), and fields
+to type in whenever they have the focus (`TB_WIDGET_FOCUSED`).
+
+**Classes.** A widget's style class is its `style` property, or its
+kind's: "Button", "Label", "Entry". A class falls back along its name, as
+ttk's do: "Primary.Button", then "Button", then the root class ".", where
+the values every kind shares are kept, such as the text's color. A widget
+whose class does not end in its kind's, as "Primary" on a button, has its
+kind's class added before the root.
+
+**States.** Each value is set for a set of states, the flags of
+`tb_widget_state` (hovered, pressed, focused, disabled, focus-visible, and
+engaged) and `TB_WIDGET_SELECTED`, which kinds add for what is chosen: a
+check button ticked, a list's row. None is the widget at rest. For each
+value a widget takes the entry whose states it has every one of, and of
+those the one whose states rank highest: disabled outranks selected,
+selected pressed, pressed hovered, hovered engaged, engaged focus-visible,
+and focus-visible focused, so that a state outranks any mix of those below
+it, as Godot's styles of a button do.
+A button held under the mouse takes its entry for hovered and pressed, then
+for pressed, then for hovered, then its entry at rest. Of entries of the
+same states, the nearest wins: the widget's own overrides, then the nearest
+theme, then the class nearest its own. An entry for more states in a
+farther theme outranks one at rest in a nearer: a variation that changes a
+button's color at rest keeps its base's look under the mouse, unless it
+gives that state too.
+
+**Themes in the tree.** A widget's themes are its own
+(`tb_widget_set_style_theme`), then each ancestor's, then the GUI's
+(`tb_gui_set_style_theme`, or `tb_gui_options::style_theme`), then the
+GUI's default: the tool theme of its palette (`tb_gui_set_theme`), made
+again when the palette is set. A value no nearer theme has comes from a
+farther one, so a theme need give only what differs, and a panel of a
+game's HUD can be drawn by a theme of its own. Themes and the images they
+name are the caller's, borrowed while a GUI or a widget draws by them.
+
+**Overrides.** `tb_widget_override_style` sets one value on one widget, by
+state as a theme's are, before every theme's, as Godot's theme overrides
+do: a warning's color, a wider button. `tb_widget_override_style(widget,
+name, states, NULL)` removes one, and `tb_widget_clear_style_overrides`
+all.
+
+**Kept, not resolved each frame.** A widget's style is resolved the first
+time it is asked for in a set of states (`tb_style_of`, `tb_style_in`),
+and kept: drawing a widget each frame looks nothing up. Each update looks
+at the themes in use; a theme changed (its generation moved), a theme set
+on the GUI or a widget, a widget's class or overrides changed, or the
+palette set resolves the styles again and lays the widgets out again, as
+padding and fonts change sizes. Only the states a kind draws
+(`tb_widget_style_desc::states`) are resolved: a label under the mouse
+shares its style with a label at rest.
+
+### What kinds draw
+
+Each kind declares, as data in its class (`tb_widget_class::style`), its
+style class, the states its look follows, and its elements: the values it
+reads besides the standard ones, each by name and type. The editor and
+theme authors read them to know what a kind can be given, and a game's
+kinds declare their own the same way; a kind reads its elements by index
+(`tb_style_color`, `tb_style_number`, `tb_style_edges`, `tb_style_font`,
+`tb_style_image_of`) or by name (`tb_style_find`). An element of a type
+other than its declared one is ignored.
+
+| Kind | Class | Its box | Elements |
+| --- | --- | --- | --- |
+| `frame` | `Frame` | its background and border, when its properties ask; its padding added while it has a background | `shade` (the root's: behind modal widgets) |
+| `label` | `Label` | around its text | |
+| `button` | `Button` | itself | `default_color`, `default_width` (a dialog's default) |
+| `checkbutton`, `radiobutton` | `Checkbutton`, `Radiobutton` | the indicator, selected while ticked or chosen | `mark_color`, `spacing` |
+| `entry`, `text`, `spinbox` | `Entry`, `Text`, `Spinbox` | the field | `selection`, `placeholder_color`, `caret_color`; a spin box's `arrow_pressed_color`, `separator_color`, `mark_width` |
+| `scale` | `Scale` | the handle, round | `trough_color`, `fill_color`, `spacing` |
+| `progressbar` | `Progressbar` | the trough | `fill_color`, `fill_image` |
+| `combobox`, its list | `Combobox`, `ComboboxList` | itself, drawn pressed while open; the list, its padding each row's | `mark_width`; `hot_color`, `selection`, `thumb_color` |
+| `listbox`, `treeview` | `Listbox`, `Treeview` | itself, its padding each row's | `selection`, `hot_color`, `active_color`, the scroll bar's; a tree's `heading_background`, `heading_text_color`, `separator_color`, `indent`, `mark_width` |
+| `scrollframe`, `scrollbar` | `Scrollframe`, `Scrollbar` | itself | `scrollbar_width`, `scrollbar_inset`, `scrollbar_trough`, `scrollbar_thumb`, `scrollbar_thumb_hot` |
+| `menu`, `menubar` | `Menu`, `Menubar` | itself, its padding each item's | `selection`, `underline_width`; a menu's `accelerator_color`, `separator_color`, `mark_width`; a bar's `hot_color` |
+| `tooltip` | `Tooltip` | itself | |
+| `notebook` | `Notebook` | the page | `tab_background`, `tab_hot_background`, `tab_selected_background`, `tab_text_color`, `tab_selected_text_color`, `tab_line_color`, `tab_line_width`, `tab_padding` |
+| `panedwindow` | `Panedwindow` | behind its panes | `sash_width`, `sash_color`, `sash_active_color` |
+| `messagebox` | `Messagebox` | | `frame_padding`, `spacing`, `button_spacing`; its frame is a `Dialog.Frame`, its title a `Title.Label` |
+| `image`, `canvas` | `Image`, `Canvas` | behind the image; behind the drawing, when it has a background | |
+
+### Nine-slice backgrounds
+
+A `background_image`, or an element of type image, is a nine-slice panel
+(`tb_style_image`): a canvas image cut by four insets in texels, its
+corners drawn at their size and its edges and middle stretched, drawn
+`inset * scale` units wide so that it keeps its size at any GUI scale,
+and tinted (see the [canvas](renderer.md)). `whole_pixels` draws each
+texel of a border as a whole number of pixels, for pixel art; `source`
+cuts a panel from part of an image, as a sheet of them; `hollow` leaves the
+middle out. `tb_gui_paint_nine_slice` draws one from any kind's draw
+function; each slice is an image command of the GUI's list, with its
+texels in `tb_ui_command::source`.
+
+### Fonts of styles
+
+A style's `font` is a `tb_font_spec`: a role, a weight, whether italic, and
+a size, opened from the GUI's catalog. A spec with a weight and no size is
+its role's size. A weight of 0 is the GUI's own font, its palette's, at the
+palette's size, or at the spec's size when it has one. A widget's font is
+its style's at rest, in every state, so text measured is text drawn. A
+font a kind or a widget asks for (a label's `font`) is the style's where it
+gives nothing: a spec of weight 0 is the style's face, and a size of 0 its
+size, so a title can ask for its size alone and take its family from its
+theme. `tb_widget_measure_text` measures text in a widget's style;
+`tb_gui_measure_text` in the root's. No built-in theme is bold.
+
+### The built-in themes
+
+| Theme | Made by | What |
+| --- | --- | --- |
+| dark tool | `tb_theme_create_tool(&tb_ui_theme_dark())` | flat fields, buttons, and lists in the palette's colors, sizes, and spacing: the GUI's default, as it looked before themes |
+| light tool | `tb_theme_create_light()` | the same of `tb_ui_theme_light()`, its ticks white on the accent |
+| game | `tb_theme_create_game(renderer, TB_THEME_GAME_FANTASY)` | beveled bronze buttons, slate panels, and sunk fields as nine-slice images it draws in code and owns; headings and buttons in the heading role's family (Source Sans 3), text in the body role's (Source Serif 4) |
+| retro | `tb_theme_create_game(renderer, TB_THEME_GAME_RETRO)` | the same in pixel art, drawn by whole pixels, every text in the pixel role's font |
+
+The tool theme of any palette is `tb_theme_create_tool(&palette)`. A game
+theme's images are made on its renderer, so it is destroyed before it.
+The sandbox's `gui` scene switches between all four as it runs
+([sandbox](sandbox.md#the-gui-scene)).
+
+### Theme files
+
+A theme loads from a JSON file, its classes and values in place of the
+theme's, all or nothing (`tb_theme_load`, or `tb_theme_load_file` through
+a VFS). The text is strict JSON, read as [layout files](#layout-files)
+are, and its errors are theirs.
+
+```json
+{
+  "format": "badger-theme",
+  "version": 1,
+  "name": "Bronze",
+  "styles": {
+    ".": {"text_color": "#eedfb8", "text_color:disabled": "#857867",
+          "font": {"role": "body"}},
+    "Button": {
+      "background_image": {"image": "/Game/UI/button.png", "insets": 8},
+      "background_image:hovered": {"image": "/Game/UI/button_hot.png", "insets": 8},
+      "padding": [16, 7],
+      "border_width": 0,
+      "focus_width:focused": 2,
+      "font": {"role": "heading"}
+    },
+    "Primary.Button": {"text_color": "#ffcc4d"}
+  }
+}
+```
+
+| Key | What |
+| --- | --- |
+| `format` | `"badger-theme"`, `TB_THEME_FILE_FORMAT` |
+| `version` | `1`, `TB_THEME_FILE_FORMAT_VERSION`; a newer one is refused |
+| `name` | optional text |
+| `styles` | style classes by name, each an object of values |
+
+A value's key is its name, then `:` and its states joined by `+`
+(`hovered`, `pressed`, `focused`, `disabled`, `focus_visible`, `engaged`,
+`selected`); a name alone is the widget at rest. A standard value takes its type; an element's type is
+its shape:
+
+| Type | Written |
+| --- | --- |
+| color | `"#rrggbb"` or `"#rrggbbaa"` |
+| number | a number of units |
+| edges | a number for every side, `[across, down]`, or `[left, top, right, bottom]` |
+| font | `{"role": "ui" \| "body" \| "heading" \| "monospace" \| "pixel", "weight": 400, "italic": false, "size": 18}`; only the role is required; a weight of 0 is the GUI's own font |
+| image | `{"image": path, "insets": texels, "source": [x, y, width, height], "scale": 1, "whole_pixels": false, "hollow": false, "tint": color}`; only the path is required |
+
+An image is named by its VFS path, which the theme maps to a canvas image
+the game made (`tb_theme_add_image`), so a file names no pixels and a
+missing image is an error. Sizes that cannot be negative (`border_width`,
+`radius`, `focus_width`, `padding`) are refused when they are.
+
+**Errors.** Loading returns a layout file's results, and its error,
+`tb_gui_file_error`: `TB_GUI_FILE_MALFORMED` with a line and a column for
+text that is not JSON, and `TB_GUI_FILE_INVALID` for JSON that is not a
+theme, with the JSON path of the value at fault
+(`$.styles.Button.background:hovered`), its line and column, a reason, and
+a message of all of them that names the file. On any error the theme is as
+it was.
+
+**Hot reload.** `tb_gui_watch_theme(gui, theme, vfs, path, &options)`
+watches a theme's file with the layout files' watches (see [hot
+reload](#hot-reload)): each `tb_gui_update` reads it once its interval has
+passed, and when its bytes changed loads it again, and the GUI draws by it
+from that update. A file that fails leaves the theme as it was, and the
+callback is given the error. `tb_gui_unwatch_theme` ends the watch.
+
+**Overrides in layout files.** A widget's `style` is a common property,
+saved and loaded with the others. Its overrides are the widget's
+`overrides` in a [layout file](#the-format), an object of values written
+as a theme's are: `"overrides": {"text_color": "#ffcc4d",
+"padding:hovered": [12, 6]}`. An image is written by the path one of the
+widget's themes names it by; saving one that no theme names fails, rather
+than drop it.
 
 ## Navigation
 
@@ -1142,7 +1388,9 @@ thread that renders. GUIs are independent of one another.
 - Menus', lists', trees', and tabs' items in layout files, which have no
   type for a list yet, nor for an image or a draw callback; a menu bar
   opened by Alt and its titles' mnemonics.
-- Style classes and theme files; the `style` property is kept for them.
+- A theme saved to a file, and a widget's own theme (`tb_widget_set_style_theme`)
+  in layout files; a theme's images loaded from their paths by the engine,
+  which has no image decoder at run time yet.
 - Gamepads read by the engine and fed to navigation; until then a game
   feeds their actions itself.
 - Files watched by the system's own notices of change, rather than read
@@ -1184,6 +1432,17 @@ property written and read again, every kind that edits values saved and
 loaded again, defaults left out, each error's path, line, and reason,
 thousands of damaged files that must neither crash nor leave a widget
 behind, paths, commands and variables by name, and a file in a VFS of
-memory changed, broken, removed, and mended under a watch. The sandbox's
+memory changed, broken, removed, and mended under a watch.
+`gui_style_test.c`, `gui_theme_file_test.c`, and `canvas_slice_test.c`
+cover styles: resolved along their classes' chains, by the ranks of their
+states, from overrides and the themes of subtrees, and resolved again only
+when what they come from changes; theme files of every type of value,
+refused with their paths, damaged, read through a VFS, and loaded again as
+they change; overrides saved in layout files and loaded back the same; and
+nine-slice panels cut on whole pixels at scales 1, 1.5, and 2. The forms
+and containers are drawn on WARP and matched with golden images in the
+default theme, and the forms in the light, game, and retro themes
+(`gui_look_d3d12_test.c`); the default's were taken before styles, and
+still match. The sandbox's
 `gui` scene shows a form by eye, and its `gui_tool` scene an editor's shape
 ([sandbox](sandbox.md)), and the tests draw it on WARP at two scales.

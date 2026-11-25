@@ -77,9 +77,32 @@ static void tb_gui_listbox_destroy(tb_widget widget, void *data)
     tb_gui_string_free(&listbox->joined);
 }
 
+/* A list's style: its box, its rows', and its bar's. Its padding is each
+ * row's: its text's inset, and the room above and below a line. */
+enum
+{
+    TB_GUI_LISTBOX_SELECTION, /* a chosen row */
+    TB_GUI_LISTBOX_HOT,       /* the row under the mouse */
+    TB_GUI_LISTBOX_ACTIVE,    /* the ring of the active row, with the focus */
+    TB_GUI_LISTBOX_ELEMENTS = TB_GUI_LISTBOX_ACTIVE + 1 + TB_GUI_BAR_ELEMENTS
+};
+
+static const tb_style_element tb_gui_listbox_elements[TB_GUI_LISTBOX_ELEMENTS] = {
+    [TB_GUI_LISTBOX_SELECTION] = {"selection", TB_STYLE_COLOR},
+    [TB_GUI_LISTBOX_HOT] = {"hot_color", TB_STYLE_COLOR},
+    [TB_GUI_LISTBOX_ACTIVE] = {"active_color", TB_STYLE_COLOR},
+    TB_GUI_BAR_STYLE_ELEMENTS};
+
+static const tb_widget_style_desc tb_gui_listbox_style = {.name = "Listbox",
+                                                          .states = TB_WIDGET_FOCUSED |
+                                                                    TB_WIDGET_DISABLED,
+                                                          .elements = tb_gui_listbox_elements,
+                                                          .element_count = TB_GUI_LISTBOX_ELEMENTS};
+
 static float tb_gui_listbox_row_height(tb_widget widget)
 {
-    return tb_gui_line_height(widget.gui) + tb_gui_theme(widget.gui)->frame_padding.y;
+    const tb_style *const style = tb_style_in(widget, 0);
+    return tb_gui_line_height(widget) + style->padding.top + style->padding.bottom;
 }
 
 static size_t tb_gui_listbox_rows_shown(const tb_gui_listbox *listbox)
@@ -412,23 +435,23 @@ size_t tb_listbox_nearest(tb_widget listbox, float y)
 static tb_vec2 tb_gui_listbox_measure(tb_widget widget, const void *data)
 {
     const tb_gui_listbox *const listbox = data;
-    const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
-    const float width =
-        listbox->width > 0.0f ? listbox->width : theme->font_size * TB_GUI_LISTBOX_EMS;
+    const float border = tb_style_in(widget, 0)->border_width;
+    const float ems = tb_gui_widget_font(widget, (tb_font_spec){0}).size * TB_GUI_LISTBOX_EMS;
+    const float width = listbox->width > 0.0f ? listbox->width : ems;
     const size_t rows = tb_gui_listbox_rows_shown(listbox);
-    const float bar = listbox->count > rows ? theme->scrollbar_width : 0.0f;
+    const float bar = listbox->count > rows ? tb_gui_bar_width(widget) : 0.0f;
 
-    return (tb_vec2){width + bar + 2.0f * theme->border,
-                     (float)rows * tb_gui_listbox_row_height(widget) + 2.0f * theme->border};
+    return (tb_vec2){width + bar + 2.0f * border,
+                     (float)rows * tb_gui_listbox_row_height(widget) + 2.0f * border};
 }
 
 static void tb_gui_listbox_arrange(tb_widget widget, void *data, tb_canvas_rect rect)
 {
     tb_gui_listbox *const listbox = data;
-    const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
-    const tb_canvas_rect inner = tb_ui_rect_inset(rect, theme->border, theme->border);
+    const float border = tb_style_in(widget, 0)->border_width;
+    const tb_canvas_rect inner = tb_ui_rect_inset(rect, border, border);
     const float content = (float)listbox->count * tb_gui_listbox_row_height(widget);
-    const float bar = theme->scrollbar_width;
+    const float bar = tb_gui_bar_width(widget);
 
     listbox->bar = content > inner.height;
     listbox->view = inner;
@@ -441,41 +464,42 @@ static void tb_gui_listbox_arrange(tb_widget widget, void *data, tb_canvas_rect 
 }
 
 static void tb_gui_listbox_draw_row(tb_widget widget, const tb_gui_listbox *listbox,
-                                    tb_gui_paint *rows, size_t row, uint32_t state)
+                                    tb_gui_paint *rows, size_t row, const tb_style *style)
 {
-    const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
     const tb_canvas_rect rect = tb_gui_listbox_row_rect(widget, listbox, row);
     const tb_gui_text_block block = {.text = tb_gui_string_text(&listbox->items[row].text),
                                      .anchor = TB_GUI_ANCHOR_W};
-    const bool disabled = (state & TB_WIDGET_DISABLED) != 0;
+    const bool focused = (tb_widget_state(widget) & TB_WIDGET_FOCUSED) != 0;
+    const tb_canvas_rect text = {
+        rect.x + style->padding.left, rect.y,
+        fmaxf(rect.width - style->padding.left - style->padding.right, 0.0f), rect.height};
 
     if (listbox->items[row].selected)
     {
-        tb_gui_paint_fill(rows, rect, 0.0f, theme->colors[TB_UI_COLOR_SELECTION]);
+        tb_gui_paint_fill(rows, rect, 0.0f, tb_style_color(style, TB_GUI_LISTBOX_SELECTION));
     }
     else if (row == listbox->hot_row)
     {
-        tb_gui_paint_fill(rows, rect, 0.0f, theme->colors[TB_UI_COLOR_HEADER_HOT]);
+        tb_gui_paint_fill(rows, rect, 0.0f, tb_style_color(style, TB_GUI_LISTBOX_HOT));
     }
-    if (row == listbox->active && (state & TB_WIDGET_FOCUSED) != 0)
+    if (row == listbox->active && focused)
     {
-        tb_gui_paint_outline(rows, rect, 0.0f, theme->border, theme->colors[TB_UI_COLOR_ACCENT]);
+        tb_gui_paint_outline(rows, rect, 0.0f, style->border_width,
+                             tb_style_color(style, TB_GUI_LISTBOX_ACTIVE));
     }
-    tb_gui_paint_text(rows, &block, tb_ui_rect_inset(rect, theme->frame_padding.x, 0.0f),
-                      theme->colors[disabled ? TB_UI_COLOR_TEXT_DIM : TB_UI_COLOR_TEXT]);
+    tb_gui_paint_text(rows, &block, text, style->text_color);
 }
 
 static void tb_gui_listbox_draw(tb_widget widget, const void *data, tb_gui_paint *paint)
 {
     const tb_gui_listbox *const listbox = data;
-    const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
-    const uint32_t state = tb_widget_state(widget);
+    const tb_style *const style = tb_style_of(widget);
     const float row_height = tb_gui_listbox_row_height(widget);
     /* Rows are drawn within the view, and only those that can be seen. */
     tb_gui_paint rows = *paint;
     rows.clip = tb_ui_rect_intersect(paint->clip, listbox->view);
 
-    tb_gui_paint_fill(paint, paint->rect, 0.0f, theme->colors[TB_UI_COLOR_FRAME]);
+    tb_gui_paint_box(paint, paint->rect, style);
     if (!tb_ui_rect_empty(rows.clip) && row_height > 0.0f)
     {
         const float top = rows.clip.y - listbox->view.y + listbox->offset;
@@ -484,17 +508,14 @@ static void tb_gui_listbox_draw(tb_widget widget, const void *data, tb_gui_paint
             fminf(ceilf((top + rows.clip.height) / row_height), (float)listbox->count);
         for (size_t row = (size_t)first; (float)row < last; row++)
         {
-            tb_gui_listbox_draw_row(widget, listbox, &rows, row, state);
+            tb_gui_listbox_draw_row(widget, listbox, &rows, row, style);
         }
     }
     if (listbox->bar)
     {
         const tb_gui_bar bar = tb_gui_listbox_bar(widget, listbox);
-        tb_gui_bar_draw(paint, &bar, listbox->dragging_bar);
+        tb_gui_bar_draw(paint, &bar, listbox->dragging_bar, style);
     }
-    tb_gui_paint_outline(
-        paint, paint->rect, 0.0f, theme->border,
-        theme->colors[(state & TB_WIDGET_FOCUSED) != 0 ? TB_UI_COLOR_ACCENT : TB_UI_COLOR_BORDER]);
 }
 
 static bool tb_gui_listbox_press(tb_widget widget, tb_gui_listbox *listbox,
@@ -846,7 +867,8 @@ static const tb_widget_class tb_gui_listbox_kind = {
     .measure = tb_gui_listbox_measure,
     .arrange = tb_gui_listbox_arrange,
     .draw = tb_gui_listbox_draw,
-    .event = tb_gui_listbox_event};
+    .event = tb_gui_listbox_event,
+    .style = &tb_gui_listbox_style};
 
 static tb_gui_listbox *tb_gui_listbox_of(tb_widget widget)
 {

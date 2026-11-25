@@ -140,10 +140,15 @@ static void tb_gui_scrollframe_init(tb_widget widget, void *data)
     frame->hot_axis = TB_GUI_NO_AXIS;
 }
 
-static float tb_gui_bar_width(tb_widget widget)
-{
-    return tb_gui_theme(widget.gui)->scrollbar_width;
-}
+/* A scroll frame's style: its box, and its bars' elements. */
+static const tb_style_element tb_gui_scrollframe_elements[TB_GUI_BAR_ELEMENTS] = {
+    TB_GUI_BAR_STYLE_ELEMENTS};
+
+static const tb_widget_style_desc tb_gui_scrollframe_style = {.name = "Scrollframe",
+                                                              .states = TB_WIDGET_DISABLED,
+                                                              .elements =
+                                                                  tb_gui_scrollframe_elements,
+                                                              .element_count = TB_GUI_BAR_ELEMENTS};
 
 static tb_vec2 tb_gui_scrollframe_measure(tb_widget widget, const void *data)
 {
@@ -164,7 +169,7 @@ static tb_vec2 tb_gui_scrollframe_measure(tb_widget widget, const void *data)
 static tb_gui_edges tb_gui_scrollframe_insets(tb_widget widget, const void *data)
 {
     const tb_gui_scrollframe *const frame = data;
-    const float edge = frame->border ? tb_gui_theme(widget.gui)->border : 0.0f;
+    const float edge = frame->border ? tb_style_in(widget, 0)->border_width : 0.0f;
 
     return (tb_gui_edges){edge, edge, edge, edge};
 }
@@ -212,20 +217,22 @@ static tb_gui_bar tb_gui_scrollframe_bar(tb_widget widget, const tb_gui_scrollfr
 static void tb_gui_scrollframe_draw(tb_widget widget, const void *data, tb_gui_paint *paint)
 {
     const tb_gui_scrollframe *const frame = data;
-    const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
+    const tb_style *const style = tb_style_of(widget);
 
+    tb_gui_paint_fill(paint, tb_gui_paint_rect(paint), style->radius, style->background);
     for (int axis = TB_GUI_COLUMNS; axis <= TB_GUI_ROWS; axis++)
     {
         if (frame->bars[axis])
         {
             const tb_gui_bar bar = tb_gui_scrollframe_bar(widget, frame, axis);
-            tb_gui_bar_draw(paint, &bar, frame->hot_axis == axis || frame->drag_axis == axis);
+            tb_gui_bar_draw(paint, &bar, frame->hot_axis == axis || frame->drag_axis == axis,
+                            style);
         }
     }
     if (frame->border)
     {
-        tb_gui_paint_outline(paint, tb_gui_paint_rect(paint), 0.0f, theme->border,
-                             theme->colors[TB_UI_COLOR_BORDER]);
+        tb_gui_paint_outline(paint, tb_gui_paint_rect(paint), style->radius, style->border_width,
+                             style->border_color);
     }
 }
 
@@ -292,7 +299,7 @@ static bool tb_gui_scrollframe_press(tb_widget widget, tb_gui_scrollframe *frame
 static bool tb_gui_scrollframe_wheel(tb_widget widget, const tb_gui_scrollframe *frame,
                                      const tb_gui_event *event)
 {
-    const float step = tb_gui_line_height(widget.gui) * TB_GUI_WHEEL_LINES;
+    const float step = tb_gui_line_height(widget) * TB_GUI_WHEEL_LINES;
     const bool sideways = (event->modifiers & TB_MODIFIER_SHIFT) != 0 || event->wheel.x != 0.0f;
     const float notches = event->wheel.x != 0.0f ? event->wheel.x : -event->wheel.y;
     const int axis = sideways ? TB_GUI_COLUMNS : TB_GUI_ROWS;
@@ -450,7 +457,8 @@ static const tb_widget_class tb_gui_scrollframe_kind = {
     .insets = tb_gui_scrollframe_insets,
     .draw = tb_gui_scrollframe_draw,
     .event = tb_gui_scrollframe_event,
-    .viewport = tb_gui_scrollframe_viewport};
+    .viewport = tb_gui_scrollframe_viewport,
+    .style = &tb_gui_scrollframe_style};
 
 const tb_widget_class *tb_scrollframe_class(void)
 {

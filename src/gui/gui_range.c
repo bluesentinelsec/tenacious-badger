@@ -106,24 +106,43 @@ static tb_text tb_gui_scale_written(const tb_gui_scale *scale, double value, cha
                                 buffer);
 }
 
+/* A slider's style: its box is its handle's. */
+enum
+{
+    TB_GUI_SCALE_TROUGH,  /* the track */
+    TB_GUI_SCALE_FILL,    /* the track up to the handle */
+    TB_GUI_SCALE_SPACING, /* units between the track and the value written */
+    TB_GUI_SCALE_ELEMENTS
+};
+
+static const tb_style_element tb_gui_scale_elements[TB_GUI_SCALE_ELEMENTS] = {
+    [TB_GUI_SCALE_TROUGH] = {"trough_color", TB_STYLE_COLOR},
+    [TB_GUI_SCALE_FILL] = {"fill_color", TB_STYLE_COLOR},
+    [TB_GUI_SCALE_SPACING] = {"spacing", TB_STYLE_NUMBER}};
+
+static const tb_widget_style_desc tb_gui_scale_style = {.name = "Scale",
+                                                        .states = TB_GUI_VALUES_STATES,
+                                                        .elements = tb_gui_scale_elements,
+                                                        .element_count = TB_GUI_SCALE_ELEMENTS};
+
 /* The widest its value is written, at either end. */
 static tb_vec2 tb_gui_scale_label_size(tb_widget widget, const tb_gui_scale *scale)
 {
     char buffer[TB_GUI_NUMBER_CAPACITY] = {0};
     tb_gui_text_block block = {.text = tb_gui_scale_written(scale, (double)scale->from, buffer)};
-    const tb_vec2 from = tb_gui_measure_text(widget.gui, &block);
+    const tb_vec2 from = tb_widget_measure_text(widget, &block);
 
     block.text = tb_gui_scale_written(scale, (double)scale->to, buffer);
-    const tb_vec2 to = tb_gui_measure_text(widget.gui, &block);
+    const tb_vec2 to = tb_widget_measure_text(widget, &block);
     return (tb_vec2){fmaxf(from.x, to.x),
-                     fmaxf(fmaxf(from.y, to.y), tb_gui_values_measures(widget.gui).line_height)};
+                     fmaxf(fmaxf(from.y, to.y), tb_gui_values_measures(widget).line_height)};
 }
 
 static tb_gui_scale_parts tb_gui_scale_parts_of(tb_widget widget, const tb_gui_scale *scale,
                                                 tb_canvas_rect rect)
 {
-    const float line = tb_gui_values_measures(widget.gui).line_height;
-    const float gap = tb_gui_theme(widget.gui)->frame_padding.x;
+    const float line = tb_gui_values_measures(widget).line_height;
+    const float gap = tb_style_number(tb_style_in(widget, 0), TB_GUI_SCALE_SPACING);
     tb_gui_scale_parts parts = {.handle = line * TB_GUI_HANDLE_LINES};
 
     if (scale->orient == TB_GUI_ORIENT_HORIZONTAL)
@@ -145,7 +164,7 @@ static tb_vec2 tb_gui_scale_measure(tb_widget widget, const void *data)
 {
     const tb_gui_scale *const scale = data;
     const tb_gui_scale_parts parts = tb_gui_scale_parts_of(widget, scale, (tb_canvas_rect){0});
-    const float line = tb_gui_values_measures(widget.gui).line_height;
+    const float line = tb_gui_values_measures(widget).line_height;
 
     if (scale->orient == TB_GUI_ORIENT_HORIZONTAL)
     {
@@ -165,9 +184,7 @@ static float tb_gui_scale_position(const tb_gui_scale *scale, const tb_gui_scale
 static void tb_gui_scale_draw(tb_widget widget, const void *data, tb_gui_paint *paint)
 {
     const tb_gui_scale *const scale = data;
-    const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
-    const uint32_t state = tb_widget_state(widget);
-    const bool disabled = (state & TB_WIDGET_DISABLED) != 0;
+    const tb_style *const style = tb_style_of(widget);
     const tb_canvas_rect rect = tb_gui_paint_rect(paint);
     const tb_gui_scale_parts parts = tb_gui_scale_parts_of(widget, scale, rect);
     const double value = tb_gui_scale_value(scale);
@@ -188,25 +205,13 @@ static void tb_gui_scale_draw(tb_widget widget, const void *data, tb_gui_paint *
         filled = (tb_canvas_rect){trough.x, parts.track.y, thin, at - parts.track.y};
         handle = (tb_canvas_rect){middle - half, at - half, parts.handle, parts.handle};
     }
-    tb_gui_paint_fill(paint, trough, thin * 0.5f, theme->colors[TB_UI_COLOR_FRAME]);
-    tb_gui_paint_fill(paint, filled, thin * 0.5f,
-                      theme->colors[disabled ? TB_UI_COLOR_FRAME_ACTIVE : TB_UI_COLOR_ACCENT]);
-    tb_ui_color fill = TB_UI_COLOR_BUTTON;
-    if ((state & TB_WIDGET_PRESSED) != 0)
-    {
-        fill = TB_UI_COLOR_BUTTON_ACTIVE;
-    }
-    else if ((state & TB_WIDGET_HOVERED) != 0)
-    {
-        fill = TB_UI_COLOR_BUTTON_HOT;
-    }
-    tb_gui_paint_fill(paint, handle, half, theme->colors[fill]);
-    tb_gui_paint_outline(paint, handle, half, theme->border, theme->colors[TB_UI_COLOR_BORDER]);
-    if ((state & TB_WIDGET_FOCUS_VISIBLE) != 0)
-    {
-        tb_gui_paint_outline(paint, handle, half, 2.0f * theme->border,
-                             theme->colors[TB_UI_COLOR_ACCENT]);
-    }
+    tb_style round = *style;
+
+    tb_gui_paint_fill(paint, trough, thin * 0.5f, tb_style_color(style, TB_GUI_SCALE_TROUGH));
+    tb_gui_paint_fill(paint, filled, thin * 0.5f, tb_style_color(style, TB_GUI_SCALE_FILL));
+    /* The handle is round, whatever its style's corners. */
+    round.radius = half;
+    tb_gui_paint_box(paint, handle, &round);
     if (!scale->show_value)
     {
         return;
@@ -217,10 +222,9 @@ static void tb_gui_scale_draw(tb_widget widget, const void *data, tb_gui_paint *
     const tb_canvas_rect label =
         across ? (tb_canvas_rect){at - size.x * 0.5f, rect.y, size.x, parts.label}
                : (tb_canvas_rect){parts.track.x + parts.track.width +
-                                      tb_gui_theme(widget.gui)->frame_padding.x,
+                                      tb_style_number(style, TB_GUI_SCALE_SPACING),
                                   at - size.y * 0.5f, size.x, size.y};
-    tb_gui_paint_text(paint, &block, label,
-                      theme->colors[disabled ? TB_UI_COLOR_TEXT_DIM : TB_UI_COLOR_TEXT]);
+    tb_gui_paint_text(paint, &block, label, style->text_color);
 }
 
 /* Set a slider's value from input: rounded, kept within its range. */
@@ -537,7 +541,8 @@ static const tb_widget_class tb_gui_scale_kind = {
     .destroy = tb_gui_scale_destroy,
     .measure = tb_gui_scale_measure,
     .draw = tb_gui_scale_draw,
-    .event = tb_gui_scale_event};
+    .event = tb_gui_scale_event,
+    .style = &tb_gui_scale_style};
 
 const tb_widget_class *tb_scale_class(void)
 {
@@ -600,10 +605,28 @@ static double tb_gui_progress_value(const tb_gui_progress *bar)
     return tb_var_alive(bar->variable) ? tb_var_get_float(bar->variable) : (double)bar->value;
 }
 
+/* A progress bar's style: its box is its trough's. */
+enum
+{
+    TB_GUI_PROGRESS_FILL,       /* the part done */
+    TB_GUI_PROGRESS_FILL_IMAGE, /* drawn over the part done in place of its color */
+    TB_GUI_PROGRESS_ELEMENTS
+};
+
+static const tb_style_element tb_gui_progress_elements[TB_GUI_PROGRESS_ELEMENTS] = {
+    [TB_GUI_PROGRESS_FILL] = {"fill_color", TB_STYLE_COLOR},
+    [TB_GUI_PROGRESS_FILL_IMAGE] = {"fill_image", TB_STYLE_IMAGE}};
+
+static const tb_widget_style_desc tb_gui_progress_style = {.name = "Progressbar",
+                                                           .states = TB_WIDGET_DISABLED,
+                                                           .elements = tb_gui_progress_elements,
+                                                           .element_count =
+                                                               TB_GUI_PROGRESS_ELEMENTS};
+
 static tb_vec2 tb_gui_progress_measure(tb_widget widget, const void *data)
 {
     const tb_gui_progress *const bar = data;
-    const float thickness = tb_gui_values_measures(widget.gui).line_height * TB_GUI_PROGRESS_LINES;
+    const float thickness = tb_gui_values_measures(widget).line_height * TB_GUI_PROGRESS_LINES;
 
     if (bar->orient == TB_GUI_ORIENT_HORIZONTAL)
     {
@@ -624,16 +647,19 @@ static float tb_gui_progress_block(double seconds)
 static void tb_gui_progress_draw(tb_widget widget, const void *data, tb_gui_paint *paint)
 {
     const tb_gui_progress *const bar = data;
-    const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
-    const bool disabled = (tb_widget_state(widget) & TB_WIDGET_DISABLED) != 0;
+    const tb_style *const style = tb_style_of(widget);
+    const tb_style_image *const fill_image = tb_style_image_of(style, TB_GUI_PROGRESS_FILL_IMAGE);
     const tb_canvas_rect rect = tb_gui_paint_rect(paint);
     const bool across = bar->orient == TB_GUI_ORIENT_HORIZONTAL;
     const float length = across ? rect.width : rect.height;
     float start = 0.0f;
     float extent = 0.0f;
     tb_canvas_rect filled = rect;
+    tb_style trough = *style;
 
-    tb_gui_paint_fill(paint, rect, theme->frame_rounding, theme->colors[TB_UI_COLOR_FRAME]);
+    /* The trough, then the part done, then the trough's border over both. */
+    trough.border_width = 0.0f;
+    tb_gui_paint_box(paint, rect, &trough);
     if (bar->mode == TB_PROGRESS_INDETERMINATE)
     {
         start = tb_gui_progress_block(widget.gui->time) * length;
@@ -654,13 +680,16 @@ static void tb_gui_progress_draw(tb_widget widget, const void *data, tb_gui_pain
         filled.y += start;
         filled.height = extent;
     }
-    if (extent > 0.0f)
+    if (extent > 0.0f && fill_image != NULL && fill_image->slice.image != NULL)
     {
-        tb_gui_paint_fill(paint, filled, theme->frame_rounding,
-                          theme->colors[disabled ? TB_UI_COLOR_FRAME_ACTIVE : TB_UI_COLOR_ACCENT]);
+        tb_gui_paint_nine_slice(paint, &fill_image->slice, filled, fill_image->tint);
     }
-    tb_gui_paint_outline(paint, rect, theme->frame_rounding, theme->border,
-                         theme->colors[TB_UI_COLOR_BORDER]);
+    else if (extent > 0.0f)
+    {
+        tb_gui_paint_fill(paint, filled, style->radius,
+                          tb_style_color(style, TB_GUI_PROGRESS_FILL));
+    }
+    tb_gui_paint_outline(paint, rect, style->radius, style->border_width, style->border_color);
 }
 
 static bool tb_gui_progress_get_value(tb_widget widget, const void *data, tb_gui_value *value)
@@ -789,7 +818,8 @@ static const tb_widget_class tb_gui_progress_kind = {
     .mouse_filter = TB_GUI_MOUSE_PASS,
     .init = tb_gui_progress_init,
     .measure = tb_gui_progress_measure,
-    .draw = tb_gui_progress_draw};
+    .draw = tb_gui_progress_draw,
+    .style = &tb_gui_progress_style};
 
 const tb_widget_class *tb_progressbar_class(void)
 {

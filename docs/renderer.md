@@ -541,6 +541,22 @@ stay crisp. Images and sprites are not smoothed at their edges; a sprite
 sheet read with `TB_IMAGE_LINEAR` may bleed from neighboring frames, which
 `TB_IMAGE_NEAREST` at whole scales does not.
 
+**Nine-slice panels.** `tb_canvas_draw_nine_slice(renderer, &slice, rect,
+tint)` draws an image cut by four insets (`tb_canvas_nine_slice`), as
+Godot's `StyleBoxTexture` and Unity's sliced sprites do: the corners at
+their size, the edges stretched along their length, and the middle both
+ways, so that a frame or a button of any size keeps its borders. The
+insets are texels of the image, or of a `source` rectangle within it, as a
+sprite sheet's frame; the borders are drawn `inset * scale` units wide, so
+they keep their size in units at any view's scale. Every edge of a slice
+lands on a whole pixel, and slices share their edges, with neither gap nor
+overlap. With `whole_pixels`, a texel of a border is a whole number of
+pixels, the most that fits `scale` units and at least one: pixel art stays
+even at 125% as at 200%. Borders wider than the rectangle shrink together
+to fit it, and a `hollow` panel leaves its middle out.
+`tb_canvas_nine_slice_layout()` gives the slices without drawing them, for
+interfaces that build their own commands, as the [GUI](gui.md#styles) does.
+
 **Text.** `tb_canvas_draw_text(renderer, font, text, size, position, color,
 options)` draws UTF-8 laid out by the font module ([fonts](fonts.md#laying-out-text)),
 its box's top left at `position`, in the canvas's units:

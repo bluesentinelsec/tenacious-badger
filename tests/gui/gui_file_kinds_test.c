@@ -395,6 +395,10 @@ TB_TEST(gui_file_kinds, every_registered_kind_comes_back_the_same)
         TB_TEST_REQUIRE(tb_widget_set(made, "focus_wrap", &wrapped));
         TB_TEST_REQUIRE(tb_widget_set(made, "focus_down", &below));
         TB_TEST_REQUIRE(tb_widget_set_focus_neighbor(made, TB_GUI_NAV_NEXT, target));
+        /* And a style override, which every kind has. */
+        TB_TEST_REQUIRE(tb_widget_override_style(
+            made, "text_color", TB_WIDGET_HOVERED,
+            &(tb_style_value){.type = TB_STYLE_COLOR, .color = {1.0f, 0.0f, 0.0f, 1.0f}}));
         for (size_t index = 0; index < kind->property_count; index++)
         {
             const tb_gui_property *const property = &kind->properties[index];

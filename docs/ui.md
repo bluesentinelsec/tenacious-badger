@@ -194,6 +194,9 @@ selects its text, so that typing replaces it.
 spacing, padding, rounding, and widths of everything, in units.
 `tb_ui_theme_dark` is the default: dark grays and a blue accent after
 Unreal's editor, text at the UI role's default size (16 units).
+`tb_ui_theme_light` is its light twin: light grays, a deeper blue, and the
+same sizes. The [retained GUI](gui.md#styles) takes a theme as its palette,
+and draws by the style theme it makes of it.
 
 A theme has three fonts, all drawn at its size: `TB_UI_FONT_REGULAR` for
 text, `TB_UI_FONT_HEADING` for titles, headings, and headers, and

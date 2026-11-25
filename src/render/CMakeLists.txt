@@ -2,6 +2,7 @@
 set(TB_RENDER_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/camera.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/canvas.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/canvas_slice.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/canvas_batch.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/canvas_text.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/debug_draw.c"

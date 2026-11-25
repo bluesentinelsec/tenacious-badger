@@ -87,15 +87,47 @@ static void tb_gui_notebook_prune(tb_gui_notebook *notebook)
     }
 }
 
-static float tb_gui_notebook_tab_height(tb_gui *gui)
+/* A notebook's style: its box is its page's, and its tabs' are elements. */
+enum
 {
-    return tb_gui_line_height(gui) + 2.0f * tb_gui_theme(gui)->frame_padding.y;
+    TB_GUI_TAB_BACKGROUND,          /* a tab not chosen */
+    TB_GUI_TAB_HOT_BACKGROUND,      /* a tab under the mouse */
+    TB_GUI_TAB_SELECTED_BACKGROUND, /* the tab chosen */
+    TB_GUI_TAB_TEXT,                /* a tab's text */
+    TB_GUI_TAB_SELECTED_TEXT,       /* the chosen tab's text */
+    TB_GUI_TAB_LINE,                /* the line along the chosen tab's top */
+    TB_GUI_TAB_LINE_WIDTH,          /* units it is wide */
+    TB_GUI_TAB_PADDING,             /* around a tab's text */
+    TB_GUI_NOTEBOOK_ELEMENTS
+};
+
+static const tb_style_element tb_gui_notebook_elements[TB_GUI_NOTEBOOK_ELEMENTS] = {
+    [TB_GUI_TAB_BACKGROUND] = {"tab_background", TB_STYLE_COLOR},
+    [TB_GUI_TAB_HOT_BACKGROUND] = {"tab_hot_background", TB_STYLE_COLOR},
+    [TB_GUI_TAB_SELECTED_BACKGROUND] = {"tab_selected_background", TB_STYLE_COLOR},
+    [TB_GUI_TAB_TEXT] = {"tab_text_color", TB_STYLE_COLOR},
+    [TB_GUI_TAB_SELECTED_TEXT] = {"tab_selected_text_color", TB_STYLE_COLOR},
+    [TB_GUI_TAB_LINE] = {"tab_line_color", TB_STYLE_COLOR},
+    [TB_GUI_TAB_LINE_WIDTH] = {"tab_line_width", TB_STYLE_NUMBER},
+    [TB_GUI_TAB_PADDING] = {"tab_padding", TB_STYLE_EDGES}};
+
+static const tb_widget_style_desc tb_gui_notebook_style = {
+    .name = "Notebook",
+    .states = TB_WIDGET_FOCUSED | TB_WIDGET_DISABLED,
+    .elements = tb_gui_notebook_elements,
+    .element_count = TB_GUI_NOTEBOOK_ELEMENTS};
+
+static float tb_gui_notebook_tab_height(tb_widget widget)
+{
+    const tb_gui_edges padding = tb_style_edges(tb_style_in(widget, 0), TB_GUI_TAB_PADDING);
+    return tb_gui_line_height(widget) + padding.top + padding.bottom;
 }
 
-static float tb_gui_notebook_tab_width(tb_gui *gui, const tb_gui_notebook_tab *tab)
+static float tb_gui_notebook_tab_width(tb_widget widget, const tb_gui_notebook_tab *tab)
 {
     const tb_gui_text_block block = {.text = tb_gui_string_text(&tab->text)};
-    return tb_gui_measure_text(gui, &block).x + 2.0f * tb_gui_theme(gui)->frame_padding.x;
+    const tb_gui_edges padding = tb_style_edges(tb_style_in(widget, 0), TB_GUI_TAB_PADDING);
+    return tb_widget_measure_text(widget, &block).x + padding.left + padding.right;
 }
 
 static tb_canvas_rect tb_gui_notebook_tab_rect(tb_widget widget, const tb_gui_notebook *notebook,
@@ -106,11 +138,10 @@ static tb_canvas_rect tb_gui_notebook_tab_rect(tb_widget widget, const tb_gui_no
 
     for (size_t at = 0; at < index; at++)
     {
-        left += tb_gui_notebook_tab_width(widget.gui, &notebook->tabs[at]);
+        left += tb_gui_notebook_tab_width(widget, &notebook->tabs[at]);
     }
-    return (tb_canvas_rect){left, rect.y,
-                            tb_gui_notebook_tab_width(widget.gui, &notebook->tabs[index]),
-                            tb_gui_notebook_tab_height(widget.gui)};
+    return (tb_canvas_rect){left, rect.y, tb_gui_notebook_tab_width(widget, &notebook->tabs[index]),
+                            tb_gui_notebook_tab_height(widget)};
 }
 
 static size_t tb_gui_notebook_tab_at(tb_widget widget, const tb_gui_notebook *notebook,
@@ -153,7 +184,7 @@ static tb_vec2 tb_gui_notebook_measure(tb_widget widget, const void *data)
 
     for (size_t index = 0; index < notebook->count; index++)
     {
-        width += tb_gui_notebook_tab_width(widget.gui, &notebook->tabs[index]);
+        width += tb_gui_notebook_tab_width(widget, &notebook->tabs[index]);
     }
     return (tb_vec2){width, 0.0f};
 }
@@ -161,9 +192,9 @@ static tb_vec2 tb_gui_notebook_measure(tb_widget widget, const void *data)
 static tb_gui_edges tb_gui_notebook_insets(tb_widget widget, const void *data)
 {
     const tb_gui_notebook *const notebook = data;
-    const float edge = notebook->padding + tb_gui_theme(widget.gui)->border;
+    const float edge = notebook->padding + tb_style_in(widget, 0)->border_width;
 
-    return (tb_gui_edges){edge, tb_gui_notebook_tab_height(widget.gui) + edge, edge, edge};
+    return (tb_gui_edges){edge, tb_gui_notebook_tab_height(widget) + edge, edge, edge};
 }
 
 static void tb_gui_notebook_arrange(tb_widget widget, void *data, tb_canvas_rect rect)
@@ -176,36 +207,36 @@ static void tb_gui_notebook_arrange(tb_widget widget, void *data, tb_canvas_rect
 static void tb_gui_notebook_draw(tb_widget widget, const void *data, tb_gui_paint *paint)
 {
     const tb_gui_notebook *const notebook = data;
-    const tb_ui_theme *const theme = tb_gui_theme(widget.gui);
+    const tb_style *const style = tb_style_of(widget);
     const tb_canvas_rect rect = tb_gui_paint_rect(paint);
-    const float tabs = tb_gui_notebook_tab_height(widget.gui);
+    const float tabs = tb_gui_notebook_tab_height(widget);
     const tb_canvas_rect page = {rect.x, rect.y + tabs, rect.width,
                                  fmaxf(rect.height - tabs, 0.0f)};
-    const uint32_t state = tb_widget_state(widget);
 
-    tb_gui_paint_fill(paint, page, 0.0f, theme->colors[TB_UI_COLOR_WINDOW]);
-    tb_gui_paint_outline(paint, page, 0.0f, theme->border, theme->colors[TB_UI_COLOR_BORDER]);
+    tb_gui_paint_box(paint, page, style);
     for (size_t index = 0; index < notebook->count; index++)
     {
         const tb_canvas_rect tab = tb_gui_notebook_tab_rect(widget, notebook, index);
         const bool selected = index == notebook->selected;
-        const tb_ui_color fill = selected                 ? TB_UI_COLOR_WINDOW
-                                 : index == notebook->hot ? TB_UI_COLOR_HEADER_HOT
-                                                          : TB_UI_COLOR_HEADER;
+        size_t fill = index == notebook->hot ? TB_GUI_TAB_HOT_BACKGROUND : TB_GUI_TAB_BACKGROUND;
         const tb_gui_text_block block = {.text = tb_gui_string_text(&notebook->tabs[index].text),
                                          .anchor = TB_GUI_ANCHOR_CENTER};
-        tb_gui_paint_fill(paint, tab, 0.0f, theme->colors[fill]);
-        tb_gui_paint_outline(paint, tab, 0.0f, theme->border, theme->colors[TB_UI_COLOR_BORDER]);
+        if (selected)
+        {
+            fill = TB_GUI_TAB_SELECTED_BACKGROUND;
+        }
+        tb_gui_paint_fill(paint, tab, 0.0f, tb_style_color(style, fill));
+        tb_gui_paint_outline(paint, tab, 0.0f, style->border_width, style->border_color);
         if (selected)
         {
             /* The chosen tab opens onto its page: its line along the top. */
-            tb_gui_paint_fill(paint,
-                              (tb_canvas_rect){tab.x, tab.y, tab.width, 2.0f * theme->border}, 0.0f,
-                              theme->colors[(state & TB_WIDGET_FOCUSED) != 0 ? TB_UI_COLOR_ACCENT
-                                                                             : TB_UI_COLOR_BORDER]);
+            const float line = tb_style_number(style, TB_GUI_TAB_LINE_WIDTH);
+            tb_gui_paint_fill(paint, (tb_canvas_rect){tab.x, tab.y, tab.width, line}, 0.0f,
+                              tb_style_color(style, TB_GUI_TAB_LINE));
         }
-        tb_gui_paint_text(paint, &block, tab,
-                          theme->colors[selected ? TB_UI_COLOR_TEXT : TB_UI_COLOR_TEXT_DIM]);
+        tb_gui_paint_text(
+            paint, &block, tab,
+            tb_style_color(style, selected ? TB_GUI_TAB_SELECTED_TEXT : TB_GUI_TAB_TEXT));
     }
 }
 
@@ -377,6 +408,7 @@ static const tb_widget_class tb_gui_notebook_kind = {
     .arrange = tb_gui_notebook_arrange,
     .draw = tb_gui_notebook_draw,
     .event = tb_gui_notebook_event,
+    .style = &tb_gui_notebook_style,
     .unsaved = tb_gui_notebook_unsaved};
 
 static tb_gui_notebook *tb_gui_notebook_of(tb_widget widget)

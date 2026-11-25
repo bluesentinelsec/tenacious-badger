@@ -1,6 +1,6 @@
 /* Hot reload: a widget loaded from a layout file is loaded again when the
- * file changes. Each update looks at the files whose interval has passed,
- * through the VFS, so that the same code serves every platform and every
+ * file changes, and a theme from a theme file likewise. Each update looks at the files whose
+ * interval has passed, through the VFS, so that the same code serves every platform and every
  * mount; a file's bytes are hashed, and a change is built anew in the old
  * widget's place. A file that fails keeps the old widget. */
 #include "gui_internal.h"
@@ -19,7 +19,8 @@
 
 struct tb_gui_watch_entry
 {
-    tb_widget widget;
+    tb_widget widget; /* a layout file's; none for a theme's */
+    tb_theme *theme;  /* a theme file's, borrowed; NULL for a layout's */
     struct tb_vfs *vfs;
     char *path; /* owned */
     double interval;
@@ -27,6 +28,7 @@ struct tb_gui_watch_entry
     bool read;     /* the file was read, and `hash` is of its bytes */
     uint64_t hash; /* of the bytes last loaded or tried */
     tb_gui_reload_callback *callback;
+    tb_theme_reload_callback *theme_callback;
     void *user;
 };
 
@@ -34,7 +36,8 @@ static size_t tb_gui_watch_index(const tb_gui *gui, tb_widget widget)
 {
     for (size_t index = 0; index < gui->watch_count; index++)
     {
-        if (tb_widget_equal(gui->watches[index].widget, widget))
+        if (gui->watches[index].theme == NULL &&
+            tb_widget_equal(gui->watches[index].widget, widget))
         {
             return index;
         }
@@ -152,6 +155,86 @@ static void tb_gui_watch_reload(tb_gui *gui, size_t index, const char *bytes, si
     }
 }
 
+/* Load a theme's file's new bytes into it; a file that fails leaves it as
+ * it was. The callback is called last, as it may watch and unwatch. */
+static void tb_gui_watch_reload_theme(tb_gui_watch_entry *entry, const char *bytes, size_t length)
+{
+    tb_theme_reload_callback *const callback = entry->theme_callback;
+    tb_theme *const theme = entry->theme;
+    void *const user = entry->user;
+    tb_gui_file_error error = {0};
+    const tb_gui_file_result result = tb_theme_load(theme, bytes, length, entry->path, &error);
+
+    if (callback != NULL)
+    {
+        callback(theme, result == TB_GUI_FILE_OK ? NULL : &error, user);
+    }
+}
+
+static size_t tb_gui_theme_watch_index(const tb_gui *gui, const tb_theme *theme)
+{
+    for (size_t index = 0; index < gui->watch_count; index++)
+    {
+        if (gui->watches[index].theme == theme)
+        {
+            return index;
+        }
+    }
+    return SIZE_MAX;
+}
+
+bool tb_gui_watch_theme(tb_gui *gui, tb_theme *theme, struct tb_vfs *vfs, const char *path,
+                        const tb_theme_watch_options *options)
+{
+    static const tb_theme_watch_options defaults = {0};
+    const tb_theme_watch_options *const chosen = options != NULL ? options : &defaults;
+    tb_gui_watch_entry entry = {0};
+    char *bytes = NULL;
+    size_t length = 0;
+
+    TB_ASSERT(gui != NULL);
+    TB_ASSERT(theme != NULL);
+    TB_ASSERT(vfs != NULL);
+    TB_ASSERT(path != NULL);
+    if (tb_gui_theme_watch_index(gui, theme) != SIZE_MAX)
+    {
+        return false;
+    }
+    entry = (tb_gui_watch_entry){
+        .theme = theme,
+        .vfs = vfs,
+        .path = tb_str_dup(NULL, path),
+        .interval = chosen->interval > 0.0 ? chosen->interval : TB_GUI_WATCH_INTERVAL,
+        .theme_callback = chosen->callback,
+        .user = chosen->user,
+    };
+    entry.next = gui->time + entry.interval;
+    /* The file as it is now is the one loaded: only a change loads it again. */
+    entry.read = tb_gui_watch_hash(&entry, &bytes, &length, &entry.hash);
+    tb_free(bytes);
+    if (gui->watch_count == gui->watch_capacity)
+    {
+        gui->watch_capacity =
+            gui->watch_capacity == 0 ? TB_GUI_FIRST_WATCHES : gui->watch_capacity * 2;
+        gui->watches = tb_realloc_array(gui->watches, gui->watch_capacity, sizeof(*gui->watches));
+    }
+    gui->watches[gui->watch_count] = entry;
+    gui->watch_count++;
+    return true;
+}
+
+bool tb_gui_unwatch_theme(tb_gui *gui, tb_theme *theme)
+{
+    TB_ASSERT(gui != NULL);
+    const size_t index = tb_gui_theme_watch_index(gui, theme);
+    if (index == SIZE_MAX)
+    {
+        return false;
+    }
+    tb_gui_watch_remove(gui, index);
+    return true;
+}
+
 void tb_gui_watches_poll(tb_gui *gui)
 {
     size_t index = 0;
@@ -162,7 +245,7 @@ void tb_gui_watches_poll(tb_gui *gui)
         char *bytes = NULL;
         size_t length = 0;
         uint64_t hash = 0;
-        if (!tb_widget_alive(entry->widget))
+        if (entry->theme == NULL && !tb_widget_alive(entry->widget))
         {
             /* Destroyed other than by a reload: the watch ends with it. */
             tb_gui_watch_remove(gui, index);
@@ -182,7 +265,14 @@ void tb_gui_watches_poll(tb_gui *gui)
         {
             entry->read = true;
             entry->hash = hash;
-            tb_gui_watch_reload(gui, index - 1, bytes, length);
+            if (entry->theme != NULL)
+            {
+                tb_gui_watch_reload_theme(entry, bytes, length);
+            }
+            else
+            {
+                tb_gui_watch_reload(gui, index - 1, bytes, length);
+            }
         }
         tb_free(bytes);
     }

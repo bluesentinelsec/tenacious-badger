@@ -56,6 +56,7 @@ static bool tb_gui_set_style(tb_widget widget, void *data, const tb_gui_value *v
 {
     (void)data;
     tb_gui_string_set(&tb_gui_node_of(widget)->style, value->text);
+    tb_gui_style_forget(widget.gui, widget.index);
     return true;
 }
 

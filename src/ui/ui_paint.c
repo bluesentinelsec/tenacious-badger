@@ -177,6 +177,34 @@ void tb_ui_paint_image(tb_ui_paint *paint, int32_t layer, tb_canvas_rect clip,
     tb_ui_paint_clipped(paint, &command, layer, rect);
 }
 
+void tb_ui_paint_nine_slice(tb_ui_paint *paint, int32_t layer, tb_canvas_rect clip,
+                            const tb_canvas_nine_slice *slice, tb_canvas_rect rect, tb_vec4 tint,
+                            tb_ui_id id)
+{
+    tb_canvas_slice slices[TB_CANVAS_NINE_SLICES] = {0};
+    uint32_t width = 0;
+    uint32_t height = 0;
+
+    if (slice->image == NULL || !(tint.w > 0.0f))
+    {
+        return;
+    }
+    tb_image_size(slice->image, &width, &height);
+    const size_t count =
+        tb_canvas_nine_slice_layout(slice, width, height, rect, paint->scale, slices);
+    for (size_t index = 0; index < count; index++)
+    {
+        tb_ui_command command = {.type = TB_UI_COMMAND_IMAGE,
+                                 .clip = clip,
+                                 .rect = slices[index].rect,
+                                 .color = tint,
+                                 .id = id};
+        command.image = slice->image;
+        command.source = slices[index].source;
+        tb_ui_paint_clipped(paint, &command, layer, command.rect);
+    }
+}
+
 /* ---------------------------------------------------------------------------
  * Text.
  * ------------------------------------------------------------------------- */
@@ -292,6 +320,7 @@ static void tb_ui_paint_command(tb_renderer *renderer, const tb_ui_command *comm
     case TB_UI_COMMAND_IMAGE:
         tb_canvas_draw_sprite(
             renderer, &(tb_canvas_sprite){.image = command->image,
+                                          .source = command->source,
                                           .position = {command->rect.x, command->rect.y},
                                           .size = {command->rect.width, command->rect.height},
                                           .tint = command->color});

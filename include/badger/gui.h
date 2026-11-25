@@ -72,6 +72,10 @@
  * viewport, scrolled and clipped (tb_widget_class::viewport); a widget may
  * be shown as a popup in front of every other (tb_widget_popup()).
  *
+ * **Styles.** Every kind draws by a style resolved from themes of style
+ * classes, by state, after ttk's styles and Godot's Theme: the tool themes'
+ * flat look, or a game's of nine-slice images. See #tb_theme.
+ *
  * **Layout files.** A widget tree is written as JSON (tb_gui_save()) and
  * built from it (tb_gui_load()), its commands and variables connected by
  * name, and found by path (tb_widget_find()); a file is loaded again as it
@@ -82,8 +86,7 @@
  * direction, or to a widget's neighbours; Accept activates and Back goes
  * back. Keys are mapped to actions by data the game changes
  * (tb_gui_map_key()). See #tb_gui_nav.
- *
- * **Not done yet.** Style classes.
+
  *
  * @par Threading
  * Externally synchronized: a GUI and its widgets are used by one thread at
@@ -143,12 +146,49 @@ typedef struct tb_var
 /** @brief A widget's kind: see #tb_widget_class. */
 typedef struct tb_widget_class tb_widget_class;
 
+/** @brief What a kind draws, as data: see #tb_widget_style_desc. */
+typedef struct tb_widget_style_desc tb_widget_style_desc;
+
 /** @brief What a kind draws with, during tb_gui_update(): see
  * tb_gui_paint_fill(). */
 typedef struct tb_gui_paint tb_gui_paint;
 
 /** @brief An event: see #tb_gui_event_kind. */
 typedef struct tb_gui_event tb_gui_event;
+
+/**
+ * @brief A theme: style classes, each holding values by name and by state,
+ * after Tk's ttk styles and Godot's Theme. Made by tb_theme_create(),
+ * tb_theme_create_tool(), tb_theme_create_light(), or
+ * tb_theme_create_game(); owned by the caller, who destroys it with
+ * tb_theme_destroy() once no GUI uses it.
+ *
+ * **Classes.** A widget's style class is its `style` property, or its
+ * kind's (#tb_widget_style_desc), such as "Button". A class falls back
+ * along its name, as ttk's do: "Primary.Button", then "Button", then the
+ * root class ".", where values every kind shares are kept. A widget whose
+ * class does not end in its kind's has its kind's class added before ".".
+ *
+ * **States.** Each value is set for a set of #tb_widget_state_flags: none
+ * for a widget at rest, #TB_WIDGET_HOVERED for one under the mouse,
+ * #TB_WIDGET_HOVERED | #TB_WIDGET_PRESSED for one held under it. A widget
+ * takes, for each value, the entry whose states it has every one of, and
+ * of those the one whose states rank highest: disabled outranks selected,
+ * selected pressed, pressed hovered, hovered engaged, engaged
+ * focus-visible, and focus-visible focused, so that a state outranks any
+ * mix of those below it. Of entries of the same states, the
+ * nearest wins: the widget's own overrides, then the nearest theme, then
+ * the class nearest its own. So an entry for a state in a farther theme
+ * outranks one at rest in a nearer, as Godot's styles of a button do: a
+ * theme that changes a look at rest gives its other states too.
+ *
+ * **Themes in the tree.** A widget's themes are its own
+ * (tb_widget_set_style_theme()), then each ancestor's, then the GUI's
+ * (tb_gui_set_style_theme()), then the GUI's default: the tool theme of
+ * its palette (tb_theme_create_tool()). A value no nearer theme has comes
+ * from a farther one, so a theme need only give what differs.
+ */
+typedef struct tb_theme tb_theme;
 
 /* ---------------------------------------------------------------------------
  * Scaling.
@@ -192,9 +232,10 @@ typedef struct tb_gui_view
 /** @brief How a GUI is made. Zero is every default. */
 typedef struct tb_gui_options
 {
-    /** The theme: its colors, fonts, size, and spacing; copied. NULL is
+    /** The palette: its colors, fonts, size, and spacing; copied. NULL is
      * tb_ui_theme_dark(), whose fonts are then given by tb_gui_set_theme()
-     * before text is drawn. */
+     * before text is drawn. Its fonts are the GUI's own, and its tool
+     * theme (tb_theme_create_tool()) the GUI's default style theme. */
     const tb_ui_theme *theme;
     /** Optional: the catalog the fonts that widgets ask for by spec are
      * opened from (#tb_font_spec). Borrowed for the GUI's life. NULL draws
@@ -208,6 +249,9 @@ typedef struct tb_gui_options
      * and gives the root half as many units. 0 is 1. */
     float scale;
     int32_t layer; /**< The canvas layer; 0 is #TB_GUI_DEFAULT_LAYER. */
+    /** Optional: the theme its widgets are drawn by, before the default
+     * (tb_gui_set_style_theme()); borrowed. */
+    tb_theme *style_theme;
 } tb_gui_options;
 
 /**
@@ -225,11 +269,13 @@ TB_API tb_gui *tb_gui_create(const tb_gui_options *options);
  */
 TB_API void tb_gui_destroy(tb_gui *gui);
 
-/** @brief Use another theme; the widgets are laid out again.
+/** @brief Use another palette; the GUI's default style theme is made
+ * again from it, and the widgets are laid out again.
  * @param theme Required; copied, its fonts borrowed. */
 TB_API void tb_gui_set_theme(tb_gui *gui, const tb_ui_theme *theme);
 
-/** @brief The theme in use. @return Borrowed until the theme is set again. */
+/** @brief The palette in use: its fonts, and what the default style theme
+ * is made of. @return Borrowed until the palette is set again. */
 TB_API const tb_ui_theme *tb_gui_theme(const tb_gui *gui);
 
 /**
@@ -740,6 +786,9 @@ struct tb_widget_class
      * the mouse only within the clip. NULL lays them out in the rectangle
      * less the insets. */
     tb_gui_viewport (*viewport)(tb_widget widget, void *data, tb_canvas_rect inner);
+    /** What it draws by: its style class, states, and elements. NULL draws
+     * by the root class "." alone. */
+    const tb_widget_style_desc *style;
     /** For a kind whose widgets hold what no property of it expresses, set
      * by functions (a menu's items, a tree's): what a widget holds now, a
      * short phrase such as "menu items", or NULL when it holds none. Layout
@@ -839,7 +888,11 @@ typedef enum tb_widget_state_flags
      * focus ring by this. */
     TB_WIDGET_FOCUS_VISIBLE = 1u << 4,
     /** It has the focus, and is engaged: see tb_widget_engaged(). */
-    TB_WIDGET_ENGAGED = 1u << 5
+    TB_WIDGET_ENGAGED = 1u << 5,
+    /** Chosen: a check button ticked, a tab or a row chosen. Never given by
+     * tb_widget_state(); kinds add it when they ask for a style
+     * (tb_style_in()). */
+    TB_WIDGET_SELECTED = 1u << 6
 } tb_widget_state_flags;
 
 /** @brief What a widget is doing: #tb_widget_state_flags. */
@@ -1316,15 +1369,16 @@ TB_API void tb_gui_close_popups(tb_gui *gui);
 typedef struct tb_gui_text_block
 {
     tb_text text; /**< UTF-8; `\n` breaks lines. */
-    /** The font: a weight of 0 is the theme's font; a size of 0 the
-     * theme's size. Opened from the GUI's catalog. */
+    /** The font: a weight of 0 is the style's font; a size of 0 the
+     * style's size. Opened from the GUI's catalog. */
     tb_font_spec font;
     float wrap_length;     /**< Units lines wrap at; 0 for none. */
     tb_font_align justify; /**< How lines sit against one another. */
     tb_gui_anchor anchor;  /**< Where the text sits in the rectangle. */
 } tb_gui_text_block;
 
-/** @brief The size text takes, in units, measured at the frame's pixels.
+/** @brief The size text takes, in units, measured at the frame's pixels,
+ * in the root's style (tb_widget_measure_text()).
  * @param block Required. */
 TB_API tb_vec2 tb_gui_measure_text(tb_gui *gui, const tb_gui_text_block *block);
 
@@ -1372,8 +1426,8 @@ TB_API void tb_gui_paint_image(tb_gui_paint *paint, const tb_image *image, tb_ca
 typedef struct tb_frame_desc
 {
     float padding;   /**< Units between its edges and its grid. */
-    bool background; /**< Filled with the theme's window color; it then stops the mouse. */
-    bool border;     /**< Outlined with the theme's border. */
+    bool background; /**< Filled with its style's background; it then stops the mouse. */
+    bool border;     /**< Outlined with its style's border. */
 } tb_frame_desc;
 
 /** @brief Make a frame. @param desc Optional; NULL is zero. @return None
@@ -1388,7 +1442,7 @@ typedef struct tb_label_desc
     float wrap_length;     /**< Units its lines wrap at; 0 for none. */
     tb_font_align justify; /**< How its lines sit against one another. */
     tb_gui_anchor anchor;  /**< Where its text sits when it is larger. */
-    tb_font_spec font;     /**< Its font; zero is the theme's. */
+    tb_font_spec font;     /**< Its font; zero is its style's. */
 } tb_label_desc;
 
 /** @brief Make a label. @param desc Optional. @return None when `parent` is stale. */
@@ -1918,7 +1972,7 @@ typedef struct tb_scrollframe_desc
     float height;
     bool no_xscroll; /**< Its grid is as wide as it, and never scrolls across. */
     bool no_yscroll; /**< Its grid is as tall as it, and never scrolls down. */
-    bool border;     /**< Outlined with the theme's border. */
+    bool border;     /**< Outlined with its style's border. */
 } tb_scrollframe_desc;
 
 /** @brief Make a scroll frame; grid its children in it as in a frame.
@@ -2515,7 +2569,7 @@ typedef struct tb_canvas_widget_desc
 {
     float width;                 /**< Units across it wants. */
     float height;                /**< Units down it wants. */
-    bool background;             /**< Filled with the theme's field color first. */
+    bool background;             /**< Its style's box drawn first. */
     tb_canvas_widget_draw *draw; /**< Optional. */
     void *user;                  /**< Given to it. */
 } tb_canvas_widget_desc;
@@ -2541,6 +2595,304 @@ TB_API const tb_widget_class *tb_message_box_class(void);
 TB_API const tb_widget_class *tb_image_widget_class(void);
 /** @brief See tb_treeview_class(). @par Threading Thread-safe. */
 TB_API const tb_widget_class *tb_canvas_widget_class(void);
+
+/* ---------------------------------------------------------------------------
+ * Styles.
+ * ------------------------------------------------------------------------- */
+
+/** @brief The type of a style's value. */
+typedef enum tb_style_type
+{
+    TB_STYLE_NONE,   /**< No value: unset. */
+    TB_STYLE_COLOR,  /**< A color, RGBA from 0 to 1, straight alpha. */
+    TB_STYLE_NUMBER, /**< A number of units, or a count. */
+    TB_STYLE_EDGES,  /**< Four numbers of units, one for each side. */
+    TB_STYLE_FONT,   /**< A font spec (#tb_font_spec). */
+    TB_STYLE_IMAGE   /**< A nine-slice panel (#tb_style_image). */
+} tb_style_type;
+
+/** @brief A nine-slice panel drawn as a background, tinted. */
+typedef struct tb_style_image
+{
+    tb_canvas_nine_slice slice; /**< Its image borrowed; NULL for none. */
+    tb_vec4 tint;               /**< Multiplies its colors; zero is (1, 1, 1, 1). */
+} tb_style_image;
+
+/** @brief A value of a style: one of #tb_style_type. */
+typedef struct tb_style_value
+{
+    tb_style_type type;
+    union {
+        tb_vec4 color;
+        float number;
+        tb_gui_edges edges;
+        tb_font_spec font;
+        tb_style_image image;
+    };
+} tb_style_value;
+
+/** @brief A value a kind draws by besides the standard ones of #tb_style:
+ * a slider's trough, a list's selection. Looked up by its name, so that a
+ * game's kinds name their own. */
+typedef struct tb_style_element
+{
+    const char *name;   /**< "selection"; borrowed for the kind's life. */
+    tb_style_type type; /**< What it holds; a value of another type is ignored. */
+} tb_style_element;
+
+/**
+ * @brief What a kind draws, as data (tb_widget_class::style): its style
+ * class, the states its look follows, and the values it reads besides the
+ * standard ones. The editor and theme authors read it to know what a kind
+ * can be given.
+ */
+struct tb_widget_style_desc
+{
+    /** Its style class, the last of a widget's chain before ".": "Button".
+     * NULL uses the root class "." alone. */
+    const char *name;
+    /** The #tb_widget_state_flags its look follows. A state it does not
+     * draw is left out when its style is resolved, so that, say, a label
+     * hovered shares its style with a label at rest. */
+    uint32_t states;
+    const tb_style_element *elements; /**< The values it reads besides the standard ones. */
+    size_t element_count;             /**< How many. */
+};
+
+/**
+ * @brief A widget's style, resolved for a state: the standard values every
+ * kind may draw by, and its kind's elements. Read only; valid until the
+ * widget's styles change (a theme changed or set, its style class or
+ * overrides changed) or the widget is destroyed, so a kind reads it in the
+ * function it is given it in.
+ *
+ * A value no theme gives is zero: transparent, no width, no padding, and a
+ * font spec of zero, which is the GUI's own font.
+ */
+typedef struct tb_style
+{
+    tb_vec4 background;   /**< The fill behind it; transparent draws none. */
+    tb_style_image image; /**< A nine-slice background, drawn in place of the fill. */
+    tb_vec4 border_color; /**< Its outline. */
+    float border_width;   /**< Units its outline is wide, inside its edges; 0 for none. */
+    float radius;         /**< Of its corners, its fill's and its outline's. */
+    tb_gui_edges padding; /**< Between its edges, its border within, and its content. */
+    tb_font_spec font;    /**< Its text's font; a weight of 0 is the GUI's font. */
+    tb_vec4 text_color;   /**< Its text. */
+    tb_vec4 focus_color;  /**< The ring drawn with the focus. */
+    float focus_width;    /**< Units the ring is wide; 0 for none. */
+    const tb_widget_style_desc *desc; /**< Its kind's, or NULL. */
+    /** Its kind's elements, in the order of its desc's; unset ones are of
+     * type #TB_STYLE_NONE. */
+    const tb_style_value *elements;
+    size_t element_count; /**< As its desc's. */
+} tb_style;
+
+/** @brief How many state flags a style is chosen by: the six of
+ * tb_widget_state(), and #TB_WIDGET_SELECTED. */
+#define TB_STYLE_STATE_BITS 7u
+
+/** @brief Make an empty theme. @return Never NULL. @par Threading Thread-safe. */
+TB_API tb_theme *tb_theme_create(void);
+
+/**
+ * @brief Make the tool theme of a palette: flat fields, buttons, and
+ * lists in its colors, sizes, and spacing, which every kind is drawn by
+ * unless a theme says otherwise. Of tb_ui_theme_dark(), it is the GUI's
+ * look by default; of tb_ui_theme_light(), see tb_theme_create_light().
+ * @param palette Required; its fonts are not used: the GUI's are.
+ * @return Never NULL. @par Threading Thread-safe.
+ */
+TB_API tb_theme *tb_theme_create_tool(const tb_ui_theme *palette);
+
+/** @brief Make the light tool theme: tb_theme_create_tool() of
+ * tb_ui_theme_light(), its check marks white on the accent.
+ * @return Never NULL. @par Threading Thread-safe. */
+TB_API tb_theme *tb_theme_create_light(void);
+
+/** @brief How the sample game theme looks. */
+typedef enum tb_theme_game_look
+{
+    /** Panels and buttons of beveled bronze and slate, headings in the
+     * heading role's family and text in the body role's. */
+    TB_THEME_GAME_FANTASY,
+    /** The same, in pixel art drawn by whole pixels, every text in the
+     * pixel role's font. */
+    TB_THEME_GAME_RETRO
+} tb_theme_game_look;
+
+/**
+ * @brief Make the sample game theme: nine-slice panels, buttons, and
+ * fields of images it draws in code and owns, and fonts of roles (never
+ * bold): a menu's look, beside the tool themes' flat one.
+ * @param renderer Required; its images are made on it, so the theme is
+ * destroyed before it, outside a frame that draws them.
+ * @return Never NULL.
+ * @par Threading On the thread that renders, outside a frame.
+ */
+TB_API tb_theme *tb_theme_create_game(tb_renderer *renderer, tb_theme_game_look look);
+
+/** @brief Destroy a theme, and the images it made. NULL is ignored. No GUI
+ * uses it any longer. @par Threading Externally synchronized; a theme with
+ * images, on the thread that renders. */
+TB_API void tb_theme_destroy(tb_theme *theme);
+
+/**
+ * @brief Set a value of a style class for a set of states, replacing the
+ * one set for the same states. GUIs that use the theme see the change at
+ * their next update.
+ * @param style_class Required; copied: "Button", "Primary.Button", ".".
+ * @param name Required; copied: a standard value's name ("background",
+ * "border_color", "border_width", "radius", "padding", "font",
+ * "text_color", "focus_color", "focus_width", "background_image") or an
+ * element's.
+ * @param states #tb_widget_state_flags; 0 for the widget at rest.
+ * @param value Required; copied. A standard value's name takes only its
+ * type.
+ * @return false, changing nothing, for a standard name given another
+ * type, a value of #TB_STYLE_NONE, or states of no such flags.
+ * @par Threading Externally synchronized with the GUIs that use it.
+ */
+TB_API bool tb_theme_set(tb_theme *theme, const char *style_class, const char *name,
+                         uint32_t states, const tb_style_value *value);
+
+/** @brief Set a color: tb_theme_set() of a #TB_STYLE_COLOR. */
+TB_API bool tb_theme_set_color(tb_theme *theme, const char *style_class, const char *name,
+                               uint32_t states, tb_vec4 color);
+
+/** @brief Set a number: tb_theme_set() of a #TB_STYLE_NUMBER. */
+TB_API bool tb_theme_set_number(tb_theme *theme, const char *style_class, const char *name,
+                                uint32_t states, float number);
+
+/** @brief Set edges: tb_theme_set() of #TB_STYLE_EDGES. */
+TB_API bool tb_theme_set_edges(tb_theme *theme, const char *style_class, const char *name,
+                               uint32_t states, tb_gui_edges edges);
+
+/** @brief Set a font: tb_theme_set() of a #TB_STYLE_FONT. A spec of a
+ * weight and no size is the role's size (tb_font_default_role()). */
+TB_API bool tb_theme_set_font(tb_theme *theme, const char *style_class, const char *name,
+                              uint32_t states, tb_font_spec font);
+
+/** @brief Set a nine-slice image: tb_theme_set() of a #TB_STYLE_IMAGE.
+ * @param image Required; its image borrowed until the theme is destroyed
+ * or the value replaced. */
+TB_API bool tb_theme_set_image(tb_theme *theme, const char *style_class, const char *name,
+                               uint32_t states, const tb_style_image *image);
+
+/**
+ * @brief The value a style class holds for exactly a set of states, its
+ * fallbacks aside.
+ * @param[out] value Required; #TB_STYLE_NONE when there is none.
+ * @return Whether there is one.
+ * @par Threading Externally synchronized with its writers.
+ */
+TB_API bool tb_theme_get(const tb_theme *theme, const char *style_class, const char *name,
+                         uint32_t states, tb_style_value *value);
+
+/** @brief Remove every class and value; its images stay. */
+TB_API void tb_theme_clear(tb_theme *theme);
+
+/**
+ * @brief Name an image by a path, for theme files, which name images by
+ * their VFS paths ("/Game/UI/button.png"); a path named again is replaced.
+ * @param path Required; copied.
+ * @param image Required; borrowed until the theme is destroyed.
+ */
+TB_API void tb_theme_add_image(tb_theme *theme, const char *path, const tb_image *image);
+
+/** @brief The image named by a path. @return NULL when none is. */
+TB_API const tb_image *tb_theme_image(const tb_theme *theme, const char *path);
+
+/** @brief A count that grows each time a theme changes: GUIs compare it
+ * to see that their styles must be resolved again. */
+TB_API uint64_t tb_theme_generation(const tb_theme *theme);
+
+/** @brief Draw a GUI's widgets by a theme, before its default, the tool
+ * theme of its palette (tb_gui_set_theme()).
+ * @param theme Optional; borrowed until another is set or the GUI is
+ * destroyed; NULL for the default alone. */
+TB_API void tb_gui_set_style_theme(tb_gui *gui, tb_theme *theme);
+
+/** @brief The theme set with tb_gui_set_style_theme(), or NULL. */
+TB_API tb_theme *tb_gui_style_theme(const tb_gui *gui);
+
+/** @brief The GUI's default theme: the tool theme of its palette, made
+ * again when the palette is set. @return Borrowed until then. */
+TB_API const tb_theme *tb_gui_default_style_theme(const tb_gui *gui);
+
+/** @brief Draw a widget and the widgets in it by a theme, before their
+ * ancestors' and the GUI's, as Godot's Control.theme.
+ * @param theme Optional; borrowed while the widget is alive or until
+ * another is set; NULL for its ancestors'.
+ * @return false for a stale handle. */
+TB_API bool tb_widget_set_style_theme(tb_widget widget, tb_theme *theme);
+
+/** @brief The theme set on a widget itself, or NULL. */
+TB_API tb_theme *tb_widget_style_theme(tb_widget widget);
+
+/**
+ * @brief Override one value of a widget's style, before every theme's, as
+ * Godot's theme overrides: its text's color, a button's padding.
+ * @param name Required; copied; as tb_theme_set().
+ * @param states As tb_theme_set().
+ * @param value Optional: NULL removes the override.
+ * @return false for a stale handle, or a value tb_theme_set() refuses.
+ */
+TB_API bool tb_widget_override_style(tb_widget widget, const char *name, uint32_t states,
+                                     const tb_style_value *value);
+
+/** @brief Remove every override of a widget's style. */
+TB_API void tb_widget_clear_style_overrides(tb_widget widget);
+
+/**
+ * @brief A widget's style in the state it is in (tb_widget_state()),
+ * resolved once and kept until its styles change.
+ * @return Valid as #tb_style says; NULL for a stale handle.
+ */
+TB_API const tb_style *tb_style_of(tb_widget widget);
+
+/**
+ * @brief A widget's style in a state given: a row's of a list, chosen
+ * (#TB_WIDGET_SELECTED) and hovered, in place of the list's own.
+ * @param states #tb_widget_state_flags; those its kind does not draw are
+ * left out.
+ * @return As tb_style_of().
+ */
+TB_API const tb_style *tb_style_in(tb_widget widget, uint32_t states);
+
+/** @brief An element of a style by its index in its kind's desc, if it is
+ * set and of a type: a color, a number, edges, a font, or an image.
+ * Zero, or NULL for an image, when it is not. */
+TB_API tb_vec4 tb_style_color(const tb_style *style, size_t element);
+/** @brief See tb_style_color(). */
+TB_API float tb_style_number(const tb_style *style, size_t element);
+/** @brief See tb_style_color(). */
+TB_API tb_gui_edges tb_style_edges(const tb_style *style, size_t element);
+/** @brief See tb_style_color(). */
+TB_API tb_font_spec tb_style_font(const tb_style *style, size_t element);
+/** @brief See tb_style_color(). */
+TB_API const tb_style_image *tb_style_image_of(const tb_style *style, size_t element);
+
+/** @brief An element of a style by its name. @param name Required.
+ * @return NULL when its kind declares none of that name. */
+TB_API const tb_style_value *tb_style_find(const tb_style *style, const char *name);
+
+/**
+ * @brief Draw a style's box over a rectangle: its background (its image,
+ * or else its fill), its border, and its focus ring, each where the style
+ * has one; what most kinds draw first.
+ * @param style Required.
+ */
+TB_API void tb_gui_paint_box(tb_gui_paint *paint, tb_canvas_rect rect, const tb_style *style);
+
+/** @brief Draw a nine-slice panel over a rectangle, cut at the GUI's
+ * scale. @param slice Required. */
+TB_API void tb_gui_paint_nine_slice(tb_gui_paint *paint, const tb_canvas_nine_slice *slice,
+                                    tb_canvas_rect rect, tb_vec4 tint);
+
+/** @brief The size of a text block in a widget's style: a font spec of
+ * weight 0 is its style's font, and a size of 0 its style's size. */
+TB_API tb_vec2 tb_widget_measure_text(tb_widget widget, const tb_gui_text_block *block);
 
 /* ---------------------------------------------------------------------------
  * Finding widgets by path.
@@ -2772,5 +3124,72 @@ TB_API bool tb_gui_watch(tb_widget widget, struct tb_vfs *vfs, const char *path,
 
 /** @brief Stop watching a widget's file. @return false when it was not watched. */
 TB_API bool tb_gui_unwatch(tb_widget widget);
+
+/* ---------------------------------------------------------------------------
+ * Theme files.
+ * ------------------------------------------------------------------------- */
+
+/** @brief The format a theme file names: `"format": "badger-theme"`. */
+#define TB_THEME_FILE_FORMAT "badger-theme"
+
+/** @brief The version of theme files this engine reads, and the newest. */
+#define TB_THEME_FILE_FORMAT_VERSION 1
+
+/**
+ * @brief Load a theme file's text into a theme, in place of its classes
+ * and values; all or nothing: on any error the theme is as it was. The
+ * text is strict JSON: a format, a version, an optional name, and styles,
+ * each class an object of values by "name" or "name:state+state". See
+ * docs/gui.md for the format.
+ * @param text Required: `length` bytes of UTF-8 JSON.
+ * @param name Optional: the file's name, for the error's message.
+ * @param[out] error Optional: where and why it failed, as a layout file's
+ * errors say: a JSON path such as `$.styles.Button.background:hovered`,
+ * a line and a column, and a reason.
+ * @return OK; MALFORMED for text that is not JSON; INVALID for JSON that is
+ * not a theme, of another format or a newer version, or naming an image no
+ * theme has (tb_theme_add_image()).
+ * @par Threading Externally synchronized with the GUIs that use it.
+ */
+TB_API tb_gui_file_result tb_theme_load(tb_theme *theme, const char *text, size_t length,
+                                        const char *name, tb_gui_file_error *error);
+
+/** @brief tb_theme_load() of a file read through a VFS.
+ * @param vfs Required. @param path Required. @param[out] error Optional.
+ * @return As tb_theme_load(), or NOT_FOUND or INPUT_FAILED. */
+TB_API tb_gui_file_result tb_theme_load_file(tb_theme *theme, struct tb_vfs *vfs, const char *path,
+                                             tb_gui_file_error *error);
+
+/** @brief Called when a watched theme file was loaded again, or failed to
+ * be. @param error NULL when it loaded; otherwise borrowed for the call. */
+typedef void tb_theme_reload_callback(tb_theme *theme, const tb_gui_file_error *error, void *user);
+
+/** @brief How a theme file is watched. Zero is every default. */
+typedef struct tb_theme_watch_options
+{
+    double interval;                    /**< Seconds between looks; 0 is half a second. */
+    tb_theme_reload_callback *callback; /**< Optional. */
+    void *user;                         /**< Given to it. */
+} tb_theme_watch_options;
+
+/**
+ * @brief Load a theme's file again each time it changes, for development
+ * builds, with the layout files watched (tb_gui_watch()): each
+ * tb_gui_update() looks at the file once its interval has passed, through
+ * the VFS, and loads it when its bytes changed. A file that fails leaves
+ * the theme as it was, and says why through the callback. A shipped game,
+ * whose files are in packages, need not watch them.
+ * @param theme Required; watched until tb_gui_unwatch_theme() or the GUI
+ * is destroyed, so it outlives either.
+ * @param vfs Required; borrowed as long.
+ * @param path Required; copied.
+ * @param options Optional.
+ * @return false when the theme is watched already.
+ */
+TB_API bool tb_gui_watch_theme(tb_gui *gui, tb_theme *theme, struct tb_vfs *vfs, const char *path,
+                               const tb_theme_watch_options *options);
+
+/** @brief Stop watching a theme's file. @return false when it was not watched. */
+TB_API bool tb_gui_unwatch_theme(tb_gui *gui, tb_theme *theme);
 
 #endif

@@ -38,7 +38,7 @@ bottom left corner of every scene, and printed every two seconds.
 | `text` | Text over the shapes in the font roles at their own sizes: a heading, a line of monospace, the UI font at sizes from 10 to 48, a paragraph of body text wrapping in three panels (left, centered and right) whose width changes over time, the pixel font at its size and twice it, and labels in the world naming the shapes |
 | `skinning` | A row of tentacles, each a tapered cylinder skinned to a chain of seven joints, played by two clips made in code, a wave that runs up the tentacle and a curl toward the viewer, blended by a weight that drifts at each tentacle's own phase (labeled under it); evaluated on the job system, skinned by the GPU's compute pass (or on the CPU, with `--cpu-skinning` or the inspector's switch), the middle one with a checkered material, and their bones drawn over them |
 | `ui` | [The interface](ui.md) over the shapes: an inspector of every widget (headers, checkboxes, combos, sliders, dragged numbers, a color, text fields, radio buttons, a swatch, a progress bar, buttons with tooltips, and a tree) and a window of statistics (a heading, wrapped text, a table, and a panel that scrolls) |
-| `gui` | [The GUI](gui.md) over the shapes: a form laid out by grid that follows the window as it is resized (a title in the heading font, a wrapped paragraph, fields with their labels, rows of buttons of one width in nested grids, a status line at the bottom) and a modal dialog that asks to confirm; and a panel of options of every widget that edits a value, bound to the engine's settings; and, below it, a panel built from a [layout file](gui.md#layout-files), `tools/sandbox/resources/gui/panel.json`, built again whenever it is saved |
+| `gui` | [The GUI](gui.md) over the shapes: a form laid out by grid that follows the window as it is resized (a title in the heading font, a wrapped paragraph, fields with their labels, rows of buttons of one width in nested grids, a row of radio buttons that switches the theme, a status line at the bottom) and a modal dialog that asks to confirm; and a panel of options of every widget that edits a value, bound to the engine's settings; and, below it, a panel built from a [layout file](gui.md#layout-files), `tools/sandbox/resources/gui/panel.json`, built again whenever it is saved |
 | `gui_tool` | [The GUI](gui.md) in the shape of an editor: a menu bar (cascades, check and radio items, accelerators' text, mnemonics) over a paned window of an outliner, a tree view with a column of types, and a notebook of an asset list in a scroll frame with a context menu, a page of details with tooltips, and a viewport drawn by a canvas callback beside an image; message dialogs confirm quitting and deleting |
 | `triangle` | A triangle of three colored corners, turning, drawn through the RHI itself inside the renderer's scene pass |
 | `textured` | A checkerboard made in memory, sampled through the texture's and sampler's bindless indices |
@@ -123,6 +123,13 @@ crosshair and the mouse's inverted look in check buttons. The sandbox
 applies them as they change, and the inspector (F1) shows them move. Below
 them, an entry that refuses digits, a password, a text box, and a progress
 bar that only says work goes on edit variables of their own.
+
+The form's **Theme** row switches the GUI's [style theme](gui.md#styles) as
+it runs: the dark tool theme, which is the default; the light one; the
+sample game theme of beveled nine-slice panels and buttons, in the heading
+and body roles' fonts; and its retro look, in pixel art drawn by whole
+pixels in the pixel role's font. The title asks only for its size, so its
+family is its theme's.
 
 The `gui_tool` scene covers the window with the GUI, which takes every key
 but Escape, unless a menu, a dialog, or a widget with the focus takes

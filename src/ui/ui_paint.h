@@ -66,6 +66,11 @@ void tb_ui_paint_line(tb_ui_paint *paint, int32_t layer, tb_canvas_rect clip, tb
 /* An image stretched over a rectangle and tinted. */
 void tb_ui_paint_image(tb_ui_paint *paint, int32_t layer, tb_canvas_rect clip,
                        const tb_image *image, tb_canvas_rect rect, tb_vec4 tint, tb_ui_id id);
+/* A nine-slice panel over a rectangle, an image command for each slice,
+ * cut at the list's scale (tb_canvas_nine_slice_layout()). */
+void tb_ui_paint_nine_slice(tb_ui_paint *paint, int32_t layer, tb_canvas_rect clip,
+                            const tb_canvas_nine_slice *slice, tb_canvas_rect rect, tb_vec4 tint,
+                            tb_ui_id id);
 
 /* Text and its measures, at `size` units to the em, measured at the
  * display's pixels (`scale` a unit) and turned back into units, so that a
