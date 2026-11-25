@@ -28,6 +28,7 @@ struct tb_json_value
     const tb_json_value **items;   /* An array's values. */
     const tb_json_member *members; /* An object's members, in the order of the text. */
     const size_t *order;           /* Positions of `members`, sorted by key, then position. */
+    size_t offset;                 /* Of the value's first byte in the text. */
 };
 
 /* A container that is open, where its values start in the work list, and
@@ -170,7 +171,7 @@ static void *tb_json_arena_alloc(tb_json_builder *builder, size_t count, size_t 
     return tb_arena_try_alloc(builder->arena, bytes == 0 ? 1 : bytes, alignment);
 }
 
-static tb_json_value *tb_json_new_value(tb_json_builder *builder, tb_json_type type)
+static tb_json_value *tb_json_new_value(tb_json_builder *builder, tb_json_type type, size_t offset)
 {
     tb_json_value *const value =
         tb_json_arena_alloc(builder, 1, sizeof(tb_json_value), _Alignof(tb_json_value));
@@ -178,6 +179,7 @@ static tb_json_value *tb_json_new_value(tb_json_builder *builder, tb_json_type t
     {
         *value = (tb_json_value){0};
         value->type = type;
+        value->offset = offset;
     }
     return value;
 }
@@ -302,7 +304,8 @@ static tb_json_result tb_json_build(tb_json_builder *builder, const tb_json_toke
     case TB_JSON_EVENT_FALSE:
     case TB_JSON_EVENT_TRUE:
         value = tb_json_new_value(builder,
-                                  token->event == TB_JSON_EVENT_NULL ? TB_JSON_NULL : TB_JSON_BOOL);
+                                  token->event == TB_JSON_EVENT_NULL ? TB_JSON_NULL : TB_JSON_BOOL,
+                                  token->offset);
         if (value == NULL)
         {
             return TB_JSON_NO_MEMORY;
@@ -312,8 +315,9 @@ static tb_json_result tb_json_build(tb_json_builder *builder, const tb_json_toke
         return TB_JSON_OK;
     case TB_JSON_EVENT_NUMBER:
     case TB_JSON_EVENT_STRING:
-        value = tb_json_new_value(builder, token->event == TB_JSON_EVENT_NUMBER ? TB_JSON_NUMBER
-                                                                                : TB_JSON_STRING);
+        value = tb_json_new_value(
+            builder, token->event == TB_JSON_EVENT_NUMBER ? TB_JSON_NUMBER : TB_JSON_STRING,
+            token->offset);
         if (value == NULL)
         {
             return TB_JSON_NO_MEMORY;
@@ -333,7 +337,8 @@ static tb_json_result tb_json_build(tb_json_builder *builder, const tb_json_toke
     case TB_JSON_EVENT_BEGIN_OBJECT: {
         tb_json_frame frame = {0};
         value = tb_json_new_value(
-            builder, token->event == TB_JSON_EVENT_BEGIN_ARRAY ? TB_JSON_ARRAY : TB_JSON_OBJECT);
+            builder, token->event == TB_JSON_EVENT_BEGIN_ARRAY ? TB_JSON_ARRAY : TB_JSON_OBJECT,
+            token->offset);
         if (value == NULL)
         {
             return TB_JSON_NO_MEMORY;
@@ -418,6 +423,12 @@ tb_json_type tb_json_type_of(const tb_json_value *value)
 {
     TB_ASSERT(value != NULL);
     return value->type;
+}
+
+size_t tb_json_offset_of(const tb_json_value *value)
+{
+    TB_ASSERT(value != NULL);
+    return value->offset;
 }
 
 bool tb_json_as_bool(const tb_json_value *value, bool *out)

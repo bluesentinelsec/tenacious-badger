@@ -112,10 +112,13 @@ set(TB_TEST_CASE_SOURCES
     game/game_loop_test.c
     gui/gui_draw_test.c
     gui/gui_event_test.c
+    gui/gui_file_test.c
     gui/gui_fixture.c
     gui/gui_grid_test.c
+    gui/gui_names_test.c
     gui/gui_scale_test.c
     gui/gui_tree_test.c
+    gui/gui_watch_test.c
     jobs/loop_test.c
     anim/anim_test.c
     platform/window_test.c

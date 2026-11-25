@@ -3,15 +3,17 @@
  * the window as it is resized: its middle column takes the extra width, an
  * empty row the extra height, and the status line stays at the bottom.
  * Nested grids hold rows of buttons of one width, and a modal dialog asks
- * to confirm. The window events go to the GUI first, which takes the mouse
- * over the form and the keys while a button has the focus; the fly camera
- * has the rest. */
+ * to confirm. A panel on the right is built from a layout file in the
+ * sandbox's resources, and built again whenever the file is saved. The
+ * window events go to the GUI first, which takes the mouse over the form
+ * and the keys while a button has the focus; the fly camera has the rest. */
 #include "sandbox.h"
 
 #include "badger/canvas.h"
 #include "badger/fmt.h"
 #include "badger/gui.h"
 #include "badger/memory.h"
+#include "badger/vfs.h"
 
 #include <stddef.h>
 
@@ -27,6 +29,8 @@
 #define GUI_TITLE_SIZE 26.0f
 /* Bytes of the status line. */
 #define GUI_STATUS_CAPACITY 128
+/* The panel's layout file, in the sandbox's resources (SANDBOX_RESOURCES). */
+#define GUI_PANEL_PATH "gui/panel.json"
 
 static const char *const gui_names[] = {"Badger", "Honey badger", "Ferret-badger", "Hog badger"};
 static const char *const gui_difficulties[] = {"Easy", "Normal", "Hard"};
@@ -40,6 +44,7 @@ typedef struct gui_scene
     tb_widget volume;
     tb_widget status;
     tb_widget dialog;
+    tb_vfs *resources; /* where the panel's file is read from; outlives the GUI */
     size_t name_index;
     int volume_percent;
     int applies;
@@ -151,6 +156,29 @@ static void gui_on_dialog_key(const tb_gui_event *event, void *user)
     {
         gui_close_dialog(user, "Nothing was reset.");
     }
+}
+
+static void gui_on_hello(const tb_gui_event *event, void *user)
+{
+    (void)event;
+    gui_set_status(user, "Hello from the panel's file.");
+}
+
+/* The panel's file was saved: built again, or kept as it was. */
+static void gui_on_panel_reload(tb_widget panel, const tb_gui_file_error *error, void *user)
+{
+    gui_scene *const scene = user;
+
+    (void)panel;
+    if (error == NULL)
+    {
+        (void)tb_fmt_print("badger-sandbox: gui: %s loaded again\n", GUI_PANEL_PATH);
+        gui_set_status(scene, "The panel was loaded again.");
+        return;
+    }
+    (void)tb_fmt_print("badger-sandbox: gui: %s\n", error->message);
+    (void)tb_fmt_buffer(scene->text, sizeof(scene->text), "The panel's file: %s.", error->reason);
+    gui_set_status(scene, scene->text);
 }
 
 /* ---------------------------------------------------------------------------
@@ -297,6 +325,30 @@ static void gui_build_dialog(gui_scene *scene, tb_widget root)
     (void)tb_grid_column_configure(buttons, 1, &(tb_grid_track){.uniform = "answers"});
 }
 
+/* The panel from its file, watched for changes: its commands by name. */
+static void gui_build_panel(gui_scene *scene, tb_widget root)
+{
+    tb_widget panel = TB_WIDGET_NONE;
+    tb_gui_file_error error = {0};
+
+    (void)tb_gui_register_command(scene->gui, "say_hello", gui_on_hello, scene);
+    (void)tb_gui_register_command(scene->gui, "show_reset_dialog", gui_on_show_dialog, scene);
+    scene->resources = tb_vfs_create(NULL);
+    if (tb_vfs_mount_directory(scene->resources, "", 0, SANDBOX_RESOURCES, 0) != TB_VFS_OK)
+    {
+        (void)tb_fmt_print("badger-sandbox: gui: no resources at %s; the panel is not shown\n",
+                           SANDBOX_RESOURCES);
+        return;
+    }
+    if (tb_gui_load_file(root, scene->resources, GUI_PANEL_PATH, &panel, &error) != TB_GUI_FILE_OK)
+    {
+        (void)tb_fmt_print("badger-sandbox: gui: %s\n", error.message);
+        return;
+    }
+    (void)tb_gui_watch(panel, scene->resources, GUI_PANEL_PATH,
+                       &(tb_gui_watch_options){.callback = gui_on_panel_reload, .user = scene});
+}
+
 /* ---------------------------------------------------------------------------
  * The scene.
  * ------------------------------------------------------------------------- */
@@ -327,6 +379,7 @@ bool gui_scene_create(sandbox *box, void **state)
     (void)tb_grid_column_configure(root, 1, &(tb_grid_track){.weight = 1.0f});
     (void)tb_grid_row_configure(root, 0, &(tb_grid_track){.weight = 1.0f});
     gui_build_form(scene, root, &title);
+    gui_build_panel(scene, root);
     gui_build_dialog(scene, root);
     return true;
 }
@@ -345,6 +398,7 @@ void gui_scene_destroy(sandbox *box, void *state)
         tb_gui_forget_fonts(scene->gui, box->renderer);
     }
     tb_gui_destroy(scene->gui);
+    tb_vfs_destroy(scene->resources);
     for (size_t font = 0; font < TB_UI_FONT_COUNT; font++)
     {
         if (scene->fonts.fonts[font] != NULL)

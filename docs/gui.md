@@ -318,6 +318,188 @@ the catalog does not have. A spec of weight 0 is the theme's font, and a
 size of 0 the theme's size. Text wider than its rectangle starts at the
 rectangle's left edge, and is cut off at its right.
 
+## Layout files
+
+A widget, and the widgets in it, is written as a JSON file and built from
+one: a game's menus are made in files an author edits, and the
+drag-and-drop editor to come will read and write the same files. The
+format knows no kind of widget. Each property is written by its kind's
+table, by its type, so a kind a game registers is read and written as the
+engine's are.
+
+```c
+tb_gui_register_command(gui, "apply_settings", on_apply, game);
+tb_widget options = TB_WIDGET_NONE;
+tb_gui_file_error error = {0};
+if (tb_gui_load_file(tb_gui_root(gui), vfs, "ui/options.json", &options, &error) != TB_GUI_FILE_OK)
+{
+    tb_fmt_print_error("%s\n", error.message); /* ui/options.json:12:20: $.root...: unknown property "colour" */
+}
+tb_widget apply = tb_widget_find(options, "video/apply");
+```
+
+### The format
+
+```json
+{
+  "format": "badger-gui",
+  "version": 1,
+  "root": {
+    "kind": "frame",
+    "name": "options",
+    "properties": {
+      "padding": 12,
+      "background": true
+    },
+    "grid": {
+      "sticky": [
+        "n",
+        "s",
+        "e",
+        "w"
+      ]
+    },
+    "columns": [
+      {},
+      {
+        "weight": 1
+      }
+    ],
+    "children": [
+      {
+        "kind": "button",
+        "name": "apply",
+        "properties": {
+          "text": "Apply",
+          "command": "apply_settings"
+        },
+        "grid": {
+          "row": 1,
+          "column": 1
+        }
+      }
+    ]
+  }
+}
+```
+
+A file is an object of three members: `format`, always `"badger-gui"`;
+`version`, the version of the format, 1; and `root`, the widget the file
+builds. A file of a newer version than the engine reads is refused. A
+widget is an object of these members, each but `kind` left out when it has
+nothing to say:
+
+| Member | What |
+| --- | --- |
+| `kind` | the name its kind is registered by: `"frame"`, `"label"`, `"button"`, or a game's |
+| `name` | its name, for finding it by path; without `/` |
+| `properties` | its properties by name, the common ones and its kind's, but for `name` and its place in the grid |
+| `grid` | its place in its parent's grid: `row`, `column`, `row_span`, `column_span`, `sticky`, `padx`, `pady`, `ipadx`, `ipady`. A widget without it is not in the grid, and so not shown |
+| `columns`, `rows` | its own grid's columns and rows, from the first, each `weight`, `minsize`, `pad`, and `uniform`; `{}` is one configured with none |
+| `children` | its children, in order |
+
+A value is written by its property's type:
+
+| Type | JSON | Example |
+| --- | --- | --- |
+| bool | `true` or `false` | `"visible": false` |
+| int | an integer | `"row": 2` |
+| float | a number | `"padding": 12.5` |
+| vec2 | an array of two numbers | `"padx": [4, 0]` |
+| color | an array of four numbers: red, green, blue, alpha | `"tint": [1, 0.5, 0, 1]` |
+| text | a string | `"text": "Apply"` |
+| enum | one of the property's names | `"anchor": "nw"` |
+| flags | an array of the names of the bits set | `"sticky": ["e", "w"]` |
+| font | an object of `role` (by name, `"heading"`), `weight`, `italic`, and `size` | `"font": {"role": "heading", "size": 26}` |
+| command | the name it is registered by | `"command": "apply_settings"` |
+
+### Loading
+
+`tb_gui_load` builds a file's text, and `tb_gui_load_file` a file read
+through a [VFS](vfs.md), as the last child of a parent. The text is strict
+JSON, read by the engine's [reader](serialization.md#json). A widget is
+made of its kind, its name set, then its properties in the order of the
+file, each with `tb_widget_set`, then its place in the grid, its columns and
+rows, and its children. No callback is called while it is built.
+
+Loading is all or nothing. A file that is not JSON is
+`TB_GUI_FILE_MALFORMED`; one that is JSON but not a layout the GUI can
+build is `TB_GUI_FILE_INVALID`: another format or a newer version, a key
+the format does not have, a kind not registered, a property the kind does
+not have, or one that is read-only, a value of the wrong type, a name an
+enumeration does not have, a command not registered, a number out of a
+float's range, a value a property or the grid refuses, or widgets nested
+more than 64 deep. Whatever was built is destroyed, and the parent is as it
+was. The error, `tb_gui_file_error`, says where and why: the JSON path of
+the value at fault (`$.root.children[2].properties.colour`), its line and
+column, a reason, and a message of all of them for a log.
+
+### Saving
+
+`tb_gui_save` writes a widget, and the widgets in it, to a
+[stream](streams.md). The text is the same for the same widgets, byte for
+byte: indented two spaces, the members of each widget in the order of the
+table above, properties in the order of the kind's table and then the
+common ones, the grid's options in the order listed, and numbers in the
+fewest digits that read back as the same float (`0.1`, `100`).
+
+A property is left out when loading would give it its value without it:
+when it equals a new widget's of the kind, after the properties written
+before it are set. A file holds what was chosen, and a change to a default
+reaches every file that did not choose. A property whose setter changes
+another, as a frame's `background` changes its `mouse_filter`, is written
+first; the one it changed is written after it when the widget holds
+another value. Read-only properties are not written, nor a command set in
+code that has no name.
+
+Saving a file that was loaded gives the same text when the file was
+written so: the tests load files, save them, and compare the bytes. A file
+written by hand in another order, or with other spacing, is saved in this
+form.
+
+### Finding widgets
+
+`tb_widget_find(from, "options/video/apply")` follows names: the first
+child of `from` named `options`, its first child named `video`, and so on,
+as Godot's node paths do. `""` is `from` itself; an empty name, or a name
+not there, finds none. `tb_widget_path` gives the path from the GUI's root
+that finds a widget, when every widget on the way has a name.
+
+### Names
+
+A file refers to what code holds by name. `tb_gui_register_command` names a
+callback and its argument; a property of type command is written as the
+name, and saving writes the first name registered for a callback and
+argument. The registry keeps a value of any named type under each name,
+each type a namespace of its own, so that variables join it as a type
+named the same way.
+
+### Hot reload
+
+`tb_gui_watch(widget, vfs, path, &options)` loads a widget again from its
+file whenever the file changes, for an author who edits a layout while the
+game runs. Each `tb_gui_update` looks at the files whose interval has
+passed (half a second unless chosen), reading each through the VFS and
+comparing a hash of its bytes with the last. The engine has no directory
+watching of its own yet, and the VFS's mounts include archives, so the
+watch reads rather than waits for the system to say; a layout file is
+small, and the cost is a read every interval.
+
+When the bytes changed, the file is built under the same parent, put in
+the old widget's place among its siblings, and the old widget destroyed:
+its handles go stale, and the callback (`tb_gui_watch_options::callback`)
+is given the new widget, to find again what the game keeps. A file that
+fails to load leaves the old widget as it was, and the callback is given
+the error; the file is tried again when it next changes. A file that
+cannot be read for a moment, as an editor replaces it, is waited for. The
+watch ends when its widget is destroyed other than by a reload, or with
+`tb_gui_unwatch`.
+
+Watching is for development: a game turns it on in its development builds,
+and a shipped game, whose files are in packages, does not. The sandbox's
+`gui` scene builds a panel from `tools/sandbox/resources/gui/panel.json`
+and watches it.
+
 ## Drawing and ownership
 
 `tb_gui_update` builds the frame's draw commands, `tb_ui_command`s in
@@ -326,8 +508,8 @@ above it; `tb_gui_commands` returns them, for tests, and `tb_gui_draw`
 hands them to a renderer's canvas. What changes after an update is drawn
 after the next.
 
-The caller owns the GUI, its theme's fonts, and the catalog, which outlive
-it. The GUI owns its widgets, their text, and the fonts it opened from the
+The caller owns the GUI, its theme's fonts, the catalog, and the VFS of
+each file watched, which outlive it. The GUI owns its widgets, their text, and the fonts it opened from the
 catalog; `tb_gui_forget_fonts` tells the renderer's canvas to forget those
 before `tb_gui_destroy` closes them. A kind's table, and its properties'
 names, outlive every widget of it.
@@ -344,9 +526,9 @@ thread that renders. GUIs are independent of one another.
   radio buttons, entries, sliders, and the rest.
 - Containers and overlays: scrolling, lists, tabs, menus, tooltips.
 - Style classes and theme files; the `style` property is kept for them.
-- Layout files in JSON, and finding widgets by path; the `name` property is
-  kept for them.
 - Focus moved by arrows and a gamepad.
+- Files watched by the system's own notices of change, rather than read
+  every interval.
 
 ## Tests
 
@@ -361,5 +543,11 @@ and hidden and disabled widgets, buttons' commands, Tab's focus, keys and the
 wheel given up the tree, modal widgets, cursors, bindings, and widgets
 destroyed from inside callbacks; the stretch modes and text measured at the
 display's pixels; and the commands each widget draws, drawn on the null
-backend's canvas. The sandbox's `gui` scene shows a form by eye
+backend's canvas. `gui_file_test.c`, `gui_names_test.c`, and
+`gui_watch_test.c` cover layout files: a file of every part saved back byte
+for byte, every type of property written and read again, defaults left
+out, each error's path, line, and reason, thousands of damaged files that
+must neither crash nor leave a widget behind, paths, commands by name, and
+a file in a VFS of memory changed, broken, removed, and mended under a
+watch. The sandbox's `gui` scene shows a form by eye
 ([sandbox](sandbox.md)), and the tests draw it on WARP at two scales.

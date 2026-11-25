@@ -3,6 +3,10 @@
 add_executable(badger-sandbox sandbox.c sandbox_capture.c sandbox_scenes.c sandbox_skinning.c
     sandbox_gui.c sandbox_inspector.c sandbox_lighting.c sandbox_ui.c)
 target_link_libraries(badger-sandbox PRIVATE TenaciousBadger::badger)
+# Read where they are in the source tree, so that the author edits them
+# while the sandbox runs, and sees them loaded again.
+target_compile_definitions(badger-sandbox PRIVATE
+    SANDBOX_RESOURCES="${CMAKE_CURRENT_SOURCE_DIR}/resources")
 
 tb_configure_target(badger-sandbox)
 tb_analyze_target(badger-sandbox)
