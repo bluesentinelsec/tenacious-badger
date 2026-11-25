@@ -391,6 +391,14 @@ static const tb_gui_property tb_gui_common[] = {
      .name_count = TB_GUI_COUNT_OF(tb_gui_wrap_names),
      .get = tb_gui_get_focus_wrap,
      .set = tb_gui_set_focus_wrap},
+    TB_GUI_COMMON("focus_up", TB_GUI_TYPE_TEXT, 0, tb_gui_get_focus_up, tb_gui_set_focus_up),
+    TB_GUI_COMMON("focus_down", TB_GUI_TYPE_TEXT, 0, tb_gui_get_focus_down, tb_gui_set_focus_down),
+    TB_GUI_COMMON("focus_left", TB_GUI_TYPE_TEXT, 0, tb_gui_get_focus_left, tb_gui_set_focus_left),
+    TB_GUI_COMMON("focus_right", TB_GUI_TYPE_TEXT, 0, tb_gui_get_focus_right,
+                  tb_gui_set_focus_right),
+    TB_GUI_COMMON("focus_next", TB_GUI_TYPE_TEXT, 0, tb_gui_get_focus_next, tb_gui_set_focus_next),
+    TB_GUI_COMMON("focus_previous", TB_GUI_TYPE_TEXT, 0, tb_gui_get_focus_previous,
+                  tb_gui_set_focus_previous),
 };
 
 const tb_gui_property *tb_gui_common_properties(size_t *count)

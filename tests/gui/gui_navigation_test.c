@@ -196,6 +196,70 @@ TB_TEST(gui_navigation, neighbours_named_override_the_geometry)
     gui_fixture_close(fixture);
 }
 
+TB_TEST(gui_navigation, neighbours_are_named_by_path_as_layout_files_name_them)
+{
+    grid_case made = {0};
+    open_grid(&made);
+    gui_fixture *const fixture = &made.fixture;
+    tb_widget(*const boxes)[3] = made.boxes;
+    tb_gui_value value = {0};
+
+    tb_widget_set_name(made.form, "form");
+    tb_widget_set_name(boxes[2][2], "corner");
+    tb_widget_set_name(boxes[2][0], "low");
+    /* A path is looked up from the widget's parent up to the root: the
+     * nearest that has it. */
+    const tb_gui_value corner = tb_gui_text(TB_TEXT("corner"));
+    const tb_gui_value full = tb_gui_text(TB_TEXT("form/low"));
+    const tb_gui_value nowhere = tb_gui_text(TB_TEXT("form/nothing"));
+    const tb_gui_value none = tb_gui_text(TB_TEXT(""));
+    TB_TEST_REQUIRE(tb_widget_set(boxes[0][0], "focus_right", &corner));
+    TB_TEST_REQUIRE(tb_widget_set(boxes[0][0], "focus_down", &full));
+    TB_TEST_EXPECT(
+        tb_widget_equal(tb_widget_focus_neighbor(boxes[0][0], TB_GUI_NAV_RIGHT), boxes[2][2]));
+    TB_TEST_REQUIRE(tb_widget_focus(boxes[0][0]));
+    gui_key(fixture, TB_KEY_RIGHT, 0);
+    TB_TEST_EXPECT(tb_widget_equal(focused(fixture), boxes[2][2]));
+    TB_TEST_REQUIRE(tb_widget_focus(boxes[0][0]));
+    gui_key(fixture, TB_KEY_DOWN, 0);
+    TB_TEST_EXPECT(tb_widget_equal(focused(fixture), boxes[2][0]));
+    TB_TEST_REQUIRE(tb_widget_get(boxes[0][0], "focus_down", &value));
+    TB_TEST_EXPECT(tb_text_equal(value.text, TB_TEXT("form/low")));
+
+    /* A path to nothing is passed over: the geometry decides. */
+    TB_TEST_REQUIRE(tb_widget_set(boxes[0][0], "focus_right", &nowhere));
+    TB_TEST_REQUIRE(tb_widget_focus(boxes[0][0]));
+    gui_key(fixture, TB_KEY_RIGHT, 0);
+    TB_TEST_EXPECT(tb_widget_equal(focused(fixture), boxes[0][1]));
+
+    /* The last given wins: a handle over a path, read back as its path
+     * from the root; a path over a handle; and none clears it. */
+    TB_TEST_REQUIRE(tb_widget_set_focus_neighbor(boxes[0][0], TB_GUI_NAV_RIGHT, boxes[2][0]));
+    TB_TEST_REQUIRE(tb_widget_get(boxes[0][0], "focus_right", &value));
+    TB_TEST_EXPECT(tb_text_equal(value.text, TB_TEXT("form/low")));
+    TB_TEST_REQUIRE(tb_widget_set(boxes[0][0], "focus_right", &corner));
+    TB_TEST_EXPECT(
+        tb_widget_equal(tb_widget_focus_neighbor(boxes[0][0], TB_GUI_NAV_RIGHT), boxes[2][2]));
+    TB_TEST_REQUIRE(tb_widget_set(boxes[0][0], "focus_right", &none));
+    TB_TEST_EXPECT(!tb_widget_alive(tb_widget_focus_neighbor(boxes[0][0], TB_GUI_NAV_RIGHT)));
+    /* A neighbour by handle with no path from the root reads as none. */
+    TB_TEST_REQUIRE(tb_widget_set_focus_neighbor(boxes[0][0], TB_GUI_NAV_LEFT, boxes[1][1]));
+    TB_TEST_REQUIRE(tb_widget_get(boxes[0][0], "focus_left", &value));
+    TB_TEST_EXPECT_UINT(value.text.length, ==, 0);
+    /* Each side is its own property; a widget that names none reads none. */
+    static const char *const sides[] = {"focus_up",    "focus_down", "focus_left",
+                                        "focus_right", "focus_next", "focus_previous"};
+    for (size_t side = 0; side < TB_TEST_COUNT_OF(sides); side++)
+    {
+        TB_TEST_REQUIRE(tb_widget_set(boxes[1][2], sides[side], &corner));
+        TB_TEST_REQUIRE(tb_widget_get(boxes[1][2], sides[side], &value));
+        TB_TEST_EXPECT(tb_text_equal(value.text, TB_TEXT("corner")));
+        TB_TEST_REQUIRE(tb_widget_get(boxes[2][1], sides[side], &value));
+        TB_TEST_EXPECT_UINT(value.text.length, ==, 0);
+    }
+    gui_fixture_close(fixture);
+}
+
 TB_TEST(gui_navigation, a_container_that_wraps_goes_around_its_own_widgets)
 {
     gui_fixture fixture = {0};

@@ -17,17 +17,23 @@
  * the rounding of edges to whole pixels. */
 #define TB_GUI_NAV_EPSILON 0.01f
 
+/* Bytes of a neighbour's path read as a property, at most. */
+#define TB_GUI_PATH_CAPACITY 512u
+
 /* Records, keys, and actions a GUI first holds. */
 #define TB_GUI_FIRST_RECORDS 8u
 #define TB_GUI_FIRST_KEYS 16u
 
-/* What a widget says of its navigation: its neighbours, whether it is its
- * screen's default focus, and the axes it wraps along. Kept only for the
- * widgets that say any of it; a record whose widget is stale is dropped. */
+/* What a widget says of its navigation: its neighbours, by handle or by
+ * path, whether it is its screen's default focus, and the axes it wraps
+ * along. Kept only for the widgets that say any of it; a record whose
+ * widget is stale is dropped. */
 typedef struct tb_gui_nav_record
 {
     tb_widget widget;
     tb_widget neighbors[TB_GUI_SIDES];
+    tb_gui_string paths[TB_GUI_SIDES];   /* a neighbour named by path; empty for none */
+    tb_gui_string written[TB_GUI_SIDES]; /* a neighbour's path as last read */
     bool default_focus;
     uint32_t wrap;
 } tb_gui_nav_record;
@@ -78,6 +84,15 @@ static size_t tb_gui_grow(size_t capacity, size_t first)
     return capacity == 0 ? first : capacity * 2;
 }
 
+static void tb_gui_record_free(tb_gui_nav_record *record)
+{
+    for (size_t side = 0; side < TB_GUI_SIDES; side++)
+    {
+        tb_gui_string_free(&record->paths[side]);
+        tb_gui_string_free(&record->written[side]);
+    }
+}
+
 /* ---------------------------------------------------------------------------
  * The GUI's navigation.
  * ------------------------------------------------------------------------- */
@@ -92,6 +107,10 @@ void tb_gui_navigation_free(tb_gui *gui)
 {
     tb_gui_navigation *const navigation = gui->navigation;
 
+    for (size_t index = 0; index < navigation->record_count; index++)
+    {
+        tb_gui_record_free(&navigation->records[index]);
+    }
     tb_free(navigation->records);
     tb_free(navigation->keys);
     tb_free(navigation->actions);
@@ -329,11 +348,13 @@ static tb_gui_nav_record *tb_gui_record_made(tb_widget widget)
     /* Drop the records of widgets destroyed before growing. */
     for (size_t index = 0; index < navigation->record_count; index++)
     {
-        if (tb_widget_alive(navigation->records[index].widget))
+        if (!tb_widget_alive(navigation->records[index].widget))
         {
-            navigation->records[kept] = navigation->records[index];
-            kept++;
+            tb_gui_record_free(&navigation->records[index]);
+            continue;
         }
+        navigation->records[kept] = navigation->records[index];
+        kept++;
     }
     navigation->record_count = kept;
     if (navigation->record_count == navigation->record_capacity)
@@ -371,8 +392,27 @@ bool tb_widget_set_focus_neighbor(tb_widget widget, tb_gui_nav side, tb_widget n
     {
         return false;
     }
-    tb_gui_record_made(widget)->neighbors[tb_gui_side_slot(side)] = neighbor;
+    tb_gui_nav_record *const record = tb_gui_record_made(widget);
+    const size_t slot = tb_gui_side_slot(side);
+    record->neighbors[slot] = neighbor;
+    tb_gui_string_free(&record->paths[slot]);
     return true;
+}
+
+/* A neighbour's path looked up from a widget's parent, then from each
+ * ancestor up to the root: the nearest that has it. */
+static tb_widget tb_gui_find_neighbor(tb_widget widget, const tb_gui_string *path)
+{
+    for (tb_widget from = tb_widget_parent(widget); tb_widget_alive(from);
+         from = tb_widget_parent(from))
+    {
+        const tb_widget found = tb_widget_find(from, path->bytes);
+        if (tb_widget_alive(found))
+        {
+            return found;
+        }
+    }
+    return TB_WIDGET_NONE;
 }
 
 tb_widget tb_widget_focus_neighbor(tb_widget widget, tb_gui_nav side)
@@ -382,11 +422,130 @@ tb_widget tb_widget_focus_neighbor(tb_widget widget, tb_gui_nav side)
         return TB_WIDGET_NONE;
     }
     const tb_gui_nav_record *const record = tb_gui_record_of(widget);
-    if (record == NULL || !tb_widget_alive(record->neighbors[tb_gui_side_slot(side)]))
+    if (record == NULL)
     {
         return TB_WIDGET_NONE;
     }
-    return record->neighbors[tb_gui_side_slot(side)];
+    const size_t slot = tb_gui_side_slot(side);
+    if (record->paths[slot].length > 0)
+    {
+        return tb_gui_find_neighbor(widget, &record->paths[slot]);
+    }
+    return tb_widget_alive(record->neighbors[slot]) ? record->neighbors[slot] : TB_WIDGET_NONE;
+}
+
+/* A side's neighbour as a property: its path as set, or the path from the
+ * root of the widget set by handle, or empty. */
+static bool tb_gui_get_neighbor(tb_widget widget, tb_gui_nav side, tb_gui_value *value)
+{
+    tb_gui_nav_record *const record = tb_gui_record_of(widget);
+    const size_t slot = tb_gui_side_slot(side);
+    char buffer[TB_GUI_PATH_CAPACITY] = {0};
+    size_t length = 0;
+
+    *value = tb_gui_text(tb_text_make("", 0));
+    if (record == NULL)
+    {
+        return true;
+    }
+    if (record->paths[slot].length > 0)
+    {
+        *value = tb_gui_text(tb_gui_string_text(&record->paths[slot]));
+        return true;
+    }
+    if (tb_widget_alive(record->neighbors[slot]) &&
+        tb_widget_path(record->neighbors[slot], buffer, sizeof(buffer), &length))
+    {
+        tb_gui_string_set(&record->written[slot], tb_text_make(buffer, length));
+        *value = tb_gui_text(tb_gui_string_text(&record->written[slot]));
+    }
+    return true;
+}
+
+static bool tb_gui_set_neighbor(tb_widget widget, tb_gui_nav side, const tb_gui_value *value)
+{
+    const size_t slot = tb_gui_side_slot(side);
+    tb_gui_nav_record *const record =
+        value->text.length > 0 ? tb_gui_record_made(widget) : tb_gui_record_of(widget);
+
+    if (record != NULL)
+    {
+        tb_gui_string_set(&record->paths[slot], value->text);
+        record->neighbors[slot] = TB_WIDGET_NONE;
+    }
+    return true;
+}
+
+bool tb_gui_get_focus_up(tb_widget widget, const void *data, tb_gui_value *value)
+{
+    (void)data;
+    return tb_gui_get_neighbor(widget, TB_GUI_NAV_UP, value);
+}
+
+bool tb_gui_set_focus_up(tb_widget widget, void *data, const tb_gui_value *value)
+{
+    (void)data;
+    return tb_gui_set_neighbor(widget, TB_GUI_NAV_UP, value);
+}
+
+bool tb_gui_get_focus_down(tb_widget widget, const void *data, tb_gui_value *value)
+{
+    (void)data;
+    return tb_gui_get_neighbor(widget, TB_GUI_NAV_DOWN, value);
+}
+
+bool tb_gui_set_focus_down(tb_widget widget, void *data, const tb_gui_value *value)
+{
+    (void)data;
+    return tb_gui_set_neighbor(widget, TB_GUI_NAV_DOWN, value);
+}
+
+bool tb_gui_get_focus_left(tb_widget widget, const void *data, tb_gui_value *value)
+{
+    (void)data;
+    return tb_gui_get_neighbor(widget, TB_GUI_NAV_LEFT, value);
+}
+
+bool tb_gui_set_focus_left(tb_widget widget, void *data, const tb_gui_value *value)
+{
+    (void)data;
+    return tb_gui_set_neighbor(widget, TB_GUI_NAV_LEFT, value);
+}
+
+bool tb_gui_get_focus_right(tb_widget widget, const void *data, tb_gui_value *value)
+{
+    (void)data;
+    return tb_gui_get_neighbor(widget, TB_GUI_NAV_RIGHT, value);
+}
+
+bool tb_gui_set_focus_right(tb_widget widget, void *data, const tb_gui_value *value)
+{
+    (void)data;
+    return tb_gui_set_neighbor(widget, TB_GUI_NAV_RIGHT, value);
+}
+
+bool tb_gui_get_focus_next(tb_widget widget, const void *data, tb_gui_value *value)
+{
+    (void)data;
+    return tb_gui_get_neighbor(widget, TB_GUI_NAV_NEXT, value);
+}
+
+bool tb_gui_set_focus_next(tb_widget widget, void *data, const tb_gui_value *value)
+{
+    (void)data;
+    return tb_gui_set_neighbor(widget, TB_GUI_NAV_NEXT, value);
+}
+
+bool tb_gui_get_focus_previous(tb_widget widget, const void *data, tb_gui_value *value)
+{
+    (void)data;
+    return tb_gui_get_neighbor(widget, TB_GUI_NAV_PREVIOUS, value);
+}
+
+bool tb_gui_set_focus_previous(tb_widget widget, void *data, const tb_gui_value *value)
+{
+    (void)data;
+    return tb_gui_set_neighbor(widget, TB_GUI_NAV_PREVIOUS, value);
 }
 
 tb_widget tb_gui_neighbor_taking_focus(tb_widget widget, tb_gui_nav side)

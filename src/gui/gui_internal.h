@@ -324,6 +324,19 @@ bool tb_gui_get_default_focus(tb_widget widget, const void *data, tb_gui_value *
 bool tb_gui_set_default_focus(tb_widget widget, void *data, const tb_gui_value *value);
 bool tb_gui_get_focus_wrap(tb_widget widget, const void *data, tb_gui_value *value);
 bool tb_gui_set_focus_wrap(tb_widget widget, void *data, const tb_gui_value *value);
+/* The common properties `focus_up` to `focus_previous`: neighbours by path. */
+bool tb_gui_get_focus_up(tb_widget widget, const void *data, tb_gui_value *value);
+bool tb_gui_set_focus_up(tb_widget widget, void *data, const tb_gui_value *value);
+bool tb_gui_get_focus_down(tb_widget widget, const void *data, tb_gui_value *value);
+bool tb_gui_set_focus_down(tb_widget widget, void *data, const tb_gui_value *value);
+bool tb_gui_get_focus_left(tb_widget widget, const void *data, tb_gui_value *value);
+bool tb_gui_set_focus_left(tb_widget widget, void *data, const tb_gui_value *value);
+bool tb_gui_get_focus_right(tb_widget widget, const void *data, tb_gui_value *value);
+bool tb_gui_set_focus_right(tb_widget widget, void *data, const tb_gui_value *value);
+bool tb_gui_get_focus_next(tb_widget widget, const void *data, tb_gui_value *value);
+bool tb_gui_set_focus_next(tb_widget widget, void *data, const tb_gui_value *value);
+bool tb_gui_get_focus_previous(tb_widget widget, const void *data, tb_gui_value *value);
+bool tb_gui_set_focus_previous(tb_widget widget, void *data, const tb_gui_value *value);
 
 /* gui_popup.c: popups. The level of the popup a slot is in, from 0 at the
  * back, passive ones counted only when `passive` is true; SIZE_MAX for
