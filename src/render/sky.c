@@ -61,10 +61,10 @@ uint64_t tb_renderer_sky_upload(tb_renderer *renderer)
                                      tb_viewport_design_aspect(&renderer->viewport));
     }
     constants.forward = tb_sky_color(tb_quat_rotate(camera->orientation, (tb_vec3){0, 0, -1}));
-    constants.right =
-        tb_sky_color(tb_vec3_scale(tb_quat_rotate(camera->orientation, (tb_vec3){1, 0, 0}), half.x));
-    constants.up =
-        tb_sky_color(tb_vec3_scale(tb_quat_rotate(camera->orientation, (tb_vec3){0, 1, 0}), half.y));
+    constants.right = tb_sky_color(
+        tb_vec3_scale(tb_quat_rotate(camera->orientation, (tb_vec3){1, 0, 0}), half.x));
+    constants.up = tb_sky_color(
+        tb_vec3_scale(tb_quat_rotate(camera->orientation, (tb_vec3){0, 1, 0}), half.y));
     constants.zenith = tb_sky_color(sky->zenith);
     constants.horizon = tb_sky_color(sky->horizon);
     constants.ground = tb_sky_color(sky->ground);

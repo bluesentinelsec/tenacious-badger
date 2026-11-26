@@ -139,11 +139,12 @@ static float tb_viewport_design_start(float units, float design, float pixels)
 {
     const double extra = ((double)units - (double)design) * (double)pixels;
 
-    if (!(extra >= 1.0))
+    if (!(extra >= 1.0 - TB_VIEWPORT_TARGET_SLACK))
     {
         return 0.0f;
     }
-    return (float)(floor(extra * 0.5) / (double)pixels);
+    /* Float arithmetic leaves 191.99997 of 192 pixels: as whole. */
+    return (float)(floor(extra * 0.5 + TB_VIEWPORT_TARGET_SLACK) / (double)pixels);
 }
 
 /* The pixels of a side of the viewport render mode's target: the units

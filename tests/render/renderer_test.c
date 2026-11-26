@@ -99,7 +99,8 @@ TB_TEST(renderer_camera, at_the_reference_aspect_every_constraint_is_the_same_vi
 
     for (int constraint = 0; constraint < TB_CAMERA_AXIS_COUNT; constraint++)
     {
-        TB_TEST_CONTEXT("%s", tb_camera_axis_constraint_name((tb_camera_axis_constraint)constraint));
+        TB_TEST_CONTEXT("%s",
+                        tb_camera_axis_constraint_name((tb_camera_axis_constraint)constraint));
         const tb_camera held = constrained(camera, (tb_camera_axis_constraint)constraint);
         const tb_mat4 fit = tb_camera_projection_fit(&held, CAMERA_REFERENCE, CAMERA_REFERENCE);
         for (int column = 0; column < 4; column++)

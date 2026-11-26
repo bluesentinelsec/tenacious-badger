@@ -657,8 +657,7 @@ static void display_draw_art(display_scene *scene, const tb_viewport *viewport,
         return;
     }
     display_text_under(renderer, font, "Tenacious Badger", DISPLAY_ART_TEXT_SIZE * texel,
-                       (tb_vec2){at.x, still.y + texel * 2.0f},
-                       (tb_vec4){1.0f, 0.85f, 0.3f, 1.0f});
+                       (tb_vec2){at.x, still.y + texel * 2.0f}, (tb_vec4){1.0f, 0.85f, 0.3f, 1.0f});
 }
 
 /* The facts, a line each. */

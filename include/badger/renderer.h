@@ -307,8 +307,7 @@ TB_API tb_mat4 tb_camera_projection_fit(const tb_camera *camera, float aspect,
  * @param reference_aspect As tb_camera_projection_fit().
  * @par Threading Thread-safe.
  */
-TB_API tb_vec2 tb_camera_half_extent(const tb_camera *camera, float aspect,
-                                     float reference_aspect);
+TB_API tb_vec2 tb_camera_half_extent(const tb_camera *camera, float aspect, float reference_aspect);
 
 /** @brief A constraint's name: "design", "vertical" or "horizontal";
  * "unknown" for another value. @par Threading Thread-safe. */

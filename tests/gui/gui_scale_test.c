@@ -181,12 +181,13 @@ TB_TEST(gui_scale, expand_pins_corners_to_the_frames_edges_and_centers_the_middl
     const tb_viewport_policy policy = TB_VIEWPORT_POLICY_INIT;
 
     TB_TEST_REQUIRE(policy.aspect == TB_VIEWPORT_ASPECT_EXPAND);
-    TB_TEST_REQUIRE(tb_grid(top_left, &(tb_grid_options){.row = 0, .column = 0,
-                                                          .sticky = TB_STICKY_N | TB_STICKY_W}));
+    TB_TEST_REQUIRE(tb_grid(
+        top_left, &(tb_grid_options){.row = 0, .column = 0, .sticky = TB_STICKY_N | TB_STICKY_W}));
     TB_TEST_REQUIRE(tb_grid(middle, &(tb_grid_options){.row = 1, .column = 1}));
-    TB_TEST_REQUIRE(tb_grid(bottom_right, &(tb_grid_options){.row = 2, .column = 2,
-                                                              .sticky = TB_STICKY_S | TB_STICKY_E}));
-    for (int32_t track = 0; track < 3; track += 2)
+    TB_TEST_REQUIRE(
+        tb_grid(bottom_right,
+                &(tb_grid_options){.row = 2, .column = 2, .sticky = TB_STICKY_S | TB_STICKY_E}));
+    for (size_t track = 0; track < 3u; track += 2u)
     {
         TB_TEST_REQUIRE(tb_grid_column_configure(root, track, &(tb_grid_track){.weight = 1.0f}));
         TB_TEST_REQUIRE(tb_grid_row_configure(root, track, &(tb_grid_track){.weight = 1.0f}));
@@ -212,8 +213,8 @@ TB_TEST(gui_scale, expand_pins_corners_to_the_frames_edges_and_centers_the_middl
         TB_TEST_EXPECT_FLOAT_NEAR(center.x + center.width * 0.5f, design_middle.x, 1.0f);
         TB_TEST_EXPECT_FLOAT_NEAR(center.y + center.height * 0.5f, design_middle.y, 1.0f);
         /* The frame's corners are the root's. */
-        const tb_vec2 corner = tb_viewport_to_pixels(
-            &viewport, (tb_vec2){last.x + last.width, last.y + last.height});
+        const tb_vec2 corner =
+            tb_viewport_to_pixels(&viewport, (tb_vec2){last.x + last.width, last.y + last.height});
         TB_TEST_EXPECT_FLOAT_NEAR(corner.x, (float)frames[index][0], 0.5f);
         TB_TEST_EXPECT_FLOAT_NEAR(corner.y, (float)frames[index][1], 0.5f);
     }

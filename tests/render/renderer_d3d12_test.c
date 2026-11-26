@@ -197,18 +197,18 @@ static const uint8_t *draw_edges(tb_renderer *renderer, tb_mesh *cube,
 {
     /* Ten units ahead, the design's view is 10.26 units either side of the
      * middle (tan 30 degrees by 16:9); a 16:10 view that keeps the
-     * vertical field of view, 9.24. The cubes, 0.8 wide, lie between. */
+     * vertical field of view, 9.24. The cubes, 0.8 wide and thin, so that
+     * their sides do not reach past their faces, lie between. */
     const float distance = 10.0f;
     const float across = 9.75f;
-    const tb_mat4 size = tb_mat4_scaling((tb_vec3){0.8f, 0.8f, 0.8f});
+    const tb_mat4 size = tb_mat4_scaling((tb_vec3){0.8f, 0.8f, 0.05f});
     tb_camera camera = tb_camera_perspective(tb_radians(60.0f));
 
     camera.axis_constraint = constraint;
     tb_renderer_capture_next_frame(renderer);
     TB_TEST_REQUIRE(tb_renderer_begin_frame(renderer, &camera, (tb_vec4){0, 0, 0, 1}));
     tb_renderer_draw_mesh_shaded(
-        renderer, cube,
-        tb_mat4_mul(tb_mat4_translation((tb_vec3){-across, 0, -distance}), size),
+        renderer, cube, tb_mat4_mul(tb_mat4_translation((tb_vec3){-across, 0, -distance}), size),
         (tb_vec4){1, 0, 0, 1}, TB_MESH_FLAT);
     tb_renderer_draw_mesh_shaded(
         renderer, cube, tb_mat4_mul(tb_mat4_translation((tb_vec3){across, 0, -distance}), size),

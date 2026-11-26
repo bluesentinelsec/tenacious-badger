@@ -133,5 +133,5 @@ tb_vec2 tb_camera_half_extent(const tb_camera *camera, float aspect, float refer
 const char *tb_camera_axis_constraint_name(tb_camera_axis_constraint constraint)
 {
     return (size_t)constraint < TB_CAMERA_AXIS_COUNT ? tb_camera_axis_constraint_names[constraint]
-                                                      : "unknown";
+                                                     : "unknown";
 }
