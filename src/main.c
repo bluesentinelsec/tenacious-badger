@@ -1,3 +1,4 @@
+#include "badger/assert.h"
 #include "badger/cli.h"
 #include "badger/core.h"
 #include "badger/crash.h"
@@ -222,6 +223,7 @@ static int burrow_main(const tb_arguments *arguments)
                                  burrow_log_file);
         return EXIT_FAILURE;
     }
+    TB_ASSERT(outcome.command != NULL && outcome.command->run != NULL);
     return outcome.command->run(&outcome, NULL);
 }
 

@@ -9,6 +9,7 @@
 
 #include "badger/arena.h"
 #include "badger/canvas.h"
+#include "badger/assert.h"
 #include "badger/cli.h"
 #include "badger/crash.h"
 #include "badger/d3dcompiler.h"
@@ -932,6 +933,7 @@ static int sandbox_parse_and_run(const tb_arguments *arguments)
                                  sandbox_log_file);
         return EXIT_FAILURE;
     }
+    TB_ASSERT(outcome.command != NULL && outcome.command->run != NULL);
     return outcome.command->run(&outcome, NULL);
 }
 
