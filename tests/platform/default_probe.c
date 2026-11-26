@@ -218,6 +218,11 @@ TB_TEST(platform_default, tb_process_release_arguments)
     tb_process_release_arguments(&arguments);
 }
 
+TB_TEST(platform_default, tb_process_write_output_to)
+{
+    (void)tb_process_write_output_to("output.log");
+}
+
 TB_TEST(platform_default, tb_platform_clock_nanoseconds)
 {
     (void)tb_platform_clock_nanoseconds();

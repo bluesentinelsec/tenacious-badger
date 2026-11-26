@@ -1,12 +1,16 @@
 /* The process's arguments, read from the system as UTF-16 rather than from
- * the C runtime, which converts them to the ANSI code page. */
+ * the C runtime, which converts them to the ANSI code page; and its standard
+ * streams sent to a file. */
 #include "process_arguments.h"
 
 #include "badger/assert.h"
 
+#include <fcntl.h>
+#include <io.h>
 #include <limits.h>
 #include <shellapi.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -105,4 +109,78 @@ void tb_process_release_arguments(tb_arguments *arguments)
     arguments->count = 0;
     arguments->values = NULL;
     arguments->storage = NULL;
+}
+
+/* The UTF-16 of a UTF-8 path, from malloc; NULL when the text is not UTF-8. */
+static WCHAR *tb_win32_output_path(const char *path)
+{
+    const int needed = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path, -1, NULL, 0);
+    WCHAR *wide = NULL;
+
+    if (needed <= 0)
+    {
+        return NULL;
+    }
+    wide = malloc((size_t)needed * sizeof(WCHAR));
+    /* coverage-off: allocation fails only when the system is out of memory */
+    if (wide == NULL)
+    {
+        return NULL;
+    }
+    /* coverage-on */
+    (void)MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path, -1, wide, needed);
+    return wide;
+}
+
+bool tb_process_write_output_to(const char *path)
+{
+    WCHAR *wide = NULL;
+    HANDLE file = INVALID_HANDLE_VALUE;
+    int descriptor = -1;
+    bool moved = false;
+
+    TB_ASSERT(path != NULL);
+    wide = tb_win32_output_path(path);
+    if (wide == NULL)
+    {
+        goto cleanup;
+    }
+    file = CreateFileW(wide, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_ALWAYS,
+                       FILE_ATTRIBUTE_NORMAL, NULL);
+    if (file == INVALID_HANDLE_VALUE)
+    {
+        goto cleanup;
+    }
+    /* The C runtime's descriptor owns the handle from here on. */
+    descriptor = _open_osfhandle((intptr_t)file, _O_WRONLY | _O_TEXT);
+    /* coverage-off: a descriptor is refused only when the runtime has none left */
+    if (descriptor < 0)
+    {
+        (void)CloseHandle(file);
+        goto cleanup;
+    }
+    /* coverage-on */
+    (void)fflush(stdout);
+    (void)fflush(stderr);
+    /* Both descriptors share the file's position, so lines keep their order.
+     * A program without a console has no descriptors 1 and 2 until now. */
+    /* coverage-off: duplicating an open descriptor fails only without memory */
+    if (_dup2(descriptor, _fileno(stdout)) != 0 || _dup2(descriptor, _fileno(stderr)) != 0)
+    {
+        goto cleanup;
+    }
+    /* coverage-on */
+    /* The system's standard handles too, which a crash report writes to. */
+    (void)SetStdHandle(STD_OUTPUT_HANDLE, (HANDLE)_get_osfhandle(_fileno(stdout)));
+    (void)SetStdHandle(STD_ERROR_HANDLE, (HANDLE)_get_osfhandle(_fileno(stderr)));
+    (void)setvbuf(stdout, NULL, _IONBF, 0);
+    (void)setvbuf(stderr, NULL, _IONBF, 0);
+    moved = true;
+cleanup:
+    if (descriptor >= 0)
+    {
+        (void)_close(descriptor);
+    }
+    free(wide);
+    return moved;
 }

@@ -696,6 +696,20 @@ so a name outside it arrives as question marks; this is the way around that.
 all but rare cases. A program passes the result to `tb_cli_parse()`
 ([command lines](command-line.md)), as Burrow does.
 
+### Output to a file
+
+`tb_process_write_output_to` sends standard output and standard error to a
+file for the rest of the process, for a program whose streams nothing reads
+([logging](logging.md#writing-the-log-to-a-file)). It moves the C runtime's
+`stdout` and `stderr` and the system's own streams together, so a crash
+report lands in the same file, in order, and it leaves both unbuffered.
+
+| Platform | How |
+| --- | --- |
+| Windows | `CreateFileW`, shared for reading and writing, made a C runtime descriptor and duplicated onto descriptors 1 and 2 with `_dup2`; `SetStdHandle` for the standard handles |
+| Linux, macOS | `open`, duplicated onto descriptors 1 and 2 with `dup2` |
+| Other | "not implemented" |
+
 ## Shared libraries
 
 Public declaration: `include/badger/library.h`. `tb_library_open` loads a
