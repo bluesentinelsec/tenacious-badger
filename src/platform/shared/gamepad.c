@@ -9,6 +9,7 @@
 #include "badger/fmt.h"
 #include "badger/memory.h"
 #include "badger/platform.h"
+#include "badger/str.h"
 #include "badger/utf8.h"
 
 #include <math.h>
@@ -168,7 +169,7 @@ void tb_gamepad_copy_name(char *name, const char *source, size_t length)
  * is lowercase. */
 static bool tb_gamepad_has_word(const char *text, const char *word)
 {
-    const size_t length = strlen(word);
+    const size_t length = tb_str_length(word);
 
     for (const char *at = text; *at != '\0'; at++)
     {
@@ -242,7 +243,7 @@ tb_gamepad_family tb_gamepad_settle_family(const tb_gamepad_info *info, bool ste
 
 bool tb_gamepad_steam_deck_variable(const char *value)
 {
-    return value != NULL && strcmp(value, "1") == 0;
+    return value != NULL && tb_str_equal(value, "1");
 }
 
 /* One hexadecimal number of an entry, with or without 0x; `*end` is where
