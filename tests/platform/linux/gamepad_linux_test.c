@@ -148,7 +148,7 @@ static ssize_t fake_write(int descriptor, const void *buffer, size_t size)
     return (ssize_t)size;
 }
 
-static int fake_bits(const uint8_t *bits, size_t length, unsigned size, void *argument)
+static int fake_bits(const uint8_t *bits, size_t length, unsigned long size, void *argument)
 {
     const size_t copied = size < length ? size : length;
 
@@ -160,8 +160,8 @@ static int fake_ioctl(int descriptor, unsigned long request, void *argument)
 {
     fake_device *const device = fake_by_descriptor(descriptor);
     const tb_evdev_device *const description = &device->description;
-    const unsigned number = _IOC_NR(request);
-    const unsigned size = _IOC_SIZE(request);
+    const unsigned long number = _IOC_NR(request);
+    const unsigned long size = _IOC_SIZE(request);
 
     TB_TEST_REQUIRE_UINT(_IOC_TYPE(request), ==, 'E');
     if (number == _IOC_NR(EVIOCGBIT(EV_KEY, 0)))
@@ -198,7 +198,7 @@ static int fake_ioctl(int descriptor, unsigned long request, void *argument)
     }
     if (number >= _IOC_NR(EVIOCGABS(0)) && number < _IOC_NR(EVIOCGABS(ABS_CNT)))
     {
-        const unsigned code = number - _IOC_NR(EVIOCGABS(0));
+        const unsigned long code = number - _IOC_NR(EVIOCGABS(0));
         *(struct input_absinfo *)argument =
             (struct input_absinfo){.value = device->values[code],
                                    .minimum = description->minimum[code],
