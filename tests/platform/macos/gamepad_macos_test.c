@@ -96,8 +96,9 @@ TB_TEST(platform_macos_gamepad, an_extended_gamepad_reads_in_the_standard_layout
     press(&runtime, gamepad, "buttonY");
     press(&runtime, gamepad, "leftShoulder");
     message_float(&runtime, message(&runtime, gamepad, "rightTrigger"), "setValue:", 0.75f);
-    message_float(&runtime, message(&runtime, message(&runtime, gamepad, "dpad"), "up"),
-                  "setValue:", 1.0f);
+    /* A simulated d-pad is set as a direction pad, whose up follows its Y. */
+    message_floats(&runtime, message(&runtime, gamepad, "dpad"), "setValueForXAxis:yAxis:", 0.0f,
+                   1.0f);
     message_floats(&runtime, message(&runtime, gamepad, "leftThumbstick"),
                    "setValueForXAxis:yAxis:", -1.0f, 0.5f);
 
