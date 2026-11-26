@@ -187,8 +187,9 @@ middle in gold, the edge of what the viewport shows in blue (the same as
 the border in `keep`; larger in `expand`), and a grid of nine cells a
 design's height, centered; and a badger's face in pixel art, still and
 turning, over a line of text, as large against any design as at 320 by
-180, where a texel of the art is a unit. In the top left corner, in
-logical pixels over the bars and the viewport alike: the window's logical
+180, where a texel of the art is a unit. In the top left corner of the
+viewport, laid out at 1920 by 1080 of its own and drawn at the window's
+pixels, so that it keeps its place in every window mode: the window's logical
 size, the frame's pixels and the display's scale; the viewport's
 rectangle, its pixels a unit and the units it shows; the mouse in pixels
 and in units, and whether it is in the viewport or on a bar; the policy,

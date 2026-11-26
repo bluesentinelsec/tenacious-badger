@@ -60,10 +60,15 @@ static const char *const display_window_modes[DISPLAY_WINDOW_MODES] = {"windowed
 /* Pixels wide the design's lines are drawn, at any scale. */
 #define DISPLAY_LINE_PIXELS 2.0f
 #define DISPLAY_GRID_PIXELS 1.0f
-/* The overlay of facts: its text's size and margin, in logical units, and
- * the layers it and the design's lines are drawn on. */
-#define DISPLAY_TEXT_SIZE 13.0f
-#define DISPLAY_TEXT_MARGIN 8.0f
+/* The overlay of facts is laid out at this many units of the viewport's,
+ * as the panel is, so that it keeps its place and its share of the
+ * viewport in every window mode and at every window size. Its text's size,
+ * margin and corners' radius are in those units. */
+#define DISPLAY_FACTS_WIDTH 1920.0f
+#define DISPLAY_FACTS_HEIGHT 1080.0f
+#define DISPLAY_TEXT_SIZE 20.0f
+#define DISPLAY_TEXT_MARGIN 12.0f
+#define DISPLAY_TEXT_RADIUS 9.0f
 #define DISPLAY_LINES_LAYER 10
 #define DISPLAY_OVERLAY_LAYER 900
 #define DISPLAY_LINE_CAPACITY 160u
@@ -706,8 +711,29 @@ static size_t display_facts(display_scene *scene, const tb_viewport_policy *poli
     return count;
 }
 
-/* The facts in the top left corner of the window, in logical units, over
- * the bars and the viewport alike. */
+/* The view the facts are drawn in: the viewport's rectangle, at the
+ * overlay's units, drawn on the frame at its own pixels so that the text is
+ * sharp in both render modes. Without a design size, the window's logical
+ * units, as a tool's interface is. */
+static tb_canvas_view display_facts_view(tb_renderer *renderer, const tb_viewport_policy *policy,
+                                         const tb_viewport *viewport)
+{
+    tb_canvas_view view = {0};
+    const float fit = fminf((float)viewport->width / DISPLAY_FACTS_WIDTH,
+                            (float)viewport->height / DISPLAY_FACTS_HEIGHT);
+
+    if (policy->design_width == 0 || policy->design_height == 0 || !(fit > 0.0f))
+    {
+        return tb_canvas_view_logical(renderer);
+    }
+    view.origin = (tb_vec2){(float)viewport->x, (float)viewport->y};
+    view.scale = fit;
+    view.clip = (tb_rhi_rect){(int32_t)viewport->x, (int32_t)viewport->y, viewport->width,
+                              viewport->height};
+    return view;
+}
+
+/* The facts in the top left corner of the viewport, over the scene. */
 static void display_draw_facts(display_scene *scene, const tb_viewport_policy *policy,
                                const tb_viewport *viewport)
 {
@@ -715,7 +741,7 @@ static void display_draw_facts(display_scene *scene, const tb_viewport_policy *p
     const tb_font *const font = scene->box->fonts[SANDBOX_FONT_MONOSPACE] != NULL
                                     ? scene->box->fonts[SANDBOX_FONT_MONOSPACE]
                                     : scene->box->fonts[SANDBOX_FONT_UI];
-    const tb_canvas_view view = tb_canvas_view_logical(renderer);
+    const tb_canvas_view view = display_facts_view(renderer, policy, viewport);
     const size_t count = display_facts(scene, policy, viewport);
     float widest = 0.0f;
     float line_height = 0.0f;
@@ -738,7 +764,7 @@ static void display_draw_facts(display_scene *scene, const tb_viewport_policy *p
         (tb_canvas_rect){DISPLAY_TEXT_MARGIN, DISPLAY_TEXT_MARGIN,
                          widest + DISPLAY_TEXT_MARGIN * 2.0f,
                          line_height * (float)count + DISPLAY_TEXT_MARGIN * 2.0f},
-        6.0f, (tb_vec4){0.0f, 0.0f, 0.0f, 0.65f});
+        DISPLAY_TEXT_RADIUS, (tb_vec4){0.0f, 0.0f, 0.0f, 0.65f});
     for (size_t index = 0; index < count; index++)
     {
         tb_canvas_draw_text(renderer, font, tb_text_from_cstr(scene->lines[index]),

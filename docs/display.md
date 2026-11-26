@@ -193,6 +193,25 @@ at (43, 24), 4 pixels a unit; 1024 by 768 is 960 by 540 at (32, 114), 3.
   borderless in release builds, and an app overrides them in its default
   file.
 
+### What goes where
+
+Everything an app shows its players goes in the viewport, in the design's
+units: its scene, its HUD, its menus, its text. Then the interface keeps
+its place and its share of the picture in every window mode, at every
+window size, and on every display: windowed or fullscreen, it differs only
+in scale and in the bars beside it.
+
+The views of the whole frame, in pixels and logical units, are for the
+engine's developer tools alone: the inspector, the console, statistics.
+They do not follow the viewport. Over bars they lie partly on the bars,
+and their share of the picture changes as the window's size does.
+
+To draw in the viewport at the frame's own pixels, sharp in both render
+modes, make a canvas view of the viewport's rectangle: its origin the
+rectangle's corner, its clip the rectangle, and its scale the rectangle's
+pixels over the units the overlay is laid out at. The `display` scene's
+facts are drawn so.
+
 ## In the sandbox
 
 The sandbox's [`display` scene](sandbox.md#the-display-scene) shows the
