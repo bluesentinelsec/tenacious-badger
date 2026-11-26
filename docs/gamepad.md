@@ -8,12 +8,30 @@ platform's build reports it as not implemented.
 | Platform | Gamepads | How it is reached |
 | --- | --- | --- |
 | Windows | XInput: Xbox pads, and what Steam Input exposes, under Proton too | `xinput1_4.dll`, or `xinput9_1_0.dll` before Windows 8, loaded at run time from the system directory |
+| Windows | Raw HID: the pads a protocol driver of the engine's knows, which XInput does not read ([raw HID pads](#raw-hid-pads)) | `cfgmgr32.dll`, `hid.dll` and `winusb.dll`, loaded at run time from the system directory |
 | Linux and Steam Deck | evdev: the event devices of `/dev/input`, read without grabbing | the kernel's system calls; nothing loaded |
 | macOS | The GameController framework's extended gamepads | `libobjc.A.dylib` and `GameController.framework`, loaded at run time |
 
 A system without the library gets `TB_GAMEPAD_UNAVAILABLE` from
 `tb_gamepad_system_open()`: a capability that is missing, and a game plays on
-without gamepads.
+without gamepads. On Windows, XInput and raw HID are one system: either is
+enough, and their pads share the slots.
+
+## Supported controllers
+
+| Controller | Windows | Linux and Steam Deck | macOS |
+| --- | --- | --- | --- |
+| Xbox pads and XInput pads | XInput | xpad | GameController |
+| PlayStation pads | Through Steam Input | hid-playstation | GameController |
+| Switch Pro Controller | Through Steam Input | hid-nintendo | GameController |
+| Switch 2 Pro Controller, USB (`057e:2069`) | Raw HID, with rumble | hid-nintendo, from Linux 7.4 | Not yet: the framework does not know it (#379) |
+| Joy-Con 2, GameCube controller for Switch 2 | Not yet (#378) | hid-nintendo, from Linux 7.4 | Not yet (#379) |
+| Steam Deck | | hid-steam | |
+| Any pad, under Steam | Steam Input's virtual XInput pad | Steam Input's virtual pad | |
+
+A pad that Steam stands in for is seen once: through Steam's virtual pad, as
+Steam names the physical ones in `SDL_GAMECONTROLLER_IGNORE_DEVICES` (see
+[Steam](#mapping-evdev-devices) below), which the raw HID backend honors too.
 
 ```c
 tb_gamepad_system *gamepads = NULL;
@@ -55,20 +73,43 @@ two polls are both. An empty slot's state and info are all zero.
 
 | Platform | Slots | A pad that comes | A pad that goes |
 | --- | --- | --- | --- |
-| Windows | XInput's four users are slots 0 to 3 | Empty users are asked every half second, since XInput answers slowly for an empty one | At the next poll |
+| Windows | The lowest free, XInput's pads and raw HID pads alike | XInput's empty users are asked, and the HID device interfaces listed, every half second | At the next poll: XInput says so, and a raw HID pad's read fails |
 | Linux | The lowest free | inotify on `/dev/input`: a node made, or its permissions set by udev a moment later | Its node removed, or a read that fails as an unplugged device's does |
 | macOS | The lowest free | `+[GCController controllers]`, listed every poll | At the next poll |
 
 `tb_gamepad_get_info()` gives a pad's name as the system gives it ("Xbox
-controller" from XInput, which names only a kind; the driver's name on Linux,
-as "Microsoft X-Box One S pad"; the vendor's on macOS), its USB vendor and
-product where the system says, and its capabilities.
+controller" from XInput, which names only a kind; the protocol driver's, as
+"Switch 2 Pro Controller", for a raw HID pad; the driver's name on Linux, as
+"Microsoft X-Box One S pad"; the vendor's on macOS), its USB vendor and
+product where the system says (raw HID pads and Linux), and its capabilities.
 
 ## The standard layout
 
 Buttons and axes are named by their place on an Xbox-style pad, whatever
 their labels say: south is A on an Xbox pad, Cross on a PlayStation pad, and
 B on a Nintendo pad.
+
+### Nintendo's pads by place
+
+Nintendo puts A on the right and B at the bottom, the other way round from
+Xbox, and X at the top and Y on the left. The engine reads them by place, on
+every platform, so that south is always the button under the player's thumb:
+
+| Place | Xbox | Switch and Switch 2 | Engine |
+| --- | --- | --- | --- |
+| Bottom | A | B | `south` |
+| Right | B | A | `east` |
+| Left | X | Y | `west` |
+| Top | Y | X | `north` |
+| Shoulders | LB, RB | L, R | `left_shoulder`, `right_shoulder` |
+| Triggers | LT, RT | ZL, ZR, digital: 0 or 1 | `left_trigger`, `right_trigger` |
+| Middle | View, Menu | -, + | `back`, `start` |
+| Back buttons | Elite's P3, P1 | Switch 2's GL, GR | `left_paddle_1`, `right_paddle_1` |
+| System | Guide, Share | Home, Capture, and the Switch 2's C | Never read |
+
+A game that shows prompts names the button by its label for the pad in
+hand; the engine gives the place. The C button opens the Switch 2's chat,
+so it is the system's too, as Capture is.
 
 | Buttons | Axes |
 | --- | --- |
@@ -111,6 +152,15 @@ maps itself, with no database of controllers:
   incomplete, so the device's whole state is read again then, with
   `EVIOCGKEY` and `EVIOCGABS`.
 
+- **The Switch 2 controllers** (`057e:2066`, `2067`, `2069`, `2073`), which
+  `hid-nintendo` drives from Linux 7.4, name A and B by their labels'
+  codes: A, on the right, is `BTN_SOUTH`, and B, at the bottom, `BTN_EAST`.
+  Their south and east are swapped back, so they read by place as every
+  other Nintendo pad does. GL and GR are `BTN_GRIPL` and `BTN_GRIPR`, the
+  upper paddles; Home (`BTN_MODE`), Capture (`KEY_RECORD`) and C (`BTN_C`)
+  are not read. Older kernels have no driver for them, and the pad stays
+  silent ([known gaps](#known-gaps)).
+
 Each axis's range comes from `EVIOCGABS`. The tests feed these mappings the
 kernel's events for each driver, on every platform
 (`tests/platform/gamepad_evdev_test.c`).
@@ -123,6 +173,62 @@ through Steam's mapping of it.
 
 **Permissions.** A desktop gives the logged-in player access to gamepads'
 nodes. A node that can be read but not written is a pad without rumble.
+
+## Raw HID pads
+
+On Windows, pads that XInput does not read are read through their HID
+interfaces, by **protocol drivers** in standard C under `src/platform/shared/`
+(`gamepad_hid.h`). A driver knows one family of pads by USB vendor and
+product: the commands that set a pad up, its input reports, and its rumble
+report. The Windows backend (`src/platform/win32/gamepad_rawhid.c`) finds the
+pads, opens them, reads their reports, and sends what the driver makes; a new
+pad is a new driver, and the backend does not change. One driver is written:
+the Switch 2 Pro Controller's (`gamepad_switch2.c`). Every driver is tested
+on every platform, with reports captured from a real pad.
+
+- **Finding pads.** The HID device interfaces are listed every half second
+  with `CM_Get_Device_Interface_ListW`, which takes about a tenth of a
+  millisecond, rather than through a notification that would call back on
+  another thread. Only interfaces whose path names the vendor and product of
+  a pad a driver knows are opened.
+- **Not twice.** XInput's own HID collections, whose paths have `IG_` in them,
+  are never opened: XInput reads those. Nor are the pads Steam names in
+  `SDL_GAMECONTROLLER_IGNORE_DEVICES`.
+- **Reading.** Each pad has one overlapped read outstanding. A poll takes every
+  report that came since the last without waiting, and the last is the pad's
+  state.
+- **A pad that goes** is closed when its read fails, at the next poll.
+
+### The Switch 2 Pro Controller
+
+Over USB the pad is a composite device: a HID interface, which carries its
+input reports and, as output reports, its rumble; a vendor interface, bound to
+WinUSB by the pad's own Microsoft OS descriptors, so no driver is installed;
+and an audio interface. **The pad sends no input reports until a host has set
+it up** through the vendor interface:
+
+1. Read the sticks' calibration from its flash: the factory's, and the
+   player's own where a console wrote one (`0x130a8`, `0x130e8`, `0x1fc040`,
+   `0x1fc080`).
+2. Choose the features its reports carry (buttons, sticks and rumble, not
+   motion) and turn them on.
+3. Set up rumble, choose the Pro Controller's own report (`0x09`), and light
+   the first player light.
+4. Start the reports.
+
+The backend opens the vendor interface, found in the same device container as
+the HID interface, while the driver sets the pad up, and closes it after, so
+that other programs can have it. **WinUSB lets one program have it at a
+time.** While Steam runs, Steam has it and has set the pad up already: the pad
+is read as Steam set it up, in the report every Switch 2 controller has
+(`0x05`), which the driver reads too, and the sticks use their default
+calibration, a center of 2048 and a reach of 1500 either way, since the flash
+cannot be read. Either way the pad's sticks rest near 0 and reach 1.
+
+The facts of the protocol are from the community's research of these pads
+([ndeadly's switch2_controller_research](https://github.com/ndeadly/switch2_controller_research))
+and the drivers that use it, Linux's `hid-nintendo` and SDL's; the code is
+the engine's own.
 
 ## Sticks and triggers as buttons
 
@@ -174,8 +280,16 @@ Rumble stops:
 | Platform | Low- and high-frequency motors | Trigger motors |
 | --- | --- | --- |
 | Windows | `XInputSetState`: the left and right motors | Unavailable: the Xbox One pad's impulse triggers need Windows.Gaming.Input, a WinRT interface the engine does not use yet |
+| Windows, Switch 2 Pro Controller | Its two linear actuators, one in each grip, each driven at a low and a high frequency for the two motors | Unavailable |
 | Linux | An `FF_RUMBLE` effect, uploaded with `EVIOCSFF` and played by writing it, on pads whose driver reports `FF_RUMBLE` and whose node can be written | Unavailable |
 | macOS | Unavailable for now: the framework's haptics need Core Haptics, which the engine does not drive yet | Unavailable |
+
+**The Switch 2 Pro Controller** plays a rumble report for a few milliseconds
+and then stops, so the backend's rumble thread sends it again every 8
+milliseconds while the motors run, and stops sending when the rumble's time is
+up, even when the game stops polling. Its full strength is held to 450 of the
+actuators' 1023, as Linux and SDL hold it: the drivers warn that more is
+uncomfortable and may harm the pad.
 
 Where a pad cannot rumble, its info's capabilities leave out
 `TB_GAMEPAD_CAPABILITY_RUMBLE`, and `tb_gamepad_rumble()` returns false: an
@@ -191,7 +305,8 @@ claims them, so they keep working while a game runs:
 
 - **Windows** reads with `XInputGetState()`, which leaves the guide button
   out. It never calls the undocumented `XInputGetStateEx()` (ordinal 100),
-  which would report it. XInput has no share button.
+  which would report it. XInput has no share button. A raw HID pad's driver
+  reads none of the system's buttons: the Switch 2's Home, Capture and C.
 - **Linux** reads devices without `EVIOCGRAB`, so the desktop and Steam see
   every pad too, and never reports `BTN_MODE` or the share button's
   `KEY_RECORD`.
@@ -216,4 +331,14 @@ framework requires. The functions that take no system
 - XInput reports at most four pads, gives no names beyond a kind, and no
   USB vendor or product; PlayStation and Switch pads reach it only through
   Steam Input.
-- Raw HID for other controllers, gyros, touchpads and lights are not read.
+- Raw HID drivers exist for the Switch 2 Pro Controller over USB only. The
+  Joy-Con 2 pair and the GameCube controller for Switch 2 speak the same
+  protocol with reports and rumble of their own (#378); the Switch 2 pads
+  over Bluetooth, and DualSense and Switch Pro pads without Steam, need
+  drivers of their own.
+- Linux before 7.4 has no driver for the Switch 2 controllers, and the
+  engine does not set them up itself through hidraw and usbfs (#380).
+- macOS's GameController framework does not know the Switch 2 controllers;
+  an IOKit HID backend with the same drivers would read them (#379).
+- Gyros, touchpads and lights are not read; a Switch 2 pad's player light is
+  the first.

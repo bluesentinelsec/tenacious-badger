@@ -9,7 +9,12 @@
  *   Sony and Nintendo drivers follow it. xpad, hid-steam and Steam's
  *   virtual pads report the Xbox labels instead, BTN_X (also 0x133) for the
  *   left button and BTN_Y (0x134) for the top. A device of Sony's or
- *   Nintendo's vendor is read by place; any other by label.
+ *   Nintendo's vendor is read by place; any other by label. Linux's driver
+ *   of the Switch 2 controllers (hid-nintendo, since Linux 7.4) names each
+ *   button by its label's code instead: A, on the right, is BTN_A
+ *   (BTN_SOUTH), B, at the bottom, BTN_B (BTN_EAST), X, at the top, BTN_X
+ *   (BTN_NORTH), and Y, on the left, BTN_Y (BTN_WEST). Their south and east
+ *   are swapped back.
  * - **The right stick and the triggers.** xpad and the PlayStation drivers
  *   put the right stick on ABS_RX and ABS_RY and the triggers on ABS_Z and
  *   ABS_RZ; generic HID pads put the right stick on ABS_Z and ABS_RZ;
@@ -24,8 +29,6 @@
 #include "../shared/gamepad.h"
 
 #include "badger/assert.h"
-
-#include <stdlib.h>
 
 bool tb_evdev_has(const uint8_t *bits, size_t count, uint32_t code)
 {
@@ -96,6 +99,25 @@ static void tb_evdev_choose_triggers(const tb_evdev_device *device, bool right_s
         tb_evdev_has_key(device, TB_EVDEV_BTN_TL2) || tb_evdev_has_key(device, TB_EVDEV_BTN_TR2);
 }
 
+/* Whether a device is one of the Switch 2 controllers. */
+static bool tb_evdev_is_switch2(const tb_evdev_device *device)
+{
+    if (device->vendor != TB_EVDEV_VENDOR_NINTENDO)
+    {
+        return false;
+    }
+    switch (device->product)
+    {
+    case TB_EVDEV_SWITCH2_JOYCON_RIGHT:
+    case TB_EVDEV_SWITCH2_JOYCON_LEFT:
+    case TB_EVDEV_SWITCH2_PRO:
+    case TB_EVDEV_SWITCH2_GAMECUBE:
+        return true;
+    default:
+        return false;
+    }
+}
+
 void tb_evdev_layout_make(const tb_evdev_device *device, tb_evdev_layout *layout)
 {
     bool right_stick_on_z = false;
@@ -118,6 +140,7 @@ void tb_evdev_layout_make(const tb_evdev_device *device, tb_evdev_layout *layout
     tb_evdev_choose_triggers(device, right_stick_on_z, layout);
     layout->positional_faces =
         device->vendor == TB_EVDEV_VENDOR_SONY || device->vendor == TB_EVDEV_VENDOR_NINTENDO;
+    layout->swapped_south_east = tb_evdev_is_switch2(device);
     layout->hat_dpad = tb_evdev_has_pair(device, TB_EVDEV_ABS_HAT0X, TB_EVDEV_ABS_HAT0Y);
     layout->happy_dpad = !layout->hat_dpad && !tb_evdev_has_key(device, TB_EVDEV_BTN_DPAD_UP) &&
                          tb_evdev_has_key(device, TB_EVDEV_BTN_TRIGGER_HAPPY1) &&
@@ -151,9 +174,9 @@ static tb_gamepad_button tb_evdev_button(const tb_evdev_layout *layout, uint32_t
     switch (code)
     {
     case TB_EVDEV_BTN_SOUTH:
-        return TB_GAMEPAD_BUTTON_SOUTH;
+        return layout->swapped_south_east ? TB_GAMEPAD_BUTTON_EAST : TB_GAMEPAD_BUTTON_SOUTH;
     case TB_EVDEV_BTN_EAST:
-        return TB_GAMEPAD_BUTTON_EAST;
+        return layout->swapped_south_east ? TB_GAMEPAD_BUTTON_SOUTH : TB_GAMEPAD_BUTTON_EAST;
     case TB_EVDEV_BTN_NORTH:
         return layout->positional_faces ? TB_GAMEPAD_BUTTON_NORTH : TB_GAMEPAD_BUTTON_WEST;
     case TB_EVDEV_BTN_WEST:
@@ -308,48 +331,4 @@ void tb_evdev_resync(const tb_evdev_device *device, const tb_evdev_layout *layou
             tb_evdev_apply_axis(device, layout, code, values[code], state);
         }
     }
-}
-
-/* One hexadecimal number of an entry, with or without 0x; `*end` is where
- * it ended, which is `text` when there was none. */
-static unsigned long tb_evdev_hex(const char *text, const char **end)
-{
-    char *stop = NULL;
-    const unsigned long value = strtoul(text, &stop, 16);
-
-    *end = stop;
-    return value;
-}
-
-bool tb_evdev_ignored(const char *list, uint16_t vendor, uint16_t product)
-{
-    const char *at = list;
-
-    if (list == NULL)
-    {
-        return false;
-    }
-    while (*at != '\0')
-    {
-        const char *end = NULL;
-        const unsigned long entry_vendor = tb_evdev_hex(at, &end);
-        unsigned long entry_product = 0;
-        bool whole = end != at && *end == '/';
-        if (whole)
-        {
-            at = end + 1;
-            entry_product = tb_evdev_hex(at, &end);
-            whole = end != at;
-        }
-        if (whole && entry_vendor == vendor && entry_product == product)
-        {
-            return true;
-        }
-        while (*end != '\0' && *end != ',')
-        {
-            end++;
-        }
-        at = *end == ',' ? end + 1 : end;
-    }
-    return false;
 }

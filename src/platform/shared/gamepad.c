@@ -12,6 +12,7 @@
 
 #include <math.h>
 #include <stdarg.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* The longest rumble: a longer one is cut to it, which keeps its end in
@@ -149,6 +150,50 @@ void tb_gamepad_copy_name(char *name, const char *source, size_t length)
         offset = valid ? next : offset + 1;
     }
     name[written] = '\0';
+}
+
+/* One hexadecimal number of an entry, with or without 0x; `*end` is where
+ * it ended, which is `text` when there was none. */
+static unsigned long tb_gamepad_hex(const char *text, const char **end)
+{
+    char *stop = NULL;
+    const unsigned long value = strtoul(text, &stop, 16);
+
+    *end = stop;
+    return value;
+}
+
+bool tb_gamepad_ignored(const char *list, uint16_t vendor, uint16_t product)
+{
+    const char *at = list;
+
+    if (list == NULL)
+    {
+        return false;
+    }
+    while (*at != '\0')
+    {
+        const char *end = NULL;
+        const unsigned long entry_vendor = tb_gamepad_hex(at, &end);
+        unsigned long entry_product = 0;
+        bool whole = end != at && *end == '/';
+        if (whole)
+        {
+            at = end + 1;
+            entry_product = tb_gamepad_hex(at, &end);
+            whole = end != at;
+        }
+        if (whole && entry_vendor == vendor && entry_product == product)
+        {
+            return true;
+        }
+        while (*end != '\0' && *end != ',')
+        {
+            end++;
+        }
+        at = *end == ',' ? end + 1 : end;
+    }
+    return false;
 }
 
 /* ---------------------------------------------------------------------------

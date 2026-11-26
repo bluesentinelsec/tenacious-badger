@@ -2,13 +2,13 @@
  * @brief Gamepads: the controllers a player holds, read in one standard
  * layout, with rumble where the platform has it.
  *
- * A gamepad system reads every gamepad the platform reports: XInput on
- * Windows, evdev on Linux and the Steam Deck, and the GameController
- * framework on macOS. Each connected pad has a **slot**, from 0, which it
- * keeps until it is unplugged; a pad plugged in later takes the lowest free
- * slot. A pad's buttons and axes are named by their place on an Xbox-style
- * pad, whatever their labels: the bottom face button is south on an Xbox
- * pad (A), a PlayStation pad (Cross) and a Nintendo pad (B) alike.
+ * A gamepad system reads every gamepad the platform reports: XInput and
+ * raw HID pads, as the Switch 2 Pro Controller, on Windows; evdev on Linux
+ * and the Steam Deck; and the GameController framework on macOS. Each connected pad has a **slot**,
+ * from 0, which it keeps until it is unplugged; a pad plugged in later takes the lowest free slot.
+ * A pad's buttons and axes are named by their place on an Xbox-style pad, whatever their labels:
+ * the bottom face button is south on an Xbox pad (A), a PlayStation pad (Cross) and a Nintendo pad
+ * (B) alike.
  *
  * @code
  * tb_gamepad_system *gamepads = NULL;
@@ -47,9 +47,10 @@
  * system is closed. A pad that cannot rumble says so in its info: a
  * capability, never a fault.
  *
- * **The system's buttons.** The guide button (Xbox, PS, Steam) and the share
- * or capture button belong to the operating system and the launcher: Game
- * Bar, the Steam overlay, screenshots, the system's own gestures. A gamepad
+ * **The system's buttons.** The guide button (Xbox, PS, Steam, Nintendo's
+ * Home) and the share or capture button belong to the operating system and
+ * the launcher: Game Bar, the Steam overlay, screenshots, the system's own
+ * gestures. A gamepad
  * system never reads them, never grabs a pad from the system, and never
  * reports them, so they keep working for the player while a game runs.
  *
