@@ -273,21 +273,29 @@ set(TB_INTERNAL_TEST_CASE_SOURCES
     platform/window_size_test.c)
 # Gamepads are above the platform adapters, as windowing is: the shared
 # front with a backend of the test's own, and what each backend makes of
-# its system's pads. What an evdev device's codes mean is standard C, so it
-# is tested on every platform with an adapter.
+# its system's pads. What an evdev device's codes mean, the protocols of
+# HID pads and the mux of backends are standard C, so they are tested on
+# every platform with an adapter.
 if(TB_GAMEPAD_SOURCES)
     list(APPEND TB_INTERNAL_TEST_CASE_SOURCES platform/gamepad_front_test.c
-        platform/gamepad_evdev_test.c)
+        platform/gamepad_evdev_test.c platform/gamepad_mux_test.c
+        platform/gamepad_switch2_test.c)
     if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
         list(APPEND TB_INTERNAL_TEST_CASE_SOURCES
             "${PROJECT_SOURCE_DIR}/src/platform/linux/gamepad_evdev.c")
+    endif()
+    if(NOT WIN32)
+        list(APPEND TB_INTERNAL_TEST_CASE_SOURCES
+            "${PROJECT_SOURCE_DIR}/src/platform/shared/gamepad_mux.c"
+            "${PROJECT_SOURCE_DIR}/src/platform/shared/gamepad_hid.c"
+            "${PROJECT_SOURCE_DIR}/src/platform/shared/gamepad_switch2.c")
     endif()
 endif()
 # Input that a platform sends only to the window in front is handed to its
 # backend's handling directly.
 if(WIN32)
     list(APPEND TB_INTERNAL_TEST_CASE_SOURCES platform/win32/window_raw_test.c
-        platform/win32/gamepad_xinput_test.c)
+        platform/win32/gamepad_xinput_test.c platform/win32/gamepad_rawhid_test.c)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     list(APPEND TB_INTERNAL_TEST_CASE_SOURCES platform/linux/window_input_test.c
         platform/linux/gamepad_linux_test.c)

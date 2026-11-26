@@ -250,7 +250,7 @@ static void tb_linux_try_open(tb_linux_gamepads *gamepads, const char *node)
     }
     tb_linux_describe(gamepads, descriptor, &device);
     if (!tb_evdev_is_gamepad(&device) ||
-        tb_evdev_ignored(gamepads->ignored, device.vendor, device.product))
+        tb_gamepad_ignored(gamepads->ignored, device.vendor, device.product))
     {
         (void)gamepads->calls.close(descriptor);
         return;

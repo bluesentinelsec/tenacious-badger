@@ -829,8 +829,8 @@ Two interfaces are built on the foundation modules rather than beneath
 them, and each has a page of its own: [windows and displays](windows.md)
 (`window.h`) and [gamepads](gamepad.md) (`gamepad.h`). Each is a shared
 front, `src/platform/shared/window.c` and `gamepad.c`, over a backend of each
-adapter: Win32 and XInput on Windows; Wayland, X11 and evdev on Linux; Cocoa
-and the GameController framework on macOS.
+adapter: Win32, and XInput with raw HID, on Windows; Wayland, X11 and evdev on
+Linux; Cocoa and the GameController framework on macOS.
 
 ## Unsupported platforms
 

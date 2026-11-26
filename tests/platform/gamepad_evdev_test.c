@@ -246,6 +246,79 @@ TB_TEST(platform_gamepad_evdev, nintendo_triggers_are_digital)
                            (1u << TB_GAMEPAD_BUTTON_DPAD_RIGHT));
 }
 
+/* A Switch 2 Pro Controller on Linux 7.4's hid-nintendo, which names A
+ * and B by label: A, the right button, is BTN_SOUTH, and B, the bottom
+ * one, BTN_EAST. They are read by place, as every other button is; GL and
+ * GR are the upper paddles, digital ZL and ZR the triggers, and Home
+ * (BTN_MODE), Capture (KEY_RECORD) and C (BTN_C) are not read. */
+TB_TEST(platform_gamepad_evdev, switch2_pro_faces_by_place)
+{
+    tb_evdev_device device = {.vendor = TB_EVDEV_VENDOR_NINTENDO, .product = TB_EVDEV_SWITCH2_PRO};
+    tb_evdev_layout layout = {0};
+    tb_gamepad_state state = {.connected = true};
+    const uint32_t key_record = 0xa7u;
+    const uint32_t btn_c = 0x132u;
+    const uint32_t extra[] = {TB_EVDEV_BTN_TL2,   TB_EVDEV_BTN_TR2, TB_EVDEV_BTN_GRIPL,
+                              TB_EVDEV_BTN_GRIPR, key_record,       btn_c};
+    static const struct
+    {
+        uint32_t code;
+        tb_gamepad_button button;
+    } rows[] = {
+        {TB_EVDEV_BTN_SOUTH, TB_GAMEPAD_BUTTON_EAST},  /* A */
+        {TB_EVDEV_BTN_EAST, TB_GAMEPAD_BUTTON_SOUTH},  /* B */
+        {TB_EVDEV_BTN_NORTH, TB_GAMEPAD_BUTTON_NORTH}, /* X */
+        {TB_EVDEV_BTN_WEST, TB_GAMEPAD_BUTTON_WEST},   /* Y */
+        {TB_EVDEV_BTN_GRIPL, TB_GAMEPAD_BUTTON_LEFT_PADDLE_1},
+        {TB_EVDEV_BTN_GRIPR, TB_GAMEPAD_BUTTON_RIGHT_PADDLE_1},
+    };
+
+    add_keys(&device, common_keys, TB_TEST_COUNT_OF(common_keys));
+    add_keys(&device, extra, TB_TEST_COUNT_OF(extra));
+    add_axis(&device, TB_EVDEV_ABS_X, -32768, 32767);
+    add_axis(&device, TB_EVDEV_ABS_Y, -32768, 32767);
+    add_axis(&device, TB_EVDEV_ABS_RX, -32768, 32767);
+    add_axis(&device, TB_EVDEV_ABS_RY, -32768, 32767);
+    add_axis(&device, TB_EVDEV_ABS_HAT0X, -1, 1);
+    add_axis(&device, TB_EVDEV_ABS_HAT0Y, -1, 1);
+    tb_evdev_layout_make(&device, &layout);
+    TB_TEST_EXPECT(tb_evdev_is_gamepad(&device));
+    TB_TEST_EXPECT(layout.positional_faces);
+    TB_TEST_EXPECT(layout.swapped_south_east);
+    TB_TEST_EXPECT(layout.digital_triggers);
+    for (size_t index = 0; index < TB_TEST_COUNT_OF(rows); index++)
+    {
+        TB_TEST_CONTEXT("code 0x%x", (unsigned)rows[index].code);
+        state = (tb_gamepad_state){.connected = true};
+        press(&device, &layout, rows[index].code, &state);
+        TB_TEST_EXPECT_HEX(state.buttons, ==, (uint32_t)(1u << (unsigned)rows[index].button));
+    }
+    state = (tb_gamepad_state){.connected = true};
+    press(&device, &layout, TB_EVDEV_BTN_MODE, &state);
+    press(&device, &layout, key_record, &state);
+    press(&device, &layout, btn_c, &state);
+    TB_TEST_EXPECT_HEX(state.buttons, ==, 0);
+    press(&device, &layout, TB_EVDEV_BTN_TR2, &state);
+    TB_TEST_EXPECT_FLOAT(state.axes[TB_GAMEPAD_AXIS_RIGHT_TRIGGER], ==, 1.0f);
+
+    /* The first Switch Pro pad's driver is by place already. */
+    device.product = 0x2009;
+    tb_evdev_layout_make(&device, &layout);
+    TB_TEST_EXPECT(!layout.swapped_south_east);
+    device.product = TB_EVDEV_SWITCH2_GAMECUBE;
+    tb_evdev_layout_make(&device, &layout);
+    TB_TEST_EXPECT(layout.swapped_south_east);
+    device.product = TB_EVDEV_SWITCH2_JOYCON_LEFT;
+    tb_evdev_layout_make(&device, &layout);
+    TB_TEST_EXPECT(layout.swapped_south_east);
+    device.product = TB_EVDEV_SWITCH2_JOYCON_RIGHT;
+    tb_evdev_layout_make(&device, &layout);
+    TB_TEST_EXPECT(layout.swapped_south_east);
+    device.vendor = 0x045e;
+    tb_evdev_layout_make(&device, &layout);
+    TB_TEST_EXPECT(!layout.swapped_south_east);
+}
+
 /* The Steam Deck on hid-steam: triggers on HAT2Y and HAT2X, and its four
  * back buttons. */
 TB_TEST(platform_gamepad_evdev, steam_deck_triggers_and_back_buttons)
@@ -362,18 +435,4 @@ TB_TEST(platform_gamepad_evdev, a_resync_reads_the_whole_state)
                        (1u << TB_GAMEPAD_BUTTON_EAST) | (1u << TB_GAMEPAD_BUTTON_DPAD_DOWN));
     TB_TEST_EXPECT_FLOAT(state.axes[TB_GAMEPAD_AXIS_LEFT_X], ==, -1.0f);
     TB_TEST_EXPECT_FLOAT(state.axes[TB_GAMEPAD_AXIS_RIGHT_TRIGGER], ==, 1.0f);
-}
-
-/* Steam's list names pads by vendor and product, in hex, between commas. */
-TB_TEST(platform_gamepad_evdev, steam_names_the_pads_to_leave_alone)
-{
-    const char *const list = "0x28DE/0x1205, 0x045e/0x0b12,junk,0x1/,/0x2,054c/0ce6";
-
-    TB_TEST_EXPECT(tb_evdev_ignored(list, 0x28de, 0x1205));
-    TB_TEST_EXPECT(tb_evdev_ignored(list, 0x045e, 0x0b12));
-    TB_TEST_EXPECT(tb_evdev_ignored(list, 0x054c, 0x0ce6));
-    TB_TEST_EXPECT(!tb_evdev_ignored(list, 0x28de, 0x11ff));
-    TB_TEST_EXPECT(!tb_evdev_ignored(list, 0x0001, 0x0000));
-    TB_TEST_EXPECT(!tb_evdev_ignored(NULL, 0x28de, 0x1205));
-    TB_TEST_EXPECT(!tb_evdev_ignored("", 0x28de, 0x1205));
 }

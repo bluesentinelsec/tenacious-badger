@@ -321,3 +321,17 @@ TB_TEST(platform_gamepad_front, names_are_cut_at_a_character_and_made_utf8)
     tb_gamepad_copy_name(name, long_name, TB_GAMEPAD_NAME_CAPACITY);
     TB_TEST_EXPECT_UINT(tb_str_length(name), ==, TB_GAMEPAD_NAME_CAPACITY - 2);
 }
+
+/* Steam's list names pads by vendor and product, in hex, between commas. */
+TB_TEST(platform_gamepad_front, steam_names_the_pads_to_leave_alone)
+{
+    const char *const list = "0x28DE/0x1205, 0x045e/0x0b12,junk,0x1/,/0x2,054c/0ce6";
+
+    TB_TEST_EXPECT(tb_gamepad_ignored(list, 0x28de, 0x1205));
+    TB_TEST_EXPECT(tb_gamepad_ignored(list, 0x045e, 0x0b12));
+    TB_TEST_EXPECT(tb_gamepad_ignored(list, 0x054c, 0x0ce6));
+    TB_TEST_EXPECT(!tb_gamepad_ignored(list, 0x28de, 0x11ff));
+    TB_TEST_EXPECT(!tb_gamepad_ignored(list, 0x0001, 0x0000));
+    TB_TEST_EXPECT(!tb_gamepad_ignored(NULL, 0x28de, 0x1205));
+    TB_TEST_EXPECT(!tb_gamepad_ignored("", 0x28de, 0x1205));
+}
