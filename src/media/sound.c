@@ -19,6 +19,9 @@
 #define S24_MIN (-8388608)
 #define S24_MAX 8388607
 
+/* The largest float, as the double the codec computes in. */
+#define FLOAT_LARGEST ((double)FLT_MAX)
+
 /* -------------------------------------------------------------------------
  * One sample.
  * ------------------------------------------------------------------------- */
@@ -125,13 +128,13 @@ void tb_sound_store(tb_sound_format format, unsigned char *bytes, double value)
         {
             clamped = 0.0;
         }
-        else if (clamped > (double)FLT_MAX)
+        else if (clamped > FLOAT_LARGEST)
         {
-            clamped = FLT_MAX;
+            clamped = FLOAT_LARGEST;
         }
-        else if (clamped < -(double)FLT_MAX)
+        else if (clamped < -FLOAT_LARGEST)
         {
-            clamped = -FLT_MAX;
+            clamped = -FLOAT_LARGEST;
         }
         const float sample = (float)clamped;
         memcpy(bytes, &sample, sizeof(sample));
