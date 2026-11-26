@@ -154,6 +154,13 @@ void display_scene_draw(sandbox *box, void *state, const sandbox_frame *frame);
 void display_scene_destroy(sandbox *box, void *state);
 bool display_scene_event(sandbox *box, void *state, const tb_window_event *event);
 
+/* Input: actions and contexts from a file, fed the window's events, their
+ * states shown live (sandbox_input.c). */
+bool input_scene_create(sandbox *box, void **state);
+void input_scene_draw(sandbox *box, void *state, const sandbox_frame *frame);
+void input_scene_destroy(sandbox *box, void *state);
+bool input_scene_event(sandbox *box, void *state, const tb_window_event *event);
+
 /* Make a shader for the device's backend from HLSL in memory: compiled to
  * DXIL through DXC for D3D12; the text itself for the null backend, which
  * accepts anything. Errors are printed. */

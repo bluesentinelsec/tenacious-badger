@@ -43,6 +43,7 @@ add_subdirectory(render)
 add_subdirectory(ui)
 add_subdirectory(gui)
 add_subdirectory(settings)
+add_subdirectory(input)
 add_subdirectory(game)
 tb_strip_release(badger)
 

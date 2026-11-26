@@ -287,17 +287,17 @@ keeps each group as they chose it.
 
 | Setting | Type | Default | Honored by |
 | --- | --- | --- | --- |
-| `controls.mouse.sensitivity` | number, 0.01 to 10 | `1.0` | input, to come |
-| `controls.mouse.invert_y` | boolean | `false` | input, to come |
+| `controls.mouse.sensitivity` | number, 0.01 to 10 | `1.0` | [input](input.md#settings), through its settings modifier |
+| `controls.mouse.invert_y` | boolean | `false` | [input](input.md#settings), through its settings modifier |
 | `controls.mouse.raw_input` | boolean | `true` | input, to come |
-| `controls.mouse.smoothing` | boolean | `false` | input, to come |
-| `controls.gamepad.horizontal_sensitivity` | number, 0.1 to 10 | `1.0` | input, to come |
-| `controls.gamepad.vertical_sensitivity` | number, 0.1 to 10 | `1.0` | input, to come |
-| `controls.gamepad.invert_y` | boolean | `false` | input, to come |
+| `controls.mouse.smoothing` | boolean | `false` | [input](input.md#settings), through its settings modifier |
+| `controls.gamepad.horizontal_sensitivity` | number, 0.1 to 10 | `1.0` | [input](input.md#settings), through its settings modifier |
+| `controls.gamepad.vertical_sensitivity` | number, 0.1 to 10 | `1.0` | [input](input.md#settings), through its settings modifier |
+| `controls.gamepad.invert_y` | boolean | `false` | [input](input.md#settings), through its settings modifier |
 | `controls.gamepad.vibration` | number, 0 to 1 | `1.0` | input, to come |
-| `controls.gamepad.left_dead_zone` | number, 0 to 0.9 | `0.1` | input, to come |
-| `controls.gamepad.right_dead_zone` | number, 0 to 0.9 | `0.1` | input, to come |
-| `controls.touch.sensitivity` | number, 0.1 to 10 | `1.0` | input, to come |
+| `controls.gamepad.left_dead_zone` | number, 0 to 0.9 | `0.1` | [input](input.md#settings), through its settings modifier |
+| `controls.gamepad.right_dead_zone` | number, 0 to 0.9 | `0.1` | [input](input.md#settings), through its settings modifier |
+| `controls.touch.sensitivity` | number, 0.1 to 10 | `1.0` | [input](input.md#settings), through its settings modifier |
 
 Key and button bindings are not settings: they belong to the input module,
 which keeps them in a file of their own.

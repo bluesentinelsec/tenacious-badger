@@ -1120,6 +1120,16 @@ const sandbox_scene sandbox_scenes[] = {
      display_scene_event,
      false,
      true},
+    {"input",
+     "actions and mapping contexts from a file, their states and values live; M puts the menu "
+     "context above gameplay",
+     {0.10f, 0.11f, 0.13f, 1},
+     input_scene_create,
+     input_scene_draw,
+     input_scene_destroy,
+     input_scene_event,
+     false,
+     false},
 };
 
 const size_t sandbox_scene_count = sizeof(sandbox_scenes) / sizeof(sandbox_scenes[0]);

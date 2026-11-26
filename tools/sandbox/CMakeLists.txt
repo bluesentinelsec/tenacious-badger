@@ -2,7 +2,7 @@
 # eye. A developer tool: built with the engine, never shipped with a game.
 add_executable(badger-sandbox sandbox.c sandbox_capture.c sandbox_display.c sandbox_scenes.c
     sandbox_skinning.c sandbox_gui.c sandbox_gui_fonts.c sandbox_gui_options.c sandbox_gui_tool.c
-    sandbox_inspector.c sandbox_lighting.c sandbox_ui.c)
+    sandbox_input.c sandbox_inspector.c sandbox_lighting.c sandbox_ui.c)
 target_link_libraries(badger-sandbox PRIVATE TenaciousBadger::badger)
 # Read where they are in the source tree, so that the author edits them
 # while the sandbox runs, and sees them loaded again.
@@ -34,6 +34,8 @@ if(TB_BUILD_TESTS)
         COMMAND badger-sandbox --renderer null --scene lighting --frames 3)
     add_test(NAME sandbox.shows_the_display_policy_on_the_null_backend
         COMMAND badger-sandbox --renderer null --scene display --frames 3)
+    add_test(NAME sandbox.shows_input_on_the_null_backend
+        COMMAND badger-sandbox --renderer null --scene input --frames 3)
     # A machine without a display, as some CI runners are, has no window.
     set_tests_properties(sandbox.runs_frames_on_the_null_backend
         sandbox.draws_text_on_the_null_backend sandbox.draws_the_interface_on_the_null_backend
@@ -41,7 +43,8 @@ if(TB_BUILD_TESTS)
         sandbox.draws_the_font_browser_on_the_null_backend
         sandbox.shows_the_inspector_on_the_null_backend
         sandbox.lights_materials_on_the_null_backend
-        sandbox.shows_the_display_policy_on_the_null_backend PROPERTIES
+        sandbox.shows_the_display_policy_on_the_null_backend
+        sandbox.shows_input_on_the_null_backend PROPERTIES
         SKIP_REGULAR_EXPRESSION "no windowing")
     if(WIN32)
         # The shapes drawn by D3D12 on WARP, the last frame saved.
