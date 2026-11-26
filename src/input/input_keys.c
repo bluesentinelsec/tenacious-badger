@@ -122,6 +122,16 @@ static const char *const tb_input_key_names[TB_INPUT_KEY_COUNT] = {
     [TB_INPUT_KEY_GAMEPAD_LEFT_PADDLE_2] = "gamepad_left_paddle_2",
     [TB_INPUT_KEY_GAMEPAD_RIGHT_PADDLE_1] = "gamepad_right_paddle_1",
     [TB_INPUT_KEY_GAMEPAD_RIGHT_PADDLE_2] = "gamepad_right_paddle_2",
+    [TB_INPUT_KEY_GAMEPAD_LEFT_STICK_UP] = "gamepad_left_stick_up",
+    [TB_INPUT_KEY_GAMEPAD_LEFT_STICK_DOWN] = "gamepad_left_stick_down",
+    [TB_INPUT_KEY_GAMEPAD_LEFT_STICK_LEFT] = "gamepad_left_stick_left",
+    [TB_INPUT_KEY_GAMEPAD_LEFT_STICK_RIGHT] = "gamepad_left_stick_right",
+    [TB_INPUT_KEY_GAMEPAD_RIGHT_STICK_UP] = "gamepad_right_stick_up",
+    [TB_INPUT_KEY_GAMEPAD_RIGHT_STICK_DOWN] = "gamepad_right_stick_down",
+    [TB_INPUT_KEY_GAMEPAD_RIGHT_STICK_LEFT] = "gamepad_right_stick_left",
+    [TB_INPUT_KEY_GAMEPAD_RIGHT_STICK_RIGHT] = "gamepad_right_stick_right",
+    [TB_INPUT_KEY_GAMEPAD_LEFT_TRIGGER_BUTTON] = "gamepad_left_trigger_button",
+    [TB_INPUT_KEY_GAMEPAD_RIGHT_TRIGGER_BUTTON] = "gamepad_right_trigger_button",
     [TB_INPUT_KEY_TOUCH_1] = "touch_1",
     [TB_INPUT_KEY_TOUCH_2] = "touch_2",
     [TB_INPUT_KEY_TOUCH_3] = "touch_3",
@@ -258,6 +268,100 @@ tb_input_key tb_input_key_from_window(tb_key key)
         return TB_INPUT_KEY_NONE;
     }
     return (tb_input_key)(TB_INPUT_KEY_A + (key - TB_KEY_A));
+}
+
+/* The buttons an axis makes: toward its positive end, and toward its
+ * negative end, or none. */
+typedef struct tb_input_virtual_row
+{
+    tb_input_key axis;
+    tb_input_key positive;
+    tb_input_key negative;
+} tb_input_virtual_row;
+
+static const tb_input_virtual_row tb_input_virtual_rows[] = {
+    {TB_INPUT_KEY_GAMEPAD_LEFT_STICK_X, TB_INPUT_KEY_GAMEPAD_LEFT_STICK_RIGHT,
+     TB_INPUT_KEY_GAMEPAD_LEFT_STICK_LEFT},
+    {TB_INPUT_KEY_GAMEPAD_LEFT_STICK_Y, TB_INPUT_KEY_GAMEPAD_LEFT_STICK_UP,
+     TB_INPUT_KEY_GAMEPAD_LEFT_STICK_DOWN},
+    {TB_INPUT_KEY_GAMEPAD_RIGHT_STICK_X, TB_INPUT_KEY_GAMEPAD_RIGHT_STICK_RIGHT,
+     TB_INPUT_KEY_GAMEPAD_RIGHT_STICK_LEFT},
+    {TB_INPUT_KEY_GAMEPAD_RIGHT_STICK_Y, TB_INPUT_KEY_GAMEPAD_RIGHT_STICK_UP,
+     TB_INPUT_KEY_GAMEPAD_RIGHT_STICK_DOWN},
+    {TB_INPUT_KEY_GAMEPAD_LEFT_TRIGGER, TB_INPUT_KEY_GAMEPAD_LEFT_TRIGGER_BUTTON,
+     TB_INPUT_KEY_NONE},
+    {TB_INPUT_KEY_GAMEPAD_RIGHT_TRIGGER, TB_INPUT_KEY_GAMEPAD_RIGHT_TRIGGER_BUTTON,
+     TB_INPUT_KEY_NONE},
+};
+
+bool tb_input_key_virtual_buttons(tb_input_key axis, tb_input_key *positive, tb_input_key *negative,
+                                  tb_gamepad_threshold *threshold)
+{
+    static const tb_gamepad_threshold stick = TB_GAMEPAD_STICK_THRESHOLD_DEFAULT;
+    static const tb_gamepad_threshold trigger = TB_GAMEPAD_TRIGGER_THRESHOLD_DEFAULT;
+
+    for (size_t index = 0; index < sizeof(tb_input_virtual_rows) / sizeof(tb_input_virtual_rows[0]);
+         index++)
+    {
+        const tb_input_virtual_row *const row = &tb_input_virtual_rows[index];
+        if (row->axis != axis)
+        {
+            continue;
+        }
+        *positive = row->positive;
+        *negative = row->negative;
+        *threshold = row->negative == TB_INPUT_KEY_NONE ? trigger : stick;
+        return true;
+    }
+    return false;
+}
+
+static const tb_input_key tb_input_gamepad_buttons[TB_GAMEPAD_BUTTON_COUNT] = {
+    [TB_GAMEPAD_BUTTON_SOUTH] = TB_INPUT_KEY_GAMEPAD_FACE_SOUTH,
+    [TB_GAMEPAD_BUTTON_EAST] = TB_INPUT_KEY_GAMEPAD_FACE_EAST,
+    [TB_GAMEPAD_BUTTON_WEST] = TB_INPUT_KEY_GAMEPAD_FACE_WEST,
+    [TB_GAMEPAD_BUTTON_NORTH] = TB_INPUT_KEY_GAMEPAD_FACE_NORTH,
+    [TB_GAMEPAD_BUTTON_LEFT_SHOULDER] = TB_INPUT_KEY_GAMEPAD_LEFT_SHOULDER,
+    [TB_GAMEPAD_BUTTON_RIGHT_SHOULDER] = TB_INPUT_KEY_GAMEPAD_RIGHT_SHOULDER,
+    [TB_GAMEPAD_BUTTON_LEFT_STICK] = TB_INPUT_KEY_GAMEPAD_LEFT_STICK_CLICK,
+    [TB_GAMEPAD_BUTTON_RIGHT_STICK] = TB_INPUT_KEY_GAMEPAD_RIGHT_STICK_CLICK,
+    [TB_GAMEPAD_BUTTON_DPAD_UP] = TB_INPUT_KEY_GAMEPAD_DPAD_UP,
+    [TB_GAMEPAD_BUTTON_DPAD_DOWN] = TB_INPUT_KEY_GAMEPAD_DPAD_DOWN,
+    [TB_GAMEPAD_BUTTON_DPAD_LEFT] = TB_INPUT_KEY_GAMEPAD_DPAD_LEFT,
+    [TB_GAMEPAD_BUTTON_DPAD_RIGHT] = TB_INPUT_KEY_GAMEPAD_DPAD_RIGHT,
+    [TB_GAMEPAD_BUTTON_START] = TB_INPUT_KEY_GAMEPAD_START,
+    [TB_GAMEPAD_BUTTON_BACK] = TB_INPUT_KEY_GAMEPAD_BACK,
+    [TB_GAMEPAD_BUTTON_LEFT_PADDLE_1] = TB_INPUT_KEY_GAMEPAD_LEFT_PADDLE_1,
+    [TB_GAMEPAD_BUTTON_LEFT_PADDLE_2] = TB_INPUT_KEY_GAMEPAD_LEFT_PADDLE_2,
+    [TB_GAMEPAD_BUTTON_RIGHT_PADDLE_1] = TB_INPUT_KEY_GAMEPAD_RIGHT_PADDLE_1,
+    [TB_GAMEPAD_BUTTON_RIGHT_PADDLE_2] = TB_INPUT_KEY_GAMEPAD_RIGHT_PADDLE_2,
+};
+
+static const tb_input_key tb_input_gamepad_axes[TB_GAMEPAD_AXIS_COUNT] = {
+    [TB_GAMEPAD_AXIS_LEFT_X] = TB_INPUT_KEY_GAMEPAD_LEFT_STICK_X,
+    [TB_GAMEPAD_AXIS_LEFT_Y] = TB_INPUT_KEY_GAMEPAD_LEFT_STICK_Y,
+    [TB_GAMEPAD_AXIS_RIGHT_X] = TB_INPUT_KEY_GAMEPAD_RIGHT_STICK_X,
+    [TB_GAMEPAD_AXIS_RIGHT_Y] = TB_INPUT_KEY_GAMEPAD_RIGHT_STICK_Y,
+    [TB_GAMEPAD_AXIS_LEFT_TRIGGER] = TB_INPUT_KEY_GAMEPAD_LEFT_TRIGGER,
+    [TB_GAMEPAD_AXIS_RIGHT_TRIGGER] = TB_INPUT_KEY_GAMEPAD_RIGHT_TRIGGER,
+};
+
+tb_input_key tb_input_key_from_gamepad_button(tb_gamepad_button button)
+{
+    if ((unsigned)button >= (unsigned)TB_GAMEPAD_BUTTON_COUNT)
+    {
+        return TB_INPUT_KEY_NONE;
+    }
+    return tb_input_gamepad_buttons[button];
+}
+
+tb_input_key tb_input_key_from_gamepad_axis(tb_gamepad_axis axis)
+{
+    if ((unsigned)axis >= (unsigned)TB_GAMEPAD_AXIS_COUNT)
+    {
+        return TB_INPUT_KEY_NONE;
+    }
+    return tb_input_gamepad_axes[axis];
 }
 
 tb_input_key tb_input_key_from_mouse_button(tb_mouse_button button)

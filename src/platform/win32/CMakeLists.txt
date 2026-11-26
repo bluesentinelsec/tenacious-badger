@@ -38,6 +38,15 @@ set(TB_WINDOW_SOURCES
 target_sources(badger PRIVATE ${TB_WINDOW_SOURCES})
 target_sources(badger_static PRIVATE ${TB_WINDOW_SOURCES})
 
+# Gamepads: the shared front, then XInput behind it, loaded at run time.
+# They are built on the foundation modules, as windowing is.
+set(TB_GAMEPAD_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/../shared/gamepad.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/gamepad.c"
+    CACHE INTERNAL "Selected gamepad sources")
+target_sources(badger PRIVATE ${TB_GAMEPAD_SOURCES})
+target_sources(badger_static PRIVATE ${TB_GAMEPAD_SOURCES})
+
 # The shader compilers: DXC, loaded at run time and called through COM, and
 # D3DCompiler, part of Windows, loaded from the system directory. They are
 # built on the foundation modules, as windowing is, so they are not part of

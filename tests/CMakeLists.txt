@@ -105,6 +105,14 @@ set(TB_TEST_CASE_SOURCES
     font/font_layout_test.c
     ${TB_FONT_DATA_SOURCE}
     jobs/jobs_test.c
+    media/bitmap_bmp_test.c
+    media/bitmap_test.c
+    media/sound_edit_test.c
+    media/sound_test.c
+    media/wav_builder.c
+    media/wav_malformed_test.c
+    media/wav_test.c
+    media/wav_write_test.c
     serialize/json_test.c
     serialize/json_suite_test.c
     ${TB_JSON_SUITE_SOURCE}
@@ -137,10 +145,12 @@ set(TB_TEST_CASE_SOURCES
     gui/gui_var_test.c
     gui/gui_watch_test.c
     input/input_file_test.c
+    input/input_gamepad_test.c
     input/input_test.c
     input/input_rules_test.c
     jobs/loop_test.c
     anim/anim_test.c
+    platform/gamepad_test.c
     platform/window_test.c
     settings/engine_settings_test.c
     settings/settings_test.c
@@ -268,19 +278,35 @@ set(TB_INTERNAL_TEST_CASE_SOURCES
     shader/shader_parse_test.c
     platform/window_input_test.c
     platform/window_size_test.c)
+# Gamepads are above the platform adapters, as windowing is: the shared
+# front with a backend of the test's own, and what each backend makes of
+# its system's pads. What an evdev device's codes mean is standard C, so it
+# is tested on every platform with an adapter.
+if(TB_GAMEPAD_SOURCES)
+    list(APPEND TB_INTERNAL_TEST_CASE_SOURCES platform/gamepad_front_test.c
+        platform/gamepad_evdev_test.c)
+    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        list(APPEND TB_INTERNAL_TEST_CASE_SOURCES
+            "${PROJECT_SOURCE_DIR}/src/platform/linux/gamepad_evdev.c")
+    endif()
+endif()
 # Input that a platform sends only to the window in front is handed to its
 # backend's handling directly.
 if(WIN32)
-    list(APPEND TB_INTERNAL_TEST_CASE_SOURCES platform/win32/window_raw_test.c)
+    list(APPEND TB_INTERNAL_TEST_CASE_SOURCES platform/win32/window_raw_test.c
+        platform/win32/gamepad_xinput_test.c)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    list(APPEND TB_INTERNAL_TEST_CASE_SOURCES platform/linux/window_input_test.c)
+    list(APPEND TB_INTERNAL_TEST_CASE_SOURCES platform/linux/window_input_test.c
+        platform/linux/gamepad_linux_test.c)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    list(APPEND TB_INTERNAL_TEST_CASE_SOURCES platform/macos/gamepad_macos_test.c)
 endif()
 set(TB_ENGINE_SOURCES ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES} ${TB_JOBS_SOURCES}
-    ${TB_CODEC_SOURCES} ${TB_SERIALIZE_SOURCES} ${TB_FONT_SOURCES} ${TB_FONT_DATA_OBJECTS}
+    ${TB_CODEC_SOURCES} ${TB_MEDIA_SOURCES} ${TB_SERIALIZE_SOURCES} ${TB_FONT_SOURCES} ${TB_FONT_DATA_OBJECTS}
     ${TB_VFS_SOURCES}
     ${TB_SETTINGS_SOURCES} ${TB_WINDOW_SOURCES} ${TB_DXC_SOURCES} ${TB_GAME_SOURCES}
     ${TB_SHADER_SOURCES} ${TB_RHI_SOURCES} ${TB_RENDER_SOURCES} ${TB_ANIM_SOURCES}
-    ${TB_UI_SOURCES} ${TB_GUI_SOURCES} ${TB_INPUT_SOURCES})
+    ${TB_UI_SOURCES} ${TB_GUI_SOURCES} ${TB_INPUT_SOURCES} ${TB_GAMEPAD_SOURCES})
 
 # The arguments go to tb_add_tests.
 function(tb_add_internal_tests target)
@@ -485,6 +511,7 @@ set(TB_PLATFORM_INTERFACE_HEADERS
     "${PROJECT_SOURCE_DIR}/include/badger/dxc.h"
     "${PROJECT_SOURCE_DIR}/include/badger/virtual_memory.h"
     "${PROJECT_SOURCE_DIR}/include/badger/file.h"
+    "${PROJECT_SOURCE_DIR}/include/badger/gamepad.h"
     "${PROJECT_SOURCE_DIR}/include/badger/library.h"
     "${PROJECT_SOURCE_DIR}/include/badger/platform.h"
     "${PROJECT_SOURCE_DIR}/include/badger/process.h"
@@ -498,6 +525,7 @@ add_test(NAME platform_default.every_function_reports_not_implemented
     COMMAND "${CMAKE_COMMAND}" "-DTB_PROBE=$<TARGET_FILE:tb_platform_default_probe>"
         "-DTB_HEADERS=${tb_platform_interface_headers}"
         "-DTB_SYSTEM_NAME=${CMAKE_SYSTEM_NAME}"
+        "-DTB_ENGINE_SOURCES=${PROJECT_SOURCE_DIR}/src/core/gamepad.c"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/ExpectPlatformDefault.cmake")
 # The package key: compiled in from a key file and from a password, it comes
 # back whole and is nowhere in the executable; and keys are made and kept.

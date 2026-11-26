@@ -294,7 +294,7 @@ keeps each group as they chose it.
 | `controls.gamepad.horizontal_sensitivity` | number, 0.1 to 10 | `1.0` | [input](input.md#settings), through its settings modifier |
 | `controls.gamepad.vertical_sensitivity` | number, 0.1 to 10 | `1.0` | [input](input.md#settings), through its settings modifier |
 | `controls.gamepad.invert_y` | boolean | `false` | [input](input.md#settings), through its settings modifier |
-| `controls.gamepad.vibration` | number, 0 to 1 | `1.0` | input, to come |
+| `controls.gamepad.vibration` | number, 0 to 1 | `1.0` | [gamepads](gamepad.md#rumble), which scale rumble by it once a game gives it to `tb_gamepad_system_set_vibration()` |
 | `controls.gamepad.left_dead_zone` | number, 0 to 0.9 | `0.1` | [input](input.md#settings), through its settings modifier |
 | `controls.gamepad.right_dead_zone` | number, 0 to 0.9 | `0.1` | [input](input.md#settings), through its settings modifier |
 | `controls.touch.sensitivity` | number, 0.1 to 10 | `1.0` | [input](input.md#settings), through its settings modifier |

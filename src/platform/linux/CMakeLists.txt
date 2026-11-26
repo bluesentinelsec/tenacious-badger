@@ -57,6 +57,18 @@ set(TB_WINDOW_SOURCES
 target_sources(badger PRIVATE ${TB_WINDOW_SOURCES})
 target_sources(badger_static PRIVATE ${TB_WINDOW_SOURCES})
 
+# Gamepads: the shared front, then evdev behind it: the devices of
+# /dev/input, watched with inotify. What a device's codes mean is standard
+# C, in gamepad_evdev.c. They are built on the foundation modules, as
+# windowing is.
+set(TB_GAMEPAD_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/../shared/gamepad.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/gamepad.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/gamepad_evdev.c"
+    CACHE INTERNAL "Selected gamepad sources")
+target_sources(badger PRIVATE ${TB_GAMEPAD_SOURCES})
+target_sources(badger_static PRIVATE ${TB_GAMEPAD_SOURCES})
+
 # The shader compilers, DXC and D3DCompiler, which are unavailable here:
 # DXIL runs only on D3D12, and DXBC only on D3D11. They are built on the
 # foundation modules, as windowing is.
