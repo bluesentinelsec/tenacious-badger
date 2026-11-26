@@ -191,28 +191,21 @@ static tb_bitmap *tb_bitmap_new(const tb_allocator *allocator, uint32_t width, u
     return bitmap;
 }
 
-/* Make a bitmap with packed rows; `try_pixels` asks for memory that may be
- * refused, and the bitmap is NULL then. */
-static tb_bitmap *tb_bitmap_make(uint32_t width, uint32_t height, tb_bitmap_format format,
-                                 const tb_allocator *allocator, bool try_pixels)
+/* Bytes of a row of packed pixels, and of all of them. */
+static size_t tb_bitmap_packed_size(uint32_t width, uint32_t height, tb_bitmap_format format)
 {
     tb_bitmap_check_dimensions(width, height, format);
     const size_t stride = (size_t)width * tb_bitmap_format_bytes(format);
-    const size_t size = tb_bitmap_extent(width, height, stride, format);
-    uint8_t *pixels = NULL;
+    return tb_bitmap_extent(width, height, stride, format);
+}
 
-    if (size > 0)
-    {
-        pixels = try_pixels ? tb_allocator_try_calloc(allocator, size, 1, TB_BITMAP_PIXEL_ALIGNMENT)
-                            : tb_allocator_calloc(allocator, size, 1, TB_BITMAP_PIXEL_ALIGNMENT);
-        if (pixels == NULL)
-        {
-            return NULL;
-        }
-    }
+/* A bitmap that owns packed pixels: zeroed ones, or NULL when it has none. */
+static tb_bitmap *tb_bitmap_own(uint8_t *pixels, size_t size, uint32_t width, uint32_t height,
+                                tb_bitmap_format format, const tb_allocator *allocator)
+{
     tb_bitmap *const bitmap = tb_bitmap_new(allocator, width, height, format);
     bitmap->pixels = pixels;
-    bitmap->stride = stride;
+    bitmap->stride = (size_t)width * tb_bitmap_format_bytes(format);
     bitmap->size = size;
     bitmap->capacity = size;
     bitmap->owns_pixels = true;
@@ -222,13 +215,27 @@ static tb_bitmap *tb_bitmap_make(uint32_t width, uint32_t height, tb_bitmap_form
 tb_bitmap *tb_bitmap_try_create(uint32_t width, uint32_t height, tb_bitmap_format format,
                                 const tb_allocator *allocator)
 {
-    return tb_bitmap_make(width, height, format, allocator, true);
+    const size_t size = tb_bitmap_packed_size(width, height, format);
+    uint8_t *pixels = NULL;
+
+    if (size > 0)
+    {
+        pixels = tb_allocator_try_calloc(allocator, size, 1, TB_BITMAP_PIXEL_ALIGNMENT);
+        if (pixels == NULL)
+        {
+            return NULL;
+        }
+    }
+    return tb_bitmap_own(pixels, size, width, height, format, allocator);
 }
 
 tb_bitmap *tb_bitmap_create(uint32_t width, uint32_t height, tb_bitmap_format format,
                             const tb_allocator *allocator)
 {
-    return tb_bitmap_make(width, height, format, allocator, false);
+    const size_t size = tb_bitmap_packed_size(width, height, format);
+    uint8_t *const pixels =
+        size > 0 ? tb_allocator_calloc(allocator, size, 1, TB_BITMAP_PIXEL_ALIGNMENT) : NULL;
+    return tb_bitmap_own(pixels, size, width, height, format, allocator);
 }
 
 static void tb_bitmap_check_pixels(const void *pixels, size_t size, uint32_t width, uint32_t height,
