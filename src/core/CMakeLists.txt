@@ -36,6 +36,7 @@ set(TB_CORE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/fmt.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/fmt_float.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/frame_memory.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/gamepad.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/fs.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/geometry.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/hash.c"

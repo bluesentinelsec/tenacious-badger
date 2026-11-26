@@ -9,6 +9,7 @@
  * interface without a case here fails the test. */
 #include "badger/crash.h"
 #include "badger/dxc.h"
+#include "badger/gamepad.h"
 #include "badger/library.h"
 #include "badger/platform.h"
 #include "badger/process.h"
@@ -80,6 +81,61 @@ TB_TEST(platform_default, tb_dxc_release)
 TB_TEST(platform_default, tb_dxc_version)
 {
     (void)tb_dxc_version(NULL);
+}
+
+TB_TEST(platform_default, tb_gamepad_system_open)
+{
+    tb_gamepad_system *system = NULL;
+
+    (void)tb_gamepad_system_open(&system, NULL);
+}
+
+TB_TEST(platform_default, tb_gamepad_system_close)
+{
+    tb_gamepad_system_close(NULL);
+}
+
+TB_TEST(platform_default, tb_gamepad_system_poll)
+{
+    tb_gamepad_system_poll(NULL);
+}
+
+TB_TEST(platform_default, tb_gamepad_system_next_event)
+{
+    tb_gamepad_event event = {0};
+
+    (void)tb_gamepad_system_next_event(NULL, &event);
+}
+
+TB_TEST(platform_default, tb_gamepad_system_set_vibration)
+{
+    tb_gamepad_system_set_vibration(NULL, 1.0f);
+}
+
+TB_TEST(platform_default, tb_gamepad_system_set_focus)
+{
+    tb_gamepad_system_set_focus(NULL, true);
+}
+
+TB_TEST(platform_default, tb_gamepad_get_state)
+{
+    tb_gamepad_state state = {0};
+
+    tb_gamepad_get_state(NULL, 0, &state);
+}
+
+TB_TEST(platform_default, tb_gamepad_get_info)
+{
+    tb_gamepad_info info = {0};
+
+    tb_gamepad_get_info(NULL, 0, &info);
+}
+
+TB_TEST(platform_default, tb_gamepad_rumble)
+{
+    const tb_gamepad_rumble_desc rumble = {0};
+
+    (void)tb_gamepad_rumble(NULL, 0, &rumble);
 }
 
 TB_TEST(platform_default, tb_library_open)

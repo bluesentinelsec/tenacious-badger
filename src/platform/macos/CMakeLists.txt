@@ -54,6 +54,16 @@ set(TB_WINDOW_SOURCES
 target_sources(badger PRIVATE ${TB_WINDOW_SOURCES})
 target_sources(badger_static PRIVATE ${TB_WINDOW_SOURCES})
 
+# Gamepads: the shared front, then the GameController framework behind it,
+# reached through the Objective-C runtime and loaded at run time. They are
+# built on the foundation modules, as windowing is.
+set(TB_GAMEPAD_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/../shared/gamepad.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/gamepad.c"
+    CACHE INTERNAL "Selected gamepad sources")
+target_sources(badger PRIVATE ${TB_GAMEPAD_SOURCES})
+target_sources(badger_static PRIVATE ${TB_GAMEPAD_SOURCES})
+
 # DXC, which is unavailable here: DXIL runs only on D3D12. It is built on the
 # foundation modules, as windowing is.
 set(TB_DXC_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/../posix/dxc.c"
