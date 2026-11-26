@@ -203,6 +203,61 @@ TB_TEST(gui_scale, ignore_keeps_text_whole_and_fills_the_viewport)
     gui_fixture_close(&fixture);
 }
 
+/* In the viewport render mode, the GUI is laid out, measured and drawn in
+ * the viewport's target, a pixel a unit times its own scale, and upscaled
+ * with the 3D scene; the mouse is still placed by the viewport on the
+ * frame, and reaches nothing over the bars. */
+TB_TEST(gui_scale, the_viewport_render_mode_lays_out_at_the_targets_pixels)
+{
+    gui_fixture fixture = {0};
+    gui_fixture_open(&fixture, 1.0f);
+    const tb_widget box = gui_box(tb_gui_root(fixture.gui), 20.0f, 10.0f);
+    tb_viewport_policy pixels =
+        design(320, 180, TB_VIEWPORT_ASPECT_KEEP, TB_VIEWPORT_SCALE_INTEGER);
+    tb_gui_stats stats = {0};
+
+    TB_TEST_REQUIRE(tb_grid(box, NULL));
+    pixels.render_mode = TB_VIEWPORT_RENDER_VIEWPORT;
+    /* 1280 by 800: 4 pixels a unit, the viewport 40 pixels down. */
+    place(&fixture, &pixels, 1280, 800, 1.0f);
+    tb_gui_view view = tb_gui_view_of(fixture.gui);
+    expect_view(view, 0.0f, 0.0f, 1.0f, 320.0f, 180.0f);
+    TB_TEST_EXPECT_INT(view.target, ==, TB_CANVAS_TARGET_VIEWPORT);
+    gui_update(&fixture);
+    /* The box at the root's top left, units (0, 0) to (20, 10): the frame's
+     * pixels (0, 40) to (80, 80). */
+    tb_window_event event = {.type = TB_WINDOW_EVENT_MOUSE_MOVED, .pixel_x = 60.0, .pixel_y = 70.0};
+    tb_gui_feed_event(fixture.gui, &event);
+    gui_update(&fixture);
+    tb_gui_stats_of(fixture.gui, &stats);
+    TB_TEST_EXPECT(tb_widget_equal(stats.hovered, box));
+    event.pixel_x = 100.0;
+    tb_gui_feed_event(fixture.gui, &event);
+    gui_update(&fixture);
+    tb_gui_stats_of(fixture.gui, &stats);
+    TB_TEST_EXPECT(!tb_widget_equal(stats.hovered, box));
+    /* On the bar above it, nothing. */
+    event.pixel_x = 60.0;
+    event.pixel_y = 20.0;
+    tb_gui_feed_event(fixture.gui, &event);
+    gui_update(&fixture);
+    tb_gui_stats_of(fixture.gui, &stats);
+    TB_TEST_EXPECT(!tb_widget_alive(stats.hovered));
+
+    /* The GUI's own scale makes its units larger in the target: twice as
+     * large, half as many, and the mouse placed alike. */
+    tb_gui_set_scale(fixture.gui, 2.0f);
+    view = tb_gui_view_of(fixture.gui);
+    expect_view(view, 0.0f, 0.0f, 2.0f, 160.0f, 90.0f);
+    event.pixel_x = 140.0; /* 35 of the viewport's units, 17.5 of the GUI's */
+    event.pixel_y = 70.0;
+    tb_gui_feed_event(fixture.gui, &event);
+    gui_update(&fixture);
+    tb_gui_stats_of(fixture.gui, &stats);
+    TB_TEST_EXPECT(tb_widget_equal(stats.hovered, box));
+    gui_fixture_close(&fixture);
+}
+
 TB_TEST(gui_scale, text_is_measured_at_the_frames_own_pixels)
 {
     static const char text[] = "Field of view";

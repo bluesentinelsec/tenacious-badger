@@ -98,8 +98,9 @@ TB_TEST(render_temporal, the_render_size_is_the_scale_of_the_output)
 }
 
 /* A viewport of another size starts the history again, even where the
- * render size rounds to the same: the history is the viewport's size, and
- * a frame of another shape does not follow from it. */
+ * render size rounds to the same: the history is the size of the scene's
+ * rectangle, the viewport's, and a frame of another shape does not follow
+ * from it. */
 TB_TEST(render_temporal, a_viewport_of_another_size_starts_the_history_again)
 {
     tb_renderer renderer = {0};
@@ -111,7 +112,7 @@ TB_TEST(render_temporal, a_viewport_of_another_size_starts_the_history_again)
     renderer.quality_asked = (tb_renderer_quality)TB_RENDERER_QUALITY_INIT;
     renderer.quality_asked.render_scale = 0.5f;
     renderer.quality.temporal_aa = true;
-    renderer.viewport = (tb_viewport){.width = 101, .height = 100, .scale = {1, 1}};
+    renderer.scene_rect = (tb_rhi_rect){.width = 101, .height = 100};
     renderer.history_width = 101;
     renderer.history_height = 100;
     renderer.previous_render_width = 51;
@@ -122,7 +123,7 @@ TB_TEST(render_temporal, a_viewport_of_another_size_starts_the_history_again)
     TB_TEST_EXPECT_UINT(renderer.render_width, ==, 51u);
 
     /* One pixel wider: the same render size, but another viewport. */
-    renderer.viewport.width = 102;
+    renderer.scene_rect.width = 102;
     tb_renderer_quality_begin_frame(&renderer);
     TB_TEST_EXPECT_UINT(renderer.render_width, ==, 51u);
     TB_TEST_EXPECT(!renderer.history_valid);

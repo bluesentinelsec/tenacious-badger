@@ -148,15 +148,15 @@ void tb_renderer_quality_begin_frame(tb_renderer *renderer)
 
     renderer->quality =
         tb_renderer_quality_within(&renderer->quality_asked, &renderer->capabilities);
-    tb_render_size_of(renderer->viewport.width, renderer->viewport.height,
+    tb_render_size_of(renderer->scene_rect.width, renderer->scene_rect.height,
                       renderer->quality.render_scale, renderer->info.max_texture_size,
                       &renderer->render_width, &renderer->render_height);
     if (!renderer->deferred)
     {
         /* coverage-off: only a device without bindless resources draws this way,
          * and no backend that tests run on lacks them */
-        renderer->render_width = renderer->viewport.width;
-        renderer->render_height = renderer->viewport.height;
+        renderer->render_width = renderer->scene_rect.width;
+        renderer->render_height = renderer->scene_rect.height;
         /* coverage-on */
     }
     /* A history of another size, of a viewport of another size, of frames
@@ -164,8 +164,8 @@ void tb_renderer_quality_begin_frame(tb_renderer *renderer)
      * not follow from this frame. */
     if (!was_temporal || renderer->render_width != renderer->previous_render_width ||
         renderer->render_height != renderer->previous_render_height ||
-        renderer->viewport.width != renderer->history_width ||
-        renderer->viewport.height != renderer->history_height ||
+        renderer->scene_rect.width != renderer->history_width ||
+        renderer->scene_rect.height != renderer->history_height ||
         renderer->camera.projection != renderer->previous_projection)
     {
         renderer->history_valid = false;

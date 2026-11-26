@@ -45,7 +45,7 @@ bottom left corner of every scene, and printed every two seconds.
 | `triangle` | A triangle of three colored corners, turning, drawn through the RHI itself inside the renderer's scene pass |
 | `textured` | A checkerboard made in memory, sampled through the texture's and sampler's bindless indices |
 | `clear` | The swap chain cleared to a plain color |
-| `display` | [The display policy](display.md): the shapes, lit under a sky, in the viewport; the design's border, its corners and middle, the edge of what the viewport shows, and a grid, in the design's units; a GUI panel of a button for each hotkey; and what the window, the frame, the viewport, the mouse and the policy are. F1 to F6 change the aspect, the scale mode, the render mode, the design size, the window's mode and whether resizing keeps the design's aspect; Alt+Enter switches windowed and borderless |
+| `display` | [The display policy](display.md): the shapes, lit under a sky, in the viewport; the design's border, its corners and middle, the edge of what the viewport shows, a grid, pixel art still and turning, and a line of text, in the design's units; a GUI panel of a button for each hotkey; and what the window, the frame, the viewport, its target, the mouse and the policy are. F1 to F6 change the aspect, the scale mode, the render mode, the design size, the window's mode and whether resizing keeps the design's aspect; Alt+Enter switches windowed and borderless |
 
 Every scene takes the [display policy](display.md) from the settings, as a
 game does: by default a design of 1920 by 1080 kept whole, so the 3D scenes
@@ -169,7 +169,7 @@ badger-sandbox --scene display
 | --- | --- |
 | F1 | The aspect: `keep`, `keep_width`, `keep_height`, `expand`, `ignore` |
 | F2 | The scale mode: `fractional` or `integer` |
-| F3 | The render mode: `canvas` or `viewport`, which is drawn as `canvas` until the viewport mode comes |
+| F3 | The render mode: `canvas`, at the window's own pixels, or `viewport`, into a target of a pixel a unit, upscaled |
 | F4 | The design size: 1920 by 1080, 1280 by 720, 640 by 360, 320 by 180 |
 | F5 | The window's mode: windowed, borderless, fullscreen |
 | F6 | Resizing the window kept at the design's aspect (`display.window_aspect_width` and `_height`, 16 by 9 for 1920 by 1080), or free |
@@ -185,9 +185,28 @@ The shapes are drawn in the viewport, lit by a sun under a procedural sky.
 Over them, in the design's units: the design's border, its corners and its
 middle in gold, the edge of what the viewport shows in blue (the same as
 the border in `keep`; larger in `expand`), and a grid of nine cells a
-design's height, centered. In the top left corner, in logical pixels over
-the bars and the viewport alike: the window's logical size, the frame's
-pixels and the display's scale; the viewport's rectangle, its pixels a unit
-and the units it shows; the mouse in pixels and in units, and whether it is
-in the viewport or on a bar; and the policy, with the player's aspect
-ratio.
+design's height, centered; and a badger's face in pixel art, still and
+turning, over a line of text, as large against any design as at 320 by
+180, where a texel of the art is a unit. In the top left corner of the
+viewport, laid out at 1920 by 1080 of its own and drawn at the window's
+pixels, so that it keeps its place in every window mode: the window's logical
+size, the frame's pixels and the display's scale; the viewport's
+rectangle, its pixels a unit and the units it shows; the mouse in pixels
+and in units, and whether it is in the viewport or on a bar; the policy,
+with the player's aspect ratio; and the viewport render mode's target.
+
+The render modes are told apart at a small design, such as 320 by 180 in
+the `integer` scale mode:
+
+```
+badger-sandbox --scene display --set display.design_width=320 --set display.design_height=180 --set display.stretch_scale_mode=integer --set display.stretch_render_mode=viewport
+```
+
+In the canvas mode, the turning art's texels turn smoothly, the text and
+the debug lines are drawn at the window's pixels, and the panel is crisp.
+In the viewport mode, everything in the design's units, the 3D scene
+included, is drawn at 320 by 180 and upscaled: the turning art stays on the
+target's pixels, the text is a few pixels to the em, and the panel, laid
+out at 960 by 540 units' worth, is too small to read, as a game's
+interface not made for its design size would be. The facts in the corner
+and the frame time stay crisp in both, as overlays.

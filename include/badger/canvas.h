@@ -20,7 +20,10 @@
  *
  * **Where 2D is drawn.** A frame's 2D is drawn after its 3D scene and its
  * debug lines, over them, into the same image: what a game's interface and a
- * 2D game need.
+ * 2D game need. In the display policy's viewport render mode, what is drawn
+ * in the design's view goes into the viewport's target with the 3D scene,
+ * and is upscaled with it; what is drawn in a view of the frame goes over
+ * the upscaled frame (#tb_canvas_target).
  *
  * **Coordinates.** The canvas's origin is the top left of the view, x to
  * the right and y down, as windows, interfaces and image editors have it.
@@ -90,7 +93,27 @@ typedef struct tb_canvas_rect
 } tb_canvas_rect;
 
 /**
- * @brief How the canvas's units become the frame's pixels: a pixel is
+ * @brief Where a view's quads are drawn: over the whole frame, or into the
+ * viewport render mode's target.
+ *
+ * Views of the frame, which tb_canvas_view_pixels(), tb_canvas_view_logical()
+ * and tb_canvas_view_fit() make, draw over the whole frame at its own
+ * pixels, after the viewport's upscale: debug overlays, consoles and
+ * statistics stay crisp in every render mode. tb_canvas_view_viewport()
+ * makes a view of the viewport's target in the viewport render mode; in
+ * the canvas mode, there is no target, and a view of it draws as a view of
+ * the frame.
+ */
+typedef enum tb_canvas_target
+{
+    TB_CANVAS_TARGET_FRAME,    /**< The frame's pixels, over everything. */
+    TB_CANVAS_TARGET_VIEWPORT, /**< The viewport's target's pixels, upscaled. */
+    TB_CANVAS_TARGET_COUNT     /**< The number of targets. */
+} tb_canvas_target;
+
+/**
+ * @brief How the canvas's units become the pixels of its target, the
+ * frame's or the viewport's (#tb_canvas_target): a pixel is
  * `origin + scale * unit`. Draws outside `clip` are not seen.
  *
  * A view stretched one way more than the other, as a display policy's
@@ -102,10 +125,12 @@ typedef struct tb_canvas_view
 {
     tb_vec2 origin;   /**< The pixel where the canvas's (0, 0) is drawn. */
     float scale;      /**< Pixels per unit; more than 0. */
-    tb_rhi_rect clip; /**< Pixels drawn into; a zero size is the whole frame. */
+    tb_rhi_rect clip; /**< Pixels drawn into; a zero size is the whole target. */
     /** Pixels per unit across and down, where they differ; zero is `scale`
      * both ways. */
     tb_vec2 stretch;
+    /** Where it draws; zero is the frame. */
+    tb_canvas_target target;
 } tb_canvas_view;
 
 /** @brief How an image is read between its pixels. */
@@ -195,8 +220,10 @@ typedef struct tb_canvas_stats
     size_t quads;   /**< Quads drawn. */
     size_t dropped; /**< Quads not drawn: the frame's uploads were full, or the device
                        has no bindless resources, which the canvas needs. */
-    uint32_t draws; /**< Draw calls they took: one for all of them, or none. */
-    size_t glyphs;  /**< Of the quads, the glyphs of text. */
+    /** Draw calls they took: one for all of them, or none; in the viewport
+     * render mode, one more for those of the viewport's target. */
+    uint32_t draws;
+    size_t glyphs; /**< Of the quads, the glyphs of text. */
 } tb_canvas_stats;
 
 /* ---------------------------------------------------------------------------
@@ -242,21 +269,29 @@ TB_API tb_canvas_view tb_canvas_view_fit(uint32_t frame_width, uint32_t frame_he
  * policy gives the frame (tb_renderer_viewport()): unit (0, 0) at the
  * viewport's top left, its scale the viewport's, and what is drawn clipped
  * to it, off the bars. In `ignore`, stretched as the viewport is.
+ *
+ * In the viewport render mode (a viewport with a target), the view is of
+ * #TB_CANVAS_TARGET_VIEWPORT: unit (0, 0) at the target's top left, a pixel
+ * a unit, clipped to the target, so that what is drawn in it, text
+ * included, is drawn at the target's pixels and upscaled with the 3D scene.
  * @param viewport Required.
  * @par Threading Thread-safe.
  */
 TB_API tb_canvas_view tb_canvas_view_viewport(const tb_viewport *viewport);
 
 /**
- * @brief The pixel of the frame where a point of the canvas is drawn.
+ * @brief The pixel of the view's target, the frame's or the viewport's,
+ * where a point of the canvas is drawn.
  * @param view Required.
  * @par Threading Thread-safe.
  */
 TB_API tb_vec2 tb_canvas_view_to_pixels(const tb_canvas_view *view, tb_vec2 point);
 
 /**
- * @brief The point of the canvas drawn at a pixel of the frame: where the
- * mouse points.
+ * @brief The point of the canvas drawn at a pixel of the view's target: of
+ * the frame, where the mouse points, for a view of the frame. Place the
+ * mouse in a view of the viewport's target by the viewport itself
+ * (tb_viewport_from_pixels()).
  * @param view Required.
  * @par Threading Thread-safe.
  */

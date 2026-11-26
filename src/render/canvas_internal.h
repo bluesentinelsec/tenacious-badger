@@ -32,7 +32,7 @@ typedef struct tb_canvas_quad
     uint32_t texture; /* the bindless index of its image */
     uint32_t sampler; /* the bindless index of its sampler */
     uint32_t flags;   /* TB_CANVAS_QUAD_ bits */
-    uint32_t unused;
+    uint32_t target;  /* the tb_canvas_target it is drawn into; the shader does not read it */
 } tb_canvas_quad;
 
 /* A quad as a caller describes it, in the canvas's units. */
@@ -64,23 +64,35 @@ typedef struct tb_canvas_batch
     tb_canvas_view view;
     uint32_t width; /* of the frame, in pixels */
     uint32_t height;
+    uint32_t target_width; /* of the viewport's target; 0 by 0 for none */
+    uint32_t target_height;
 } tb_canvas_batch;
 
-/* Empty the batch for a frame of a size, in pixels, on layer 0 in pixels. */
-void tb_canvas_batch_begin(tb_canvas_batch *batch, uint32_t width, uint32_t height);
+/* Empty the batch for a frame of a size, in pixels, on layer 0 in pixels,
+ * with the viewport render mode's target of a size, or of 0 by 0 for none:
+ * a view of that target then draws over the frame. */
+void tb_canvas_batch_begin(tb_canvas_batch *batch, uint32_t width, uint32_t height,
+                           uint32_t target_width, uint32_t target_height);
 
 /* Release what the batch holds. */
 void tb_canvas_batch_free(tb_canvas_batch *batch);
+
+/* Use a view for the shapes added after: of the viewport's target only
+ * where the batch has one, else of the frame. */
+void tb_canvas_batch_set_view(tb_canvas_batch *batch, const tb_canvas_view *view);
 
 /* Add a shape in the batch's view, on its layer. A shape of no size, or no
  * color, adds nothing. Returns whether it added a quad. */
 bool tb_canvas_batch_add(tb_canvas_batch *batch, const tb_canvas_shape *shape);
 
-/* The quads in the order to draw them: by layer, then as they were added.
+/* The quads in the order to draw them: the viewport target's, which are
+ * drawn first, then the frame's; within each, by layer, then as they were
+ * added. `counts` receives how many each target has, by tb_canvas_target.
  * Good until the batch changes. */
-const tb_canvas_quad *tb_canvas_batch_sort(tb_canvas_batch *batch);
+const tb_canvas_quad *tb_canvas_batch_sort(tb_canvas_batch *batch,
+                                           size_t counts[TB_CANVAS_TARGET_COUNT]);
 
-/* Make the quad of a shape in a view, for a frame of a size. */
+/* Make the quad of a shape in a view, for a target of a size. */
 tb_canvas_quad tb_canvas_quad_of(const tb_canvas_shape *shape, const tb_canvas_view *view,
                                  uint32_t width, uint32_t height);
 

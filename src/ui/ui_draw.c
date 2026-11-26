@@ -129,6 +129,6 @@ void tb_ui_draw(const tb_ui *ui, tb_renderer *renderer)
     TB_ASSERT(ui != NULL);
     TB_ASSERT(renderer != NULL);
     TB_ASSERT_MSG(!ui->in_frame, "an interface drawn before its frame ended");
-    tb_ui_paint_submit(renderer, ui->paint.commands, ui->paint.count, ui->scale,
-                       (tb_vec2){0.0f, 0.0f});
+    tb_ui_paint_submit(renderer, ui->paint.commands, ui->paint.count,
+                       &(tb_canvas_view){.scale = ui->scale});
 }

@@ -28,3 +28,5 @@
 /Engine/Private/TemporalAA.hlsl          pixel     MainPS
 /Engine/Private/Tonemap.hlsl             vertex    MainVS
 /Engine/Private/Tonemap.hlsl             pixel     MainPS
+/Engine/Private/Upscale.hlsl             vertex    MainVS
+/Engine/Private/Upscale.hlsl             pixel     MainPS

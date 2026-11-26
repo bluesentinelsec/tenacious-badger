@@ -160,11 +160,17 @@ struct tb_renderer
     uint32_t height;
 
     /* The display policy, the player's aspect ratio, and the viewport they
-     * give the swap chain: the 3D scene's rectangle of it. */
+     * give the swap chain. In the viewport render mode, the 3D scene and the
+     * design's canvas are drawn into the viewport's target, which is
+     * upscaled into its rectangle; in the canvas mode, straight into it. */
     tb_viewport_policy viewport_policy;
     float aspect_ratio;
     tb_viewport viewport;
-    bool viewport_mode_said; /* the viewport render mode's absence was logged */
+    /* Where the 3D scene is drawn on its output, in the output's pixels:
+     * the viewport's rectangle of the swap chain, or the whole target. */
+    tb_rhi_rect scene_rect;
+    bool viewport_mode_said;          /* that the viewport render mode needs bindless was logged */
+    tb_rhi_pipeline upscale_pipeline; /* none without bindless resources */
     bool vsync;
     bool vsync_wanted;
     bool vsync_changed;
@@ -189,12 +195,12 @@ struct tb_renderer
     tb_renderer_capabilities capabilities;
     tb_renderer_quality quality_asked;
     tb_renderer_quality quality; /* in effect, within the capabilities */
-    uint32_t render_width;       /* the scene's, the viewport's times the render scale */
+    uint32_t render_width;       /* the scene's, its rectangle's times the render scale */
     uint32_t render_height;
 
     /* Temporal anti-aliasing (temporal.c). */
     tb_rhi_pipeline temporal_pipeline;
-    tb_rhi_texture history[2];     /* at the viewport's size; one read, one written */
+    tb_rhi_texture history[2];     /* at the scene's rectangle's size; one read, one written */
     tb_rhi_state history_state[2]; /* where each was left */
     uint32_t history_width;        /* of the history textures */
     uint32_t history_height;
@@ -285,12 +291,20 @@ typedef struct tb_skinning_recording
     tb_render_graph_buffer vertices; /* what it writes; none when nothing is skinned */
 } tb_skinning_recording;
 
-/* The canvas's draw in a frame being recorded. */
-typedef struct tb_canvas_recording
+/* The canvas's draw into one target in a frame being recorded. */
+typedef struct tb_canvas_draw
 {
     tb_renderer *renderer;
     uint64_t offset; /* of its quads in the frame's uploads */
     uint32_t count;
+    uint32_t width; /* of the target, in pixels */
+    uint32_t height;
+} tb_canvas_draw;
+
+/* The canvas's draws in a frame being recorded, by tb_canvas_target. */
+typedef struct tb_canvas_recording
+{
+    tb_canvas_draw targets[TB_CANVAS_TARGET_COUNT];
 } tb_canvas_recording;
 
 /* Make a pipeline of a shader of the renderer's own, with entry points
@@ -385,9 +399,9 @@ uint64_t tb_renderer_lighting_upload(tb_renderer *renderer, tb_mat4 clip);
 void tb_renderer_lighting_record(tb_renderer *renderer, tb_rhi_command_list *list,
                                  uint64_t constants, const tb_renderer_gbuffer_indices *gbuffer);
 
-/* Tone map the scene's color, by its bindless index, into the viewport's
+/* Tone map the scene's color, by its bindless index, into the scene's
  * rectangle of the output, inside the tonemap pass, filtered bilinearly
- * when its size is not the viewport's. */
+ * when its size is not the rectangle's. */
 void tb_renderer_tonemap_record(tb_renderer *renderer, tb_rhi_command_list *list, uint32_t scene);
 
 /* The i-th point of Halton's sequence of a base: the radical inverse of i,
@@ -415,15 +429,18 @@ tb_renderer_capabilities tb_renderer_capabilities_for(const tb_rhi_device_info *
 tb_renderer_quality tb_renderer_quality_within(const tb_renderer_quality *asked,
                                                const tb_renderer_capabilities *capabilities);
 
-/* Take the quality asked for and the viewport's size at the start of a
- * frame: the render size, and whether the history still holds. */
+/* Take the quality asked for and the scene's rectangle's size at the start
+ * of a frame: the render size, and whether the history still holds. */
 void tb_renderer_quality_begin_frame(tb_renderer *renderer);
 
-/* The viewport of the swap chain's size, as the policy gives it. */
+/* The viewport of the swap chain's size, as the policy gives it, and the
+ * scene's rectangle of its output. Without bindless resources, the
+ * viewport render mode is drawn as the canvas mode: the viewport has no
+ * target. */
 void tb_renderer_update_viewport(tb_renderer *renderer);
 
-/* Draw only into the viewport's rectangle of the swap chain's image, in a
- * pass that draws into it. */
+/* Draw only into the scene's rectangle of its output, in a pass that draws
+ * the 3D scene into it. */
 void tb_renderer_cmd_viewport(const tb_renderer *renderer, tb_rhi_command_list *list);
 
 /* The temporal pass's pipeline and sampler (temporal.c). */
@@ -485,9 +502,38 @@ void tb_renderer_text_begin_frame(tb_renderer *renderer);
  * changed in the atlas to its texture. */
 void tb_renderer_text_end_frame(tb_renderer *renderer);
 
-/* Upload the frame's quads and add the pass that draws them over `image`.
- * `recording` lives until the graph is executed. */
+/* Upload the frame's quads, in order, each target's together. */
+void tb_renderer_canvas_upload(tb_renderer *renderer, tb_canvas_recording *recording);
+
+/* Add the pass that draws the quads of a target over `image`, of `width`
+ * by `height` pixels, when it has any. `recording` lives until the graph is
+ * executed. */
 void tb_renderer_canvas_record(tb_renderer *renderer, tb_canvas_recording *recording,
-                               tb_render_graph_texture image);
+                               tb_canvas_target target, tb_render_graph_texture image,
+                               uint32_t width, uint32_t height);
+
+/* The viewport render mode's upscale (upscale.c): its pipeline, made with
+ * the raster lighting mode's. */
+tb_rhi_result tb_renderer_upscale_create(tb_renderer *renderer, tb_rhi_error *error);
+void tb_renderer_upscale_destroy(tb_renderer *renderer);
+
+/* The upscale of a frame being recorded. */
+typedef struct tb_upscale_recording
+{
+    tb_renderer *renderer;
+    tb_render_graph_texture target; /* what it reads */
+} tb_upscale_recording;
+
+/* Add the pass that clears `image` to the bar color and upscales the
+ * viewport's target, `target`, into its rectangle of it: nearest-neighbour
+ * at whole pixels a unit, linear otherwise. `recording` lives until the
+ * graph is executed. */
+void tb_renderer_upscale_record(tb_renderer *renderer, tb_upscale_recording *recording,
+                                tb_render_graph_texture target, tb_render_graph_texture image);
+
+/* Whether the upscale reads its target nearest-neighbour: in the integer
+ * scale mode, at whole pixels a unit both ways, which a policy's scale that
+ * is not whole can undo. Linear otherwise. */
+bool tb_upscale_is_nearest(const tb_viewport_policy *policy, const tb_viewport *viewport);
 
 #endif

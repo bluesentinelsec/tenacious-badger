@@ -82,6 +82,32 @@ tb_renderer_set_viewport_policy(renderer, &policy, tb_viewport_aspect_ratio_from
 Without bindless resources, meshes are drawn straight into the swap
 chain's rectangle; its clear, of the clear color, covers the bars too.
 
+### The viewport render mode
+
+In the policy's viewport render mode
+([display](display.md#render-modes)), the viewport has a target
+(`tb_viewport::target_width` and `target_height`), and the frame is drawn
+in two steps:
+
+1. **Into the target**, a transient texture of the render graph of a
+   pixel a unit, in the swap chain's format: the 3D scene, whose
+   rectangle is the whole target, so its targets are the target's pixels
+   times the render scale and its temporal history is the target's size;
+   its debug lines; and the canvas's quads of the target
+   (`TB_CANVAS_TARGET_VIEWPORT`), the design's view's and the GUI's.
+2. **Into the swap chain**: the upscale pass
+   (`/Engine/Private/Upscale.hlsl`) clears the image to the bar color and
+   draws the target into the viewport's rectangle, sampled nearest in the
+   `integer` scale mode and linearly otherwise, each pixel kept half a
+   texel inside the units shown. Then the canvas's quads of the frame, at
+   its own pixels: overlays, and labels.
+
+The chain of sizes is the render size, then the target, then the
+viewport: no copy at the frame's size is made but the upscale's own
+writes. The camera projects at the viewport's aspect, as in the canvas
+mode, so the scene shows the same in both. Without bindless resources the
+viewport has no target, and the canvas mode is drawn.
+
 ## Cameras
 
 A `tb_camera` is a position, an orientation, and a projection: perspective,
@@ -642,7 +668,9 @@ image or shape, because everything a quad needs is reached by index:
   and their place in the order drawn, and written to the frame's upload
   buffer: 96 bytes each, in pixels already (corner, two edges, radius,
   outline, texture coordinates, premultiplied color, clip rectangle, and
-  the bindless indices of its texture and sampler).
+  the bindless indices of its texture and sampler). In the viewport render
+  mode, the quads of the viewport's target come first, and are drawn into
+  it in a draw of their own, before the upscale; the frame's after it.
 - The vertex shader reads its quad from that buffer as a
   `ByteAddressBuffer` from `ResourceDescriptorHeap`, by `SV_InstanceID`,
   and its corner by `SV_VertexID`: there is no vertex buffer.

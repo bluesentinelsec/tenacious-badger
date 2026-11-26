@@ -17,6 +17,7 @@ set(TB_RENDER_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/skinning.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/sky.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/temporal.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/upscale.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/viewport.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/viewport_settings.c"
     CACHE INTERNAL "Renderer sources")

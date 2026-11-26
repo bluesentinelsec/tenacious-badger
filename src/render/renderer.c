@@ -400,9 +400,14 @@ tb_rhi_result tb_renderer_create(const tb_renderer_options *options, tb_renderer
     {
         goto failed;
     }
+    result = tb_renderer_upscale_create(renderer, error);
+    if (result != TB_RHI_OK)
+    {
+        goto failed;
+    }
     renderer->quality =
         tb_renderer_quality_within(&renderer->quality_asked, &renderer->capabilities);
-    tb_render_size_of(renderer->viewport.width, renderer->viewport.height,
+    tb_render_size_of(renderer->scene_rect.width, renderer->scene_rect.height,
                       renderer->quality.render_scale, renderer->info.max_texture_size,
                       &renderer->render_width, &renderer->render_height);
     renderer->graph = tb_render_graph_create(renderer->device);
@@ -424,6 +429,7 @@ void tb_renderer_destroy(tb_renderer *renderer)
     {
         (void)tb_rhi_wait_idle(renderer->device);
         tb_render_graph_destroy(renderer->graph);
+        tb_renderer_upscale_destroy(renderer);
         tb_renderer_temporal_destroy(renderer);
         tb_renderer_lighting_destroy(renderer);
         tb_renderer_skinning_destroy(renderer);
@@ -493,6 +499,32 @@ void tb_renderer_update_viewport(tb_renderer *renderer)
                                                  .height = renderer->height,
                                                  .display_scale = (float)state.content_scale,
                                                  .aspect_ratio = renderer->aspect_ratio});
+    renderer->viewport.target_width =
+        renderer->viewport.target_width < renderer->info.max_texture_size
+            ? renderer->viewport.target_width
+            : renderer->info.max_texture_size;
+    renderer->viewport.target_height =
+        renderer->viewport.target_height < renderer->info.max_texture_size
+            ? renderer->viewport.target_height
+            : renderer->info.max_texture_size;
+    if (!renderer->deferred)
+    {
+        /* coverage-off: only a device without bindless resources draws this way,
+         * and no backend that tests run on lacks them */
+        /* The upscale reads its target by bindless index, as the canvas
+         * reads its quads: without, the viewport has no target. */
+        renderer->viewport.target_width = 0;
+        renderer->viewport.target_height = 0;
+        /* coverage-on */
+    }
+    renderer->scene_rect =
+        (tb_rhi_rect){(int32_t)renderer->viewport.x, (int32_t)renderer->viewport.y,
+                      renderer->viewport.width, renderer->viewport.height};
+    if (renderer->viewport.target_width > 0)
+    {
+        renderer->scene_rect =
+            (tb_rhi_rect){0, 0, renderer->viewport.target_width, renderer->viewport.target_height};
+    }
 }
 
 void tb_renderer_set_viewport_policy(tb_renderer *renderer, const tb_viewport_policy *policy,
@@ -501,12 +533,17 @@ void tb_renderer_set_viewport_policy(tb_renderer *renderer, const tb_viewport_po
     TB_ASSERT(renderer != NULL && policy != NULL);
     renderer->viewport_policy = *policy;
     renderer->aspect_ratio = aspect_ratio;
-    if (policy->render_mode == TB_VIEWPORT_RENDER_VIEWPORT && !renderer->viewport_mode_said &&
-        renderer->log != NULL)
+    if (policy->render_mode == TB_VIEWPORT_RENDER_VIEWPORT && !renderer->deferred &&
+        !renderer->viewport_mode_said && renderer->log != NULL)
     {
+        /* coverage-off: only a device without bindless resources draws this way,
+         * and no backend that tests run on lacks them */
         (void)tb_log_printf(renderer->log, TB_LOG_INFO, "renderer",
-                            "the viewport render mode is not drawn yet; drawing the canvas mode");
+                            "the viewport render mode needs bindless resources, which %s has "
+                            "not; drawing the canvas mode",
+                            renderer->info.adapter);
         renderer->viewport_mode_said = true;
+        /* coverage-on */
     }
     tb_renderer_update_viewport(renderer);
 }
@@ -525,12 +562,11 @@ tb_viewport tb_renderer_viewport(const tb_renderer *renderer)
 
 void tb_renderer_cmd_viewport(const tb_renderer *renderer, tb_rhi_command_list *list)
 {
-    const tb_viewport *const viewport = &renderer->viewport;
+    const tb_rhi_rect rect = renderer->scene_rect;
 
-    tb_rhi_cmd_viewport(list, (float)viewport->x, (float)viewport->y, (float)viewport->width,
-                        (float)viewport->height, 0.0f, 1.0f);
-    tb_rhi_cmd_scissor(list, (tb_rhi_rect){(int32_t)viewport->x, (int32_t)viewport->y,
-                                           viewport->width, viewport->height});
+    tb_rhi_cmd_viewport(list, (float)rect.x, (float)rect.y, (float)rect.width, (float)rect.height,
+                        0.0f, 1.0f);
+    tb_rhi_cmd_scissor(list, rect);
 }
 
 /* ---------------------------------------------------------------------------
@@ -592,7 +628,8 @@ bool tb_renderer_begin_frame(tb_renderer *renderer, const tb_camera *camera, tb_
     tb_renderer_quality_begin_frame(renderer);
     renderer->draw_count = 0;
     renderer->custom_count = 0;
-    tb_canvas_batch_begin(&renderer->canvas, renderer->width, renderer->height);
+    tb_canvas_batch_begin(&renderer->canvas, renderer->width, renderer->height,
+                          renderer->viewport.target_width, renderer->viewport.target_height);
     tb_renderer_text_begin_frame(renderer);
     tb_mutex_lock(&renderer->lines_lock);
     renderer->lines[0].count = 0;
@@ -694,6 +731,7 @@ typedef struct tb_renderer_recording
     tb_render_graph_texture gbuffer[TB_RENDERER_GBUFFER_TARGETS];
     tb_render_graph_texture depth;
     tb_render_graph_texture scene; /* the scene's light, before tone mapping */
+    tb_upscale_recording upscale;  /* in the viewport render mode */
 } tb_renderer_recording;
 
 /* coverage-off: only a device without bindless resources draws this way, and no
@@ -776,9 +814,9 @@ static void tb_renderer_record_lines(tb_renderer_recording *recording,
     const tb_renderer_frame *const frame = &renderer->frames[renderer->slot];
     tb_renderer_line_constants constants = {
         .clip = recording->unjittered_clip,
-        .scale = {(float)renderer->render_width / (float)renderer->viewport.width,
-                  (float)renderer->render_height / (float)renderer->viewport.height},
-        .origin = {(float)renderer->viewport.x, (float)renderer->viewport.y}};
+        .scale = {(float)renderer->render_width / (float)renderer->scene_rect.width,
+                  (float)renderer->render_height / (float)renderer->scene_rect.height},
+        .origin = {(float)renderer->scene_rect.x, (float)renderer->scene_rect.y}};
     tb_rhi_pipeline pipeline = renderer->line_pipeline;
 
     if (recording->lines_offset[layer] == UINT64_MAX)
@@ -1024,8 +1062,8 @@ static void tb_renderer_add_gbuffer_pass(tb_renderer *renderer, tb_renderer_reco
 }
 
 /* The raster lighting mode: the G-buffer, lit into the scene's light, the
- * custom draws and the sky over it, tone mapped into the swap chain's
- * image, and the lines over that. */
+ * custom draws and the sky over it, tone mapped into `image`, the swap
+ * chain's or the viewport's target, and the lines over that. */
 static void tb_renderer_add_deferred_passes(tb_renderer *renderer, tb_renderer_recording *recording,
                                             tb_render_graph_texture image)
 {
@@ -1075,7 +1113,8 @@ static void tb_renderer_add_deferred_passes(tb_renderer *renderer, tb_renderer_r
                                                                : recording->scene,
         .state = TB_RHI_STATE_SHADER_READ};
     pass.access_count = 1;
-    /* The bars beside the viewport are cleared to the policy's color. */
+    /* The bars beside the viewport are cleared to the policy's color; the
+     * scene covers the whole of the viewport's target. */
     pass.colors[0] = (tb_render_graph_color){.texture = image, .load = TB_RHI_LOAD_CLEAR};
     memcpy(pass.colors[0].clear, &renderer->viewport_policy.bar_color,
            sizeof(pass.colors[0].clear));
@@ -1093,6 +1132,27 @@ static void tb_renderer_add_deferred_passes(tb_renderer *renderer, tb_renderer_r
         pass.color_count = 1;
         tb_render_graph_add_pass(renderer->graph, &pass);
     }
+}
+
+/* The viewport render mode: the raster lighting mode and the design's
+ * canvas into the viewport's target, at a pixel a unit, then the target
+ * upscaled into the viewport's rectangle of the swap chain's image, with
+ * the bars cleared around it. */
+static void tb_renderer_add_viewport_passes(tb_renderer *renderer, tb_renderer_recording *recording,
+                                            tb_canvas_recording *canvas,
+                                            tb_render_graph_texture image)
+{
+    const uint32_t width = renderer->viewport.target_width;
+    const uint32_t height = renderer->viewport.target_height;
+    const tb_render_graph_texture target = tb_render_graph_create_texture(
+        renderer->graph,
+        &(tb_rhi_texture_desc){
+            .format = TB_RENDERER_COLOR_FORMAT, .width = width, .height = height},
+        "viewport target");
+
+    tb_renderer_add_deferred_passes(renderer, recording, target);
+    tb_renderer_canvas_record(renderer, canvas, TB_CANVAS_TARGET_VIEWPORT, target, width, height);
+    tb_renderer_upscale_record(renderer, &recording->upscale, target, image);
 }
 
 typedef struct tb_renderer_capturing
@@ -1162,7 +1222,12 @@ tb_rhi_result tb_renderer_end_frame(tb_renderer *renderer)
                                        TB_RHI_STATE_PRESENT, TB_RHI_STATE_PRESENT, "back buffer");
     tb_renderer_skinning_record(renderer, &skinning);
     recording.skinned = skinning.vertices;
-    if (renderer->deferred)
+    tb_renderer_canvas_upload(renderer, &canvas);
+    if (renderer->viewport.target_width > 0)
+    {
+        tb_renderer_add_viewport_passes(renderer, &recording, &canvas, image);
+    }
+    else if (renderer->deferred)
     {
         tb_renderer_add_deferred_passes(renderer, &recording, image);
     }
@@ -1170,7 +1235,8 @@ tb_rhi_result tb_renderer_end_frame(tb_renderer *renderer)
     {
         tb_renderer_add_forward_passes(renderer, &recording, image);
     }
-    tb_renderer_canvas_record(renderer, &canvas, image);
+    tb_renderer_canvas_record(renderer, &canvas, TB_CANVAS_TARGET_FRAME, image, renderer->width,
+                              renderer->height);
     if (renderer->capture_next)
     {
         capturing = (tb_renderer_capturing){renderer, image, (renderer->width * 4u + 255u) & ~255u};

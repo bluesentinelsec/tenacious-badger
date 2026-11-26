@@ -274,13 +274,15 @@ void tb_ui_paint_text(tb_ui_paint *paint, int32_t layer, tb_canvas_rect clip,
  * ------------------------------------------------------------------------- */
 
 /* A clip in units as whole pixels of the frame, inside it. */
-static tb_rhi_rect tb_ui_pixels_of(tb_canvas_rect clip, float scale, tb_vec2 origin, uint32_t width,
-                                   uint32_t height)
+static tb_rhi_rect tb_ui_pixels_of(tb_canvas_rect clip, float scale, tb_vec2 origin, tb_vec2 corner,
+                                   uint32_t width, uint32_t height)
 {
-    const float left = fmaxf(floorf(origin.x + clip.x * scale), 0.0f);
-    const float top = fmaxf(floorf(origin.y + clip.y * scale), 0.0f);
-    const float right = fminf(ceilf(origin.x + (clip.x + clip.width) * scale), (float)width);
-    const float bottom = fminf(ceilf(origin.y + (clip.y + clip.height) * scale), (float)height);
+    const float left = fmaxf(floorf(origin.x + clip.x * scale), corner.x);
+    const float top = fmaxf(floorf(origin.y + clip.y * scale), corner.y);
+    const float right =
+        fminf(ceilf(origin.x + (clip.x + clip.width) * scale), corner.x + (float)width);
+    const float bottom =
+        fminf(ceilf(origin.y + (clip.y + clip.height) * scale), corner.y + (float)height);
 
     if (!(right > left) || !(bottom > top))
     {
@@ -329,19 +331,28 @@ static void tb_ui_paint_command(tb_renderer *renderer, const tb_ui_command *comm
 }
 
 void tb_ui_paint_submit(tb_renderer *renderer, const tb_ui_command *commands, size_t count,
-                        float scale, tb_vec2 origin)
+                        const tb_canvas_view *base)
 {
     uint32_t width = 0;
     uint32_t height = 0;
+    tb_vec2 corner = {0};
 
-    TB_ASSERT(renderer != NULL);
-    TB_ASSERT(scale > 0.0f);
+    TB_ASSERT(renderer != NULL && base != NULL);
+    TB_ASSERT(base->scale > 0.0f);
     tb_renderer_size(renderer, &width, &height);
+    if (base->clip.width > 0 && base->clip.height > 0)
+    {
+        corner = (tb_vec2){(float)base->clip.x, (float)base->clip.y};
+        width = base->clip.width;
+        height = base->clip.height;
+    }
     for (size_t index = 0; index < count; index++)
     {
         const tb_ui_command *const command = &commands[index];
-        const tb_rhi_rect clip = tb_ui_pixels_of(command->clip, scale, origin, width, height);
-        const tb_canvas_view view = {.origin = origin, .scale = scale, .clip = clip};
+        const tb_rhi_rect clip =
+            tb_ui_pixels_of(command->clip, base->scale, base->origin, corner, width, height);
+        const tb_canvas_view view = {
+            .origin = base->origin, .scale = base->scale, .clip = clip, .target = base->target};
 
         /* A clip of no size is the whole frame to the canvas: nothing of
          * the command is seen. */

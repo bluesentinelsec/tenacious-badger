@@ -24,6 +24,15 @@ tb_gui_view tb_gui_compute_view(const tb_gui *gui)
     const tb_viewport *const viewport = &gui->viewport;
     tb_gui_view view = {0};
 
+    if (viewport->target_width > 0 && viewport->target_height > 0)
+    {
+        /* The viewport render mode: laid out, measured and drawn at the
+         * target's pixels, one a unit, and upscaled with the 3D scene. */
+        view.scale = gui->zoom;
+        view.size = (tb_vec2){viewport->size.x / gui->zoom, viewport->size.y / gui->zoom};
+        view.target = TB_CANVAS_TARGET_VIEWPORT;
+        return view;
+    }
     view.origin = (tb_vec2){(float)viewport->x, (float)viewport->y};
     view.scale = tb_viewport_uniform_scale(viewport) * gui->zoom;
     if (viewport->scale.x == viewport->scale.y)

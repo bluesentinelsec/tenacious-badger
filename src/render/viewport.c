@@ -8,6 +8,10 @@
 #include <math.h>
 #include <stddef.h>
 
+/* Less than this over a whole number of units is that number: what float
+ * arithmetic leaves over 320 / 0.5 and the like. */
+#define TB_VIEWPORT_TARGET_SLACK 0.001
+
 /* How each axis of the design is placed in the frame. A kept axis shows the
  * design's extent, centered, with bars beside it where the frame is
  * larger; an open axis fills the frame, and shows as many units as fit. */
@@ -123,7 +127,23 @@ static tb_viewport tb_viewport_of(tb_viewport_span across, tb_viewport_span down
                          .size = {across.units, down.units}};
 }
 
-tb_viewport tb_viewport_compute(const tb_viewport_policy *policy, const tb_viewport_frame *frame)
+/* The pixels of a side of the viewport render mode's target: the units
+ * shown, rounded up, but for what float arithmetic leaves over a whole
+ * number. */
+static uint32_t tb_viewport_target_side(float units)
+{
+    const double pixels = ceil((double)units - TB_VIEWPORT_TARGET_SLACK);
+
+    if (!(pixels >= 1.0))
+    {
+        return 1u;
+    }
+    return pixels < (double)TB_VIEWPORT_MAX_TARGET ? (uint32_t)pixels : TB_VIEWPORT_MAX_TARGET;
+}
+
+/* The viewport of a policy on a frame, without its target. */
+static tb_viewport tb_viewport_placed(const tb_viewport_policy *policy,
+                                      const tb_viewport_frame *frame)
 {
     tb_viewport_span across = {0};
     tb_viewport_span down = {0};
@@ -175,6 +195,21 @@ tb_viewport tb_viewport_compute(const tb_viewport_policy *policy, const tb_viewp
     }
     return tb_viewport_of(tb_viewport_place(across, policy->design_width, base_x, factor, axis_x),
                           tb_viewport_place(down, policy->design_height, base_y, factor, axis_y));
+}
+
+tb_viewport tb_viewport_compute(const tb_viewport_policy *policy, const tb_viewport_frame *frame)
+{
+    tb_viewport viewport = {0};
+
+    TB_ASSERT(policy != NULL && frame != NULL);
+    viewport = tb_viewport_placed(policy, frame);
+    if (policy->render_mode == TB_VIEWPORT_RENDER_VIEWPORT && viewport.width > 0 &&
+        viewport.height > 0)
+    {
+        viewport.target_width = tb_viewport_target_side(viewport.size.x);
+        viewport.target_height = tb_viewport_target_side(viewport.size.y);
+    }
+    return viewport;
 }
 
 tb_vec2 tb_viewport_to_pixels(const tb_viewport *viewport, tb_vec2 units)

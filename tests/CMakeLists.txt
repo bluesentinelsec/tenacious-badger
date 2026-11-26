@@ -204,7 +204,8 @@ if(WIN32)
         render/material_d3d12_test.c
         render/renderer_d3d12_test.c render/resize_d3d12_test.c render/skinning_d3d12_test.c
         render/sky_d3d12_test.c
-        render/text_d3d12_test.c shader/shader_library_d3d12_test.c gui/gui_d3d12_test.c
+        render/text_d3d12_test.c render/viewport_d3d12_test.c shader/shader_library_d3d12_test.c
+        gui/gui_d3d12_test.c
         gui/gui_look_d3d12_test.c)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     list(APPEND TB_TEST_CASE_SOURCES platform/linux/window_x11_test.c)

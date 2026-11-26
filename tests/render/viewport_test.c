@@ -13,6 +13,18 @@
 
 #include <math.h>
 
+/* The viewport a case expects, without the viewport render mode's target,
+ * which viewport_check_targets() works out from it. */
+typedef struct viewport_expected
+{
+    uint32_t x;
+    uint32_t y;
+    uint32_t width;
+    uint32_t height;
+    tb_vec2 scale;
+    tb_vec2 size;
+} viewport_expected;
+
 /* A case of the table: a policy, a frame, and the viewport it gives. */
 typedef struct viewport_case
 {
@@ -26,7 +38,7 @@ typedef struct viewport_case
     uint32_t height;     /* the frame */
     float display_scale; /* the display's */
     float aspect_ratio;  /* the player's; 0 for none */
-    tb_viewport expected;
+    viewport_expected expected;
 } viewport_case;
 
 /* Pixels a unit, as a fraction of whole numbers. */
@@ -766,7 +778,128 @@ static void viewport_check(const viewport_case *cases, size_t count)
         TB_TEST_EXPECT_FLOAT_NEAR(got.scale.y, test->expected.scale.y, 1e-5f);
         TB_TEST_EXPECT_FLOAT_NEAR(got.size.x, test->expected.size.x, 1e-2f);
         TB_TEST_EXPECT_FLOAT_NEAR(got.size.y, test->expected.size.y, 1e-2f);
+        /* The canvas mode has no target. */
+        TB_TEST_EXPECT_UINT(got.target_width, ==, 0u);
+        TB_TEST_EXPECT_UINT(got.target_height, ==, 0u);
     }
+}
+
+/* The viewport render mode's target of a table's cases: the same viewport
+ * as the canvas mode's, the mouse placed alike, and a target of the units
+ * shown, rounded up, at least a pixel. */
+static void viewport_check_targets(const viewport_case *cases, size_t count)
+{
+    for (size_t index = 0; index < count; index++)
+    {
+        const viewport_case *const test = &cases[index];
+        tb_viewport_policy policy = viewport_policy_of(test);
+        const tb_viewport_frame frame = {.width = test->width,
+                                         .height = test->height,
+                                         .display_scale = test->display_scale,
+                                         .aspect_ratio = test->aspect_ratio};
+        const tb_viewport canvas = tb_viewport_compute(&policy, &frame);
+        policy.render_mode = TB_VIEWPORT_RENDER_VIEWPORT;
+        const tb_viewport got = tb_viewport_compute(&policy, &frame);
+        TB_TEST_CONTEXT("%s", test->name);
+        TB_TEST_EXPECT_UINT(got.x, ==, canvas.x);
+        TB_TEST_EXPECT_UINT(got.y, ==, canvas.y);
+        TB_TEST_EXPECT_UINT(got.width, ==, canvas.width);
+        TB_TEST_EXPECT_UINT(got.height, ==, canvas.height);
+        TB_TEST_EXPECT_FLOAT(got.scale.x, ==, canvas.scale.x);
+        TB_TEST_EXPECT_FLOAT(got.scale.y, ==, canvas.scale.y);
+        TB_TEST_EXPECT_FLOAT(got.size.x, ==, canvas.size.x);
+        TB_TEST_EXPECT_FLOAT(got.size.y, ==, canvas.size.y);
+        if (canvas.width == 0 || canvas.height == 0)
+        {
+            /* A frame of no size shows nothing, and has no target. */
+            TB_TEST_EXPECT_UINT(got.target_width, ==, 0u);
+            TB_TEST_EXPECT_UINT(got.target_height, ==, 0u);
+            continue;
+        }
+        TB_TEST_EXPECT_UINT(got.target_width, ==, (uint32_t)ceilf(test->expected.size.x - 0.01f));
+        TB_TEST_EXPECT_UINT(got.target_height, ==, (uint32_t)ceilf(test->expected.size.y - 0.01f));
+        TB_TEST_EXPECT_UINT(got.target_width, >=, 1u);
+        TB_TEST_EXPECT_UINT(got.target_height, >=, 1u);
+    }
+}
+
+/* Every case of every table, in the viewport render mode: the target holds
+ * the units the viewport shows, a pixel a unit, rounded up where an open
+ * axis shows part of a unit. */
+TB_TEST(viewport, the_viewport_render_modes_target_is_the_units_shown)
+{
+    viewport_check_targets(viewport_fractional_cases, TB_TEST_COUNT_OF(viewport_fractional_cases));
+    viewport_check_targets(viewport_integer_cases, TB_TEST_COUNT_OF(viewport_integer_cases));
+    viewport_check_targets(viewport_logical_cases, TB_TEST_COUNT_OF(viewport_logical_cases));
+    viewport_check_targets(viewport_ratio_cases, TB_TEST_COUNT_OF(viewport_ratio_cases));
+}
+
+/* The targets a pixel-art game sees: 320 by 180 at whole pixels a unit is
+ * 320 by 180 on any frame, the design itself; `expand` grows it by what a
+ * wider or taller frame shows, as Godot's viewport mode does; the policy's
+ * scale shows fewer units, so a smaller target; a frame of no size has
+ * none; and a target never passes the largest texture. */
+TB_TEST(viewport, the_viewport_render_modes_target_follows_the_policy)
+{
+    tb_viewport_policy policy = TB_VIEWPORT_POLICY_INIT;
+    tb_viewport got = {0};
+
+    policy.design_width = 320;
+    policy.design_height = 180;
+    policy.scale_mode = TB_VIEWPORT_SCALE_INTEGER;
+    policy.render_mode = TB_VIEWPORT_RENDER_VIEWPORT;
+    got = tb_viewport_compute(&policy, &(tb_viewport_frame){.width = 1280, .height = 720});
+    TB_TEST_EXPECT_UINT(got.target_width, ==, 320u);
+    TB_TEST_EXPECT_UINT(got.target_height, ==, 180u);
+    TB_TEST_EXPECT_FLOAT(got.scale.x, ==, 4.0f);
+    got = tb_viewport_compute(&policy, &(tb_viewport_frame){.width = 1366, .height = 768});
+    TB_TEST_EXPECT_UINT(got.target_width, ==, 320u);
+    TB_TEST_EXPECT_UINT(got.target_height, ==, 180u);
+
+    /* 1000 by 700 fits 320 by 180 at 3.125 by width; 700 / 3.125 = 224. */
+    policy.scale_mode = TB_VIEWPORT_SCALE_FRACTIONAL;
+    policy.aspect = TB_VIEWPORT_ASPECT_EXPAND;
+    got = tb_viewport_compute(&policy, &(tb_viewport_frame){.width = 1000, .height = 700});
+    TB_TEST_EXPECT_UINT(got.target_width, ==, 320u);
+    TB_TEST_EXPECT_UINT(got.target_height, ==, 224u);
+    /* 1001 by 700: 700 / (1001 / 320) is 223.78 units, a target of 224. */
+    got = tb_viewport_compute(&policy, &(tb_viewport_frame){.width = 1001, .height = 700});
+    TB_TEST_EXPECT_UINT(got.target_width, ==, 320u);
+    TB_TEST_EXPECT_UINT(got.target_height, ==, 224u);
+    policy.aspect = TB_VIEWPORT_ASPECT_KEEP_HEIGHT;
+    got = tb_viewport_compute(&policy, &(tb_viewport_frame){.width = 2560, .height = 1080});
+    TB_TEST_EXPECT_UINT(got.target_width, ==, 427u); /* 426.67 units */
+    TB_TEST_EXPECT_UINT(got.target_height, ==, 180u);
+
+    /* Twice as large a unit shows half as many: half the target. */
+    policy.aspect = TB_VIEWPORT_ASPECT_KEEP;
+    policy.scale = 2.0f;
+    got = tb_viewport_compute(&policy, &(tb_viewport_frame){.width = 1280, .height = 720});
+    TB_TEST_EXPECT_UINT(got.target_width, ==, 160u);
+    TB_TEST_EXPECT_UINT(got.target_height, ==, 90u);
+
+    /* Without a design, the logical pixels: 1280 by 720 at 150% shows
+     * 853.33 by 480. */
+    policy = (tb_viewport_policy)TB_VIEWPORT_POLICY_LOGICAL;
+    policy.render_mode = TB_VIEWPORT_RENDER_VIEWPORT;
+    got = tb_viewport_compute(
+        &policy, &(tb_viewport_frame){.width = 1280, .height = 720, .display_scale = 1.5f});
+    TB_TEST_EXPECT_UINT(got.target_width, ==, 854u);
+    TB_TEST_EXPECT_UINT(got.target_height, ==, 480u);
+
+    got = tb_viewport_compute(&policy, &(tb_viewport_frame){0});
+    TB_TEST_EXPECT_UINT(got.target_width, ==, 0u);
+    TB_TEST_EXPECT_UINT(got.target_height, ==, 0u);
+
+    /* An absurd design at a quarter of a pixel a unit: the largest target. */
+    policy = (tb_viewport_policy)TB_VIEWPORT_POLICY_INIT;
+    policy.design_width = 16384;
+    policy.design_height = 16384;
+    policy.scale = 0.25f;
+    policy.render_mode = TB_VIEWPORT_RENDER_VIEWPORT;
+    got = tb_viewport_compute(&policy, &(tb_viewport_frame){.width = 640, .height = 640});
+    TB_TEST_EXPECT_UINT(got.target_width, ==, TB_VIEWPORT_MAX_TARGET);
+    TB_TEST_EXPECT_UINT(got.target_height, ==, TB_VIEWPORT_MAX_TARGET);
 }
 
 TB_TEST(viewport, every_aspect_fits_frames_of_every_shape_at_fractional_scales)
@@ -848,7 +981,7 @@ TB_TEST(viewport, pixels_and_units_convert_both_ways_and_the_bars_are_outside)
     const tb_viewport_policy policy = TB_VIEWPORT_POLICY_INIT;
     const tb_viewport viewport =
         tb_viewport_compute(&policy, &(tb_viewport_frame){.width = 1920, .height = 1200});
-    const tb_viewport stretched = {0, 0, 2560, 1080, {FIT(4, 3), 1.0f}, {1920, 1080}};
+    const tb_viewport stretched = {0, 0, 2560, 1080, {FIT(4, 3), 1.0f}, {1920, 1080}, 0, 0};
 
     /* The design's middle is the frame's. */
     const tb_vec2 middle = tb_viewport_to_pixels(&viewport, (tb_vec2){960, 540});
@@ -879,10 +1012,13 @@ TB_TEST(viewport, pixels_and_units_convert_both_ways_and_the_bars_are_outside)
  * `ignore` the design's, stretched; text's scale is the smaller axis's. */
 TB_TEST(viewport, the_aspect_is_what_the_viewport_shows)
 {
-    const tb_viewport keep = {0, 96, 1024, 576, {FIT(1024, 1920), FIT(1024, 1920)}, {1920, 1080}};
-    const tb_viewport ignore = {0, 0, 1024, 768, {FIT(1024, 1920), FIT(768, 1080)}, {1920, 1080}};
-    const tb_viewport expand = {0, 0, 1024, 768, {FIT(1024, 1920), FIT(1024, 1920)}, {1920, 1440}};
-    const tb_viewport empty = {0, 0, 0, 0, {1, 1}, {0, 0}};
+    const tb_viewport keep = {0, 96, 1024, 576, {FIT(1024, 1920), FIT(1024, 1920)}, {1920, 1080},
+                              0, 0};
+    const tb_viewport ignore = {0, 0, 1024, 768, {FIT(1024, 1920), FIT(768, 1080)}, {1920, 1080},
+                                0, 0};
+    const tb_viewport expand = {0, 0, 1024, 768, {FIT(1024, 1920), FIT(1024, 1920)}, {1920, 1440},
+                                0, 0};
+    const tb_viewport empty = {0, 0, 0, 0, {1, 1}, {0, 0}, 0, 0};
 
     TB_TEST_EXPECT_FLOAT_NEAR(tb_viewport_aspect_of(&keep), 16.0f / 9.0f, 1e-5f);
     TB_TEST_EXPECT_FLOAT_NEAR(tb_viewport_aspect_of(&ignore), 16.0f / 9.0f, 1e-5f);
