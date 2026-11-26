@@ -21,6 +21,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* The backend the case runs on: each runs on D3D12, then on D3D11. */
+static tb_rhi_backend tb_test_backend = TB_RHI_BACKEND_D3D12;
+
 extern const tb_test_file tb_font_files[];
 extern const size_t tb_font_files_count;
 
@@ -80,7 +83,7 @@ static void open_screen(screen *opened, uint32_t atlas)
         ==, TB_WINDOW_OK);
     options.window = opened->window;
     options.device = (tb_rhi_device_options){
-        .backend = TB_RHI_BACKEND_D3D12, .adapter = TB_RHI_ADAPTER_SOFTWARE, .validation = true};
+        .backend = tb_test_backend, .adapter = TB_RHI_ADAPTER_SOFTWARE, .validation = true};
     options.glyph_atlas_size = atlas;
     if (tb_renderer_create(&options, &opened->renderer, &error) != TB_RHI_OK)
     {
@@ -159,7 +162,7 @@ static ink_box find_ink(const uint8_t *pixels, uint32_t width, uint32_t height)
 /* A string at a size lands its ink in the box that its layout and the
  * glyphs' bitmaps, measured on the CPU, say: within the pixel that the
  * atlas's subpixel bins may move a glyph by. Some pixels are fully inked. */
-TB_TEST(canvas_text_frame, a_string_lands_its_ink_where_its_layout_says_on_d3d12)
+static void a_string_lands_its_ink_where_its_layout_says_case(void)
 {
     screen opened = {0};
     tb_arena *const arena = tb_arena_create(0);
@@ -217,6 +220,18 @@ TB_TEST(canvas_text_frame, a_string_lands_its_ink_where_its_layout_says_on_d3d12
     close_screen(&opened);
 }
 
+TB_TEST(canvas_text_frame, a_string_lands_its_ink_where_its_layout_says_on_d3d12)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D12;
+    a_string_lands_its_ink_where_its_layout_says_case();
+}
+
+TB_TEST(canvas_text_frame, a_string_lands_its_ink_where_its_layout_says_on_d3d11)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D11;
+    a_string_lands_its_ink_where_its_layout_says_case();
+}
+
 /* Check that a pixel font's glyph drawn by the canvas is, pixel for pixel,
  * the CPU's aliased bitmap of it in a color, with nothing around it. */
 static void expect_exact_glyph(const uint8_t *pixels, uint32_t width, const tb_font *font,
@@ -256,7 +271,7 @@ static void expect_exact_glyph(const uint8_t *pixels, uint32_t width, const tb_f
 
 /* A pixel font draws exactly the pixels its aliased bitmap has, at its
  * size and at twice it, in the text's color: coverage times color. */
-TB_TEST(canvas_text_frame, pixel_fonts_draw_their_exact_pixels_on_d3d12)
+static void pixel_fonts_draw_their_exact_pixels_case(void)
 {
     static const int amber[3] = {0, 128, 255};
     static const int white[3] = {255, 255, 255};
@@ -289,9 +304,21 @@ TB_TEST(canvas_text_frame, pixel_fonts_draw_their_exact_pixels_on_d3d12)
     close_screen(&opened);
 }
 
+TB_TEST(canvas_text_frame, pixel_fonts_draw_their_exact_pixels_on_d3d12)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D12;
+    pixel_fonts_draw_their_exact_pixels_case();
+}
+
+TB_TEST(canvas_text_frame, pixel_fonts_draw_their_exact_pixels_on_d3d11)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D11;
+    pixel_fonts_draw_their_exact_pixels_case();
+}
+
 /* A glyph drawn before the atlas clears, in the same frame, is placed again
  * and copied to the texture, and drawn exactly. */
-TB_TEST(canvas_text_frame, glyphs_drawn_before_the_atlas_clears_are_drawn_right_on_d3d12)
+static void glyphs_drawn_before_the_atlas_clears_are_drawn_right_case(void)
 {
     static const int white[3] = {255, 255, 255};
     screen opened = {0};
@@ -323,9 +350,21 @@ TB_TEST(canvas_text_frame, glyphs_drawn_before_the_atlas_clears_are_drawn_right_
     close_screen(&opened);
 }
 
+TB_TEST(canvas_text_frame, glyphs_drawn_before_the_atlas_clears_are_drawn_right_on_d3d12)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D12;
+    glyphs_drawn_before_the_atlas_clears_are_drawn_right_case();
+}
+
+TB_TEST(canvas_text_frame, glyphs_drawn_before_the_atlas_clears_are_drawn_right_on_d3d11)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D11;
+    glyphs_drawn_before_the_atlas_clears_are_drawn_right_case();
+}
+
 /* A label is centered on where its point is drawn: the origin, seen from
  * straight ahead, is the middle of the frame. */
-TB_TEST(canvas_text_frame, labels_are_centered_on_their_points_on_d3d12)
+static void labels_are_centered_on_their_points_case(void)
 {
     screen opened = {0};
     const uint8_t *pixels = NULL;
@@ -346,6 +385,18 @@ TB_TEST(canvas_text_frame, labels_are_centered_on_their_points_on_d3d12)
     TB_TEST_EXPECT_INT(abs((int32_t)(ink.left + ink.right) - (int32_t)width), <=, 2);
     TB_TEST_EXPECT_INT(abs((int32_t)(ink.top + ink.bottom) - (int32_t)height), <=, 8);
     close_screen(&opened);
+}
+
+TB_TEST(canvas_text_frame, labels_are_centered_on_their_points_on_d3d12)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D12;
+    labels_are_centered_on_their_points_case();
+}
+
+TB_TEST(canvas_text_frame, labels_are_centered_on_their_points_on_d3d11)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D11;
+    labels_are_centered_on_their_points_case();
 }
 
 /* ---------------------------------------------------------------------------
@@ -396,7 +447,7 @@ static size_t count_differences(const uint8_t *first, const uint8_t *second, uin
  * size at 100% scaled up. Its ink is 1.5 or 2 times as large as at 100%,
  * within the pixel that each edge may round by, and some of it is fully
  * inked, as crisp text is. */
-TB_TEST(canvas_text_frame, logical_text_is_rasterized_at_the_displays_pixels_on_d3d12)
+static void logical_text_is_rasterized_at_the_displays_pixels_case(void)
 {
     static const float scales[] = {1.5f, 2.0f};
     const tb_canvas_view pixels_view = {.scale = 1.0f};
@@ -438,11 +489,23 @@ TB_TEST(canvas_text_frame, logical_text_is_rasterized_at_the_displays_pixels_on_
     close_screen(&opened);
 }
 
+TB_TEST(canvas_text_frame, logical_text_is_rasterized_at_the_displays_pixels_on_d3d12)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D12;
+    logical_text_is_rasterized_at_the_displays_pixels_case();
+}
+
+TB_TEST(canvas_text_frame, logical_text_is_rasterized_at_the_displays_pixels_on_d3d11)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D11;
+    logical_text_is_rasterized_at_the_displays_pixels_case();
+}
+
 /* Text placed at a fraction of a pixel at 150% has its baseline on the
  * nearest whole row of the display: it is the same image as the text placed
  * on a whole pixel whose baseline is that row, not one blurred across two
  * rows. */
-TB_TEST(canvas_text_frame, text_at_a_fraction_of_a_pixel_is_drawn_on_whole_rows_on_d3d12)
+static void text_at_a_fraction_of_a_pixel_is_drawn_on_whole_rows_case(void)
 {
     const float scale = 1.5f;
     /* 15 and 15.45 pixels. */
@@ -474,13 +537,25 @@ TB_TEST(canvas_text_frame, text_at_a_fraction_of_a_pixel_is_drawn_on_whole_rows_
     close_screen(&opened);
 }
 
+TB_TEST(canvas_text_frame, text_at_a_fraction_of_a_pixel_is_drawn_on_whole_rows_on_d3d12)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D12;
+    text_at_a_fraction_of_a_pixel_is_drawn_on_whole_rows_case();
+}
+
+TB_TEST(canvas_text_frame, text_at_a_fraction_of_a_pixel_is_drawn_on_whole_rows_on_d3d11)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D11;
+    text_at_a_fraction_of_a_pixel_is_drawn_on_whole_rows_case();
+}
+
 /* The pixel font, at 16 logical pixels to the em on displays at 125%,
  * 150%, and 200%, is drawn at the whole multiple of its design size nearest
  * the size in the display's pixels (20, 24, and 32), halves up and at
  * least once: 16, 32, and 32 pixels. Placed at a fraction of a pixel, it
  * lands on the nearest whole pixel, and is exactly its aliased bitmap; and
  * it measures, in units, what it draws. */
-TB_TEST(canvas_text_frame, the_pixel_font_lands_on_whole_multiples_at_any_scale_on_d3d12)
+static void the_pixel_font_lands_on_whole_multiples_at_any_scale_case(void)
 {
     static const struct
     {
@@ -523,4 +598,16 @@ TB_TEST(canvas_text_frame, the_pixel_font_lands_on_whole_multiples_at_any_scale_
     }
     tb_arena_destroy(arena);
     close_screen(&opened);
+}
+
+TB_TEST(canvas_text_frame, the_pixel_font_lands_on_whole_multiples_at_any_scale_on_d3d12)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D12;
+    the_pixel_font_lands_on_whole_multiples_at_any_scale_case();
+}
+
+TB_TEST(canvas_text_frame, the_pixel_font_lands_on_whole_multiples_at_any_scale_on_d3d11)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D11;
+    the_pixel_font_lands_on_whole_multiples_at_any_scale_case();
 }

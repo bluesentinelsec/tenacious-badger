@@ -22,7 +22,8 @@ if (tb_rhi_device_create(&(tb_rhi_device_options){.backend = TB_RHI_BACKEND_AUTO
 | --- | --- |
 | `null` | Accepts every call and draws nothing, as Unreal's null RHI does: for servers, tools, and tests of what sits above the RHI. Buffers keep their bytes, and the GPU finishes each submission at once. |
 | `d3d12` | Windows. Direct3D 12 through its COM C bindings, with `d3d12.dll` and `dxgi.dll` loaded at run time. Bindless where the device has Shader Model 6.6 and resource binding tier 3; the debug layer, its messages written to the log, with validation; flip-model swap chains that tear without vsync where the system allows, and show their images unscaled, so that a window dragged larger never stretches the last frame. Tested on WARP. |
-| `d3d11`, `vulkan`, `opengl`, `metal`, `software` | Planned. |
+| `d3d11` | Windows, for GPUs and drivers without D3D12. Direct3D 11 through its COM C bindings, with `d3d11.dll` and `dxgi.dll` loaded at run time, at feature level 11_0 or 11_1. It imitates the explicit model (see [D3D11](#d3d11-what-it-imitates)): its own command lists, replayed when they are submitted; bindless resources for heap indices the same for a whole draw; constants copied into constant buffers of its own. Flip-model swap chains as D3D12's; the debug layer, its messages written to the log, where it is installed. Tested on WARP. |
+| `vulkan`, `opengl`, `metal`, `software` | Planned. |
 
 ## Choosing a backend
 
@@ -44,7 +45,7 @@ platform's order:
 
 | Platform | Order of preference | Written |
 | --- | --- | --- |
-| Windows | D3D12, D3D11, Vulkan, OpenGL, software | D3D12 |
+| Windows | D3D12, D3D11, Vulkan, OpenGL, software | D3D12, D3D11 |
 | Linux and the Steam Deck | Vulkan, OpenGL, software | none yet |
 | macOS | Metal, OpenGL, software | none yet |
 | Any other | none | — |
@@ -180,9 +181,19 @@ outside a pass, a pass of targets of different sizes, a copy past an edge.
 ## Capabilities
 
 `tb_rhi_device_info_of()` says what a device is (backend, adapter, vendor,
-memory) and has: bindless resources, inline ray queries, ray-tracing
-pipelines, mesh shaders, enhanced barriers, tearing and timestamps, the
-highest shader model and the largest texture. A missing feature is never a
+memory) and has: bindless resources, heap indices, inline ray queries,
+ray-tracing pipelines, mesh shaders, enhanced barriers, tearing and
+timestamps, the highest shader model and the largest texture.
+
+**Bindless resources and heap indices.** `TB_RHI_FEATURE_BINDLESS` is
+Shader Model 6.6's descriptor heaps whole: a shader may compute an index,
+or read it from anywhere. `TB_RHI_FEATURE_HEAP_INDICES` is what the
+engine's shaders need of them: indices the same for a whole draw or
+dispatch, read as they are from the push constants or a constant buffer in
+upload memory. Every device with bindless resources has heap indices; D3D11
+has heap indices alone, which it binds before each draw. The renderer
+needs heap indices for its raster lighting mode, its canvas and its
+skinning. A missing feature is never a
 failure: the renderer reads these and falls back. A texture larger than the
 device allows is `TB_RHI_UNAVAILABLE`.
 
@@ -193,13 +204,38 @@ thread at a time; a swap chain belongs to the thread that presents it; and
 `tb_rhi_device_destroy()` runs on the thread that made the device, once no
 other uses it.
 
+## D3D11: what it imitates
+
+D3D11 is not an explicit API. Its backend (`src/rhi/d3d11/`) gives the RHI
+what it expects, or says it cannot:
+
+| What the RHI has | On D3D11 |
+| --- | --- |
+| Command lists recorded on many threads | The backend's own: each records its commands into memory, from any thread, and a submission replays them, in order, on the immediate context under one lock. D3D11's deferred contexts, which drivers emulate, are not used |
+| Submissions, `tb_rhi_completed`, `tb_rhi_wait` | An event query after each submission; waiting flushes and polls them |
+| Barriers | Nothing: D3D11 tracks every resource's state, and orders what reads after what writes. The backend unbinds what the stages read before a pass draws to it or a dispatch writes it, so D3D11 never takes a view away |
+| Bindless resources | Emulated for heap indices the same for a whole draw (`TB_RHI_FEATURE_HEAP_INDICES`, not `TB_RHI_FEATURE_BINDLESS`). The shader compiler gives each resource a shader takes from a heap a register, and says where its index is in the constants ([Compiling for D3D11](shaders.md#compiling-for-d3d11-dxbc)); before each draw or dispatch, the backend reads the index from the push constants or the constant buffer bound, and binds the view the index names, of the shape the shader declares. An index the shader computes is refused when it compiles |
+| Push constants (`b0`) and constant buffers (`b1`, `b2`) | Constant buffers of the backend's own, filled before each draw that reads them, as much as the shaders read: the push constants from the list, a constant buffer from the CPU copy of its buffer. A constant buffer in the GPU's memory has a CPU copy of what is copied into it; one a shader writes is not seen |
+| Upload memory | A CPU copy and a GPU buffer, which each submission brings up to date where the CPU wrote, before it runs. Upload memory only read as constants is the CPU copy alone |
+| Readback memory | CPU memory. A copy into it is a copy into a staging resource, read into the CPU memory when the CPU reads the buffer, once the GPU has made it; a depth texture is copied whole, as D3D11 copies depth |
+| Copies into a texture | From upload memory, by `UpdateSubresource`; from the GPU's memory, or into depth, D3D11 makes none, and the backend says so once |
+| Storage textures | Unordered-access views of each level, written by compute shaders. A shader that loads typed values from them, as mip generation does, needs `TypedUAVLoadAdditionalFormats`; without, its pipeline is unavailable, and textures have one level. Pixel shaders that write resources from a heap are not bound yet |
+| Swap chains | DXGI's flip model, unscaled, tearing where the system allows, as D3D12's. DXGI turns D3D11's buffers behind the first, so each RHI image is that first buffer, and the current one is the next in turn after each present |
+| Shaders | DXBC of Shader Model 5 behind the compiler's table (`TB_SHADER_TARGET_DXBC`); anything else is refused |
+| Ray tracing, mesh shaders, enhanced barriers | Unavailable |
+| Timestamps | Not reported yet: D3D11's come with a frequency per frame, which the RHI does not take |
+| Validation | The debug layer (`D3D11_CREATE_DEVICE_DEBUG`) where Windows's Graphics Tools are installed, its messages written to the log; without them the device is made without it, saying so |
+
 ## Tests
 
 `tests/rhi/rhi_test.c` holds the device to its contracts on the null backend.
 `tests/rhi/rhi_choice_test.c` checks the choice of a backend on every
 platform, against made-up platforms whose backends are missing, unavailable
 or working, and against the platform's own list.
-`tests/rhi/rhi_d3d12_test.c` draws on WARP, the GPU Windows runs on the CPU,
+`tests/rhi/rhi_d3d11_test.c` holds D3D11 to the same on WARP, its shaders
+compiled from the same sources for Shader Model 5 at run time, and the
+renderer's and the GUI's tests on D3D12 run on D3D11 too, against the same
+golden images. `tests/rhi/rhi_d3d12_test.c` draws on WARP, the GPU Windows runs on the CPU,
 so every machine and CI runner draws the same pixels, and reads them back:
 clears, copies, a triangle, indexed vertices with depth, a texture sampled
 by index, a compute shader writing a buffer by index, and a swap chain. Its

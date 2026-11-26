@@ -16,6 +16,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+struct tb_d3dcompiler;
 struct tb_dxc;
 
 /* The fonts every scene may draw text in: the engine catalog's roles, each
@@ -37,7 +38,8 @@ typedef struct sandbox
     tb_renderer *renderer;
     tb_rhi_device *device;
     tb_rhi_device_info info;
-    struct tb_dxc *dxc; /* for D3D12; NULL for the null backend */
+    struct tb_dxc *dxc;                 /* for D3D12; NULL for other backends */
+    struct tb_d3dcompiler *d3dcompiler; /* for D3D11; NULL for other backends */
     tb_window *window;
     tb_camera camera;         /* the fly camera, which 3D scenes draw from */
     tb_font_catalog *catalog; /* holds the fonts' bytes */

@@ -230,13 +230,21 @@ typedef struct tb_rhi_device_options
 /** @brief Features a device may have, as bits of tb_rhi_device_info::features. */
 typedef enum tb_rhi_feature
 {
-    TB_RHI_FEATURE_BINDLESS = 1u << 0,          /**< Shaders index every resource at once. */
+    /** Shaders index every resource at once, by indices they may compute
+     * or read from anywhere: Shader Model 6.6's descriptor heaps. */
+    TB_RHI_FEATURE_BINDLESS = 1u << 0,
     TB_RHI_FEATURE_RAY_QUERY = 1u << 1,         /**< Inline ray tracing (DXR 1.1). */
     TB_RHI_FEATURE_RAY_PIPELINE = 1u << 2,      /**< Ray-tracing pipelines. */
     TB_RHI_FEATURE_MESH_SHADER = 1u << 3,       /**< Mesh and amplification shaders. */
     TB_RHI_FEATURE_ENHANCED_BARRIERS = 1u << 4, /**< D3D12's enhanced barriers. */
     TB_RHI_FEATURE_TEARING = 1u << 5,           /**< Presenting without vsync may tear. */
-    TB_RHI_FEATURE_TIMESTAMPS = 1u << 6         /**< GPU timestamps. */
+    TB_RHI_FEATURE_TIMESTAMPS = 1u << 6,        /**< GPU timestamps. */
+    /** Shaders take resources and samplers from the descriptor heaps by
+     * indices the same for a whole draw or dispatch, read from the push
+     * constants or a constant buffer in upload memory: every device with
+     * #TB_RHI_FEATURE_BINDLESS, and D3D11, which binds what they name
+     * before each draw. What the engine's shaders need. */
+    TB_RHI_FEATURE_HEAP_INDICES = 1u << 7
 } tb_rhi_feature;
 
 /** @brief Bytes of an adapter's name, its NUL included. */

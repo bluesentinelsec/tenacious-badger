@@ -15,6 +15,9 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
+/* The backend the case runs on: each runs on D3D12, then on D3D11. */
+static tb_rhi_backend tb_test_backend = TB_RHI_BACKEND_D3D12;
+
 /* The sizes a drag passes through, in a row. */
 #define RESIZES 40u
 
@@ -85,7 +88,7 @@ static void present_cleared(tb_rhi_device *device, tb_rhi_swap_chain *chain)
 
 /* A swap chain resized at every frame of a drag presents at each size, and
  * one smaller than its window presents too: its images are unscaled. */
-TB_TEST(rhi_d3d12, a_swap_chain_resizes_many_times_in_a_row)
+static void a_swap_chain_resizes_many_times_in_a_row_case(void)
 {
     screen opened = {0};
     tb_rhi_device *device = NULL;
@@ -94,7 +97,7 @@ TB_TEST(rhi_d3d12, a_swap_chain_resizes_many_times_in_a_row)
     tb_rhi_texture_desc desc = {0};
 
     open_screen(&opened);
-    if (tb_rhi_device_create(&(tb_rhi_device_options){.backend = TB_RHI_BACKEND_D3D12,
+    if (tb_rhi_device_create(&(tb_rhi_device_options){.backend = tb_test_backend,
                                                       .adapter = TB_RHI_ADAPTER_SOFTWARE,
                                                       .validation = true},
                              &device, &error) != TB_RHI_OK)
@@ -132,6 +135,18 @@ TB_TEST(rhi_d3d12, a_swap_chain_resizes_many_times_in_a_row)
     close_screen(&opened);
 }
 
+TB_TEST(rhi_d3d12, a_swap_chain_resizes_many_times_in_a_row)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D12;
+    a_swap_chain_resizes_many_times_in_a_row_case();
+}
+
+TB_TEST(rhi_d3d12, a_swap_chain_resizes_many_times_in_a_row_on_d3d11)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D11;
+    a_swap_chain_resizes_many_times_in_a_row_case();
+}
+
 /* Begin and end a frame, saying whether it began. */
 static bool render_frame(tb_renderer *renderer)
 {
@@ -160,7 +175,7 @@ static tb_viewport expected_viewport(const tb_viewport_policy *policy, const tb_
  * of each new size, as the default 16:9 design expanded has it; renders nothing
  * while the window is minimized; and renders at its size again once
  * restored. */
-TB_TEST(renderer_frame, follows_a_window_through_many_sizes_on_d3d12)
+static void follows_a_window_through_many_sizes_case(void)
 {
     screen opened = {0};
     tb_renderer *renderer = NULL;
@@ -177,7 +192,7 @@ TB_TEST(renderer_frame, follows_a_window_through_many_sizes_on_d3d12)
     open_screen(&opened);
     options.window = opened.window;
     options.device = (tb_rhi_device_options){
-        .backend = TB_RHI_BACKEND_D3D12, .adapter = TB_RHI_ADAPTER_SOFTWARE, .validation = true};
+        .backend = tb_test_backend, .adapter = TB_RHI_ADAPTER_SOFTWARE, .validation = true};
     if (tb_renderer_create(&options, &renderer, &error) != TB_RHI_OK)
     {
         close_screen(&opened);
@@ -225,4 +240,16 @@ TB_TEST(renderer_frame, follows_a_window_through_many_sizes_on_d3d12)
 
     tb_renderer_destroy(renderer);
     close_screen(&opened);
+}
+
+TB_TEST(renderer_frame, follows_a_window_through_many_sizes_on_d3d12)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D12;
+    follows_a_window_through_many_sizes_case();
+}
+
+TB_TEST(renderer_frame, follows_a_window_through_many_sizes_on_d3d11)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D11;
+    follows_a_window_through_many_sizes_case();
 }

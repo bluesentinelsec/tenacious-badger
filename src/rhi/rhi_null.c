@@ -42,7 +42,7 @@ static tb_rhi_result tb_rhi_null_device_create(const tb_rhi_device_options *opti
     (void)error;
     *state = tb_calloc(1, sizeof(tb_rhi_null_state));
     (void)tb_fmt_buffer(info->adapter, sizeof(info->adapter), "%s", "null");
-    info->features = TB_RHI_FEATURE_BINDLESS;
+    info->features = TB_RHI_FEATURE_BINDLESS | TB_RHI_FEATURE_HEAP_INDICES;
     info->shader_model = 66;
     info->max_texture_size = 16384;
     return TB_RHI_OK;

@@ -15,6 +15,9 @@
 
 #include <stddef.h>
 
+/* The backend the case runs on: each runs on D3D12, then on D3D11. */
+static tb_rhi_backend tb_test_backend = TB_RHI_BACKEND_D3D12;
+
 /* What draws the frames: a window of the golden images' size, and a
  * renderer on WARP. */
 typedef struct look_screen
@@ -38,7 +41,7 @@ static void open_look_screen(look_screen *opened)
     opened->window = golden_window(opened->system, "gui");
     options.window = opened->window;
     options.device = (tb_rhi_device_options){
-        .backend = TB_RHI_BACKEND_D3D12, .adapter = TB_RHI_ADAPTER_SOFTWARE, .validation = true};
+        .backend = tb_test_backend, .adapter = TB_RHI_ADAPTER_SOFTWARE, .validation = true};
     if (tb_renderer_create(&options, &opened->renderer, &error) != TB_RHI_OK)
     {
         tb_window_destroy(opened->window);
@@ -46,7 +49,7 @@ static void open_look_screen(look_screen *opened)
         TB_TEST_SKIP("no renderer: %s", error.message);
     }
     tb_rhi_device_info_of(tb_renderer_device(opened->renderer), &info);
-    if ((info.features & TB_RHI_FEATURE_BINDLESS) == 0)
+    if ((info.features & TB_RHI_FEATURE_HEAP_INDICES) == 0)
     {
         tb_renderer_destroy(opened->renderer);
         tb_window_destroy(opened->window);
@@ -161,7 +164,7 @@ static void expect_forms(look_screen *opened, gui_fixture *fixture, const char *
     expect_look(opened, fixture, name);
 }
 
-TB_TEST(gui_look, forms_match_their_golden_image_on_d3d12)
+static void forms_match_their_golden_image_case(void)
 {
     look_screen opened = {0};
     gui_fixture fixture = {0};
@@ -173,9 +176,21 @@ TB_TEST(gui_look, forms_match_their_golden_image_on_d3d12)
     close_look_screen(&opened);
 }
 
+TB_TEST(gui_look, forms_match_their_golden_image_on_d3d12)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D12;
+    forms_match_their_golden_image_case();
+}
+
+TB_TEST(gui_look, forms_match_their_golden_image_on_d3d11)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D11;
+    forms_match_their_golden_image_case();
+}
+
 /* The light theme, and the sample game theme in both its looks, in the
  * fonts of their roles: the forms, matched with their golden images. */
-TB_TEST(gui_look, themes_match_their_golden_images_on_d3d12)
+static void themes_match_their_golden_images_case(void)
 {
     static const char *const names[] = {"gui_light", "gui_game", "gui_retro"};
     /* The game's looks are drawn smaller, as an options menu's scale would,
@@ -221,9 +236,21 @@ TB_TEST(gui_look, themes_match_their_golden_images_on_d3d12)
     tb_font_catalog_destroy(catalog);
 }
 
+TB_TEST(gui_look, themes_match_their_golden_images_on_d3d12)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D12;
+    themes_match_their_golden_images_case();
+}
+
+TB_TEST(gui_look, themes_match_their_golden_images_on_d3d11)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D11;
+    themes_match_their_golden_images_case();
+}
+
 /* A menu bar; a notebook of two tabs, its page a tree with an item open
  * and one chosen; and a list with an item chosen, scrolled by its bar. */
-TB_TEST(gui_look, containers_match_their_golden_image_on_d3d12)
+static void containers_match_their_golden_image_case(void)
 {
     look_screen opened = {0};
     gui_fixture fixture = {0};
@@ -264,4 +291,16 @@ TB_TEST(gui_look, containers_match_their_golden_image_on_d3d12)
     expect_look(&opened, &fixture, "gui_containers");
     gui_fixture_close(&fixture);
     close_look_screen(&opened);
+}
+
+TB_TEST(gui_look, containers_match_their_golden_image_on_d3d12)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D12;
+    containers_match_their_golden_image_case();
+}
+
+TB_TEST(gui_look, containers_match_their_golden_image_on_d3d11)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D11;
+    containers_match_their_golden_image_case();
 }

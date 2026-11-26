@@ -515,6 +515,12 @@ static const char *object_name(tb_shader_types *types, const tb_shader_type *pro
         {
             return info->name;
         }
+        if (probe->second_length != TB_SHADER_NORM_NONE)
+        {
+            return tb_fmt_string(&types->allocator, "%s<%s %s>", info->name,
+                                 probe->second_length == TB_SHADER_NORM_UNORM ? "unorm" : "snorm",
+                                 element);
+        }
         return tb_fmt_string(&types->allocator, "%s<%s>", info->name, element);
     case TB_SHADER_TEMPLATE_SAMPLES:
     case TB_SHADER_TEMPLATE_PATCH:

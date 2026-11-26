@@ -7,6 +7,7 @@
 
 #include "badger/arena.h"
 #include "badger/assert.h"
+#include "badger/d3dcompiler.h"
 #include "badger/dxc.h"
 #include "badger/fatal.h"
 #include "badger/fmt.h"
@@ -71,9 +72,25 @@ static tb_shader_stage tb_renderer_stage(tb_rhi_stage stage)
     return TB_SHADER_STAGE_COMPUTE;
 }
 
+/* What a backend's shaders compile into: DXIL for D3D12, DXBC for D3D11;
+ * nothing for the null backend, which runs no code. */
+static tb_shader_target tb_renderer_shader_target(tb_rhi_backend backend)
+{
+    if (backend == TB_RHI_BACKEND_D3D12)
+    {
+        return TB_SHADER_TARGET_DXIL;
+    }
+    if (backend == TB_RHI_BACKEND_D3D11)
+    {
+        return TB_SHADER_TARGET_DXBC;
+    }
+    return TB_SHADER_TARGET_NONE;
+}
+
 /* A shader of the renderer's own, for the device's backend: DXIL for
- * D3D12, from the library, the cache, or DXC; for the null backend, which
- * runs nothing, the checked source itself. */
+ * D3D12 and DXBC for D3D11, from the library, the cache, or the backend's
+ * compiler; for the null backend, which runs nothing, the checked source
+ * itself. */
 tb_rhi_result tb_renderer_shader(tb_renderer *renderer, const char *path, const char *source,
                                  const char *entry, tb_rhi_stage stage, tb_rhi_shader *shader,
                                  tb_rhi_error *error)
@@ -99,9 +116,9 @@ tb_rhi_result tb_renderer_shader(tb_renderer *renderer, const char *path, const 
     }
     request.entry_point = entry;
     request.stage = tb_renderer_stage(stage);
-    request.target = renderer->info.backend == TB_RHI_BACKEND_D3D12 ? TB_SHADER_TARGET_DXIL
-                                                                    : TB_SHADER_TARGET_NONE;
+    request.target = tb_renderer_shader_target(renderer->info.backend);
     request.dxc = renderer->dxc;
+    request.d3dcompiler = renderer->d3dcompiler;
     lookup.library = renderer->shader_library;
     lookup.cache = renderer->shader_cache;
     lookup.library_only = renderer->shader_library_only;
@@ -263,19 +280,38 @@ static void tb_renderer_report_profile(const tb_renderer *renderer)
                         capabilities->reflections ? "with" : "no");
 }
 
+/* Open the compiler of the device's backend: DXC for D3D12, D3DCompiler
+ * for D3D11. False, with why, where it is unavailable. */
+static bool tb_renderer_open_compiler(tb_renderer *renderer, char *why, size_t size)
+{
+    if (renderer->info.backend == TB_RHI_BACKEND_D3D11)
+    {
+        tb_d3dcompiler_error error = TB_D3DCOMPILER_ERROR_INIT;
+        const bool opened =
+            tb_d3dcompiler_open(&renderer->d3dcompiler, &error) == TB_D3DCOMPILER_OK;
+        (void)tb_fmt_buffer(why, size, "%s", error.message);
+        return opened;
+    }
+    tb_dxc_error error = TB_DXC_ERROR_INIT;
+    const bool opened = tb_dxc_open(&renderer->dxc, &error) == TB_DXC_OK;
+    (void)tb_fmt_buffer(why, size, "%s", error.message);
+    return opened;
+}
+
 /* Where the device's shaders come from: its backend's library, the cache,
- * and DXC for D3D12. Without DXC, D3D12 draws only with what the library
- * holds; with no library either, it cannot draw, which is said at once. */
+ * and its backend's compiler, DXC for D3D12 or D3DCompiler for D3D11.
+ * Without the compiler, the device draws only with what the library holds;
+ * with no library either, it cannot draw, which is said at once. */
 static tb_rhi_result tb_renderer_shader_sources(tb_renderer *renderer,
                                                 const tb_renderer_options *options,
                                                 tb_rhi_error *error)
 {
     char name[64] = {0};
-    tb_dxc_error dxc_error = TB_DXC_ERROR_INIT;
+    char why[TB_DXC_MESSAGE_CAPACITY] = {0};
 
     renderer->shader_cache = options->shader_cache;
     renderer->shader_library_only = options->shader_library_only;
-    if (renderer->info.backend != TB_RHI_BACKEND_D3D12)
+    if (tb_renderer_shader_target(renderer->info.backend) == TB_SHADER_TARGET_NONE)
     {
         return TB_RHI_OK;
     }
@@ -297,11 +333,10 @@ static tb_rhi_result tb_renderer_shader_sources(tb_renderer *renderer,
     {
         return TB_RHI_OK;
     }
-    if (tb_dxc_open(&renderer->dxc, &dxc_error) != TB_DXC_OK && renderer->shader_library == NULL)
+    if (!tb_renderer_open_compiler(renderer, why, sizeof(why)) && renderer->shader_library == NULL)
     {
         return tb_renderer_fail(error, TB_RHI_UNAVAILABLE,
-                                "renderer: no shader library, and no shader compiler: %s",
-                                dxc_error.message);
+                                "renderer: no shader library, and no shader compiler: %s", why);
     }
     return TB_RHI_OK;
 }
@@ -328,7 +363,7 @@ tb_rhi_result tb_renderer_create(const tb_renderer_options *options, tb_renderer
         goto failed;
     }
     tb_rhi_device_info_of(renderer->device, &renderer->info);
-    renderer->deferred = (renderer->info.features & TB_RHI_FEATURE_BINDLESS) != 0;
+    renderer->deferred = (renderer->info.features & TB_RHI_FEATURE_HEAP_INDICES) != 0;
     renderer->capabilities = tb_renderer_capabilities_for(&renderer->info, options->profile);
     renderer->quality_asked = (tb_renderer_quality)TB_RENDERER_QUALITY_INIT;
     renderer->viewport_policy = (tb_viewport_policy)TB_VIEWPORT_POLICY_LOGICAL;
@@ -448,6 +483,7 @@ void tb_renderer_destroy(tb_renderer *renderer)
     tb_rhi_swap_chain_destroy(renderer->chain);
     tb_rhi_device_destroy(renderer->device);
     tb_dxc_close(renderer->dxc);
+    tb_d3dcompiler_close(renderer->d3dcompiler);
     tb_shader_library_close(renderer->shader_library);
     tb_free(renderer->draws);
     tb_free(renderer->customs);

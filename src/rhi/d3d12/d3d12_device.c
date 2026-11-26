@@ -250,7 +250,7 @@ static void tb_d3d12_describe(tb_d3d12_device *device, tb_rhi_device_info *info)
                                            &options12, sizeof(options12));
     device->bindless =
         info->shader_model >= 66 && options.ResourceBindingTier >= D3D12_RESOURCE_BINDING_TIER_3;
-    info->features |= device->bindless ? TB_RHI_FEATURE_BINDLESS : 0u;
+    info->features |= device->bindless ? TB_RHI_FEATURE_BINDLESS | TB_RHI_FEATURE_HEAP_INDICES : 0u;
     info->features |=
         options5.RaytracingTier >= D3D12_RAYTRACING_TIER_1_1 ? TB_RHI_FEATURE_RAY_QUERY : 0u;
     info->features |=

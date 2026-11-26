@@ -180,6 +180,9 @@ extern const tb_rhi_backend_table tb_rhi_null_backend;
 /* The Direct3D 12 backend, where the platform builds it. */
 extern const tb_rhi_backend_table tb_rhi_d3d12_backend;
 
+/* The Direct3D 11 backend, where the platform builds it. */
+extern const tb_rhi_backend_table tb_rhi_d3d11_backend;
+
 /* A backend that belongs on a platform: its table, or NULL while it is not
  * written yet. */
 typedef struct tb_rhi_backend_entry

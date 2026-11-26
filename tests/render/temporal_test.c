@@ -104,7 +104,8 @@ TB_TEST(render_temporal, the_render_size_is_the_scale_of_the_output)
 TB_TEST(render_temporal, a_viewport_of_another_size_starts_the_history_again)
 {
     tb_renderer renderer = {0};
-    const tb_rhi_device_info info = {.features = TB_RHI_FEATURE_BINDLESS};
+    const tb_rhi_device_info info = {.features =
+                                         TB_RHI_FEATURE_BINDLESS | TB_RHI_FEATURE_HEAP_INDICES};
 
     renderer.deferred = true;
     renderer.info.max_texture_size = 16384;
@@ -134,7 +135,8 @@ TB_TEST(render_temporal, a_viewport_of_another_size_starts_the_history_again)
  * resources has no raster lighting mode, and is low whatever is asked. */
 TB_TEST(render_temporal, the_profile_follows_the_device)
 {
-    tb_rhi_device_info info = {.features = TB_RHI_FEATURE_BINDLESS, .software = true};
+    tb_rhi_device_info info = {.features = TB_RHI_FEATURE_BINDLESS | TB_RHI_FEATURE_HEAP_INDICES,
+                               .software = true};
     tb_renderer_capabilities capabilities = {0};
 
     (void)tb_fmt_buffer(info.adapter, sizeof(info.adapter), "Microsoft Basic Render Driver");

@@ -46,21 +46,21 @@ float4 Load(uint2 at, uint layer)
 {
     if (Mip.Array != 0)
     {
-        RWTexture2DArray<float4> layers = ResourceDescriptorHeap[Mip.Source];
+        RWTexture2DArray<unorm float4> layers = ResourceDescriptorHeap[Mip.Source];
         return layers[uint3(at, layer)];
     }
-    RWTexture2D<float4> level = ResourceDescriptorHeap[Mip.Source];
+    RWTexture2D<unorm float4> level = ResourceDescriptorHeap[Mip.Source];
     return level[at];
 }
 void Store(uint2 at, uint layer, float4 value)
 {
     if (Mip.Array != 0)
     {
-        RWTexture2DArray<float4> layers = ResourceDescriptorHeap[Mip.Dest];
+        RWTexture2DArray<unorm float4> layers = ResourceDescriptorHeap[Mip.Dest];
         layers[uint3(at, layer)] = value;
         return;
     }
-    RWTexture2D<float4> level = ResourceDescriptorHeap[Mip.Dest];
+    RWTexture2D<unorm float4> level = ResourceDescriptorHeap[Mip.Dest];
     level[at] = value;
 }
 [numthreads(8, 8, 1)]

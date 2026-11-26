@@ -12,6 +12,9 @@
 
 #include <stdlib.h>
 
+/* The backend the case runs on: each runs on D3D12, then on D3D11. */
+static tb_rhi_backend tb_test_backend = TB_RHI_BACKEND_D3D12;
+
 typedef struct screen
 {
     tb_window_system *system;
@@ -73,7 +76,7 @@ static void open_screen(screen *opened)
     options.window = opened->window;
     options.log = opened->log;
     options.device = (tb_rhi_device_options){
-        .backend = TB_RHI_BACKEND_D3D12, .adapter = TB_RHI_ADAPTER_SOFTWARE, .validation = true};
+        .backend = tb_test_backend, .adapter = TB_RHI_ADAPTER_SOFTWARE, .validation = true};
     /* The full path at the output's resolution, without temporal
      * anti-aliasing, so that each pixel is the scene where the camera puts
      * it: WARP would take the low profile by itself. */
@@ -90,7 +93,7 @@ static void open_screen(screen *opened)
                                                                      .max_lights = 256,
                                                                      .reflections = true});
     tb_rhi_device_info_of(tb_renderer_device(opened->renderer), &info);
-    if ((info.features & TB_RHI_FEATURE_BINDLESS) == 0)
+    if ((info.features & TB_RHI_FEATURE_HEAP_INDICES) == 0)
     {
         tb_renderer_destroy(opened->renderer);
         (void)tb_log_destroy(opened->log);
@@ -151,7 +154,7 @@ static bool pixel_near(const uint8_t *pixels, uint32_t width, uint32_t x, uint32
  * quarter of the quad each way, its top left at the quad's top left. A
  * checkerboard of white and black, its corners marked: red at the top
  * left, green at the top right, blue at the bottom left. */
-TB_TEST(material_frame, texels_land_where_they_should_on_d3d12)
+static void texels_land_where_they_should_case(void)
 {
     screen opened = {0};
     uint8_t texels[4 * 4 * 4] = {0};
@@ -228,12 +231,24 @@ TB_TEST(material_frame, texels_land_where_they_should_on_d3d12)
     close_screen(&opened);
 }
 
+TB_TEST(material_frame, texels_land_where_they_should_on_d3d12)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D12;
+    texels_land_where_they_should_case();
+}
+
+TB_TEST(material_frame, texels_land_where_they_should_on_d3d11)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D11;
+    texels_land_where_they_should_case();
+}
+
 /* A checkerboard of single black and white texels, tiled so that many
  * texels fall in each pixel, is sampled from its smaller levels: an even
  * gray. The levels average in linear light, so the gray is half of white
  * in linear (177 once the output transform shows it); averaged in sRGB it
  * would be about a fifth of white in linear (117). */
-TB_TEST(material_frame, mip_levels_average_in_linear_light_on_d3d12)
+static void mip_levels_average_in_linear_light_case(void)
 {
     enum
     {
@@ -277,10 +292,22 @@ TB_TEST(material_frame, mip_levels_average_in_linear_light_on_d3d12)
     close_screen(&opened);
 }
 
+TB_TEST(material_frame, mip_levels_average_in_linear_light_on_d3d12)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D12;
+    mip_levels_average_in_linear_light_case();
+}
+
+TB_TEST(material_frame, mip_levels_average_in_linear_light_on_d3d11)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D11;
+    mip_levels_average_in_linear_light_case();
+}
+
 /* A normal map's +Y is up in the image: a quad whose normals lean up, lit
  * from above, is brighter than one whose normals lean down, and a flat one
  * is between. */
-TB_TEST(material_frame, a_normal_maps_up_is_up_on_d3d12)
+static void a_normal_maps_up_is_up_case(void)
 {
     static const uint8_t up[4] = {128, 218, 218, 255};
     static const uint8_t down[4] = {128, 38, 218, 255};
@@ -330,4 +357,16 @@ TB_TEST(material_frame, a_normal_maps_up_is_up_on_d3d12)
     tb_texture_destroy(opened.renderer, leaning_up);
     tb_texture_destroy(opened.renderer, leaning_down);
     close_screen(&opened);
+}
+
+TB_TEST(material_frame, a_normal_maps_up_is_up_on_d3d12)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D12;
+    a_normal_maps_up_is_up_case();
+}
+
+TB_TEST(material_frame, a_normal_maps_up_is_up_on_d3d11)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D11;
+    a_normal_maps_up_is_up_case();
 }

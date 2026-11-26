@@ -6,6 +6,7 @@
 
 #include "badger/assert.h"
 #include "badger/fatal.h"
+#include "badger/log.h"
 #include "badger/memory.h"
 
 #include <string.h>
@@ -432,6 +433,19 @@ static tb_rhi_result tb_material_pipelines(tb_renderer *renderer, tb_rhi_error *
             &renderer->mip_pipeline, error);
     }
     tb_rhi_shader_destroy(renderer->device, mip);
+    if (result == TB_RHI_UNAVAILABLE)
+    {
+        /* coverage-off: WARP and the GPUs the tests run on make mips */
+        /* A device that cannot make mips on the GPU draws textures of one
+         * level, as it says. */
+        if (renderer->log != NULL)
+        {
+            (void)tb_log_printf(renderer->log, TB_LOG_WARNING, "renderer",
+                                "textures have one level: %s", error->message);
+        }
+        return TB_RHI_OK;
+        /* coverage-on */
+    }
     return result;
 }
 
@@ -448,7 +462,7 @@ tb_rhi_result tb_renderer_materials_create(tb_renderer *renderer, uint32_t aniso
     {
         return result;
     }
-    if ((renderer->info.features & TB_RHI_FEATURE_BINDLESS) != 0)
+    if ((renderer->info.features & TB_RHI_FEATURE_HEAP_INDICES) != 0)
     {
         /* Materials reach their textures by index; without, a material
          * draws in its base color factor alone. */

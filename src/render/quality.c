@@ -40,7 +40,7 @@ tb_renderer_capabilities tb_renderer_capabilities_for(const tb_rhi_device_info *
                                                       tb_renderer_profile profile)
 {
     tb_renderer_capabilities capabilities = {0};
-    const bool bindless = (info->features & TB_RHI_FEATURE_BINDLESS) != 0;
+    const bool bindless = (info->features & TB_RHI_FEATURE_HEAP_INDICES) != 0;
 
     capabilities.profile = TB_RENDERER_PROFILE_FULL;
     capabilities.raster_lighting = bindless;

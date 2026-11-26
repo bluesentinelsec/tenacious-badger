@@ -98,7 +98,7 @@ tb_rhi_result tb_renderer_sky_create(tb_renderer *renderer, tb_rhi_error *error)
 {
     tb_rhi_graphics_pipeline_desc desc = {0};
 
-    if ((renderer->info.features & TB_RHI_FEATURE_BINDLESS) == 0)
+    if ((renderer->info.features & TB_RHI_FEATURE_HEAP_INDICES) == 0)
     {
         /* The sky's shader reaches a cube map by index; without, there is
          * no sky, and the clear color shows. */
