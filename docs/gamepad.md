@@ -8,7 +8,7 @@ platform's build reports it as not implemented.
 | Platform | Gamepads | How it is reached |
 | --- | --- | --- |
 | Windows | XInput: Xbox pads, and what Steam Input exposes, under Proton too | `xinput1_4.dll`, or `xinput9_1_0.dll` before Windows 8, loaded at run time from the system directory |
-| Windows | Raw HID: the pads a protocol driver of the engine's knows, which XInput does not read ([raw HID pads](#raw-hid-pads)) | `cfgmgr32.dll`, `hid.dll` and `winusb.dll`, loaded at run time from the system directory |
+| Windows | Raw HID: the pads a protocol driver of the engine's knows, which XInput does not read ([raw HID pads](#raw-hid-pads)), over USB and Bluetooth | `cfgmgr32.dll`, `hid.dll` and `winusb.dll`, loaded at run time from the system directory |
 | Linux and Steam Deck | evdev: the event devices of `/dev/input`, read without grabbing | the kernel's system calls; nothing loaded |
 | macOS | The GameController framework's extended gamepads | `libobjc.A.dylib` and `GameController.framework`, loaded at run time |
 
@@ -22,7 +22,9 @@ enough, and their pads share the slots.
 | Controller | Windows | Linux and Steam Deck | macOS |
 | --- | --- | --- | --- |
 | Xbox pads and XInput pads | XInput | xpad | GameController |
-| PlayStation pads | Through Steam Input | hid-playstation | GameController |
+| DualSense (`054c:0ce6`), USB and Bluetooth | Raw HID, with rumble and lights | hid-playstation, from Linux 5.12, with rumble | GameController, from macOS 11.3 |
+| DualSense Edge (`054c:0df2`), USB and Bluetooth | Raw HID, with its back buttons, rumble and lights | hid-playstation, from Linux 6.2; its back buttons from Linux 7.2 | GameController, without its back buttons |
+| DualShock 4 | Through Steam Input (#383) | hid-playstation | GameController |
 | Switch Pro Controller | Through Steam Input | hid-nintendo | GameController |
 | Switch 2 Pro Controller, USB (`057e:2069`) | Raw HID, with rumble | hid-nintendo, from Linux 7.4 | Not yet: the framework does not know it (#379) |
 | Joy-Con 2, GameCube controller for Switch 2 | Not yet (#378) | hid-nintendo, from Linux 7.4 | Not yet (#379) |
@@ -79,7 +81,8 @@ two polls are both. An empty slot's state and info are all zero.
 
 `tb_gamepad_get_info()` gives a pad's name as the system gives it ("Xbox
 controller" from XInput, which names only a kind; the protocol driver's, as
-"Switch 2 Pro Controller", for a raw HID pad; the driver's name on Linux, as
+"Switch 2 Pro Controller" or "DualSense Wireless Controller", for a raw HID
+pad; the driver's name on Linux, as
 "Microsoft X-Box One S pad"; the vendor's on macOS), its USB vendor and
 product where the system says (raw HID pads and Linux), and its capabilities.
 
@@ -111,6 +114,46 @@ A game that shows prompts names the button by its label for the pad in
 hand; the engine gives the place. The C button opens the Switch 2's chat,
 so it is the system's too, as Capture is.
 
+### PlayStation's pads
+
+PlayStation pads already have their face buttons where Xbox pads have
+theirs. Their middle is laid out differently: one button each side of the
+touchpad, and the PS and mute buttons below it.
+
+| Place | Xbox | DualSense | Engine |
+| --- | --- | --- | --- |
+| Bottom, right, left, top | A, B, X, Y | Cross, Circle, Square, Triangle | `south`, `east`, `west`, `north` |
+| Shoulders | LB, RB | L1, R1 | `left_shoulder`, `right_shoulder` |
+| Triggers | LT, RT | L2, R2, analog | `left_trigger`, `right_trigger` |
+| Sticks, pressed | LS, RS | L3, R3 | `left_stick`, `right_stick` |
+| Middle, left and right | View, Menu | Create, Options | `back`, `start` |
+| Back buttons | Elite's P3, P1 | Edge's left and right back buttons | `left_paddle_1`, `right_paddle_1` |
+| System | Guide, Share | PS, mute | Never read |
+| No place in the layout | | The touchpad's click and touches, the Edge's Fn buttons, motion | Not read (#384) |
+
+- **Create is `back`.** It is the one button left of the middle, where
+  every other pad has Back, View or Select, and PC games read it so: Linux
+  gives it as `BTN_SELECT`, the GameController framework as `buttonOptions`,
+  SDL as Back. Xbox's Share button, which `back` leaves to the system, is a
+  button of its own beside View; a DualSense has none, and a game would
+  have no `back` without Create. On a PlayStation console Create takes
+  screenshots; on Windows and Linux no system listens for it, and Steam's
+  screenshot is a chord with the PS button, which stays the system's. On
+  macOS the framework gives Create as `buttonOptions`, which the backend
+  has read as `back` since it was written.
+- **PS is the guide button**, and never read.
+- **Mute is the system's.** It mutes the pad's microphone in its own
+  firmware and lights its LED, and Linux keeps it as hid-playstation's own;
+  it sits below PS where Xbox's Share does. Never read.
+- **The touchpad's click** has no place in the layout, which has no button
+  a game could count on there: not read, with the touchpad's touches
+  (#384). The **Edge's Fn buttons** switch the pad's own profiles, held
+  with another button: not read.
+- **L2 and R2** are read from their analog values, from 0 to 1. Their
+  digital bits, which the pad sets partway down, are not: the analog value
+  carries them, and `tb_gamepad_virtual_buttons()` presses the trigger as a
+  button at a threshold of the engine's own.
+
 | Buttons | Axes |
 | --- | --- |
 | `south`, `east`, `west`, `north`; `left_shoulder`, `right_shoulder`; `left_stick`, `right_stick` (pressed); `dpad_up`, `_down`, `_left`, `_right`; `start`, `back`; the back paddles `left_paddle_1`, `_2`, `right_paddle_1`, `_2` | `left_x`, `left_y`, `right_x`, `right_y` from -1 to 1, right and up positive; `left_trigger`, `right_trigger` from 0 to 1 |
@@ -140,14 +183,23 @@ maps itself, with no database of controllers:
   label.
 - **The right stick and the triggers.** The right stick is `ABS_RX` and
   `ABS_RY`, or `ABS_Z` and `ABS_RZ` on generic HID pads. The triggers are
-  `ABS_Z` and `ABS_RZ` (xpad, hid-playstation), `ABS_HAT2Y` and `ABS_HAT2X`
+  `ABS_Z` and `ABS_RZ` (xpad, hid-playstation, which gives `BTN_TL2` and
+  `BTN_TR2` beside them, not read), `ABS_HAT2Y` and `ABS_HAT2X`
   (hid-steam, the Steam Deck), `ABS_BRAKE` and `ABS_GAS`, or the digital
   `BTN_TL2` and `BTN_TR2`, at 0 or 1 (hid-nintendo).
 - **The d-pad.** `ABS_HAT0X` and `ABS_HAT0Y`, the `BTN_DPAD_*` buttons, or
   xpad's first four `BTN_TRIGGER_HAPPY` buttons.
 - **The paddles.** The Steam Deck's L4, R4, L5, R5 (`BTN_GRIPL`, `BTN_GRIPR`,
-  `BTN_GRIPL2`, `BTN_GRIPR2`) and the Xbox Elite pad's P1 to P4
-  (`BTN_TRIGGER_HAPPY5` to `8`).
+  `BTN_GRIPL2`, `BTN_GRIPR2`), the Xbox Elite pad's P1 to P4
+  (`BTN_TRIGGER_HAPPY5` to `8`), and the DualSense Edge's back buttons,
+  which hid-playstation gives from Linux 7.2 as `BTN_TRIGGER_HAPPY3` and
+  `4`, the upper paddles; its Fn buttons, `BTN_TRIGGER_HAPPY1` and `2`, are
+  not read.
+- **The DualSense** (`054c:0ce6`, and the Edge, `0df2`) is three devices on
+  hid-playstation: the pad, read by place as every Sony pad, with Create as
+  `BTN_SELECT` and PS as `BTN_MODE`, not read; its touchpad, whose only key
+  is `BTN_LEFT`, and its motion sensors, which have no keys, are not
+  gamepads. The mute button is the driver's own and is no event.
 - **Dropped events.** After `SYN_DROPPED` the events up to the next report are
   incomplete, so the device's whole state is read again then, with
   `EVIOCGKEY` and `EVIOCGABS`.
@@ -182,21 +234,39 @@ interfaces, by **protocol drivers** in standard C under `src/platform/shared/`
 product: the commands that set a pad up, its input reports, and its rumble
 report. The Windows backend (`src/platform/win32/gamepad_rawhid.c`) finds the
 pads, opens them, reads their reports, and sends what the driver makes; a new
-pad is a new driver, and the backend does not change. One driver is written:
-the Switch 2 Pro Controller's (`gamepad_switch2.c`). Every driver is tested
-on every platform, with reports captured from a real pad.
+pad is a new driver, and the backend does not change. Two families are
+written: the Switch 2 Pro Controller's (`gamepad_switch2.c`) and the
+DualSense's (`gamepad_dualsense.c`). Every driver is tested on every
+platform, with reports captured from a real pad.
 
 - **Finding pads.** The HID device interfaces are listed every half second
   with `CM_Get_Device_Interface_ListW`, which takes about a tenth of a
   millisecond, rather than through a notification that would call back on
   another thread. Only interfaces whose path names the vendor and product of
-  a pad a driver knows are opened.
+  a pad a driver knows are opened: over USB as `VID_054C&PID_0CE6`; over
+  Bluetooth, whose HID interfaces are under the HID service's class
+  `{00001124-0000-1000-8000-00805F9B34FB}`, as `VID&0002054C_PID&0CE6`.
+  Windows' own HID driver reads Bluetooth pads, so the backend reaches them
+  through `hid.dll` as it does USB pads, and tells the driver which it is.
 - **Not twice.** XInput's own HID collections, whose paths have `IG_` in them,
   are never opened: XInput reads those. Nor are the pads Steam names in
   `SDL_GAMECONTROLLER_IGNORE_DEVICES`.
-- **Reading.** Each pad has one overlapped read outstanding. A poll takes every
-  report that came since the last without waiting, and the last is the pad's
-  state.
+- **One pad, two ways.** A pad connected over a cable and Bluetooth at once
+  has a HID interface for each. A driver that knows which physical pad it
+  has says so once the pad is started (the DualSense's gives its Bluetooth
+  address, which it reports over both). An interface whose pad is open
+  already through another is closed again, and passed over at later
+  listings while that one stays open; when it goes, the other is opened at
+  the next listing. USB interfaces are opened before Bluetooth ones of the
+  same listing, so a pad found both ways at once is read over its cable.
+- **Reading.** Each pad has one overlapped read outstanding, of the length
+  the device's descriptor gives its longest input report
+  (`HidP_GetCaps`). A poll takes every report that came since the last
+  without waiting, and the last is the pad's state. Output reports are
+  written at the descriptor's length too, a shorter one followed by zeros,
+  as Windows requires, and feature reports read with `HidD_GetFeature`.
+- **Lights.** When a pad comes into a slot, the system tells its backend the
+  slot, and a driver whose pad has lights shows it.
 - **A pad that goes** is closed when its read fails, at the next poll.
 
 ### The Switch 2 Pro Controller
@@ -229,6 +299,56 @@ The facts of the protocol are from the community's research of these pads
 ([ndeadly's switch2_controller_research](https://github.com/ndeadly/switch2_controller_research))
 and the drivers that use it, Linux's `hid-nintendo` and SDL's; the code is
 the engine's own.
+
+### The DualSense
+
+The DualSense (`054c:0ce6`) and the DualSense Edge (`054c:0df2`) speak one
+protocol, over USB and Bluetooth; the Edge adds its back buttons and Fn
+buttons to a byte the DualSense leaves empty. Nothing sets a pad up before
+it reports, and nothing needs a vendor channel.
+
+| | USB | Bluetooth |
+| --- | --- | --- |
+| Input | Report `0x01`, 64 bytes, from the start | The simple report `0x01` (sticks, buttons, triggers) until the calibration feature report `0x05` is read; then the full report `0x31`, 78 bytes: USB's data two bytes on, and a CRC-32 |
+| Output | Report `0x02`, 48 bytes | Report `0x31`, 78 bytes: a number from 0 to 15, a tag, USB's data, and a CRC-32 |
+| Feature | `0x05` calibration, `0x09` the pad's Bluetooth address, `0x20` its firmware | The same, each ending in a CRC-32 |
+
+Over Bluetooth every report ends in the CRC-32 of a seed byte and the rest
+of the report: `0xa1` for input, `0xa2` for output, `0xa3` for feature
+reports. A full input report whose CRC is wrong is dropped, and a feature
+report whose CRC is wrong is not believed.
+
+When a pad starts, the driver reads its calibration over Bluetooth, which
+turns on the full reports; its Bluetooth address, which is its identity on
+both transports; and its firmware's update version (byte 44 of `0x20`).
+Then it ends the firmware's own fade of the light bar, which would hide
+the player's color.
+
+- **Rumble.** The pad has two voice-coil actuators, which its firmware
+  drives as an older pad's two motors when an output report asks it to: the
+  left grip's is the low-frequency motor and the right's the high, each a
+  byte from 0 to 255. Firmware from update 2.21, and every Edge, takes the
+  newer flag for it (`0x04` in the report's third byte of flags), older
+  firmware the first (`0x01`); both select the motors over audio haptics
+  (`0x02`). The motors run until the next report, so nothing is sent again
+  while they run; the system's stop rules send the report that stops them.
+- **Lights.** A pad that comes into a slot shows its player as PlayStation
+  consoles do: the five player lights below the touchpad (the middle one
+  for the first player, then two, three, four and all five), and the light
+  bar dimly in blue, red, green or pink for the first four, then orange,
+  teal, yellow and white. Players past the fifth light as the first again,
+  each with a color of their own. A game cannot set them yet (#385).
+- **Steam.** While Steam runs, with its PlayStation support on, it opens the
+  pad too and may set its lights; Windows gives each program the pad's
+  reports, so both read it. A game Steam starts is given the pad's IDs in
+  `SDL_GAMECONTROLLER_IGNORE_DEVICES` and reads Steam's XInput pad instead,
+  so the pad is seen once.
+
+The facts of the protocol are from the drivers that use it, Linux's
+`hid-playstation` and SDL's, and from reports read from a real pad; the
+code is the engine's own. The tests (`tests/platform/gamepad_dualsense_test.c`)
+read a report captured from a DualSense over USB, and the same state as
+Bluetooth's full report carries it.
 
 ## Sticks and triggers as buttons
 
@@ -281,7 +401,8 @@ Rumble stops:
 | --- | --- | --- |
 | Windows | `XInputSetState`: the left and right motors | Unavailable: the Xbox One pad's impulse triggers need Windows.Gaming.Input, a WinRT interface the engine does not use yet |
 | Windows, Switch 2 Pro Controller | Its two linear actuators, one in each grip, each driven at a low and a high frequency for the two motors | Unavailable |
-| Linux | An `FF_RUMBLE` effect, uploaded with `EVIOCSFF` and played by writing it, on pads whose driver reports `FF_RUMBLE` and whose node can be written | Unavailable |
+| Windows, DualSense and DualSense Edge | Its two actuators, one in each grip, as the firmware's two-motor emulation drives them, over USB and Bluetooth | Unavailable: the adaptive triggers are motors of another kind (#386) |
+| Linux | An `FF_RUMBLE` effect, uploaded with `EVIOCSFF` and played by writing it, on pads whose driver reports `FF_RUMBLE` and whose node can be written: hid-playstation does for the DualSense from Linux 5.12, with the same emulation | Unavailable |
 | macOS | Unavailable for now: the framework's haptics need Core Haptics, which the engine does not drive yet | Unavailable |
 
 **The Switch 2 Pro Controller** plays a rumble report for a few milliseconds
@@ -306,12 +427,19 @@ claims them, so they keep working while a game runs:
 - **Windows** reads with `XInputGetState()`, which leaves the guide button
   out. It never calls the undocumented `XInputGetStateEx()` (ordinal 100),
   which would report it. XInput has no share button. A raw HID pad's driver
-  reads none of the system's buttons: the Switch 2's Home, Capture and C.
+  reads none of the system's buttons: the Switch 2's Home, Capture and C,
+  the DualSense's PS and mute. Raw HID pads are opened shared, so Steam
+  and the system read them too.
 - **Linux** reads devices without `EVIOCGRAB`, so the desktop and Steam see
   every pad too, and never reports `BTN_MODE` or the share button's
   `KEY_RECORD`.
 - **macOS** never reads `buttonHome` or the share button, and leaves their
-  `preferredSystemGestureState` at its default, enabled.
+  `preferredSystemGestureState` at its default, enabled. On a DualSense
+  the framework gives PS as `buttonHome`, which is not read, Options as
+  `buttonMenu` and Create as `buttonOptions`, read as `start` and `back`.
+
+The DualSense's Create button is read as `back`, not left to the system as
+Xbox's Share is: see [PlayStation's pads](#playstations-pads).
 
 No state has a guide button, and the input module's `gamepad_guide` key is
 never given by a gamepad of the engine.
@@ -331,14 +459,22 @@ framework requires. The functions that take no system
 - XInput reports at most four pads, gives no names beyond a kind, and no
   USB vendor or product; PlayStation and Switch pads reach it only through
   Steam Input.
-- Raw HID drivers exist for the Switch 2 Pro Controller over USB only. The
-  Joy-Con 2 pair and the GameCube controller for Switch 2 speak the same
-  protocol with reports and rumble of their own (#378); the Switch 2 pads
-  over Bluetooth, and DualSense and Switch Pro pads without Steam, need
-  drivers of their own.
+- Raw HID drivers exist for the Switch 2 Pro Controller over USB, and the
+  DualSense and DualSense Edge over USB and Bluetooth. The Joy-Con 2 pair
+  and the GameCube controller for Switch 2 speak the same protocol with
+  reports and rumble of their own (#378); the Switch 2 pads over Bluetooth,
+  the DualShock 4 (#383), and Switch Pro pads without Steam need drivers of
+  their own.
+- The DualSense's touchpad, motion sensors and microphone mute state are
+  not read (#384); its lights show the player and cannot be set by a game
+  (#385); its adaptive triggers are not driven (#386). Bluetooth reports
+  were tested against reports made from a USB capture: no Bluetooth
+  capture of a real pad is in the tests yet.
+- macOS reads the DualSense Edge's back buttons only if the framework gives
+  them as an Xbox Elite pad's paddles, which it does not.
 - Linux before 7.4 has no driver for the Switch 2 controllers, and the
   engine does not set them up itself through hidraw and usbfs (#380).
 - macOS's GameController framework does not know the Switch 2 controllers;
   an IOKit HID backend with the same drivers would read them (#379).
 - Gyros, touchpads and lights are not read; a Switch 2 pad's player light is
-  the first.
+  the first, and a DualSense's lights show its slot.

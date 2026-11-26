@@ -1,20 +1,32 @@
 /* Windows raw HID gamepads: the pads that XInput does not read and a
  * protocol driver of src/platform/shared knows, as the Switch 2 Pro
- * Controller. cfgmgr32.dll, hid.dll and winusb.dll are loaded at run time
- * from the system directory; never linked.
+ * Controller and the DualSense. cfgmgr32.dll, hid.dll and winusb.dll are
+ * loaded at run time from the system directory; never linked.
  *
  * **Finding pads.** The HID device interfaces are listed every half second,
  * which takes about a tenth of a millisecond, and a pad that came is opened
- * at the next listing. Only interfaces whose path names the USB vendor and
- * product of a pad a driver knows are opened. XInput's own HID collections,
- * whose paths have `IG_` in them, are never read here, so that no pad is
- * seen twice, and neither are the pads Steam names in
- * SDL_GAMECONTROLLER_IGNORE_DEVICES. A pad that goes is closed when a read
- * of it fails.
+ * at the next listing. Only interfaces whose path names the vendor and
+ * product of a pad a driver knows are opened: over USB as
+ * `VID_054C&PID_0CE6`, over Bluetooth, whose HID interfaces are under the
+ * HID service's class `{00001124-...}`, as `VID&0002054C_PID&0CE6`.
+ * XInput's own HID collections, whose paths have `IG_` in them, are never
+ * read here, so that no pad is seen twice, and neither are the pads Steam
+ * names in SDL_GAMECONTROLLER_IGNORE_DEVICES. A pad that goes is closed
+ * when a read of it fails.
  *
- * **Reading.** Each pad has one overlapped read outstanding; a poll takes
+ * **One pad, two ways.** A pad connected over USB and Bluetooth at once has
+ * two HID interfaces. A driver that knows a pad's identity, as the
+ * DualSense's knows its Bluetooth address, says so once the pad is started;
+ * an interface whose pad is open already through another is closed again
+ * and passed over while that one stays open. USB interfaces are opened
+ * before Bluetooth ones found by the same listing, so a pad found both ways
+ * at once is read over its cable.
+ *
+ * **Reading.** Each pad has one overlapped read outstanding, of the length
+ * the device's descriptor gives its longest input report; a poll takes
  * every report that has come since the last, without waiting, and the last
- * one read is the pad's state.
+ * one read is the pad's state. Output reports are written at the length the
+ * descriptor gives too, a shorter report followed by zeros.
  *
  * **Setting a pad up.** A driver may send commands on the pad's vendor
  * channel, as the Switch 2 controllers need: the USB interface beside the
@@ -63,6 +75,10 @@
 
 #define TB_HID_NANOSECONDS_PER_SECOND 1e9
 
+/* Where a HID interface's path names the Bluetooth HID service, whose
+ * class is {00001124-0000-1000-8000-00805F9B34FB}. */
+static const wchar_t tb_hid_bluetooth_service[] = L"{00001124-";
+
 /* GUID_DEVINTERFACE_HID. */
 static const GUID tb_hid_interface_class = {
     0x4d1e55b2, 0xf16f, 0x11cf, {0x88, 0xcb, 0x00, 0x11, 0x11, 0x00, 0x00, 0x30}};
@@ -81,13 +97,22 @@ typedef struct tb_hid_pad
     bool open;
     struct tb_hid_gamepads *owner;
     wchar_t *path; /* The HID interface's, as the listing gave it. */
+    bool bluetooth;
     HANDLE file;
-    bool writable; /* Opened for writing, as rumble needs. */
+    bool writable; /* Opened for writing, with output reports, as rumble needs. */
     HANDLE read_event;
     HANDLE write_event;
     OVERLAPPED read;
     bool reading; /* `read` is outstanding. */
-    uint8_t buffer[TB_HID_REPORT_CAPACITY];
+    /* The lengths of the device's longest reports, from its descriptor;
+     * an input report's buffer, and an output report's, zeros after the
+     * report. */
+    size_t input_length;
+    size_t output_length;
+    size_t feature_length;
+    uint8_t *buffer;
+    uint8_t *output;
+    uint64_t identity; /* As its driver gives it; 0 for not known. */
     /* The vendor channel, while the driver starts the pad. */
     HANDLE usb_file;
     WINUSB_INTERFACE_HANDLE usb;
@@ -104,6 +129,15 @@ typedef struct tb_hid_pad
     uint64_t next_send; /* When its report is next due. */
 } tb_hid_pad;
 
+/* An interface that is not opened while its pad is open through another:
+ * its path, and the pad's identity. */
+typedef struct tb_hid_duplicate
+{
+    wchar_t *path; /* NULL for none. */
+    uint64_t identity;
+    bool listed; /* By the listing being looked at. */
+} tb_hid_duplicate;
+
 typedef struct tb_hid_gamepads
 {
     tb_hid_calls calls;
@@ -116,6 +150,7 @@ typedef struct tb_hid_gamepads
     uint64_t next_scan;
     uint64_t serial;
     tb_hid_pad pads[TB_GAMEPAD_SLOT_COUNT];
+    tb_hid_duplicate duplicates[TB_GAMEPAD_SLOT_COUNT];
     /* Guards the pads against the rumble thread. */
     tb_mutex lock;
     tb_condition wake;
@@ -177,26 +212,51 @@ static bool tb_hid_hex(const wchar_t *text, uint16_t *value)
     return true;
 }
 
-/* The USB vendor and product a path names, as `VID_057E&PID_2069`. */
-static bool tb_hid_path_ids(const wchar_t *path, uint16_t *vendor, uint16_t *product)
+/* The vendor and product after a prefix, with `skipped` digits between
+ * the vendor's prefix and its own, and the product's prefix right after
+ * the vendor. */
+static bool tb_hid_ids_after(const wchar_t *path, const wchar_t *vendor_prefix, size_t skipped,
+                             const wchar_t *product_prefix, uint16_t *vendor, uint16_t *product)
 {
-    static const wchar_t vendor_prefix[] = L"VID_";
-    static const wchar_t product_prefix[] = L"&PID_";
     const wchar_t *const at = tb_hid_find(path, vendor_prefix);
-    const size_t vendor_length = sizeof(vendor_prefix) / sizeof(vendor_prefix[0]) - 1;
-    const size_t product_length = sizeof(product_prefix) / sizeof(product_prefix[0]) - 1;
+    const wchar_t *vendor_at = NULL;
     const wchar_t *product_at = NULL;
+    uint16_t source = 0;
 
-    if (at == NULL || !tb_hid_hex(at + vendor_length, vendor))
+    if (at == NULL)
     {
         return false;
     }
-    product_at = at + vendor_length + TB_HID_ID_DIGITS;
+    vendor_at = at + wcslen(vendor_prefix);
+    if (skipped != 0 && !tb_hid_hex(vendor_at, &source))
+    {
+        return false;
+    }
+    vendor_at += skipped;
+    if (!tb_hid_hex(vendor_at, vendor))
+    {
+        return false;
+    }
+    product_at = vendor_at + TB_HID_ID_DIGITS;
     if (tb_hid_find(product_at, product_prefix) != product_at)
     {
         return false;
     }
-    return tb_hid_hex(product_at + product_length, product);
+    return tb_hid_hex(product_at + wcslen(product_prefix), product);
+}
+
+/* The vendor and product a path names: over USB as `VID_057E&PID_2069`;
+ * over Bluetooth as `VID&0002054C_PID&0CE6`, the four digits before the
+ * vendor saying whose list of vendors it is from. */
+static bool tb_hid_path_ids(const wchar_t *path, uint16_t *vendor, uint16_t *product)
+{
+    return tb_hid_ids_after(path, L"VID_", 0, L"&PID_", vendor, product) ||
+           tb_hid_ids_after(path, L"_VID&", TB_HID_ID_DIGITS, L"_PID&", vendor, product);
+}
+
+static bool tb_hid_is_bluetooth(const wchar_t *path)
+{
+    return tb_hid_find(path, tb_hid_bluetooth_service) != NULL;
 }
 
 /* The present interfaces of a class: paths, each ended by a NUL, and the
@@ -413,11 +473,13 @@ static bool tb_hid_output(void *context, const uint8_t *report, size_t length)
     OVERLAPPED overlapped = {.hEvent = pad->write_event};
     DWORD written = 0;
 
-    if (!pad->writable || length > TB_HID_REPORT_CAPACITY)
+    if (!pad->writable || length > pad->output_length)
     {
         return false;
     }
-    if (!calls->write_file(pad->file, report, (DWORD)length, NULL, &overlapped) &&
+    memset(pad->output, 0, pad->output_length);
+    memcpy(pad->output, report, length);
+    if (!calls->write_file(pad->file, pad->output, (DWORD)pad->output_length, NULL, &overlapped) &&
         GetLastError() != ERROR_IO_PENDING)
     {
         return false;
@@ -425,7 +487,7 @@ static bool tb_hid_output(void *context, const uint8_t *report, size_t length)
     if (calls->overlapped_result(pad->file, &overlapped, &written,
                                  TB_HID_WRITE_TIMEOUT_MILLISECONDS, FALSE))
     {
-        return written == length;
+        return written == pad->output_length;
     }
     if (GetLastError() == WAIT_TIMEOUT)
     {
@@ -434,6 +496,30 @@ static bool tb_hid_output(void *context, const uint8_t *report, size_t length)
         (void)calls->overlapped_result(pad->file, &overlapped, &written, INFINITE, FALSE);
     }
     return false;
+}
+
+/* The link's feature: HidD_GetFeature, into a buffer of the length the
+ * descriptor gives the longest. */
+static size_t tb_hid_feature(void *context, uint8_t id, uint8_t *report, size_t capacity)
+{
+    tb_hid_pad *const pad = context;
+    const tb_hid_calls *const calls = &pad->owner->calls;
+    uint8_t *buffer = NULL;
+    size_t length = 0;
+
+    if (pad->feature_length == 0)
+    {
+        return 0;
+    }
+    buffer = tb_calloc(pad->feature_length, 1);
+    buffer[0] = id;
+    if (calls->get_feature(pad->file, buffer, (ULONG)pad->feature_length))
+    {
+        length = pad->feature_length < capacity ? pad->feature_length : capacity;
+        memcpy(report, buffer, length);
+    }
+    tb_free(buffer);
+    return length;
 }
 
 /* ---------------------------------------------------------------------------
@@ -454,8 +540,77 @@ static void tb_hid_close_pad(tb_hid_gamepads *hid, tb_hid_pad *pad)
     (void)hid->calls.close_handle(pad->write_event);
     (void)hid->calls.close_handle(pad->file);
     tb_free(pad->driver_state);
+    tb_free(pad->buffer);
+    tb_free(pad->output);
     tb_free(pad->path);
     *pad = (tb_hid_pad){0};
+}
+
+/* Whether a pad of an identity is open, other than `except`. */
+static bool tb_hid_identity_open(const tb_hid_gamepads *hid, uint64_t identity,
+                                 const tb_hid_pad *except)
+{
+    if (identity == 0)
+    {
+        return false;
+    }
+    for (size_t slot = 0; slot < TB_GAMEPAD_SLOT_COUNT; slot++)
+    {
+        const tb_hid_pad *const pad = &hid->pads[slot];
+        if (pad != except && pad->open && pad->identity == identity)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void tb_hid_forget(tb_hid_duplicate *duplicate)
+{
+    tb_free(duplicate->path);
+    *duplicate = (tb_hid_duplicate){0};
+}
+
+/* Remember an interface whose pad is open through another. With no room,
+ * it is started again at the next listing, and closed again. */
+static void tb_hid_remember(tb_hid_gamepads *hid, const wchar_t *path, uint64_t identity)
+{
+    const size_t length = wcslen(path) + 1;
+
+    for (size_t index = 0; index < TB_GAMEPAD_SLOT_COUNT; index++)
+    {
+        tb_hid_duplicate *const duplicate = &hid->duplicates[index];
+        if (duplicate->path == NULL)
+        {
+            duplicate->path = tb_calloc(length, sizeof(wchar_t));
+            memcpy(duplicate->path, path, length * sizeof(wchar_t));
+            duplicate->identity = identity;
+            duplicate->listed = true;
+            return;
+        }
+    }
+}
+
+/* Whether an interface is one whose pad is open through another; an
+ * interface whose pad is no longer open is forgotten, to be opened. */
+static bool tb_hid_is_duplicate(tb_hid_gamepads *hid, const wchar_t *path)
+{
+    for (size_t index = 0; index < TB_GAMEPAD_SLOT_COUNT; index++)
+    {
+        tb_hid_duplicate *const duplicate = &hid->duplicates[index];
+        if (duplicate->path == NULL || wcscmp(duplicate->path, path) != 0)
+        {
+            continue;
+        }
+        if (tb_hid_identity_open(hid, duplicate->identity, NULL))
+        {
+            duplicate->listed = true;
+            return true;
+        }
+        tb_hid_forget(duplicate);
+        return false;
+    }
+    return false;
 }
 
 static bool tb_hid_is_open(const tb_hid_gamepads *hid, const wchar_t *path)
@@ -499,15 +654,40 @@ static HANDLE tb_hid_open_file(const tb_hid_gamepads *hid, const wchar_t *path, 
     return file;
 }
 
+/* The lengths of a device's longest reports, from its descriptor; false
+ * for a device that has no input reports, or reports longer than the
+ * backend reads. */
+static bool tb_hid_lengths(const tb_hid_gamepads *hid, HANDLE file, HIDP_CAPS *caps)
+{
+    PHIDP_PREPARSED_DATA data = NULL;
+    bool read = false;
+
+    if (!hid->calls.preparsed(file, &data))
+    {
+        return false;
+    }
+    read = hid->calls.caps(data, caps) == HIDP_STATUS_SUCCESS;
+    (void)hid->calls.free_preparsed(data);
+    return read && caps->InputReportByteLength > 0 &&
+           caps->InputReportByteLength <= TB_HID_REPORT_LIMIT &&
+           caps->OutputReportByteLength <= TB_HID_REPORT_LIMIT &&
+           caps->FeatureReportByteLength <= TB_HID_REPORT_LIMIT;
+}
+
 /* Start a pad's driver, through its vendor channel while it is open. */
 static void tb_hid_start_pad(tb_hid_gamepads *hid, tb_hid_pad *pad)
 {
-    const tb_hid_link link = {.context = pad, .command = tb_hid_command, .output = tb_hid_output};
+    const tb_hid_link link = {.context = pad,
+                              .bluetooth = pad->bluetooth,
+                              .command = tb_hid_command,
+                              .output = tb_hid_output,
+                              .feature = tb_hid_feature};
 
     pad->driver_state = tb_calloc(1, pad->driver->state_size);
     tb_hid_open_channel(hid, pad);
     pad->driver->start(pad->driver_state, &link);
     tb_hid_close_channel(hid, pad);
+    pad->identity = pad->driver->identity(pad->driver_state);
     hid->serial++;
     pad->pad.serial = hid->serial;
     pad->pad.state = (tb_gamepad_state){.connected = true};
@@ -524,6 +704,7 @@ static void tb_hid_open_pad(tb_hid_gamepads *hid, const wchar_t *path, const tb_
 {
     tb_hid_pad *const pad = tb_hid_free_pad(hid);
     HIDD_ATTRIBUTES attributes = {.Size = sizeof(attributes)};
+    HIDP_CAPS caps = {0};
     bool writable = false;
     HANDLE file = INVALID_HANDLE_VALUE;
     HANDLE read_event = NULL;
@@ -541,7 +722,8 @@ static void tb_hid_open_pad(tb_hid_gamepads *hid, const wchar_t *path, const tb_
     }
     /* The device's own IDs, which the path only named. */
     if (!hid->calls.attributes(file, &attributes) ||
-        tb_hid_driver_find(attributes.VendorID, attributes.ProductID) != driver)
+        tb_hid_driver_find(attributes.VendorID, attributes.ProductID) != driver ||
+        !tb_hid_lengths(hid, file, &caps))
     {
         goto close_file;
     }
@@ -554,15 +736,26 @@ static void tb_hid_open_pad(tb_hid_gamepads *hid, const wchar_t *path, const tb_
     *pad = (tb_hid_pad){.open = true,
                         .owner = hid,
                         .path = tb_calloc(length, sizeof(wchar_t)),
+                        .bluetooth = tb_hid_is_bluetooth(path),
                         .file = file,
-                        .writable = writable,
+                        .writable = writable && caps.OutputReportByteLength > 0,
                         .read_event = read_event,
                         .write_event = write_event,
+                        .input_length = caps.InputReportByteLength,
+                        .output_length = caps.OutputReportByteLength,
+                        .feature_length = caps.FeatureReportByteLength,
+                        .buffer = tb_calloc(caps.InputReportByteLength, 1),
+                        .output = tb_calloc(caps.OutputReportByteLength + 1u, 1),
                         .driver = driver};
     memcpy(pad->path, path, length * sizeof(wchar_t));
     pad->pad.info.vendor = attributes.VendorID;
     pad->pad.info.product = attributes.ProductID;
     tb_hid_start_pad(hid, pad);
+    if (tb_hid_identity_open(hid, pad->identity, pad))
+    {
+        tb_hid_remember(hid, path, pad->identity);
+        tb_hid_close_pad(hid, pad);
+    }
     return;
 
 close_events:
@@ -597,7 +790,7 @@ static void tb_hid_consider(tb_hid_gamepads *hid, const wchar_t *path)
     }
     driver = tb_hid_driver_find(vendor, product);
     if (driver == NULL || tb_gamepad_ignored(hid->ignored, vendor, product) ||
-        tb_hid_is_open(hid, path))
+        tb_hid_is_open(hid, path) || tb_hid_is_duplicate(hid, path))
     {
         return;
     }
@@ -608,13 +801,29 @@ static void tb_hid_scan(tb_hid_gamepads *hid)
 {
     wchar_t *const list = tb_hid_list(hid, &tb_hid_interface_class);
 
-    if (list == NULL)
+    for (size_t index = 0; index < TB_GAMEPAD_SLOT_COUNT; index++)
     {
-        return;
+        hid->duplicates[index].listed = false;
     }
-    for (const wchar_t *path = list; *path != L'\0'; path += wcslen(path) + 1)
+    /* USB first, then Bluetooth, so that a pad found both ways at once is
+     * read over its cable. */
+    for (size_t pass = 0; pass < 2 && list != NULL; pass++)
     {
-        tb_hid_consider(hid, path);
+        for (const wchar_t *path = list; *path != L'\0'; path += wcslen(path) + 1)
+        {
+            if (tb_hid_is_bluetooth(path) == (pass == 1))
+            {
+                tb_hid_consider(hid, path);
+            }
+        }
+    }
+    /* An interface that went is forgotten. */
+    for (size_t index = 0; index < TB_GAMEPAD_SLOT_COUNT; index++)
+    {
+        if (hid->duplicates[index].path != NULL && !hid->duplicates[index].listed)
+        {
+            tb_hid_forget(&hid->duplicates[index]);
+        }
     }
     tb_free(list);
 }
@@ -629,7 +838,7 @@ static void tb_hid_read_pad(tb_hid_gamepads *hid, tb_hid_pad *pad)
         if (!pad->reading)
         {
             pad->read = (OVERLAPPED){.hEvent = pad->read_event};
-            if (!hid->calls.read_file(pad->file, pad->buffer, (DWORD)pad->driver->report_size, NULL,
+            if (!hid->calls.read_file(pad->file, pad->buffer, (DWORD)pad->input_length, NULL,
                                       &pad->read) &&
                 GetLastError() != ERROR_IO_PENDING)
             {
@@ -790,6 +999,28 @@ static void tb_hid_rumble(void *native, size_t slot, float low_frequency, float 
     tb_mutex_unlock(&hid->lock);
 }
 
+/* Show on a pad which player it is, where its driver can. */
+static void tb_hid_player(void *native, size_t slot, size_t player)
+{
+    tb_hid_gamepads *const hid = native;
+    tb_hid_pad *pad = NULL;
+
+    TB_ASSERT(slot < TB_GAMEPAD_SLOT_COUNT);
+    tb_mutex_lock(&hid->lock);
+    pad = &hid->pads[slot];
+    if (pad->open)
+    {
+        uint8_t report[TB_HID_REPORT_CAPACITY] = {0};
+        const size_t length =
+            pad->driver->player(pad->driver_state, player, report, sizeof(report));
+        if (length != 0)
+        {
+            (void)tb_hid_output(pad, report, length);
+        }
+    }
+    tb_mutex_unlock(&hid->lock);
+}
+
 /* ---------------------------------------------------------------------------
  * The backend.
  * ------------------------------------------------------------------------- */
@@ -812,6 +1043,7 @@ static void tb_hid_close(void *native)
         {
             tb_hid_close_pad(hid, &hid->pads[slot]);
         }
+        tb_hid_forget(&hid->duplicates[slot]);
     }
     tb_library_close(hid->winusb);
     tb_library_close(hid->hid);
@@ -824,6 +1056,7 @@ const tb_gamepad_ops tb_hid_gamepad_ops = {
     .close = tb_hid_close,
     .poll = tb_hid_poll,
     .rumble = tb_hid_rumble,
+    .player = tb_hid_player,
 };
 
 void *tb_hid_gamepads_make(const tb_hid_calls *calls, const char *ignored, tb_gamepad_clock *clock,
@@ -873,7 +1106,7 @@ tb_gamepad_result tb_hid_gamepads_open(void **native, tb_gamepad_error *error)
     tb_library *hid_library = NULL;
     tb_library *winusb = NULL;
     tb_library_function cfgmgr_functions[5] = {0};
-    tb_library_function hid_functions[1] = {0};
+    tb_library_function hid_functions[5] = {0};
     tb_library_function winusb_functions[7] = {0};
     const tb_library_binding cfgmgr_bindings[5] = {
         {"CM_Get_Device_Interface_List_SizeW", &cfgmgr_functions[0], true},
@@ -882,8 +1115,12 @@ tb_gamepad_result tb_hid_gamepads_open(void **native, tb_gamepad_error *error)
         {"CM_Locate_DevNodeW", &cfgmgr_functions[3], true},
         {"CM_Get_DevNode_PropertyW", &cfgmgr_functions[4], true},
     };
-    const tb_library_binding hid_bindings[1] = {
+    const tb_library_binding hid_bindings[5] = {
         {"HidD_GetAttributes", &hid_functions[0], true},
+        {"HidD_GetPreparsedData", &hid_functions[1], true},
+        {"HidD_FreePreparsedData", &hid_functions[2], true},
+        {"HidP_GetCaps", &hid_functions[3], true},
+        {"HidD_GetFeature", &hid_functions[4], true},
     };
     const tb_library_binding winusb_bindings[7] = {
         {"WinUsb_Initialize", &winusb_functions[0], true},
@@ -898,7 +1135,7 @@ tb_gamepad_result tb_hid_gamepads_open(void **native, tb_gamepad_error *error)
     tb_hid_gamepads *made = NULL;
 
     if (!tb_hid_load("cfgmgr32.dll", cfgmgr_bindings, 5, &cfgmgr, error) ||
-        !tb_hid_load("hid.dll", hid_bindings, 1, &hid_library, error) ||
+        !tb_hid_load("hid.dll", hid_bindings, 5, &hid_library, error) ||
         !tb_hid_load("winusb.dll", winusb_bindings, 7, &winusb, error))
     {
         /* coverage-off: every Windows since 8 has the three */
@@ -918,6 +1155,10 @@ tb_gamepad_result tb_hid_gamepads_open(void **native, tb_gamepad_error *error)
         .node_property = (CONFIGRET(WINAPI *)(DEVINST, const DEVPROPKEY *, DEVPROPTYPE *, PBYTE,
                                               PULONG, ULONG))cfgmgr_functions[4],
         .attributes = (BOOLEAN(WINAPI *)(HANDLE, PHIDD_ATTRIBUTES))hid_functions[0],
+        .preparsed = (BOOLEAN(WINAPI *)(HANDLE, PHIDP_PREPARSED_DATA *))hid_functions[1],
+        .free_preparsed = (BOOLEAN(WINAPI *)(PHIDP_PREPARSED_DATA))hid_functions[2],
+        .caps = (NTSTATUS(WINAPI *)(PHIDP_PREPARSED_DATA, PHIDP_CAPS))hid_functions[3],
+        .get_feature = (BOOLEAN(WINAPI *)(HANDLE, PVOID, ULONG))hid_functions[4],
         .usb_initialize = (BOOL(WINAPI *)(HANDLE, PWINUSB_INTERFACE_HANDLE))winusb_functions[0],
         .usb_free = (BOOL(WINAPI *)(WINUSB_INTERFACE_HANDLE))winusb_functions[1],
         .usb_query_interface = (BOOL(WINAPI *)(WINUSB_INTERFACE_HANDLE, UCHAR,

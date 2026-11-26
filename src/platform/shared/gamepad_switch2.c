@@ -507,6 +507,25 @@ static size_t tb_switch2_rumble(void *state, float low_frequency, float high_fre
     return TB_SWITCH2_REPORT_SIZE;
 }
 
+/* The driver does not read the pad's address, which only Bluetooth would
+ * need. */
+static uint64_t tb_switch2_identity(const void *state)
+{
+    (void)state;
+    return 0;
+}
+
+/* The player light is set while the pad is set up, through its vendor
+ * channel, which is closed after. */
+static size_t tb_switch2_player(void *state, size_t player, uint8_t *report, size_t capacity)
+{
+    (void)state;
+    (void)player;
+    (void)report;
+    (void)capacity;
+    return 0;
+}
+
 static bool tb_switch2_matches(uint16_t vendor, uint16_t product)
 {
     return vendor == TB_SWITCH2_VENDOR && product == TB_SWITCH2_PRODUCT_PRO;
@@ -516,7 +535,6 @@ const tb_hid_driver tb_switch2_driver = {
     .name = "Switch 2 Pro Controller",
     .capabilities = TB_GAMEPAD_CAPABILITY_RUMBLE,
     .state_size = sizeof(tb_switch2),
-    .report_size = TB_SWITCH2_REPORT_SIZE,
     /* {6F13725E-EF0E-4FD3-AE5F-B2DE989EC825}, from the pad's Microsoft OS
      * descriptors, which bind its vendor interface to WinUSB. */
     .channel_class = {0x6f13725eu,
@@ -526,6 +544,8 @@ const tb_hid_driver tb_switch2_driver = {
     .rumble_period = TB_SWITCH2_RUMBLE_PERIOD_NANOSECONDS,
     .matches = tb_switch2_matches,
     .start = tb_switch2_start,
+    .identity = tb_switch2_identity,
     .parse = tb_switch2_read,
     .rumble = tb_switch2_rumble,
+    .player = tb_switch2_player,
 };

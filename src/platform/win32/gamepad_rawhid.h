@@ -27,10 +27,15 @@
  * hundred times a second. */
 #define TB_HID_READS_PER_POLL 256u
 
+/* The longest report, input, output or feature, of a device the backend
+ * opens: a DualSense's descriptor gives some of 547 bytes over Bluetooth. */
+#define TB_HID_REPORT_LIMIT 4096u
+
 /* The functions the backend calls, each required: cfgmgr32.dll's, which
- * list the device interfaces and read their properties; hid.dll's
- * HidD_GetAttributes; winusb.dll's, for a pad's vendor channel; and
- * kernel32.dll's file functions. */
+ * list the device interfaces and read their properties; hid.dll's, which
+ * give a device's IDs and its reports' lengths and read its feature
+ * reports; winusb.dll's, for a pad's vendor channel; and kernel32.dll's
+ * file functions. */
 typedef struct tb_hid_calls
 {
     CONFIGRET(WINAPI *list_size)(PULONG size, LPGUID interface_class, DEVINSTID_W device,
@@ -43,6 +48,10 @@ typedef struct tb_hid_calls
     CONFIGRET(WINAPI *node_property)(DEVINST node, const DEVPROPKEY *key, DEVPROPTYPE *type,
                                      PBYTE buffer, PULONG size, ULONG flags);
     BOOLEAN(WINAPI *attributes)(HANDLE file, PHIDD_ATTRIBUTES attributes);
+    BOOLEAN(WINAPI *preparsed)(HANDLE file, PHIDP_PREPARSED_DATA *data);
+    BOOLEAN(WINAPI *free_preparsed)(PHIDP_PREPARSED_DATA data);
+    NTSTATUS(WINAPI *caps)(PHIDP_PREPARSED_DATA data, PHIDP_CAPS caps);
+    BOOLEAN(WINAPI *get_feature)(HANDLE file, PVOID report, ULONG length);
     BOOL(WINAPI *usb_initialize)(HANDLE file, PWINUSB_INTERFACE_HANDLE usb);
     BOOL(WINAPI *usb_free)(WINUSB_INTERFACE_HANDLE usb);
     BOOL(WINAPI *usb_query_interface)(WINUSB_INTERFACE_HANDLE usb, UCHAR alternate,

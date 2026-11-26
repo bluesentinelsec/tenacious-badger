@@ -303,6 +303,10 @@ static void tb_gamepad_compare(tb_gamepad_system *system, size_t slot)
     {
         pad->state.connected = true;
         tb_gamepad_queue(system, TB_GAMEPAD_EVENT_CONNECTED, slot);
+        if (system->ops->player != NULL)
+        {
+            system->ops->player(system->native, slot, slot);
+        }
     }
     system->seen[slot] = pad->serial;
 }

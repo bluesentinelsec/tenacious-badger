@@ -20,8 +20,8 @@ typedef struct tb_gamepad_mux_child
 /* The mux's table. Each child polls into slots of its own; a pad that
  * comes takes the lowest slot of the system that is free, whichever child
  * has it, and keeps it until it goes. When every slot is taken a pad waits
- * for one. Rumble goes to the child that has the slot's pad; closing
- * closes every child. */
+ * for one. Rumble, and the player a pad is shown to be, go to the child
+ * that has the slot's pad; closing closes every child. */
 extern const tb_gamepad_ops tb_gamepad_mux_ops;
 
 /* A mux over `count` children, from 1 to #TB_GAMEPAD_MUX_CAPACITY, which

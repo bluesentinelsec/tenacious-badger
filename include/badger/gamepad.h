@@ -3,7 +3,7 @@
  * layout, with rumble where the platform has it.
  *
  * A gamepad system reads every gamepad the platform reports: XInput and
- * raw HID pads, as the Switch 2 Pro Controller, on Windows; evdev on Linux
+ * raw HID pads, as the Switch 2 Pro Controller and the DualSense, on Windows; evdev on Linux
  * and the Steam Deck; and the GameController framework on macOS. Each connected pad has a **slot**,
  * from 0, which it keeps until it is unplugged; a pad plugged in later takes the lowest free slot.
  * A pad's buttons and axes are named by their place on an Xbox-style pad, whatever their labels:

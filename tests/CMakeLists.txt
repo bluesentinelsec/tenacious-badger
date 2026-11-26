@@ -286,7 +286,7 @@ set(TB_INTERNAL_TEST_CASE_SOURCES
 if(TB_GAMEPAD_SOURCES)
     list(APPEND TB_INTERNAL_TEST_CASE_SOURCES platform/gamepad_front_test.c
         platform/gamepad_evdev_test.c platform/gamepad_mux_test.c
-        platform/gamepad_switch2_test.c)
+        platform/gamepad_switch2_test.c platform/gamepad_dualsense_test.c)
     if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
         list(APPEND TB_INTERNAL_TEST_CASE_SOURCES
             "${PROJECT_SOURCE_DIR}/src/platform/linux/gamepad_evdev.c")
@@ -295,7 +295,8 @@ if(TB_GAMEPAD_SOURCES)
         list(APPEND TB_INTERNAL_TEST_CASE_SOURCES
             "${PROJECT_SOURCE_DIR}/src/platform/shared/gamepad_mux.c"
             "${PROJECT_SOURCE_DIR}/src/platform/shared/gamepad_hid.c"
-            "${PROJECT_SOURCE_DIR}/src/platform/shared/gamepad_switch2.c")
+            "${PROJECT_SOURCE_DIR}/src/platform/shared/gamepad_switch2.c"
+            "${PROJECT_SOURCE_DIR}/src/platform/shared/gamepad_dualsense.c")
     endif()
 endif()
 # Input that a platform sends only to the window in front is handed to its

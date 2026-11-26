@@ -47,7 +47,9 @@
 #define TB_EVDEV_BTN_GRIPL2 0x226u
 #define TB_EVDEV_BTN_GRIPR2 0x227u
 /* xpad's d-pad as buttons (left, right, up, down), then the Elite pad's
- * paddles (P1 upper right, P2 lower right, P3 upper left, P4 lower left). */
+ * paddles (P1 upper right, P2 lower right, P3 upper left, P4 lower left).
+ * hid-playstation, from Linux 7.2, gives the DualSense Edge's Fn buttons
+ * and its left and right back buttons as the first four. */
 #define TB_EVDEV_BTN_TRIGGER_HAPPY1 0x2c0u
 #define TB_EVDEV_BTN_TRIGGER_HAPPY2 0x2c1u
 #define TB_EVDEV_BTN_TRIGGER_HAPPY3 0x2c2u
@@ -89,6 +91,9 @@
 #define TB_EVDEV_SWITCH2_PRO 0x2069u
 #define TB_EVDEV_SWITCH2_GAMECUBE 0x2073u
 
+/* The DualSense Edge, whose back buttons are BTN_TRIGGER_HAPPY3 and 4. */
+#define TB_EVDEV_DUALSENSE_EDGE 0x0df2u
+
 /* No axis code. */
 #define TB_EVDEV_NO_AXIS 0xffffu
 
@@ -113,6 +118,7 @@ typedef struct tb_evdev_layout
     bool digital_triggers;   /* BTN_TL2 and BTN_TR2 are the triggers, at 0 or 1. */
     bool hat_dpad;           /* ABS_HAT0X and ABS_HAT0Y are the d-pad. */
     bool happy_dpad;         /* BTN_TRIGGER_HAPPY1 to 4 are the d-pad, as xpad's. */
+    bool edge_paddles;       /* BTN_TRIGGER_HAPPY3 and 4 are the DualSense Edge's back buttons. */
 } tb_evdev_layout;
 
 /* Whether a device's code is set in one of its bit arrays. */
