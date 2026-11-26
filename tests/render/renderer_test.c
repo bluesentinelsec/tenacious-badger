@@ -9,6 +9,9 @@
 
 #include "tb_test.h"
 
+#include <math.h>
+#include <stddef.h>
+
 /* ---------------------------------------------------------------------------
  * Cameras.
  * ------------------------------------------------------------------------- */
@@ -56,6 +59,166 @@ TB_TEST(renderer_camera, projections_reverse_depth)
     clip = tb_mat4_transform(flat, (tb_vec4){10.0f, 5.0f, 0.0f, 1.0f});
     TB_TEST_EXPECT_FLOAT_NEAR(clip.x, 1.0f, 1e-4f);
     TB_TEST_EXPECT_FLOAT_NEAR(clip.y, 1.0f, 1e-4f);
+}
+
+/* The aspects the axis constraints are checked at, against a 16:9
+ * reference: the reference itself, wider (21:9, 32:9) and taller (16:10,
+ * 4:3, square, portrait). */
+static const float camera_aspects[] = {16.0f / 9.0f, 64.0f / 27.0f, 32.0f / 9.0f, 1.6f,
+                                       4.0f / 3.0f,  1.0f,          9.0f / 16.0f};
+#define CAMERA_ASPECTS (sizeof(camera_aspects) / sizeof(camera_aspects[0]))
+#define CAMERA_REFERENCE (16.0f / 9.0f)
+
+static tb_camera constrained(tb_camera camera, tb_camera_axis_constraint constraint)
+{
+    camera.axis_constraint = constraint;
+    return camera;
+}
+
+/* The point at the top right corner of the view a unit ahead (or on the
+ * plane, orthographic) lands on the top right corner of clip space: the
+ * projection and the half extent agree. */
+static void expect_corner_at_corner(const tb_camera *camera, float aspect, float reference)
+{
+    const tb_vec2 half = tb_camera_half_extent(camera, aspect, reference);
+    const tb_mat4 projection = tb_camera_projection_fit(camera, aspect, reference);
+    const float ahead = camera->projection == TB_CAMERA_PERSPECTIVE ? -1.0f : 0.0f;
+    const tb_vec4 clip = tb_mat4_transform(projection, (tb_vec4){half.x, half.y, ahead, 1.0f});
+
+    TB_TEST_EXPECT_FLOAT_NEAR(clip.x / clip.w, 1.0f, 1e-4f);
+    TB_TEST_EXPECT_FLOAT_NEAR(clip.y / clip.w, 1.0f, 1e-4f);
+}
+
+/* At the reference's own aspect, every constraint is the camera's own
+ * view, exactly: a frame of the design's shape projects as it always did,
+ * so the images tests compare do not change. */
+TB_TEST(renderer_camera, at_the_reference_aspect_every_constraint_is_the_same_view)
+{
+    const tb_camera camera = tb_camera_perspective(tb_radians(60.0f));
+    const tb_mat4 vertical = tb_camera_projection_of(&camera, CAMERA_REFERENCE);
+
+    for (int constraint = 0; constraint < TB_CAMERA_AXIS_COUNT; constraint++)
+    {
+        TB_TEST_CONTEXT("%s",
+                        tb_camera_axis_constraint_name((tb_camera_axis_constraint)constraint));
+        const tb_camera held = constrained(camera, (tb_camera_axis_constraint)constraint);
+        const tb_mat4 fit = tb_camera_projection_fit(&held, CAMERA_REFERENCE, CAMERA_REFERENCE);
+        for (int column = 0; column < 4; column++)
+        {
+            TB_TEST_EXPECT_FLOAT(fit.columns[column].x, ==, vertical.columns[column].x);
+            TB_TEST_EXPECT_FLOAT(fit.columns[column].y, ==, vertical.columns[column].y);
+            TB_TEST_EXPECT_FLOAT(fit.columns[column].z, ==, vertical.columns[column].z);
+            TB_TEST_EXPECT_FLOAT(fit.columns[column].w, ==, vertical.columns[column].w);
+        }
+    }
+}
+
+/* `design` always shows the whole reference view: a wider view keeps the
+ * vertical field of view and sees more across (Hor+), as `vertical` does;
+ * a taller one keeps the reference's horizontal field of view and sees
+ * more down (Vert+). Neither extent is ever less than the reference's. */
+TB_TEST(renderer_camera, design_holds_the_whole_reference_view_at_every_aspect)
+{
+    const tb_camera camera = tb_camera_perspective(tb_radians(60.0f));
+    const tb_camera design = constrained(camera, TB_CAMERA_AXIS_DESIGN);
+    const tb_camera vertical = constrained(camera, TB_CAMERA_AXIS_VERTICAL);
+    const tb_vec2 reference = tb_camera_half_extent(&vertical, CAMERA_REFERENCE, CAMERA_REFERENCE);
+
+    for (size_t index = 0; index < CAMERA_ASPECTS; index++)
+    {
+        const float aspect = camera_aspects[index];
+        TB_TEST_CONTEXT("aspect %.3f", (double)aspect);
+        const tb_vec2 held = tb_camera_half_extent(&design, aspect, CAMERA_REFERENCE);
+        const tb_vec2 kept = tb_camera_half_extent(&vertical, aspect, CAMERA_REFERENCE);
+        TB_TEST_EXPECT(held.x >= reference.x * (1.0f - 1e-5f));
+        TB_TEST_EXPECT(held.y >= reference.y * (1.0f - 1e-5f));
+        if (aspect >= CAMERA_REFERENCE)
+        {
+            TB_TEST_EXPECT_FLOAT_NEAR(held.x, kept.x, 1e-5f);
+            TB_TEST_EXPECT_FLOAT_NEAR(held.y, kept.y, 1e-5f);
+        }
+        else
+        {
+            TB_TEST_EXPECT_FLOAT_NEAR(held.x, reference.x, 1e-5f);
+            TB_TEST_EXPECT(held.y > reference.y);
+            /* `vertical` crops the sides instead (Hor-). */
+            TB_TEST_EXPECT(kept.x < reference.x);
+        }
+        expect_corner_at_corner(&design, aspect, CAMERA_REFERENCE);
+    }
+}
+
+/* `vertical` keeps the vertical extent at every aspect, today's behaviour
+ * and Unreal's MaintainYFOV; `horizontal` keeps the reference's horizontal
+ * extent, Unreal's MaintainXFOV. */
+TB_TEST(renderer_camera, vertical_and_horizontal_each_hold_their_extent)
+{
+    const tb_camera camera = tb_camera_perspective(tb_radians(60.0f));
+    const tb_camera vertical = constrained(camera, TB_CAMERA_AXIS_VERTICAL);
+    const tb_camera horizontal = constrained(camera, TB_CAMERA_AXIS_HORIZONTAL);
+    const tb_vec2 reference = tb_camera_half_extent(&vertical, CAMERA_REFERENCE, CAMERA_REFERENCE);
+
+    for (size_t index = 0; index < CAMERA_ASPECTS; index++)
+    {
+        const float aspect = camera_aspects[index];
+        TB_TEST_CONTEXT("aspect %.3f", (double)aspect);
+        const tb_vec2 tall = tb_camera_half_extent(&vertical, aspect, CAMERA_REFERENCE);
+        const tb_vec2 wide = tb_camera_half_extent(&horizontal, aspect, CAMERA_REFERENCE);
+        TB_TEST_EXPECT_FLOAT_NEAR(tall.y, reference.y, 1e-6f);
+        TB_TEST_EXPECT_FLOAT_NEAR(tall.x, reference.y * aspect, 1e-5f);
+        TB_TEST_EXPECT_FLOAT_NEAR(wide.x, reference.x, 1e-5f);
+        TB_TEST_EXPECT_FLOAT_NEAR(wide.y, reference.x / aspect, 1e-5f);
+        expect_corner_at_corner(&vertical, aspect, CAMERA_REFERENCE);
+        expect_corner_at_corner(&horizontal, aspect, CAMERA_REFERENCE);
+    }
+}
+
+/* Without a reference aspect, every constraint keeps the vertical extent:
+ * tb_camera_projection_of() is that. */
+TB_TEST(renderer_camera, without_a_reference_every_constraint_keeps_the_vertical_extent)
+{
+    const tb_camera camera = tb_camera_perspective(tb_radians(60.0f));
+
+    for (int constraint = 0; constraint < TB_CAMERA_AXIS_COUNT; constraint++)
+    {
+        const tb_camera held = constrained(camera, (tb_camera_axis_constraint)constraint);
+        const tb_vec2 half = tb_camera_half_extent(&held, 1.6f, 0.0f);
+        TB_TEST_EXPECT_FLOAT_NEAR(half.y, tanf(tb_radians(30.0f)), 1e-6f);
+        const tb_mat4 of = tb_camera_projection_of(&held, 1.6f);
+        const tb_mat4 fit = tb_camera_projection_fit(&held, 1.6f, 0.0f);
+        TB_TEST_EXPECT_FLOAT(of.columns[1].y, ==, fit.columns[1].y);
+        expect_corner_at_corner(&held, 1.6f, 0.0f);
+    }
+}
+
+/* An orthographic camera follows its constraint the same way: in
+ * `design`, its height is the least it shows, growing in a taller view to
+ * keep the reference's width. */
+TB_TEST(renderer_camera, an_orthographic_design_height_is_the_least_it_shows)
+{
+    const tb_camera camera = tb_camera_orthographic(10.0f);
+    const tb_camera horizontal = constrained(camera, TB_CAMERA_AXIS_HORIZONTAL);
+
+    TB_TEST_EXPECT_FLOAT_NEAR(tb_camera_half_extent(&camera, 21.0f / 9.0f, CAMERA_REFERENCE).y,
+                              5.0f, 1e-6f);
+    const tb_vec2 taller = tb_camera_half_extent(&camera, 4.0f / 3.0f, CAMERA_REFERENCE);
+    TB_TEST_EXPECT_FLOAT_NEAR(taller.x, 5.0f * CAMERA_REFERENCE, 1e-4f);
+    TB_TEST_EXPECT_FLOAT_NEAR(taller.y, 5.0f * CAMERA_REFERENCE * 0.75f, 1e-4f);
+    const tb_vec2 wider = tb_camera_half_extent(&horizontal, 32.0f / 9.0f, CAMERA_REFERENCE);
+    TB_TEST_EXPECT_FLOAT_NEAR(wider.y, 2.5f, 1e-4f);
+    expect_corner_at_corner(&camera, 4.0f / 3.0f, CAMERA_REFERENCE);
+    expect_corner_at_corner(&horizontal, 32.0f / 9.0f, CAMERA_REFERENCE);
+}
+
+TB_TEST(renderer_camera, each_constraint_has_a_name)
+{
+    TB_TEST_EXPECT_STRING(tb_camera_axis_constraint_name(TB_CAMERA_AXIS_DESIGN), ==, "design");
+    TB_TEST_EXPECT_STRING(tb_camera_axis_constraint_name(TB_CAMERA_AXIS_VERTICAL), ==, "vertical");
+    TB_TEST_EXPECT_STRING(tb_camera_axis_constraint_name(TB_CAMERA_AXIS_HORIZONTAL), ==,
+                          "horizontal");
+    TB_TEST_EXPECT_STRING(tb_camera_axis_constraint_name(TB_CAMERA_AXIS_COUNT), ==, "unknown");
+    /* A camera made zeroed holds the design's view. */
+    TB_TEST_EXPECT_INT(tb_camera_perspective(1.0f).axis_constraint, ==, TB_CAMERA_AXIS_DESIGN);
 }
 
 /* ---------------------------------------------------------------------------

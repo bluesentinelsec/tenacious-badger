@@ -49,9 +49,12 @@ Burrow's menus are built with the engine's [retained GUI](gui.md) from
 [game theme](gui.md#the-built-in-themes): bronze buttons and slate panels
 of nine-slice images, headings in Source Sans 3 and text in Source Serif 4.
 They are laid out at 1920 by 1080 units in the viewport of Burrow's
-[display policy](display.md), which its default file keeps at 1920 by
-1080, so they look the same in any window, letterboxed where its shape is
-not 16:9, as the room behind them is. Whatever the policy's design size,
+[display policy](display.md), which its default file sets at 1920 by
+1080, expanded: a window of another shape shows more units around the
+design, as it shows more of the room behind the menus, and no bars. The
+pause and options menus are centered in it by their grids' weights; the
+main menu keeps its margin from the window's left edge. Whatever the
+policy's design size,
 the menus are scaled to show 1920 by 1080 of their units in the viewport.
 
 | Screen | Shows | Back |
@@ -201,8 +204,11 @@ run each frame, whether the world ticks or not.
 
 **Field of view.** `graphics.field_of_view` is horizontal degrees on a 16:9
 display (90 by default, about 59 degrees vertically). Burrow turns it into
-the vertical field of view the camera takes, and keeps that whatever the
-window's shape: a wider window sees more at the sides, a narrower one less.
+the vertical field of view the camera takes at the design's 16:9, and the
+camera keeps at least that view whatever the window's shape
+([the camera's axis constraint](display.md#the-camera)): a wider window
+sees more at the sides, and a narrower one, 16:10 or 4:3, sees as much
+across and more above and below.
 
 **Shaders and content.** Burrow finds its files beside its executable, or
 in `Contents/Resources` in a macOS bundle: the shader libraries the build

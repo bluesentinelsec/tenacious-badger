@@ -189,7 +189,7 @@ Games add their own, such as difficulty.
 | `display.hdr` | boolean | `false` | the renderer, to come |
 | `display.design_width` | integer, 0 to 16384 | `1920` | [the display policy](display.md), through `tb_viewport_policy_from_settings()` |
 | `display.design_height` | integer, 0 to 16384 | `1080` | [the display policy](display.md) |
-| `display.stretch_aspect` | `keep`, `keep_width`, `keep_height`, `expand`, `ignore` | `keep` | [the display policy](display.md#aspects) |
+| `display.stretch_aspect` | `keep`, `keep_width`, `keep_height`, `expand`, `ignore` | `expand` | [the display policy](display.md#aspects) |
 | `display.stretch_scale_mode` | `fractional`, `integer` | `fractional` | [the display policy](display.md#scale-modes) |
 | `display.stretch_render_mode` | `canvas`, `viewport` | `canvas` | [the display policy](display.md#render-modes): `viewport` is drawn as `canvas` until it comes |
 | `display.stretch_scale` | number, 0.25 to 8 | `1.0` | [the display policy](display.md) |

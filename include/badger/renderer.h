@@ -201,16 +201,50 @@ typedef enum tb_camera_projection
     TB_CAMERA_ORTHOGRAPHIC /**< Sizes do not change with distance: 2D, isometric and CAD views. */
 } tb_camera_projection;
 
+/**
+ * @brief Which of a camera's extents holds when the view's aspect is not
+ * the one its field of view is given at, after Unreal's
+ * `EAspectRatioAxisConstraint`.
+ *
+ * A camera's field of view (`vertical_fov`, or an orthographic `height`)
+ * is given at a **reference aspect**: the design's, which the renderer
+ * takes from the viewport (tb_viewport_design_aspect()). A view of another
+ * aspect, such as a 16:10 frame showing a 16:9 design in `expand`, keeps
+ * one extent of the reference view and gives the other what the aspect
+ * leaves. Without a reference, every constraint keeps the vertical extent.
+ */
+typedef enum tb_camera_axis_constraint
+{
+    /** The view always holds the whole reference view: a wider view sees
+     * more across (Hor+), a taller one more down (Vert+). The default, so
+     * that what a game is designed to show is shown on every display. */
+    TB_CAMERA_AXIS_DESIGN,
+    /** The vertical extent holds at every aspect: a taller view sees less
+     * across. Unreal's `MaintainYFOV`. */
+    TB_CAMERA_AXIS_VERTICAL,
+    /** The horizontal extent of the reference view holds at every aspect:
+     * a wider view sees less down. Unreal's `MaintainXFOV`. */
+    TB_CAMERA_AXIS_HORIZONTAL,
+    TB_CAMERA_AXIS_COUNT /**< The number of constraints. */
+} tb_camera_axis_constraint;
+
 /** @brief A camera: where it is, which way it looks, and how it projects. */
 typedef struct tb_camera
 {
     tb_vec3 position;                /**< In the world. */
     tb_quat orientation;             /**< Its rotation from looking down −Z with +Y up. */
     tb_camera_projection projection; /**< Perspective or orthographic. */
-    float vertical_fov; /**< Perspective: radians from the bottom of the view to its top. */
-    float height;       /**< Orthographic: the world's height that the view shows. */
-    float near_plane;   /**< Distance to the nearest drawn; more than 0 for perspective. */
-    float far_plane;    /**< Distance to the farthest drawn; 0 for none (perspective). */
+    /** Perspective: radians from the bottom of the view to its top, at the
+     * reference aspect. */
+    float vertical_fov;
+    /** Orthographic: the world's height that the view shows, at the
+     * reference aspect. */
+    float height;
+    float near_plane; /**< Distance to the nearest drawn; more than 0 for perspective. */
+    float far_plane;  /**< Distance to the farthest drawn; 0 for none (perspective). */
+    /** Which extent holds at another aspect than the reference's; zero is
+     * #TB_CAMERA_AXIS_DESIGN. */
+    tb_camera_axis_constraint axis_constraint;
 } tb_camera;
 
 /**
@@ -242,9 +276,42 @@ TB_API bool tb_camera_look_at(tb_camera *camera, tb_vec3 eye, tb_vec3 target);
  * @par Threading Thread-safe. */
 TB_API tb_mat4 tb_camera_view(const tb_camera *camera);
 
-/** @brief The camera's projection for a view of an aspect (width over height).
+/** @brief The camera's projection for a view of an aspect (width over height),
+ * without a reference aspect: the vertical extent holds, whatever the
+ * camera's axis constraint. tb_camera_projection_fit() with a reference.
  * @par Threading Thread-safe. */
 TB_API tb_mat4 tb_camera_projection_of(const tb_camera *camera, float aspect);
+
+/**
+ * @brief The camera's projection for a view of an aspect, its field of
+ * view given at a reference aspect and held by its axis constraint: what
+ * the renderer draws the scene, the sky, labels and temporal
+ * anti-aliasing's jitter with, the aspect tb_viewport_aspect_of() and the
+ * reference tb_viewport_design_aspect() of its viewport.
+ * @param camera Required.
+ * @param aspect The view's, width over height; more than 0.
+ * @param reference_aspect The aspect the field of view is given at; 0 for
+ * none, which keeps the vertical extent.
+ * @par Threading Thread-safe.
+ */
+TB_API tb_mat4 tb_camera_projection_fit(const tb_camera *camera, float aspect,
+                                        float reference_aspect);
+
+/**
+ * @brief Half the extents of the view that tb_camera_projection_fit()
+ * gives, across and down: for a perspective camera, the tangents of half
+ * its horizontal and vertical fields of view, the view's half size a unit
+ * ahead; for an orthographic one, half the world's width and height shown.
+ * @param camera Required.
+ * @param aspect As tb_camera_projection_fit().
+ * @param reference_aspect As tb_camera_projection_fit().
+ * @par Threading Thread-safe.
+ */
+TB_API tb_vec2 tb_camera_half_extent(const tb_camera *camera, float aspect, float reference_aspect);
+
+/** @brief A constraint's name: "design", "vertical" or "horizontal";
+ * "unknown" for another value. @par Threading Thread-safe. */
+TB_API const char *tb_camera_axis_constraint_name(tb_camera_axis_constraint constraint);
 
 /**
  * @brief Make a renderer: a device, a swap chain on the window, and the

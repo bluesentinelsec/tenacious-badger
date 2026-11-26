@@ -40,29 +40,31 @@ void tb_renderer_set_sky(tb_renderer *renderer, const tb_sky *sky)
                   "a sun's radius from 0 to less than a half turn");
 }
 
-uint64_t tb_renderer_sky_upload(tb_renderer *renderer, float aspect)
+uint64_t tb_renderer_sky_upload(tb_renderer *renderer)
 {
     const tb_camera *const camera = &renderer->camera;
     const tb_sky *const sky = &renderer->sky;
     const float sun_length = tb_vec3_length(sky->sun_direction);
     const bool has_sun = sun_length > 0.0f && sky->sun_radius > 0.0f;
     tb_sky_constants constants = {0};
-    float half_height = 0.0f;
+    tb_vec2 half = {0};
 
     if (sky->kind == TB_SKY_NONE || renderer->sky_pipeline.generation == 0)
     {
         return UINT64_MAX;
     }
-    /* An orthographic camera looks one way at every pixel. */
+    /* An orthographic camera looks one way at every pixel. A perspective
+     * one sees as far across and down as the scene's projection does. */
     if (camera->projection == TB_CAMERA_PERSPECTIVE)
     {
-        half_height = tanf(camera->vertical_fov * 0.5f);
+        half = tb_camera_half_extent(camera, tb_viewport_aspect_of(&renderer->viewport),
+                                     tb_viewport_design_aspect(&renderer->viewport));
     }
     constants.forward = tb_sky_color(tb_quat_rotate(camera->orientation, (tb_vec3){0, 0, -1}));
-    constants.right = tb_sky_color(tb_vec3_scale(
-        tb_quat_rotate(camera->orientation, (tb_vec3){1, 0, 0}), half_height * aspect));
+    constants.right = tb_sky_color(
+        tb_vec3_scale(tb_quat_rotate(camera->orientation, (tb_vec3){1, 0, 0}), half.x));
     constants.up = tb_sky_color(
-        tb_vec3_scale(tb_quat_rotate(camera->orientation, (tb_vec3){0, 1, 0}), half_height));
+        tb_vec3_scale(tb_quat_rotate(camera->orientation, (tb_vec3){0, 1, 0}), half.y));
     constants.zenith = tb_sky_color(sky->zenith);
     constants.horizon = tb_sky_color(sky->horizon);
     constants.ground = tb_sky_color(sky->ground);

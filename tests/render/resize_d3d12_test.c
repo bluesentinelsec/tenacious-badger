@@ -157,7 +157,7 @@ static tb_viewport expected_viewport(const tb_viewport_policy *policy, const tb_
 }
 
 /* The renderer follows a window resized at every frame, with the viewport
- * of each new size, as a letterboxed 16:9 design has it; renders nothing
+ * of each new size, as the default 16:9 design expanded has it; renders nothing
  * while the window is minimized; and renders at its size again once
  * restored. */
 TB_TEST(renderer_frame, follows_a_window_through_many_sizes_on_d3d12)

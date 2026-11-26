@@ -17,7 +17,7 @@ badger-sandbox --renderer null       # no GPU at all
 badger-sandbox --frames 120 --capture shapes.bmp   # stop after 120 frames, saving the last
 badger-sandbox --scene ui --ui-scale 150             # the interface half as large again
 badger-sandbox --scene gui --ui-scale 200            # the GUI twice as large, laid out again
-badger-sandbox --scene display                       # the display policy, changed by F1 to F6
+badger-sandbox --scene display                       # the display policy, changed by F1 to F7
 badger-sandbox --inspector                           # start with the inspector shown
 badger-sandbox --scene skinning --cpu-skinning       # skin on the CPU, as a weaker device does
 ```
@@ -45,13 +45,13 @@ bottom left corner of every scene, and printed every two seconds.
 | `triangle` | A triangle of three colored corners, turning, drawn through the RHI itself inside the renderer's scene pass |
 | `textured` | A checkerboard made in memory, sampled through the texture's and sampler's bindless indices |
 | `clear` | The swap chain cleared to a plain color |
-| `display` | [The display policy](display.md): the shapes, lit under a sky, in the viewport; the design's border, its corners and middle, the edge of what the viewport shows, a grid, pixel art still and turning, and a line of text, in the design's units; a GUI panel of a button for each hotkey; and what the window, the frame, the viewport, its target, the mouse and the policy are. F1 to F6 change the aspect, the scale mode, the render mode, the design size, the window's mode and whether resizing keeps the design's aspect; Alt+Enter switches windowed and borderless |
+| `display` | [The display policy](display.md): the shapes, lit under a sky, in the viewport; the design's border, its corners and middle, the edge of what the viewport shows, a grid, pixel art still and turning, and a line of text, in the design's units; a GUI panel of a button for each hotkey; and what the window, the frame, the viewport, its design rectangle, its target, the mouse, the camera and the policy are. F1 to F7 change the aspect, the scale mode, the render mode, the design size, the window's mode, whether resizing keeps the design's aspect, and the camera's axis constraint; Alt+Enter switches windowed and borderless |
 | `input` | [Input](input.md): the actions and mapping contexts of `tools/sandbox/resources/input/sandbox.json`, fed the window's events, and each action's state, events and value live as text over the shapes. WASD move, the mouse looks, Space jumps, the left button fires in pulses, F charges when held, Shift and a tap of C dodge, and the wheel zooms; M puts the menu context above gameplay, which takes WASD for itself, or takes it off. The scene runs input once a frame, where a game runs it once a tick |
 
 Every scene takes the [display policy](display.md) from the settings, as a
-game does: by default a design of 1920 by 1080 kept whole, so the 3D scenes
-are letterboxed in a window that is not 16:9, and `--set
-display.stretch_aspect=expand` fills it. The `gui`, `gui_tool` and
+game does: by default a design of 1920 by 1080, expanded, so the 3D scenes
+fill a window of any shape and see at least the design's view, and `--set
+display.stretch_aspect=keep` letterboxes them instead. The `gui`, `gui_tool` and
 `gui_fonts` scenes are tools, and override the design size to none, as a
 tool would in its default file: their units are logical pixels over the
 whole window. The inspector, the `ui` scene and the frame time are
@@ -174,27 +174,39 @@ badger-sandbox --scene display
 | F4 | The design size: 1920 by 1080, 1280 by 720, 640 by 360, 320 by 180 |
 | F5 | The window's mode: windowed, borderless, fullscreen |
 | F6 | Resizing the window kept at the design's aspect (`display.window_aspect_width` and `_height`, 16 by 9 for 1920 by 1080), or free |
+| F7 | The camera's [axis constraint](display.md#the-camera): `design`, `vertical`, `horizontal` |
 | Alt+Enter | Windowed or borderless, as in every app on the game loop (Control+Command+F on a Mac) |
 
 Each changes its setting at the runtime layer, as the inspector does, and
 the inspector shows it change; in this scene the backquote alone shows the
-inspector, since the scene takes F1 to F6 first. The panel's buttons do
+inspector, since the scene takes F1 to F7 first. The panel's buttons do
 what the keys do, and a press on the bars beside the viewport reaches none
 of them.
 
 The shapes are drawn in the viewport, lit by a sun under a procedural sky.
 Over them, in the design's units: the design's border, its corners and its
-middle in gold, the edge of what the viewport shows in blue (the same as
-the border in `keep`; larger in `expand`), and a grid of nine cells a
-design's height, centered; and a badger's face in pixel art, still and
-turning, over a line of text, as large against any design as at 320 by
-180, where a texel of the art is a unit. In the top left corner of the
-viewport, laid out at 1920 by 1080 of its own and drawn at the window's
-pixels, so that it keeps its place in every window mode: the window's logical
-size, the frame's pixels and the display's scale; the viewport's
-rectangle, its pixels a unit and the units it shows; the mouse in pixels
-and in units, and whether it is in the viewport or on a bar; the policy,
-with the player's aspect ratio; and the viewport render mode's target.
+middle in gold, at the viewport's [design rectangle](display.md#the-design-rectangle),
+centered in what is shown; the edge of what the viewport shows in blue
+(the same as the border in `keep`; larger in `expand`); and a grid of nine
+cells a design's height, centered; and a badger's face in pixel art, still
+and turning, over a line of text, placed in the design rectangle and as
+large against any design as at 320 by 180, where a texel of the art is a
+unit. The GUI panel is pinned to the bottom right corner of what is shown.
+In the top left corner of what is shown, laid out at 1920 by 1080 of its
+own (scaled by the smaller axis of the viewport's rectangle) and drawn at
+the window's pixels, so that it keeps its place in every window mode: the
+window's logical size, the frame's pixels and the display's scale; the
+viewport's rectangle, its pixels a unit and the units it shows; the design
+rectangle; the camera's axis constraint, with the viewport's aspect and
+the design's; the mouse in pixels and in units, and whether it is in the
+viewport or on a bar; the policy, with the player's aspect ratio; and the
+viewport render mode's target.
+
+On a 16:10 window, the default `expand` shows the scene and the gold
+border whole, with more above and below; F7 to `vertical` crops the
+scene's sides, so that what the design's view holds at its left and right
+edges is off the frame, and `horizontal` shows less above and below on a
+wider window.
 
 The render modes are told apart at a small design, such as 320 by 180 in
 the `integer` scale mode:

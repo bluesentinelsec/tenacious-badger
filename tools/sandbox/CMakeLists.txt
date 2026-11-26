@@ -125,7 +125,7 @@ if(TB_BUILD_TESTS)
                 --frames 3 --capture "${CMAKE_CURRENT_BINARY_DIR}/sandbox_gui_fonts.bmp")
         set_tests_properties(sandbox.draws_the_font_browser_on_d3d12 PROPERTIES
             PASS_REGULAR_EXPRESSION "saved")
-        # The display policy: a lit scene letterboxed in a 4:3 frame, its
+        # The display policy: a lit scene expanded to fill a 4:3 frame, its
         # design's border, grid and GUI panel, under validation.
         add_test(NAME sandbox.shows_the_display_policy_on_d3d12
             COMMAND badger-sandbox --renderer d3d12 --software --validation --scene display

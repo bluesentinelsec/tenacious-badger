@@ -66,7 +66,11 @@ tb_renderer_set_viewport_policy(renderer, &policy, tb_viewport_aspect_ratio_from
 
 - **The camera** projects at the viewport's aspect
   (`tb_viewport_aspect_of()`): the rectangle's, or in `ignore` the design's,
-  stretched to the rectangle.
+  stretched to the rectangle. Its field of view is given at the design's
+  aspect, and its [axis constraint](display.md#the-camera) says which
+  extent holds at another: by default, it always sees the whole design
+  view. The scene, the sky, labels and temporal anti-aliasing's jitter all
+  project through that one projection.
 - **The scene's targets**, the G-buffer, its depth and its light, are the
   viewport's pixels times the render scale; temporal anti-aliasing writes
   its history at the viewport's size, and the tone mapping pass draws it

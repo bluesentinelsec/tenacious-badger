@@ -187,6 +187,7 @@ TB_TEST(viewport_render, whole_pixels_a_unit_upscale_into_exact_blocks_on_d3d12)
     open_screen(&opened);
     policy.design_width = 320;
     policy.design_height = 180;
+    policy.aspect = TB_VIEWPORT_ASPECT_KEEP;
     policy.scale_mode = TB_VIEWPORT_SCALE_INTEGER;
     policy.render_mode = TB_VIEWPORT_RENDER_VIEWPORT;
     tb_renderer_set_viewport_policy(opened.renderer, &policy, 0.0f);
@@ -258,6 +259,7 @@ TB_TEST(viewport_render, fractional_scales_filter_linearly_between_exact_bars_on
     open_screen(&opened);
     policy.design_width = 320;
     policy.design_height = 200;
+    policy.aspect = TB_VIEWPORT_ASPECT_KEEP;
     policy.render_mode = TB_VIEWPORT_RENDER_VIEWPORT;
     TB_TEST_REQUIRE(tb_viewport_parse_color("#204060", &policy.bar_color));
     tb_renderer_set_viewport_policy(opened.renderer, &policy, 0.0f);
