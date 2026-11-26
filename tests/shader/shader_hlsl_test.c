@@ -129,14 +129,14 @@ static void expect_refused(const char *source, const char *entry, tb_shader_stag
 
 static const char heap_source[] =
     "struct Inner { uint4 Ids; };\n"
-    "struct DrawConstants { float4 Tint; uint Albedo; uint Filter; Inner Nested[2]; };\n"
+    "struct DrawConstants { float4 Tint; uint Albedo; uint Buffer; Inner Nested[2]; };\n"
     "ConstantBuffer<DrawConstants> Draw : register(b0);\n"
     "cbuffer Scene : register(b1) { float4 Color; uint Sky; };\n"
     "Texture2D<float4> Fixed : register(t0);\n"
     "float4 main(float2 uv : TEXCOORD0) : SV_Target\n"
     "{\n"
     "    Texture2D<float4> albedo = ResourceDescriptorHeap[Draw.Albedo];\n"
-    "    SamplerState filter = SamplerDescriptorHeap[NonUniformResourceIndex(Draw.Filter)];\n"
+    "    SamplerState filter = SamplerDescriptorHeap[NonUniformResourceIndex(Draw.Buffer)];\n"
     "    TextureCube<float4> sky = ResourceDescriptorHeap[Sky];\n"
     "    Texture2D<float4> again = ResourceDescriptorHeap[Draw.Albedo];\n"
     "    Texture2D<float4> nested = ResourceDescriptorHeap[Draw.Nested[1].Ids.z];\n"
@@ -187,6 +187,9 @@ TB_TEST(shader_hlsl, heap_resources_get_registers_read_from_constants)
     TB_TEST_EXPECT(has_text(&out, "cbuffer b0_Draw : register(b0)"));
     TB_TEST_EXPECT(has_text(&out, "cbuffer b1_Scene : register(b1)"));
     TB_TEST_EXPECT(!has_text(&out, "ResourceDescriptorHeap"));
+    /* Members are named apart from what Shader Model 5 keeps for itself. */
+    TB_TEST_EXPECT(has_text(&out, "uint m_Buffer;"));
+    TB_TEST_EXPECT(has_text(&out, "uint4 m_Ids;"));
     tb_arena_destroy(out.arena);
 }
 

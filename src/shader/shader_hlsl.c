@@ -5,8 +5,10 @@
  * `pN` and its locals `lN`; each value an EMIT evaluates is a constant
  * `eN`, declared where it is evaluated, so the text keeps the form's order
  * of evaluation. What only names a place (a pointer) or a resource is
- * written where it is used, as HLSL writes it: `l2.Color.x`, `tb_t0`.
- * Functions are `fN_name` but the entry point, which keeps its name.
+ * written where it is used, as HLSL writes it: `l2.m_Color.x`, `tb_t0`.
+ * Functions are `fN_name` but the entry point, which keeps its name; a
+ * struct's members are `m_name`, as a member may have a name Shader Model
+ * 5 keeps for itself, such as `Buffer`.
  *
  * Each line of the text records where in the sources the statement or
  * expression it was written for is, so that what the compiler says of a
@@ -808,7 +810,7 @@ static const char *index_text(writer *out, const tb_shader_form_expression *acce
     case TB_SHADER_FORM_STRUCT: {
         const tb_shader_form_member *const member =
             tb_shader_form_member_at(out->form, type->first_member + access->index);
-        return format(out, "%s.%s", text, member->name);
+        return format(out, "%s.m_%s", text, member->name);
     }
     case TB_SHADER_FORM_VECTOR:
     case TB_SHADER_FORM_SCALAR:
@@ -1705,7 +1707,7 @@ static void write_structs(writer *out)
         {
             const tb_shader_form_member *const member =
                 tb_shader_form_member_at(out->form, type->first_member + at);
-            write_member(out, member, member->name);
+            write_member(out, member, format(out, "m_%s", member->name));
         }
         out->indent--;
         write_line(out, "};");
