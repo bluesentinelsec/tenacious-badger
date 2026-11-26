@@ -30,6 +30,9 @@ tb_embed_test_data(TB_TAR_DATA_SOURCE tb_tar_files tar "*.tar*")
 # Archives that Python, bsdtar, and .NET wrote (tools/make_zip_test_data.py).
 tb_embed_test_data(TB_ZIP_DATA_SOURCE tb_zip_files zip "*.zip")
 
+# PNG files that Python's zlib, WIC and GDI+ wrote (tools/make_png_test_data.py).
+tb_embed_test_data(TB_PNG_DATA_SOURCE tb_png_files png "*.png")
+
 # Fonts of the author's font pack, under the licenses beside them (see data/fonts/README.md).
 tb_embed_test_data(TB_FONT_DATA_SOURCE tb_font_files fonts "*.ttf")
 
@@ -106,7 +109,11 @@ set(TB_TEST_CASE_SOURCES
     ${TB_FONT_DATA_SOURCE}
     jobs/jobs_test.c
     media/bitmap_bmp_test.c
+    media/bitmap_png_malformed_test.c
+    media/bitmap_png_test.c
+    ${TB_PNG_DATA_SOURCE}
     media/bitmap_test.c
+    media/png_builder.c
     media/sound_edit_test.c
     media/sound_test.c
     media/wav_builder.c

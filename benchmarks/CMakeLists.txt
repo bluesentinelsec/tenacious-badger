@@ -36,6 +36,7 @@ add_executable(tb_bench
     core/text_units_bench.c
     core/xp_bench.c
     jobs/jobs_bench.c
+    media/png_bench.c
     serialize/json_bench.c
     vfs/vfs_bench.c
     platform/atomic_bench.c

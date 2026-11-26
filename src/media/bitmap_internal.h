@@ -38,6 +38,18 @@ tb_bitmap_result tb_bitmap_decode_bmp(const uint8_t *bytes, size_t length, uint3
                                       uint64_t max_pixels, const tb_allocator *allocator,
                                       tb_bitmap **bitmap, tb_bitmap_error *error);
 
+/* The eight bytes every PNG file begins with. */
+extern const uint8_t tb_bitmap_png_signature[8];
+
+/* Decode a PNG file: the bytes begin with its signature. As
+ * tb_bitmap_decode_bmp(). */
+tb_bitmap_result tb_bitmap_decode_png(const uint8_t *bytes, size_t length, uint32_t max_side,
+                                      uint64_t max_pixels, const tb_allocator *allocator,
+                                      tb_bitmap **bitmap, tb_bitmap_error *error);
+
+/* A color's luminance (Rec. 709), as tb_bitmap_convert() makes gray. */
+uint8_t tb_bitmap_luminance(tb_bitmap_color color);
+
 /* An error's offset when no byte of the file is at fault, until
  * tb_bitmap_describe() writes its message. */
 #define TB_BITMAP_NO_OFFSET SIZE_MAX
@@ -46,6 +58,11 @@ tb_bitmap_result tb_bitmap_decode_bmp(const uint8_t *bytes, size_t length, uint3
  * return its result. */
 tb_bitmap_result tb_bitmap_fail(tb_bitmap_error *error, tb_bitmap_result result, size_t offset,
                                 const char *reason);
+
+/* As tb_bitmap_fail(), for a fault in a chunk of a file: `chunk` is its
+ * four letters. */
+tb_bitmap_result tb_bitmap_fail_in(tb_bitmap_error *error, tb_bitmap_result result,
+                                   const char *chunk, size_t offset, const char *reason);
 
 /* Write an error's message, naming the file when `name` is not NULL, and
  * the byte at fault when there is one. */

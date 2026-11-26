@@ -8,6 +8,7 @@
  * GPU: an RGBA8 bitmap's pixels are what tb_image_create() takes
  * (badger/canvas.h). It is the first part of loading images as SDL_image
  * does: files are recognized by their bytes, and decode to RGBA8.
+ * BMP and PNG files are read and written.
  *
  * @code
  * tb_bitmap_error error = {0};
@@ -431,15 +432,19 @@ typedef struct tb_bitmap_decode_options
 typedef struct tb_bitmap_error
 {
     tb_bitmap_result result; /**< As the function returned. */
-    size_t offset;           /**< The byte of the file at fault; 0 when none is. */
-    const char *reason;      /**< A short phrase: "the pixels end early"; static; "" for none. */
-    /** All of it, for a log: "hero.bmp: byte 54: the pixels end early". */
+    /** The four letters of the PNG chunk at fault, such as "IHDR"; "" when
+     * the fault is in none, or the format has no chunks. */
+    char chunk[5];
+    size_t offset;      /**< The byte of the file at fault; 0 when none is. */
+    const char *reason; /**< A short phrase: "the pixels end early"; static; "" for none. */
+    /** All of it, for a log: "hero.bmp: byte 54: the pixels end early", or
+     * "hero.png: IHDR chunk at byte 24: a bit depth the color type does not have". */
     char message[TB_BITMAP_ERROR_CAPACITY];
 } tb_bitmap_error;
 
 /**
  * @brief Decode an image file held in memory, of any format the engine
- * reads, recognized by its bytes: BMP, for now (see `docs/media.md`).
+ * reads, recognized by its bytes: BMP and PNG (see `docs/media.md`).
  * @param bytes The file; NULL only at length 0. Not kept.
  * @param length Bytes of the file.
  * @param options How to decode, or NULL for the defaults.
@@ -504,6 +509,46 @@ typedef enum tb_bitmap_bmp_depth
  */
 TB_API tb_bitmap_result tb_bitmap_write_bmp(const tb_bitmap *bitmap, tb_bitmap_bmp_depth depth,
                                             tb_stream *sink, tb_bitmap_error *error);
+
+/** @brief The samples of a PNG file that tb_bitmap_write_png() writes, 8 bits each. */
+typedef enum tb_bitmap_png_color
+{
+    /** The fewest that hold every pixel exactly: gray when every pixel is
+     * opaque and gray, RGB when every one is opaque, RGBA otherwise. */
+    TB_BITMAP_PNG_AUTO,
+    TB_BITMAP_PNG_RGBA8, /**< Red, green, blue and alpha. */
+    TB_BITMAP_PNG_RGB8,  /**< Red, green and blue: alpha is dropped. */
+    /** Gray: a color becomes its luminance, as tb_bitmap_convert() makes
+     * it, and alpha is dropped. */
+    TB_BITMAP_PNG_GRAY8
+} tb_bitmap_png_color;
+
+/** @brief How tb_bitmap_write_png() writes. Zero-initialize for the defaults. */
+typedef struct tb_bitmap_png_options
+{
+    tb_bitmap_png_color color; /**< The samples written; AUTO by default. */
+    /** The level of DEFLATE, from 1, the fastest, to 9, the smallest; 0 for
+     * the default, #TB_DEFLATE_DEFAULT_LEVEL of badger/deflate.h. */
+    int level;
+} tb_bitmap_png_options;
+
+/**
+ * @brief Write a bitmap as a PNG file: 8 bits a sample, not interlaced, each
+ * row filtered as the specification's heuristic chooses, compressed by the
+ * engine's DEFLATE, and marked sRGB. A premultiplied bitmap is written
+ * straight, as PNG files are.
+ * @param bitmap Required.
+ * @param options How to write, or NULL for the defaults.
+ * @param sink Required open stream that can write; borrowed.
+ * @param[out] error Why it failed; NULL when nobody asks.
+ * @return OK; INVALID for a bitmap of no pixels, which no PNG file holds, or
+ * options out of range; or OUTPUT_FAILED.
+ * @par Errors Running out of memory for the rows and the compressor, about
+ * 700 KiB and eight rows, ends the process.
+ */
+TB_API tb_bitmap_result tb_bitmap_write_png(const tb_bitmap *bitmap,
+                                            const tb_bitmap_png_options *options, tb_stream *sink,
+                                            tb_bitmap_error *error);
 
 /** @brief A short name of a result, such as "malformed"; "unknown result"
  * for a value that is none. */
