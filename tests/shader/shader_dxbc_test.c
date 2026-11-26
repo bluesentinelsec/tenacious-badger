@@ -322,6 +322,52 @@ TB_TEST(shader_dxbc, a_request_without_d3dcompiler_or_for_another_model_is_inval
     tb_arena_destroy(arena);
 }
 
+/* What Shader Model 5 lacks is refused before D3DCompiler is asked, on every
+ * platform: the compiler given is never called. */
+TB_TEST(shader_dxbc, what_shader_model_5_lacks_is_refused_before_compiling)
+{
+    static const char text[] = "RWByteAddressBuffer Out : register(u0);\n"
+                               "[numthreads(64, 1, 1)]\n"
+                               "void main(uint i : SV_DispatchThreadID)\n"
+                               "{\n"
+                               "    Out.Store(0, WaveActiveSum(i));\n"
+                               "}\n";
+    tb_shader_file file = {MAIN_PATH, text, sizeof(text) - 1};
+    compiled out = {0};
+
+    compile_text(&out, text, sizeof(text) - 1, "main", TB_SHADER_STAGE_COMPUTE,
+                 (struct tb_d3dcompiler *)&file);
+    TB_TEST_EXPECT_INT(out.result, ==, TB_SHADER_FAILED);
+    const tb_shader_diagnostic *const error = find_error(&out.output, "WaveActiveSum");
+    TB_TEST_REQUIRE_POINTER(error, !=, NULL);
+    TB_TEST_EXPECT_STRING(error->path, ==, MAIN_PATH);
+    TB_TEST_EXPECT_UINT(error->line, ==, 5);
+    TB_TEST_EXPECT_POINTER(out.output.code, ==, NULL);
+    tb_arena_destroy(out.arena);
+}
+
+/* Where D3DCompiler is unavailable, a compile for DXBC writes its HLSL and
+ * fails saying why: the system's D3DCompiler, not the source. */
+TB_TEST(shader_dxbc, without_d3dcompiler_a_compile_says_why)
+{
+    static const char text[] = "float4 main() : SV_Target { return float4(1, 0, 0, 1); }\n";
+    tb_d3dcompiler *compiler = NULL;
+    tb_shader_file file = {MAIN_PATH, text, sizeof(text) - 1};
+    compiled out = {0};
+
+    if (tb_d3dcompiler_open(&compiler, NULL) == TB_D3DCOMPILER_OK)
+    {
+        tb_d3dcompiler_close(compiler);
+        TB_TEST_SKIP("D3DCompiler is here; the corpus compiles with it");
+    }
+    compile_text(&out, text, sizeof(text) - 1, "main", TB_SHADER_STAGE_PIXEL,
+                 (struct tb_d3dcompiler *)&file);
+    TB_TEST_EXPECT_INT(out.result, ==, TB_SHADER_FAILED);
+    TB_TEST_REQUIRE_UINT(out.output.diagnostic_count, ==, 1);
+    TB_TEST_EXPECT(tb_str_starts_with(out.output.diagnostics[0].message, "d3dcompiler: "));
+    tb_arena_destroy(out.arena);
+}
+
 TB_TEST(shader_dxbc, the_corpus_compiles_or_says_what_shader_model_5_lacks)
 {
     tb_d3dcompiler *const compiler = open_or_skip();
