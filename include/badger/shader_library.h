@@ -121,7 +121,8 @@ TB_API bool tb_shader_library_find(const tb_shader_library *library, const tb_sh
 TB_API size_t tb_shader_library_count(const tb_shader_library *library);
 
 /**
- * @brief The compiler that wrote a library, as it named itself (tb_dxc_version()).
+ * @brief The compiler that wrote a library, as it named itself
+ * (tb_dxc_version(), tb_d3dcompiler_version()).
  * @param library Required.
  * @return UTF-8, NUL-terminated; valid until the library is closed.
  */
@@ -169,10 +170,11 @@ typedef enum tb_shader_origin
  * A request for TB_SHADER_TARGET_NONE writes no code, so it is compiled
  * whatever the lookup says. Otherwise the shader key is made
  * (tb_shader_key_make()), and the library searched. The cache is searched
- * by the cache key of the request's DXC (tb_dxc_version()). A shader in
- * neither is compiled with tb_shader_compile(), unless the lookup is
- * library-only, or the request has no DXC: then it is UNAVAILABLE, and a
- * diagnostic says why. A source with errors is compiled, so that the
+ * by the cache key of the compiler of the request's target: its DXC
+ * (tb_dxc_version()) for DXIL, its D3DCompiler (tb_d3dcompiler_version())
+ * for DXBC. A shader in neither is compiled with tb_shader_compile(),
+ * unless the lookup is library-only, or the request has no such compiler:
+ * then it is UNAVAILABLE, and a diagnostic says why. A source with errors is compiled, so that the
  * diagnostics say what they are.
  * @param request Required, as tb_shader_compile() takes it.
  * @param lookup Required.
@@ -287,7 +289,7 @@ TB_API bool tb_shader_library_writer_add(tb_shader_library_writer *writer, const
  * order the entries were added.
  * @param writer Required. It may be added to and written again after.
  * @param compiler Required, NUL-terminated: what compiled the library's
- * shaders, as it names itself (tb_dxc_version()); at most
+ * shaders, as it names itself (tb_dxc_version(), tb_d3dcompiler_version()); at most
  * TB_SHADER_LIBRARY_MAX_COMPILER bytes.
  * @param arena Where the bytes are written, aligned to 8 bytes.
  * @param[out] bytes Required. The library, on true.

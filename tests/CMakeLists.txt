@@ -173,6 +173,7 @@ set(TB_TEST_CASE_SOURCES
     ui/ui_fixture.c
     ui/ui_test.c
     ui/ui_text_field_test.c
+    shader/shader_dxbc_test.c
     shader/shader_dxil_test.c
     shader/shader_library_test.c
     shader/shader_manifest_test.c
@@ -218,6 +219,7 @@ if(WIN32)
         render/renderer_d3d12_test.c render/resize_d3d12_test.c render/skinning_d3d12_test.c
         render/sky_d3d12_test.c
         render/text_d3d12_test.c render/viewport_d3d12_test.c shader/shader_library_d3d12_test.c
+        shader/shader_library_d3d11_test.c
         gui/gui_d3d12_test.c
         gui/gui_look_d3d12_test.c)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -228,9 +230,10 @@ endif()
 
 tb_add_tests(tb_tests SOURCES ${TB_TEST_CASE_SOURCES} LIBRARIES TenaciousBadger::badger)
 # The engine's shaders: the manifest, and the libraries the build compiles
-# from it beside the executables (tools/shaderc), which the cases on D3D12
+# from it beside the executables (tools/shaderc), which the cases on D3D12 and D3D11
 # compare with what they compile at run time.
-set_source_files_properties(shader/shader_library_d3d12_test.c PROPERTIES COMPILE_DEFINITIONS
+set_source_files_properties(shader/shader_library_d3d12_test.c shader/shader_library_d3d11_test.c
+    PROPERTIES COMPILE_DEFINITIONS
     "TB_TEST_SHADER_MANIFEST=\"${PROJECT_SOURCE_DIR}/shaders/Engine/Shaders.manifest\";TB_TEST_SHADER_DIRECTORY=\"${PROJECT_BINARY_DIR}/bin\"")
 if(TB_BUILD_SHADERS)
     add_dependencies(tb_tests badger_shaders)
@@ -268,6 +271,7 @@ set(TB_INTERNAL_TEST_CASE_SOURCES
     shader/shader_check_test.c
     shader/shader_dxc_test.c
     shader/shader_form_test.c
+    shader/shader_hlsl_test.c
     shader/shader_parse_test.c
     platform/window_input_test.c
     platform/window_size_test.c)
@@ -508,6 +512,7 @@ tb_configure_target(tb_platform_default_probe)
 tb_make_standalone(tb_platform_default_probe)
 set(TB_PLATFORM_INTERFACE_HEADERS
     "${PROJECT_SOURCE_DIR}/include/badger/crash.h"
+    "${PROJECT_SOURCE_DIR}/include/badger/d3dcompiler.h"
     "${PROJECT_SOURCE_DIR}/include/badger/dxc.h"
     "${PROJECT_SOURCE_DIR}/include/badger/virtual_memory.h"
     "${PROJECT_SOURCE_DIR}/include/badger/file.h"

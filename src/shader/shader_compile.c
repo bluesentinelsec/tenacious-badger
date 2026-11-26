@@ -3,8 +3,10 @@
  * binds. Every step works in an arena of its own; the output is copied into
  * the caller's arena at the end, so only that copy can run out of room. */
 #include "shader_check.h"
+#include "shader_dxbc.h"
 #include "shader_dxil.h"
 #include "shader_form.h"
+#include "shader_hlsl.h"
 #include "shader_internal.h"
 #include "shader_lower.h"
 #include "shader_reflect.h"
@@ -13,6 +15,7 @@
 #include "badger/arena.h"
 #include "badger/array.h"
 #include "badger/assert.h"
+#include "badger/d3dcompiler.h"
 #include "badger/dxc.h"
 #include "badger/fmt.h"
 #include "badger/shader.h"
@@ -31,9 +34,10 @@ typedef struct compile
     tb_allocator allocator;
     tb_array *diagnostics; /* tb_shader_diagnostic */
     size_t error_count;
-    bool is_invalid;     /* The request, not the source, is wrong. */
-    tb_shader_unit unit; /* The preprocessed source, once read. */
-    const void *code;    /* What the target runs, in `scratch`. */
+    bool is_invalid;      /* The request, not the source, is wrong. */
+    tb_shader_unit unit;  /* The preprocessed source, once read. */
+    tb_shader_form entry; /* The part of the form the entry point runs. */
+    const void *code;     /* What the target runs, in `scratch`. */
     size_t code_size;
 } compile;
 
@@ -255,8 +259,12 @@ static bool reflect_entry(compile *state, const tb_shader_compile_request *reque
     tb_shader_syntax syntax = {0};
     (void)tb_shader_parse(unit, state->scratch, &syntax);
     tb_shader_checked checked = {0};
-    const tb_shader_result result =
-        tb_shader_check(&syntax, tb_shader_dxil_model(request), state->scratch, &checked);
+    /* DXBC's source is read as of 6.6, so that it may take resources from
+     * the descriptor heaps; what Shader Model 5 lacks is found as it is
+     * written. */
+    const unsigned model = request->target == TB_SHADER_TARGET_DXBC ? TB_SHADER_MODEL_DEFAULT
+                                                                    : tb_shader_dxil_model(request);
+    const tb_shader_result result = tb_shader_check(&syntax, model, state->scratch, &checked);
     add_diagnostics(state, checked.diagnostics, checked.diagnostic_count);
     if (result != TB_SHADER_OK)
     {
@@ -280,11 +288,11 @@ static bool reflect_entry(compile *state, const tb_shader_compile_request *reque
     }
     const tb_shader_form_stage stage = (tb_shader_form_stage)request->stage;
     (void)tb_shader_form_add_entry_point(&form, function, stage);
-    tb_shader_form entry = {0};
+    tb_shader_form *const entry = &state->entry;
     const bool extracted = tb_shader_form_extract(&form, entry_point_index(&form, function, stage),
-                                                  state->scratch, &entry);
+                                                  state->scratch, entry);
     TB_ASSERT(extracted);
-    const char *const why = tb_shader_reflect(&entry, state->scratch, reflection);
+    const char *const why = tb_shader_reflect(entry, state->scratch, reflection);
     if (why != NULL)
     {
         add_error(state, tb_fmt_string(&state->allocator, "entry point '%s': %s",
@@ -303,6 +311,18 @@ static const char *check_target(const tb_shader_compile_request *request)
 {
     if (request->target == TB_SHADER_TARGET_NONE)
     {
+        return NULL;
+    }
+    if (request->target == TB_SHADER_TARGET_DXBC)
+    {
+        if (request->d3dcompiler == NULL)
+        {
+            return "a compile for DXBC needs D3DCompiler";
+        }
+        if (tb_shader_target_model(request) != TB_SHADER_DXBC_MODEL)
+        {
+            return "DXBC is written for shader model 5.0, which D3D11 runs";
+        }
         return NULL;
     }
     if (request->target != TB_SHADER_TARGET_DXIL)
@@ -333,6 +353,35 @@ static bool write_dxil(compile *state, const tb_shader_compile_request *request)
     return written;
 }
 
+/* Write HLSL of Shader Model 5 from the entry point's form, and compile it
+ * into DXBC with D3DCompiler; false after an error. */
+static bool write_dxbc(compile *state, const tb_shader_compile_request *request,
+                       const tb_shader_reflection *reflection)
+{
+    const tb_shader_d3dcompiler_functions compiler = {tb_d3dcompiler_compile,
+                                                      tb_d3dcompiler_release};
+    tb_shader_hlsl_request write = {0};
+    write.form = &state->entry;
+    write.reflection = reflection;
+    write.files = state->unit.files;
+    write.file_count = state->unit.file_count;
+    tb_shader_hlsl hlsl = {0};
+    const bool written = tb_shader_write_hlsl(&write, state->scratch, state->diagnostics, &hlsl);
+    state->error_count += hlsl.error_count;
+    if (!written)
+    {
+        return false;
+    }
+    tb_shader_dxbc dxbc = {0};
+    const bool compiled =
+        tb_shader_write_dxbc(&hlsl, request, state->unit.files, state->unit.file_count, &compiler,
+                             state->scratch, state->diagnostics, &dxbc);
+    state->error_count += dxbc.error_count;
+    state->code = dxbc.code;
+    state->code_size = dxbc.code_size;
+    return compiled;
+}
+
 tb_shader_result tb_shader_compile(const tb_shader_compile_request *request, tb_arena *arena,
                                    tb_shader_compiled *output)
 {
@@ -361,6 +410,10 @@ tb_shader_result tb_shader_compile(const tb_shader_compile_request *request, tb_
         result = state.is_invalid ? TB_SHADER_INVALID : TB_SHADER_FAILED;
     }
     else if (request->target == TB_SHADER_TARGET_DXIL && !write_dxil(&state, request))
+    {
+        result = TB_SHADER_FAILED;
+    }
+    else if (request->target == TB_SHADER_TARGET_DXBC && !write_dxbc(&state, request, &reflection))
     {
         result = TB_SHADER_FAILED;
     }

@@ -54,8 +54,9 @@ key: INVALID, or FAILED for a source with errors, which only a compile reports.
 
 **A cache key** (`tb_shader_cache_key`) adds the compiler that did the work, as
 it names itself: `tb_dxc_version` for DXC, such as
-`dxcompiler 1.8 (4792, 23992152) dxil 1.8`. A new DXC therefore compiles again
-rather than reuse what an old one wrote. Each key hashes a tag of its own
+`dxcompiler 1.8 (4792, 23992152) dxil 1.8`, and `tb_d3dcompiler_version` for
+D3DCompiler, such as `d3dcompiler_47 10.0.26100.1`. A new compiler therefore
+compiles again rather than reuse what an old one wrote. Each key hashes a tag of its own
 before its inputs, and each string after its length, so no key can be another
 key, and no two different lists of inputs hash the same bytes.
 
@@ -178,8 +179,10 @@ do with a compile request, so that both give the same bytes:
 3. The library, if one is given, is searched by the shader key.
 4. If the lookup is library-only, as `shaders.runtime_compile` off asks, a
    shader the library lacks is `TB_SHADER_UNAVAILABLE`, and a diagnostic says
-   so. So is one whose request has no DXC.
-5. The cache, if one is given, is searched by the cache key.
+   so.
+5. The cache, if one is given, is searched by the cache key, of the
+   compiler the request's target names: DXC for DXIL, D3DCompiler for DXBC.
+   A request without that compiler is `TB_SHADER_UNAVAILABLE`.
 6. Otherwise the shader is compiled, and what is compiled is put in the cache.
 
 A shader from a library or a cache has its code only; its reflection comes
@@ -191,7 +194,7 @@ with a compile. `tb_shader_origin` says where each shader came from.
 ShaderCompileWorker. It reads a manifest, compiles every shader it lists for
 each backend asked for, in parallel on the job system (`badger/jobs.h`),
 through `tb_shader_compile_cached()` and the shader cache, and writes one
-library for each backend, named after it: `d3d12.tbsl`.
+library for each backend, named after it: `d3d12.tbsl`, `d3d11.tbsl`.
 
 ```
 badger-shaderc --root C:/game/shaders --backend d3d12 --output bin/Shaders shaders/Game/Shaders.manifest
@@ -201,7 +204,7 @@ badger-shaderc --root C:/game/shaders --backend d3d12 --output bin/Shaders shade
 | --- | --- |
 | `MANIFEST` | The shaders to compile |
 | `--root DIRECTORY` | An absolute directory whose files are shaders by their virtual paths: `DIRECTORY/Engine/Private/Sky.hlsl` is `/Engine/Private/Sky.hlsl`. May be given more than once; a later root's file wins, as a mod's does |
-| `--backend NAME` | A backend to write a library for, as `graphics.renderer` names it: `d3d12` so far. With none, nothing is compiled |
+| `--backend NAME` | A backend to write a library for, as `graphics.renderer` names it: `d3d12` (DXIL, through DXC) or `d3d11` (DXBC, through D3DCompiler) so far. With none, nothing is compiled |
 | `--output DIRECTORY` | Where the libraries are written; the current directory by default |
 | `--cache DIRECTORY` | The shader cache; the user's by default (`tb_shader_cache_default_directory()`), which the engine shares |
 | `--no-cache` | Compile without the cache |
@@ -210,8 +213,8 @@ badger-shaderc --root C:/game/shaders --backend d3d12 --output bin/Shaders shade
 
 Each error names its file, line and column, as editors read them; a shader
 that does not compile names its line of the manifest. Any error fails the
-run, and no library is written. A backend that needs DXC fails the run where
-DXC is unavailable.
+run, and no library is written. A backend fails the run where its compiler is
+unavailable: DXC for `d3d12`, D3DCompiler for `d3d11`.
 
 ### Manifests
 
@@ -246,7 +249,7 @@ library again; shaders that did not change come from the cache.
 
 | Platform | Libraries |
 | --- | --- |
-| Windows | `d3d12.tbsl`, through DXC: the one in the Windows SDK, or beside `badger-shaderc` |
+| Windows | `d3d12.tbsl`, through DXC: the one in the Windows SDK, or beside `badger-shaderc`; and `d3d11.tbsl`, through D3DCompiler, part of Windows |
 | Linux, macOS | None yet: no backend there needs compiled shaders, and the build makes no library |
 
 `TB_BUILD_SHADERS` (on when the engine is built on its own, off when a game

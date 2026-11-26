@@ -220,8 +220,10 @@ typedef struct tb_canvas_stats
     size_t quads;   /**< Quads drawn. */
     size_t dropped; /**< Quads not drawn: the frame's uploads were full, or the device
                        has no bindless resources, which the canvas needs. */
-    /** Draw calls they took: one for all of them, or none; in the viewport
-     * render mode, one more for those of the viewport's target. */
+    /** Draw calls they took: one for each run of quads, in the order they
+     * are drawn, that share an image and its filter; none for no quads. In
+     * the viewport render mode, those of the viewport's target are drawn
+     * apart, before the frame's. */
     uint32_t draws;
     size_t glyphs; /**< Of the quads, the glyphs of text. */
 } tb_canvas_stats;

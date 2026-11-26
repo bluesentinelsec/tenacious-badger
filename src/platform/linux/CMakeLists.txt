@@ -69,9 +69,11 @@ set(TB_GAMEPAD_SOURCES
 target_sources(badger PRIVATE ${TB_GAMEPAD_SOURCES})
 target_sources(badger_static PRIVATE ${TB_GAMEPAD_SOURCES})
 
-# DXC, which is unavailable here: DXIL runs only on D3D12. It is built on the
+# The shader compilers, DXC and D3DCompiler, which are unavailable here:
+# DXIL runs only on D3D12, and DXBC only on D3D11. They are built on the
 # foundation modules, as windowing is.
 set(TB_DXC_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/../posix/dxc.c"
-    CACHE INTERNAL "Selected DXC sources")
+    "${CMAKE_CURRENT_SOURCE_DIR}/../posix/d3dcompiler.c"
+    CACHE INTERNAL "Selected shader compiler sources")
 target_sources(badger PRIVATE ${TB_DXC_SOURCES})
 target_sources(badger_static PRIVATE ${TB_DXC_SOURCES})

@@ -823,6 +823,44 @@ and is always HLSL 2021. It is optimized (`-O3`), or with `TB_DXC_DEBUG`
 unoptimized, with the debug information embedded (`-Od -Zi -Qembed_debug`).
 The output holds the container and DXC's messages until it is released.
 
+## D3DCompiler
+
+Public declaration: `include/badger/d3dcompiler.h`. D3DCompiler, the HLSL
+compiler that is part of Windows, compiles HLSL of Shader Model 5 into DXBC,
+the bytecode D3D11 runs. `tb_d3dcompiler_open` loads it,
+`tb_d3dcompiler_compile` compiles HLSL into a DXBC container,
+`tb_d3dcompiler_release` lets a compile's output go, and
+`tb_d3dcompiler_close` unloads it. `tb_d3dcompiler_version` names the library
+loaded by its file version (`d3dcompiler_47 10.0.26100.1`), which the
+[shader cache](shader-cache.md) keys on. The shader module compiles for
+D3D11 through it (see [Shaders](shaders.md#compiling-for-d3d11-dxbc)); most
+code calls `tb_shader_compile` instead.
+
+| Platform | Selected implementation | Behavior |
+| --- | --- | --- |
+| Windows | `src/platform/win32/d3dcompiler.c` | Loads `D3DCompiler_47.dll` from the system directory at run time, and calls its `D3DCompile` |
+| Linux / Steam Deck | `src/platform/posix/d3dcompiler.c` | Unavailable: DXBC runs only on D3D11 |
+| macOS | `src/platform/posix/d3dcompiler.c` | The same |
+
+**Where Windows finds it.** `D3DCompiler_47.dll` is part of every Windows
+since 8.1, and is loaded from the system directory alone
+(`TB_LIBRARY_SEARCH_SYSTEM`): the engine ships no copy, and a copy beside the
+executable is never looked at. Its version is read from the version
+resource of the module that holds `D3DCompile`, in place, so nothing more is
+loaded to name it. The SDK's `d3dcompiler.h` does not compile as C with every
+warning on, so the adapter declares the entry point and the flags it passes.
+
+**Unavailable, never fatal.** A system directory without the library gives
+`TB_D3DCOMPILER_UNAVAILABLE`, which the renderer reports and falls back
+from. On Linux and macOS it is always unavailable, and this is not "not
+implemented": DXBC runs only on D3D11, which only Windows has.
+
+**A compile** is thread-safe, and reads no file (its source has no
+`#include`). It is strict (`D3DCOMPILE_ENABLE_STRICTNESS`) and optimized
+(`/O3`), or with `TB_D3DCOMPILER_DEBUG` unoptimized with debug information
+(`/Od /Zi`). The output holds the container and the compiler's messages,
+`name(line,column): error X3004: ...`, until it is released.
+
 ## Windows and gamepads
 
 Two interfaces are built on the foundation modules rather than beneath

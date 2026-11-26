@@ -2,8 +2,10 @@
 // on every side when its edges are smoothed; the pixel shader measures the
 // distance to its rounded box's edge in pixels, and keeps the pixels inside
 // its clip. Colors and images are premultiplied. A quad of text reads its
-// image's first channel as coverage, which multiplies its color.
-struct CanvasConstants { float2 Target; uint Quads; uint Offset; };
+// image's first channel as coverage, which multiplies its color. A draw is
+// a run of quads of one image and one sampler, which its constants name, so
+// that every index is the same for the whole draw, as D3D11 needs.
+struct CanvasConstants { float2 Target; uint Quads; uint Offset; uint Image; uint Sampler; };
 ConstantBuffer<CanvasConstants> Canvas : register(b0);
 struct VertexOut
 {
@@ -13,7 +15,7 @@ struct VertexOut
     float4 Color : COLOR0;
     nointerpolation float4 Clip : TEXCOORD2;
     nointerpolation float4 Shape : TEXCOORD3;
-    nointerpolation uint3 Binding : TEXCOORD4;
+    nointerpolation uint Flags : TEXCOORD4;
 };
 VertexOut MainVS(uint vertex : SV_VertexID, uint instance : SV_InstanceID)
 {
@@ -23,9 +25,9 @@ VertexOut MainVS(uint vertex : SV_VertexID, uint instance : SV_InstanceID)
     const float4 shape = quads.Load<float4>(base + 16);
     const float4 uv = quads.Load<float4>(base + 32);
     const float2 size = float2(length(geometry.zw), length(shape.xy));
-    const uint3 binding = quads.Load<uint4>(base + 80).xyz;
+    const uint flags = quads.Load<uint4>(base + 80).z;
     const float2 corner = float2((0x1A >> vertex) & 1, (0x34 >> vertex) & 1);
-    const float grow = (binding.z & 1) != 0 ? 1.0 : 0.0;
+    const float grow = (flags & 1) != 0 ? 1.0 : 0.0;
     const float2 local = corner * size + (corner * 2.0 - 1.0) * grow;
     const float2 along = local / max(size, 0.000001);
     const float2 pixel = geometry.xy + along.x * geometry.zw + along.y * shape.xy;
@@ -37,7 +39,7 @@ VertexOut MainVS(uint vertex : SV_VertexID, uint instance : SV_InstanceID)
     output.Color = quads.Load<float4>(base + 48);
     output.Clip = quads.Load<float4>(base + 64);
     output.Shape = float4(size, shape.zw);
-    output.Binding = binding;
+    output.Flags = flags;
     return output;
 }
 float RoundedBox(float2 p, float2 half_size, float radius)
@@ -47,13 +49,13 @@ float RoundedBox(float2 p, float2 half_size, float radius)
 }
 float4 MainPS(VertexOut input) : SV_Target
 {
-    Texture2D<float4> image = ResourceDescriptorHeap[NonUniformResourceIndex(input.Binding.x)];
-    SamplerState filter = SamplerDescriptorHeap[NonUniformResourceIndex(input.Binding.y)];
+    Texture2D<float4> image = ResourceDescriptorHeap[Canvas.Image];
+    SamplerState filter = SamplerDescriptorHeap[Canvas.Sampler];
     const float4 texel = image.Sample(filter, input.UV);
     const float4 color =
-        (input.Binding.z & 2) != 0 ? input.Color * texel.r : texel * input.Color;
+        (input.Flags & 2) != 0 ? input.Color * texel.r : texel * input.Color;
     float coverage = 1.0;
-    if ((input.Binding.z & 1) != 0)
+    if ((input.Flags & 1) != 0)
     {
         const float2 half_size = input.Shape.xy * 0.5;
         const float radius = min(input.Shape.z, min(half_size.x, half_size.y));

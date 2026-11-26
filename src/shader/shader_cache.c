@@ -2,7 +2,7 @@
  * entry is docs/shader-cache.md's; shader_bytes.h reads and writes its
  * numbers. */
 #include "shader_bytes.h"
-#include "shader_dxil.h"
+#include "shader_dxbc.h"
 
 #include "badger/arena.h"
 #include "badger/checksum.h"
@@ -79,7 +79,7 @@ static void hash_request(tb_sha256_state *hash, const tb_shader_compile_request 
     hash_string(hash, request->entry_point);
     hash_u64(hash, (uint64_t)request->stage);
     hash_u64(hash, (uint64_t)request->target);
-    hash_u64(hash, (uint64_t)tb_shader_dxil_model(request));
+    hash_u64(hash, (uint64_t)tb_shader_target_model(request));
     hash_u64(hash, (uint64_t)request->flags);
     hash_u64(hash, (uint64_t)source->define_count);
     for (size_t index = 0; index < source->define_count; index++)

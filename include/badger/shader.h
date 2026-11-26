@@ -49,6 +49,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+struct tb_d3dcompiler;
 struct tb_dxc;
 struct tb_vfs;
 
@@ -468,7 +469,13 @@ typedef enum tb_shader_target
     TB_SHADER_TARGET_NONE, /**< Nothing: the reflection only. */
     /** DXIL for D3D12, compiled by DXC (badger/dxc.h): a signed DXBC
      * container, which a pipeline state takes as it is. */
-    TB_SHADER_TARGET_DXIL
+    TB_SHADER_TARGET_DXIL,
+    /** DXBC of Shader Model 5 for D3D11, compiled by D3DCompiler
+     * (badger/d3dcompiler.h) from HLSL the compiler writes from its own
+     * form: the DXBC container, behind a table of the registers the D3D11
+     * backend binds what the shader takes from the descriptor heaps to,
+     * which only that backend reads. */
+    TB_SHADER_TARGET_DXBC
 } tb_shader_target;
 
 /** @brief A shader model, as its major and minor versions: `TB_SHADER_MODEL(6, 6)`. */
@@ -492,16 +499,23 @@ typedef struct tb_shader_compile_request
     tb_shader_stage stage;
     tb_shader_target target; /**< What to write; TB_SHADER_TARGET_NONE for the reflection only. */
     /** The shader model to write for, from TB_SHADER_MODEL(); 0 for
-     * TB_SHADER_MODEL_DEFAULT. It decides what the source may use, for
-     * every target: from 6.6, `ResourceDescriptorHeap` and
-     * `SamplerDescriptorHeap`. DXIL takes 6.0 and later, as far as the DXC
-     * loaded knows; a stage needs the model that brought it (6.5 for a
-     * mesh shader, 6.3 for ray tracing), and DXC reports one too old. */
+     * TB_SHADER_MODEL_DEFAULT, or for DXBC, 5.0. For DXIL and the
+     * reflection alone, it decides what the source may use: from 6.6,
+     * `ResourceDescriptorHeap` and `SamplerDescriptorHeap`. DXIL takes 6.0
+     * and later, as far as the DXC loaded knows; a stage needs the model
+     * that brought it (6.5 for a mesh shader, 6.3 for ray tracing), and DXC
+     * reports one too old. DXBC takes 5.0 alone, and its source is read as
+     * of 6.6, so that it may take resources from the descriptor heaps,
+     * which the D3D11 backend binds; what else Shader Model 5 lacks is an
+     * error. */
     unsigned shader_model;
     unsigned flags; /**< A combination of TB_SHADER_COMPILE_DEBUG. */
     /** DXC, for TB_SHADER_TARGET_DXIL, where it is required; borrowed for
      * the call. Ignored for any other target. */
     struct tb_dxc *dxc;
+    /** D3DCompiler, for TB_SHADER_TARGET_DXBC, where it is required;
+     * borrowed for the call. Ignored for any other target. */
+    struct tb_d3dcompiler *d3dcompiler;
 } tb_shader_compile_request;
 
 /** @brief A compiled shader. Everything in it lives in the caller's arena. */
@@ -510,8 +524,9 @@ typedef struct tb_shader_compiled
     tb_shader_reflection reflection;         /**< Filled in on OK. */
     const tb_shader_diagnostic *diagnostics; /**< Errors and warnings, in the order found. */
     size_t diagnostic_count;                 /**< Entries of `diagnostics`. */
-    /** What the target runs, on OK: for DXIL, the DXBC container, aligned to
-     * 4 bytes. NULL for TB_SHADER_TARGET_NONE, and on failure. */
+    /** What the target runs, on OK, aligned to 4 bytes: for DXIL, the DXBC
+     * container; for DXBC, the shader the D3D11 backend makes. NULL for
+     * TB_SHADER_TARGET_NONE, and on failure. */
     const void *code;
     size_t code_size; /**< Bytes of `code`. */
 } tb_shader_compiled;
@@ -528,16 +543,19 @@ typedef struct tb_shader_compiled
  * the preprocessed text, as HLSL 2021, for the stage's profile in the shader
  * model (`ps_6_6`; a ray-tracing stage's is a library's, `lib_6_6`), and
  * signs it. DXC's errors and warnings join the diagnostics, located in the
- * shader's own files as the compiler's are. (Writing HLSL from the
- * compiler's own form, as the other backends' output is written, comes
- * later.)
+ * shader's own files as the compiler's are. For DXBC, the compiler writes
+ * HLSL of Shader Model 5 from its own form, giving each resource taken from
+ * a descriptor heap a register of its own, and D3DCompiler compiles that
+ * for the stage's profile (`ps_5_0`); what Shader Model 5 lacks, and
+ * D3DCompiler's own errors, are diagnostics placed in the shader's files.
  * @param request Required.
  * @param arena Where the output lives, until the arena is reset or destroyed.
  * @param[out] output Required. On OK, filled in; on FAILED and INVALID, the
  * diagnostics say why; on NO_MEMORY, zero.
  * @return OK, INVALID (a request with no entry point, no stage, an unknown
- * target, DXIL without DXC, or a shader model before 6.0), FAILED (errors in
- * the source, DXC's included) or NO_MEMORY.
+ * target, DXIL without DXC or for a shader model before 6.0, DXBC without
+ * D3DCompiler or for a shader model but 5.0), FAILED (errors in the source,
+ * the target compiler's included) or NO_MEMORY.
  * @par Errors Running out of memory for the compile's own work ends the
  * process, as allocation does. Only the output's arena reports NO_MEMORY.
  */

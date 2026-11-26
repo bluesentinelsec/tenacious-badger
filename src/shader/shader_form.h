@@ -308,6 +308,9 @@ typedef struct tb_shader_form_expression
     uint8_t swizzle[TB_SHADER_FORM_MAX_SWIZZLE];
     uint8_t swizzle_count;
     tb_shader_constant value; /* LITERAL, of its type. */
+    /* Where in the sources it was written: what a backend's compiler's
+     * messages about it are placed at. Zero where nothing was. */
+    tb_shader_location location;
 } tb_shader_form_expression;
 
 /* -------------------------------------------------------------------------
@@ -352,6 +355,7 @@ typedef struct tb_shader_form_statement
     uint64_t value;  /* CASE, as the selector's bits. */
     bool is_default;
     bool falls_through;
+    tb_shader_location location; /* As an expression's. */
 } tb_shader_form_statement;
 
 /* -------------------------------------------------------------------------
@@ -370,6 +374,7 @@ typedef struct tb_shader_form_function
     uint32_t body;               /* A BLOCK. */
     const char *result_semantic; /* `SV_Target`; NULL for none. */
     tb_array *attributes;        /* tb_shader_form_attribute, in the order of the source. */
+    tb_shader_location location; /* Where it is declared; zero for one the compiler made. */
 } tb_shader_form_function;
 
 typedef struct tb_shader_form
