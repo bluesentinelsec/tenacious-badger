@@ -56,6 +56,8 @@ The foundation layer so far, one public header per module under
 | `font.h` | [Fonts](fonts.md): TrueType fonts read from bytes: glyphs, outlines of lines and curves, advances, kerning, metrics, and names |
 | `font_catalog.h` | [Embedded fonts](fonts.md#embedded-fonts): the fonts the engine carries, a catalog that finds fonts by family, weight, and slant, and the default roles |
 | `font_raster.h` | [Drawing glyphs](fonts.md#drawing-glyphs): glyphs rasterized into coverage, smooth or aliased, measures in pixels, and an atlas that packs them into one image |
+| `sound.h` | [Sounds](media.md#sounds): PCM samples in memory, made, read, converted, resampled, faded, cut and joined, with their loops |
+| `wav.h` | [WAV files](media.md#wav-files): PCM, float, G.711 and IMA ADPCM read whole or a block at a time, and written |
 | `stream.h` | [Streams](streams.md): one interface for reading and writing bytes, over memory, files, and ranges of other streams |
 | `window.h` | [Windows and displays](windows.md): windowed, borderless and fullscreen windows, displays and their scale, and window events |
 | `shader.h` | [Shaders](shaders.md): HLSL written once for every backend; virtual shader paths, includes and the preprocessor |
@@ -304,7 +306,7 @@ publishes verified native exports after all tagged-build checks pass.
 - `src/platform/{win32,linux,macos}/`: CMake-selected native implementations.
 - `src/platform/default/`: the adapter for [any other platform](platforms.md#unsupported-platforms),
   whose every function reports "not implemented".
-- `src/media/`: [media](media.md): bitmaps, and the image files they load from.
+- `src/media/`: [media](media.md): bitmaps and sounds, and the files they load from.
 - `src/settings/`: [settings](settings.md) and the engine's catalog of them.
 - `src/game/`: [the game loop](game-loop.md).
 - `src/main.c`, `src/burrow_*.c`: the `burrow` entrypoint, its game, its
