@@ -105,6 +105,8 @@ set(TB_TEST_CASE_SOURCES
     font/font_layout_test.c
     ${TB_FONT_DATA_SOURCE}
     jobs/jobs_test.c
+    media/bitmap_bmp_test.c
+    media/bitmap_test.c
     media/sound_edit_test.c
     media/sound_test.c
     media/wav_builder.c
