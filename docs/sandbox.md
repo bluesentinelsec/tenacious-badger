@@ -46,6 +46,7 @@ bottom left corner of every scene, and printed every two seconds.
 | `textured` | A checkerboard made in memory, sampled through the texture's and sampler's bindless indices |
 | `clear` | The swap chain cleared to a plain color |
 | `display` | [The display policy](display.md): the shapes, lit under a sky, in the viewport; the design's border, its corners and middle, the edge of what the viewport shows, a grid, pixel art still and turning, and a line of text, in the design's units; a GUI panel of a button for each hotkey; and what the window, the frame, the viewport, its design rectangle, its target, the mouse, the camera and the policy are. F1 to F7 change the aspect, the scale mode, the render mode, the design size, the window's mode, whether resizing keeps the design's aspect, and the camera's axis constraint; Alt+Enter switches windowed and borderless |
+| `input` | [Input](input.md): the actions and mapping contexts of `tools/sandbox/resources/input/sandbox.json`, fed the window's events, and each action's state, events and value live as text over the shapes. WASD move, the mouse looks, Space jumps, the left button fires in pulses, F charges when held, Shift and a tap of C dodge, and the wheel zooms; M puts the menu context above gameplay, which takes WASD for itself, or takes it off. The scene runs input once a frame, where a game runs it once a tick |
 
 Every scene takes the [display policy](display.md) from the settings, as a
 game does: by default a design of 1920 by 1080, expanded, so the 3D scenes

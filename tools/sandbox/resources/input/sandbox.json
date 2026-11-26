@@ -1,0 +1,248 @@
+{
+  "format": "badger-input",
+  "version": 1,
+  "actions": [
+    {
+      "name": "move",
+      "type": "axis2d",
+      "accumulation": "cumulative"
+    },
+    {
+      "name": "look",
+      "type": "axis2d",
+      "modifiers": [
+        {
+          "type": "settings",
+          "source": "mouse"
+        }
+      ]
+    },
+    {
+      "name": "jump",
+      "type": "bool"
+    },
+    {
+      "name": "fire",
+      "type": "bool"
+    },
+    {
+      "name": "charge",
+      "type": "bool"
+    },
+    {
+      "name": "sprint",
+      "type": "bool"
+    },
+    {
+      "name": "dodge",
+      "type": "bool"
+    },
+    {
+      "name": "zoom",
+      "type": "axis1d"
+    },
+    {
+      "name": "toggle_menu",
+      "type": "bool"
+    },
+    {
+      "name": "navigate",
+      "type": "axis2d",
+      "accumulation": "cumulative"
+    },
+    {
+      "name": "select",
+      "type": "bool"
+    },
+    {
+      "name": "back",
+      "type": "bool"
+    }
+  ],
+  "contexts": [
+    {
+      "name": "gameplay",
+      "mappings": [
+        {
+          "action": "move",
+          "key": "w",
+          "modifiers": [
+            {
+              "type": "swizzle",
+              "order": "yxz"
+            }
+          ]
+        },
+        {
+          "action": "move",
+          "key": "s",
+          "modifiers": [
+            {
+              "type": "swizzle",
+              "order": "yxz"
+            },
+            {
+              "type": "negate"
+            }
+          ]
+        },
+        {
+          "action": "move",
+          "key": "a",
+          "modifiers": [
+            {
+              "type": "negate"
+            }
+          ]
+        },
+        {
+          "action": "move",
+          "key": "d"
+        },
+        {
+          "action": "look",
+          "key": "mouse_xy"
+        },
+        {
+          "action": "jump",
+          "key": "space",
+          "triggers": [
+            {
+              "type": "pressed"
+            }
+          ]
+        },
+        {
+          "action": "fire",
+          "key": "mouse_left",
+          "triggers": [
+            {
+              "type": "pulse",
+              "seconds": 0.25,
+              "on_start": true
+            }
+          ]
+        },
+        {
+          "action": "charge",
+          "key": "f",
+          "triggers": [
+            {
+              "type": "hold",
+              "seconds": 0.75,
+              "one_shot": true
+            }
+          ]
+        },
+        {
+          "action": "sprint",
+          "key": "left_shift"
+        },
+        {
+          "action": "dodge",
+          "key": "c",
+          "triggers": [
+            {
+              "type": "tap"
+            },
+            {
+              "type": "chorded",
+              "action": "sprint"
+            }
+          ]
+        },
+        {
+          "action": "zoom",
+          "key": "mouse_wheel"
+        },
+        {
+          "action": "toggle_menu",
+          "key": "m",
+          "triggers": [
+            {
+              "type": "pressed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "menu",
+      "actions": [
+        {
+          "action": "select",
+          "triggers": [
+            {
+              "type": "tap",
+              "seconds": 0.3
+            }
+          ]
+        }
+      ],
+      "mappings": [
+        {
+          "action": "navigate",
+          "key": "w",
+          "modifiers": [
+            {
+              "type": "swizzle",
+              "order": "yxz"
+            }
+          ]
+        },
+        {
+          "action": "navigate",
+          "key": "s",
+          "modifiers": [
+            {
+              "type": "swizzle",
+              "order": "yxz"
+            },
+            {
+              "type": "negate"
+            }
+          ]
+        },
+        {
+          "action": "navigate",
+          "key": "a",
+          "modifiers": [
+            {
+              "type": "negate"
+            }
+          ]
+        },
+        {
+          "action": "navigate",
+          "key": "d"
+        },
+        {
+          "action": "select",
+          "key": "enter"
+        },
+        {
+          "action": "select",
+          "key": "space"
+        },
+        {
+          "action": "back",
+          "key": "backspace",
+          "triggers": [
+            {
+              "type": "pressed"
+            }
+          ]
+        },
+        {
+          "action": "toggle_menu",
+          "key": "m",
+          "triggers": [
+            {
+              "type": "pressed"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

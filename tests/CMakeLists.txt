@@ -136,6 +136,9 @@ set(TB_TEST_CASE_SOURCES
     gui/gui_treeview_test.c
     gui/gui_var_test.c
     gui/gui_watch_test.c
+    input/input_file_test.c
+    input/input_test.c
+    input/input_rules_test.c
     jobs/loop_test.c
     anim/anim_test.c
     platform/window_test.c
@@ -270,7 +273,7 @@ set(TB_ENGINE_SOURCES ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES} ${TB_JOBS_SOURCE
     ${TB_VFS_SOURCES}
     ${TB_SETTINGS_SOURCES} ${TB_WINDOW_SOURCES} ${TB_DXC_SOURCES} ${TB_GAME_SOURCES}
     ${TB_SHADER_SOURCES} ${TB_RHI_SOURCES} ${TB_RENDER_SOURCES} ${TB_ANIM_SOURCES}
-    ${TB_UI_SOURCES} ${TB_GUI_SOURCES})
+    ${TB_UI_SOURCES} ${TB_GUI_SOURCES} ${TB_INPUT_SOURCES})
 
 # The arguments go to tb_add_tests.
 function(tb_add_internal_tests target)
