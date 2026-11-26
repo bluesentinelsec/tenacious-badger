@@ -739,6 +739,84 @@ TB_TEST(rhi_d3d11, a_swap_chain_presents)
 }
 
 /* `graphics.renderer=d3d11` makes a D3D11 device, and says so. */
+/* Asked for a GPU of its own, the backend makes a device on one of feature
+ * level 11_0, or, on a machine with none, such as a CI runner, is
+ * unavailable and says so: never WARP in its place. */
+TB_TEST(rhi_d3d11, a_hardware_device_or_a_reason)
+{
+    tb_rhi_device_options options = {.backend = TB_RHI_BACKEND_D3D11,
+                                     .adapter = TB_RHI_ADAPTER_HIGH_PERFORMANCE};
+    tb_rhi_error error = TB_RHI_ERROR_INIT;
+    tb_rhi_device *device = NULL;
+    tb_rhi_device_info info = {0};
+    const tb_rhi_result result = tb_rhi_device_create(&options, &device, &error);
+
+    if (result != TB_RHI_OK)
+    {
+        TB_TEST_EXPECT_UINT(result, ==, TB_RHI_UNAVAILABLE);
+        TB_TEST_EXPECT(tb_str_starts_with(error.message, "d3d11: "));
+        return;
+    }
+    tb_rhi_device_info_of(device, &info);
+    TB_TEST_EXPECT(!info.software);
+    TB_TEST_EXPECT_UINT(info.backend, ==, TB_RHI_BACKEND_D3D11);
+    tb_rhi_device_destroy(device);
+}
+
+/* What D3D11 cannot do, a copy into a texture from the GPU's memory, is
+ * said once in the log, as a warning, and nothing else happens. */
+typedef struct warnings
+{
+    size_t count;
+} warnings;
+
+static bool count_warnings(void *context, const tb_log_record *record)
+{
+    warnings *const heard = context;
+    heard->count += record->level == TB_LOG_WARNING ? 1u : 0u;
+    return true;
+}
+
+TB_TEST(rhi_d3d11, what_it_cannot_copy_is_said_once)
+{
+    gpu opened = {0};
+    warnings heard = {0};
+    tb_log_config config = TB_LOG_CONFIG_INIT;
+    tb_rhi_buffer source = {0};
+    tb_rhi_texture texture = {0};
+
+    open_warp(&opened);
+    config.minimum = TB_LOG_TRACE;
+    config.write_record = count_warnings;
+    config.flush = NULL;
+    config.context = &heard;
+    TB_TEST_REQUIRE_UINT(tb_log_configure(opened.log, &config), ==, TB_LOG_OK);
+    TB_TEST_REQUIRE_UINT(tb_rhi_buffer_create(opened.device,
+                                              &(tb_rhi_buffer_desc){.size = PITCH * 4,
+                                                                    .usage = TB_RHI_BUFFER_STORAGE},
+                                              &source, NULL),
+                         ==, TB_RHI_OK);
+    TB_TEST_REQUIRE_UINT(
+        tb_rhi_texture_create(opened.device,
+                              &(tb_rhi_texture_desc){.format = TB_RHI_FORMAT_R8G8B8A8_UNORM,
+                                                     .width = 4,
+                                                     .height = 4,
+                                                     .usage = TB_RHI_TEXTURE_SAMPLED},
+                              &texture, NULL),
+        ==, TB_RHI_OK);
+    for (int round = 0; round < 2; round++)
+    {
+        tb_rhi_command_list *const list = tb_rhi_command_list_begin(opened.device);
+        tb_rhi_cmd_copy_buffer_to_texture(
+            list, &(tb_rhi_texture_copy){.buffer = source, .row_pitch = PITCH, .texture = texture});
+        submit_and_wait(opened.device, list);
+    }
+    TB_TEST_EXPECT_UINT(heard.count, ==, 1);
+    tb_rhi_texture_destroy(opened.device, texture);
+    tb_rhi_buffer_destroy(opened.device, source);
+    close_warp(&opened);
+}
+
 TB_TEST(rhi_d3d11, the_renderer_setting_names_d3d11)
 {
     tb_settings *const settings = tb_settings_create();
