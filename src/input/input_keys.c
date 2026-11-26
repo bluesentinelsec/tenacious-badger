@@ -384,3 +384,68 @@ tb_input_key tb_input_key_from_mouse_button(tb_mouse_button button)
     }
     return TB_INPUT_KEY_NONE;
 }
+
+tb_input_key tb_input_key_source(tb_input_key key)
+{
+    if (key == TB_INPUT_KEY_MOUSE_WHEEL_UP || key == TB_INPUT_KEY_MOUSE_WHEEL_DOWN)
+    {
+        return TB_INPUT_KEY_MOUSE_WHEEL;
+    }
+    for (size_t index = 0; index < sizeof(tb_input_virtual_rows) / sizeof(tb_input_virtual_rows[0]);
+         index++)
+    {
+        const tb_input_virtual_row *const row = &tb_input_virtual_rows[index];
+        if (key != TB_INPUT_KEY_NONE && (row->positive == key || row->negative == key))
+        {
+            return row->axis;
+        }
+    }
+    return TB_INPUT_KEY_NONE;
+}
+
+tb_input_key tb_input_key_composite_of(tb_input_key axis)
+{
+    if (axis == TB_INPUT_KEY_MOUSE_X || axis == TB_INPUT_KEY_MOUSE_Y)
+    {
+        return TB_INPUT_KEY_MOUSE_XY;
+    }
+    if (axis == TB_INPUT_KEY_GAMEPAD_LEFT_STICK_X || axis == TB_INPUT_KEY_GAMEPAD_LEFT_STICK_Y)
+    {
+        return TB_INPUT_KEY_GAMEPAD_LEFT_STICK;
+    }
+    if (axis == TB_INPUT_KEY_GAMEPAD_RIGHT_STICK_X || axis == TB_INPUT_KEY_GAMEPAD_RIGHT_STICK_Y)
+    {
+        return TB_INPUT_KEY_GAMEPAD_RIGHT_STICK;
+    }
+    return TB_INPUT_KEY_NONE;
+}
+
+uint32_t tb_input_key_class_of(tb_input_key key)
+{
+    if (key <= TB_INPUT_KEY_NONE || key >= TB_INPUT_KEY_COUNT)
+    {
+        return 0;
+    }
+    if (key < TB_INPUT_KEY_MOUSE_LEFT)
+    {
+        return TB_INPUT_CLASS_KEYBOARD;
+    }
+    if (key <= TB_INPUT_KEY_MOUSE_THUMB_2)
+    {
+        return TB_INPUT_CLASS_MOUSE_BUTTONS;
+    }
+    if (key <= TB_INPUT_KEY_MOUSE_XY)
+    {
+        return TB_INPUT_CLASS_MOUSE_AXES;
+    }
+    if (key >= TB_INPUT_KEY_TOUCH_1)
+    {
+        return TB_INPUT_CLASS_TOUCH;
+    }
+    const tb_input_key_kind kind = tb_input_key_kind_of(key);
+    if (kind != TB_INPUT_KEY_KIND_BUTTON || tb_input_key_source(key) != TB_INPUT_KEY_NONE)
+    {
+        return TB_INPUT_CLASS_GAMEPAD_AXES;
+    }
+    return TB_INPUT_CLASS_GAMEPAD_BUTTONS;
+}

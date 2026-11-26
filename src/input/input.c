@@ -20,8 +20,9 @@
 /* A key's value as it is gathered between ticks. */
 typedef struct tb_input_key_state
 {
-    tb_input_value value; /* A button's 1 or 0, an axis's last, a relative key's sum. */
-    bool pressed;         /* A button went down since the last tick. */
+    tb_input_value value;   /* A button's 1 or 0, an axis's last, a relative key's sum. */
+    bool pressed;           /* A button went down since the last tick. */
+    tb_input_device device; /* The device that fed it last; none for a replayed tick's. */
 } tb_input_key_state;
 
 /* A context on a player's stack, and the state of its mappings' rules. */
@@ -31,6 +32,7 @@ typedef struct tb_input_entry
     int32_t priority;
     uint64_t order;              /* When it was added: later ones see keys first. */
     size_t mapping_count;        /* Mappings its state was made for. */
+    tb_input_key *keys;          /* Each mapping's key, as the player has it bound. */
     size_t *offsets;             /* Each mapping's first rule state. */
     bool *blocked;               /* Each mapping's key was down when added: ignored until up. */
     bool *active;                /* Each mapping sees its key this tick. */
@@ -44,6 +46,14 @@ typedef struct tb_input_action_runtime
     tb_input_rule_state *states; /* The action's own rules. */
     bool chorded;                /* Some rule of it waits on another action this tick. */
 } tb_input_action_runtime;
+
+/* A mapping a player bound to another key than its default. */
+typedef struct tb_input_rebound
+{
+    tb_input_context context;
+    size_t mapping;
+    tb_input_key key; /* None: unbound. */
+} tb_input_rebound;
 
 typedef struct tb_input_bound
 {
@@ -71,6 +81,10 @@ struct tb_input_player
     size_t binding_capacity;
     uint32_t next_binding;
     bool dispatching;
+    tb_input_rebound *rebinds; /* In the order of contexts, then of mappings. */
+    size_t rebind_count;
+    size_t rebind_capacity;
+    tb_input_device last_device;
 };
 
 /* A key fed, by player: what a recording holds. */
@@ -105,6 +119,22 @@ typedef struct tb_input_device_entry
     size_t player;
 } tb_input_device_entry;
 
+/* What a listener waits for, and what it found. */
+typedef struct tb_input_listener
+{
+    tb_input_capture capture;
+    size_t player; /* Whose keys count; TB_INPUT_NO_PLAYER for every player's. */
+    uint32_t classes;
+    tb_input_value_type type;
+    float threshold;
+    float distance;
+    const tb_input_key *cancel_keys;
+    size_t cancel_key_count;
+    /* By player: keys that were down or away from rest, not yet released. */
+    bool held[TB_INPUT_MAX_PLAYERS][TB_INPUT_KEY_COUNT];
+    float travel[TB_INPUT_MAX_PLAYERS][2]; /* The mouse's motion, X and Y, since it began. */
+} tb_input_listener;
+
 struct tb_input
 {
     tb_input_action_def *actions;
@@ -127,6 +157,8 @@ struct tb_input
     bool mouse_known; /* The cursor's last place is known, for its motion. */
     double mouse_x;
     double mouse_y;
+    tb_input_listener listener;
+    bool listening_tick; /* The listener was waiting when this tick began. */
 };
 
 /* ---------------------------------------------------------------------------
@@ -229,6 +261,7 @@ tb_input *tb_input_create(const tb_input_options *options)
     TB_ASSERT_MSG(players <= TB_INPUT_MAX_PLAYERS, "at most TB_INPUT_MAX_PLAYERS players");
     input->player_count = players;
     input->settings = defaults;
+    input->listener.capture = (tb_input_capture){.player = TB_INPUT_NO_PLAYER};
     for (size_t index = 0; index < players; index++)
     {
         input->players[index].input = input;
@@ -241,10 +274,12 @@ tb_input *tb_input_create(const tb_input_options *options)
 
 static void tb_input_entry_free(tb_input_entry *entry)
 {
+    tb_free(entry->keys);
     tb_free(entry->offsets);
     tb_free(entry->blocked);
     tb_free(entry->active);
     tb_free(entry->states);
+    entry->keys = NULL;
     entry->offsets = NULL;
     entry->blocked = NULL;
     entry->active = NULL;
@@ -265,6 +300,7 @@ static void tb_input_player_free(tb_input_player *player, size_t action_count)
     }
     tb_free(player->actions);
     tb_free(player->bindings);
+    tb_free(player->rebinds);
 }
 
 static void tb_input_context_free(tb_input_context_def *context)
@@ -318,6 +354,12 @@ tb_input_player *tb_input_player_at(tb_input *input, size_t index)
     TB_ASSERT(input != NULL);
     TB_ASSERT_MSG(index < input->player_count, "a player of the input");
     return &input->players[index];
+}
+
+tb_input *tb_input_player_input(const tb_input_player *player)
+{
+    TB_ASSERT(player != NULL);
+    return player->input;
 }
 
 size_t tb_input_player_index(const tb_input_player *player)
@@ -694,6 +736,10 @@ void tb_input_context_set_action_rules(tb_input *input, tb_input_context context
 
 static bool tb_input_button_held(const tb_input_player *player, tb_input_key key)
 {
+    if (key == TB_INPUT_KEY_NONE)
+    {
+        return false;
+    }
     const tb_input_key_state *const state = &player->keys[key];
     return tb_input_key_kind_of(key) == TB_INPUT_KEY_KIND_BUTTON &&
            (state->value.x != 0.0f || state->pressed);
@@ -712,6 +758,7 @@ static void tb_input_entry_build(const tb_input_player *player, tb_input_entry *
     {
         return;
     }
+    entry->keys = tb_calloc(def->mapping_count, sizeof(*entry->keys));
     entry->offsets = tb_calloc(def->mapping_count, sizeof(*entry->offsets));
     entry->blocked = tb_calloc(def->mapping_count, sizeof(*entry->blocked));
     entry->active = tb_calloc(def->mapping_count, sizeof(*entry->active));
@@ -719,8 +766,9 @@ static void tb_input_entry_build(const tb_input_player *player, tb_input_entry *
     {
         const tb_input_mapping_def *const mapping = &def->mappings[index];
         const tb_input_rules *const extra = tb_input_context_rules(def, mapping->action);
+        entry->keys[index] = tb_input_binding_key(player, entry->context, index);
         entry->offsets[index] = states;
-        entry->blocked[index] = tb_input_button_held(player, mapping->key);
+        entry->blocked[index] = tb_input_button_held(player, entry->keys[index]);
         states += tb_input_rules_state_count(&mapping->rules);
         states += extra != NULL ? tb_input_rules_state_count(extra) : 0;
     }
@@ -821,10 +869,12 @@ bool tb_input_has_context(const tb_input_player *player, tb_input_context contex
  * Gathering.
  * ------------------------------------------------------------------------- */
 
-static void tb_input_apply(tb_input_player *player, tb_input_key key, tb_input_value value);
+static void tb_input_apply(tb_input_player *player, tb_input_device device, tb_input_key key,
+                           tb_input_value value);
 
 /* A virtual button's state from its axis's value toward it. */
-static void tb_input_apply_virtual(tb_input_player *player, tb_input_key button, float value,
+static void tb_input_apply_virtual(tb_input_player *player, tb_input_device device,
+                                   tb_input_key button, float value,
                                    const tb_gamepad_threshold *threshold)
 {
     const bool was_down = player->keys[button].value.x != 0.0f;
@@ -832,14 +882,15 @@ static void tb_input_apply_virtual(tb_input_player *player, tb_input_key button,
 
     if (down != was_down)
     {
-        tb_input_apply(player, button, (tb_input_value){down ? 1.0f : 0.0f, 0.0f, 0.0f});
+        tb_input_apply(player, device, button, (tb_input_value){down ? 1.0f : 0.0f, 0.0f, 0.0f});
     }
 }
 
 /* The buttons an axis makes, from its new value: a stick's directions and a
  * trigger's button. They are made here rather than fed, so that a
  * recording, which holds the axis, makes them again. */
-static void tb_input_apply_virtuals(tb_input_player *player, tb_input_key axis, float value)
+static void tb_input_apply_virtuals(tb_input_player *player, tb_input_device device,
+                                    tb_input_key axis, float value)
 {
     tb_input_key positive = TB_INPUT_KEY_NONE;
     tb_input_key negative = TB_INPUT_KEY_NONE;
@@ -849,20 +900,26 @@ static void tb_input_apply_virtuals(tb_input_player *player, tb_input_key axis, 
     {
         return;
     }
-    tb_input_apply_virtual(player, positive, value, &threshold);
+    tb_input_apply_virtual(player, device, positive, value, &threshold);
     if (negative != TB_INPUT_KEY_NONE)
     {
-        tb_input_apply_virtual(player, negative, -value, &threshold);
+        tb_input_apply_virtual(player, device, negative, -value, &threshold);
     }
 }
 
-/* A key's value into a player's keys. */
-static void tb_input_apply(tb_input_player *player, tb_input_key key, tb_input_value value)
+/* A key's value into a player's keys, from a device. */
+static void tb_input_apply(tb_input_player *player, tb_input_device device, tb_input_key key,
+                           tb_input_value value)
 {
     tb_input_key_state *const state = &player->keys[key];
     tb_input_key x = TB_INPUT_KEY_NONE;
     tb_input_key y = TB_INPUT_KEY_NONE;
 
+    state->device = device;
+    if (!tb_input_value_is_zero(value))
+    {
+        player->last_device = device;
+    }
     switch (tb_input_key_kind_of(key))
     {
     case TB_INPUT_KEY_KIND_BUTTON:
@@ -871,15 +928,15 @@ static void tb_input_apply(tb_input_player *player, tb_input_key key, tb_input_v
         return;
     case TB_INPUT_KEY_KIND_AXIS:
         state->value = (tb_input_value){value.x, 0.0f, 0.0f};
-        tb_input_apply_virtuals(player, key, value.x);
+        tb_input_apply_virtuals(player, device, key, value.x);
         return;
     case TB_INPUT_KEY_KIND_RELATIVE:
         state->value.x += value.x;
         return;
     case TB_INPUT_KEY_KIND_COMPOSITE:
         tb_input_key_components(key, &x, &y);
-        tb_input_apply(player, x, (tb_input_value){value.x, 0.0f, 0.0f});
-        tb_input_apply(player, y, (tb_input_value){value.y, 0.0f, 0.0f});
+        tb_input_apply(player, device, x, (tb_input_value){value.x, 0.0f, 0.0f});
+        tb_input_apply(player, device, y, (tb_input_value){value.y, 0.0f, 0.0f});
         return;
     case TB_INPUT_KEY_KIND_POSITION:
         state->value = (tb_input_value){value.x, value.y, 0.0f};
@@ -914,7 +971,7 @@ void tb_input_feed_key(tb_input *input, tb_input_device device, tb_input_key key
         return;
     }
     tb_input_record_event(input, player, key, value);
-    tb_input_apply(&input->players[player], key, value);
+    tb_input_apply(&input->players[player], device, key, value);
 }
 
 static tb_input_value tb_input_axis_value(double value)
@@ -1131,7 +1188,7 @@ static void tb_input_spend_keys(tb_input_player *player)
 
 /* Which mappings see their keys this tick: those whose keys no context
  * above consumed, and that do not wait for a key held when they came. */
-static void tb_input_choose_mappings(tb_input_player *player)
+static void tb_input_choose_mappings(tb_input_player *player, bool listened)
 {
     bool consumed[TB_INPUT_KEY_COUNT] = {0};
 
@@ -1149,11 +1206,17 @@ static void tb_input_choose_mappings(tb_input_player *player)
         {
             const tb_input_mapping_def *const map = &def->mappings[mapping];
             const tb_input_rules *const extra = tb_input_context_rules(def, map->action);
-            if (entry->blocked[mapping] && tb_input_value_is_zero(player->tick_keys[map->key]))
+            const tb_input_key key = entry->keys[mapping];
+            if (key == TB_INPUT_KEY_NONE)
+            {
+                entry->active[mapping] = false;
+                continue;
+            }
+            if (entry->blocked[mapping] && tb_input_value_is_zero(player->tick_keys[key]))
             {
                 entry->blocked[mapping] = false;
             }
-            entry->active[mapping] = !consumed[map->key] && !entry->blocked[mapping];
+            entry->active[mapping] = !listened && !consumed[key] && !entry->blocked[mapping];
             if (entry->active[mapping] && (tb_input_rules_chorded(&map->rules) ||
                                            (extra != NULL && tb_input_rules_chorded(extra))))
             {
@@ -1162,9 +1225,9 @@ static void tb_input_choose_mappings(tb_input_player *player)
         }
         for (size_t mapping = 0; mapping < def->mapping_count; mapping++)
         {
-            if (!def->mappings[mapping].pass_through)
+            if (!def->mappings[mapping].pass_through && entry->keys[mapping] != TB_INPUT_KEY_NONE)
             {
-                consumed[def->mappings[mapping].key] = true;
+                consumed[entry->keys[mapping]] = true;
             }
         }
     }
@@ -1218,7 +1281,7 @@ static void tb_input_evaluate_mapping(const tb_input_player *player, const tb_in
     tb_input_rule_state *const extra_states = &states[tb_input_rules_state_count(&mapping->rules)];
     tb_input_tracker tracker = TB_INPUT_TRACKER_INIT;
 
-    tb_input_value value = tb_input_as_type(player->tick_keys[mapping->key], action->type);
+    tb_input_value value = tb_input_as_type(player->tick_keys[entry->keys[index]], action->type);
     value = tb_input_apply_modifiers(player, &mapping->rules, states, value);
     if (extra != NULL)
     {
@@ -1361,10 +1424,207 @@ static void tb_input_dispatch(tb_input_player *player)
     tb_input_compact_bindings(player);
 }
 
+/* ---------------------------------------------------------------------------
+ * Listening.
+ * ------------------------------------------------------------------------- */
+
+/* A key back below this part of a listener's threshold is at rest. */
+#define TB_INPUT_LISTEN_REST 0.5f
+
+static const tb_input_key tb_input_default_cancel_keys[] = {TB_INPUT_KEY_ESCAPE,
+                                                            TB_INPUT_KEY_GAMEPAD_START};
+
+/* Whether a player's keys count for the listener this tick. */
+static bool tb_input_listens_to(const tb_input *input, size_t player)
+{
+    const tb_input_listener *const listener = &input->listener;
+    return input->listening_tick &&
+           (listener->player == TB_INPUT_NO_PLAYER || listener->player == player);
+}
+
+/* Whether a key is away from rest: a button down, an axis past half the
+ * threshold. The mouse's motion and the wheel are always at rest, since
+ * they start from zero each tick. */
+static bool tb_input_listen_away(const tb_input_listener *listener, tb_input_key key,
+                                 tb_input_value value)
+{
+    switch (tb_input_key_kind_of(key))
+    {
+    case TB_INPUT_KEY_KIND_BUTTON:
+        return value.x != 0.0f;
+    case TB_INPUT_KEY_KIND_AXIS:
+        return fabsf(value.x) >= listener->threshold * TB_INPUT_LISTEN_REST;
+    case TB_INPUT_KEY_KIND_RELATIVE:
+    case TB_INPUT_KEY_KIND_COMPOSITE:
+    case TB_INPUT_KEY_KIND_POSITION:
+        break;
+    }
+    return false;
+}
+
+/* Whether a key was pressed or moved far enough this tick to be captured. */
+static bool tb_input_listen_moved(const tb_input_listener *listener, size_t player,
+                                  tb_input_key key, tb_input_value value)
+{
+    switch (tb_input_key_kind_of(key))
+    {
+    case TB_INPUT_KEY_KIND_BUTTON:
+        return value.x != 0.0f;
+    case TB_INPUT_KEY_KIND_AXIS:
+        return fabsf(value.x) >= listener->threshold;
+    case TB_INPUT_KEY_KIND_RELATIVE:
+        if (key == TB_INPUT_KEY_MOUSE_X || key == TB_INPUT_KEY_MOUSE_Y)
+        {
+            return listener->travel[player][key == TB_INPUT_KEY_MOUSE_Y ? 1 : 0] >=
+                   listener->distance;
+        }
+        return value.x > 0.0f || (key == TB_INPUT_KEY_MOUSE_WHEEL && value.x != 0.0f);
+    case TB_INPUT_KEY_KIND_COMPOSITE:
+    case TB_INPUT_KEY_KIND_POSITION:
+        break;
+    }
+    return false;
+}
+
+static bool tb_input_is_cancel_key(const tb_input_listener *listener, tb_input_key key)
+{
+    for (size_t index = 0; index < listener->cancel_key_count; index++)
+    {
+        if (listener->cancel_keys[index] == key)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* The key a listener captures for a key moved: the key itself, its 2D key
+ * for a 2D listener, or none when it does not take it. */
+static tb_input_key tb_input_listen_take(const tb_input_listener *listener, tb_input_key key)
+{
+    const bool made = tb_input_key_source(key) != TB_INPUT_KEY_NONE;
+    const tb_input_key_kind kind = tb_input_key_kind_of(key);
+
+    if ((tb_input_key_class_of(key) & listener->classes) == 0)
+    {
+        return TB_INPUT_KEY_NONE;
+    }
+    if (listener->type == TB_INPUT_VALUE_BOOL)
+    {
+        /* A button, or a button made from an axis; not the axis itself. */
+        return made || kind == TB_INPUT_KEY_KIND_BUTTON ? key : TB_INPUT_KEY_NONE;
+    }
+    if (made)
+    {
+        /* An axis listener takes the axis, not the buttons made of it. */
+        return TB_INPUT_KEY_NONE;
+    }
+    if (listener->type == TB_INPUT_VALUE_AXIS1D)
+    {
+        return key;
+    }
+    if (key >= TB_INPUT_KEY_TOUCH_1 && key <= TB_INPUT_KEY_TOUCH_10)
+    {
+        return (tb_input_key)(TB_INPUT_KEY_TOUCH_1_POSITION + (key - TB_INPUT_KEY_TOUCH_1));
+    }
+    const tb_input_key composite = tb_input_key_composite_of(key);
+    return composite != TB_INPUT_KEY_NONE ? composite : key;
+}
+
+/* End listening with a key of a player's. */
+static void tb_input_listen_end(tb_input_player *player, tb_input_listen_state state,
+                                tb_input_key key, tb_input_device device)
+{
+    tb_input_listener *const listener = &player->input->listener;
+
+    listener->capture =
+        (tb_input_capture){.state = state, .key = key, .device = device, .player = player->index};
+}
+
+/* Look at a player's keys for the listener: forget the keys held when it
+ * began once they are at rest, and capture or cancel on a key moved. */
+static void tb_input_listen_look(tb_input_player *player)
+{
+    tb_input_listener *const listener = &player->input->listener;
+    bool *const held = listener->held[player->index];
+    tb_input_key moved[TB_INPUT_KEY_COUNT] = {0};
+    size_t moved_count = 0;
+
+    listener->travel[player->index][0] += fabsf(player->tick_keys[TB_INPUT_KEY_MOUSE_X].x);
+    listener->travel[player->index][1] += fabsf(player->tick_keys[TB_INPUT_KEY_MOUSE_Y].x);
+    for (size_t index = 1; index < TB_INPUT_KEY_COUNT; index++)
+    {
+        const tb_input_key key = (tb_input_key)index;
+        const tb_input_value value = player->tick_keys[key];
+        if (held[key])
+        {
+            held[key] = tb_input_listen_away(listener, key, value);
+            continue;
+        }
+        if (tb_input_listen_moved(listener, player->index, key, value))
+        {
+            moved[moved_count] = key;
+            moved_count++;
+        }
+    }
+    for (size_t index = 0; index < moved_count; index++)
+    {
+        if (tb_input_is_cancel_key(listener, moved[index]))
+        {
+            tb_input_listen_end(player, TB_INPUT_LISTEN_CANCELED, TB_INPUT_KEY_NONE,
+                                player->keys[moved[index]].device);
+            return;
+        }
+    }
+    for (size_t index = 0; index < moved_count; index++)
+    {
+        const tb_input_key taken = tb_input_listen_take(listener, moved[index]);
+        if (taken != TB_INPUT_KEY_NONE)
+        {
+            tb_input_listen_end(player, TB_INPUT_LISTEN_CAPTURED, taken,
+                                player->keys[moved[index]].device);
+            return;
+        }
+    }
+}
+
+/* Every mapping of a player's whose key is a button held waits for it to be
+ * released: after listening, so that the key captured does not act. */
+static void tb_input_block_held(tb_input_player *player)
+{
+    for (size_t index = 0; index < player->entry_count; index++)
+    {
+        tb_input_entry *const entry = &player->entries[index];
+        for (size_t mapping = 0; mapping < entry->mapping_count; mapping++)
+        {
+            entry->blocked[mapping] =
+                entry->blocked[mapping] || tb_input_button_held(player, entry->keys[mapping]);
+        }
+    }
+}
+
+/* The listener's look at a player's keys this tick; whether the player is
+ * listened to, so that its actions see no keys. */
+static bool tb_input_listen_tick(tb_input_player *player)
+{
+    tb_input *const input = player->input;
+
+    if (!tb_input_listens_to(input, player->index))
+    {
+        return false;
+    }
+    if (input->listener.capture.state == TB_INPUT_LISTEN_WAITING)
+    {
+        tb_input_listen_look(player);
+    }
+    return true;
+}
+
 static void tb_input_player_tick(tb_input_player *player, double seconds)
 {
     tb_input_take_keys(player);
-    tb_input_choose_mappings(player);
+    const bool listened = tb_input_listen_tick(player);
+    tb_input_choose_mappings(player, listened);
     /* Actions that wait on others go after them, so that a chord sees the
      * other action's state of this tick. */
     for (size_t pass = 0; pass < 2; pass++)
@@ -1384,10 +1644,21 @@ static void tb_input_tick_with(tb_input *input, double seconds)
 {
     input->ticks++;
     input->seconds += seconds;
+    input->listening_tick = input->listener.capture.state == TB_INPUT_LISTEN_WAITING;
     for (size_t index = 0; index < input->player_count; index++)
     {
         tb_input_player_tick(&input->players[index], seconds);
     }
+    /* Listening ended: keys held wait to be released before they act. */
+    for (size_t index = 0; index < input->player_count; index++)
+    {
+        if (tb_input_listens_to(input, index) &&
+            input->listener.capture.state != TB_INPUT_LISTEN_WAITING)
+        {
+            tb_input_block_held(&input->players[index]);
+        }
+    }
+    input->listening_tick = false;
     for (size_t index = 0; index < input->player_count; index++)
     {
         tb_input_dispatch(&input->players[index]);
@@ -1567,7 +1838,7 @@ void tb_input_replay_tick(tb_input *input, const tb_input_recording *recording, 
     {
         const tb_input_fed *const fed = &recording->events[recorded->first + index];
         TB_ASSERT_MSG(fed->player < input->player_count, "a player the recording's input had");
-        tb_input_apply(&input->players[fed->player], fed->key, fed->value);
+        tb_input_apply(&input->players[fed->player], TB_INPUT_DEVICE_NONE, fed->key, fed->value);
     }
     input->settings = recorded->settings;
     tb_input_tick_with(input, recorded->seconds);
@@ -1618,4 +1889,326 @@ void tb_input_rollback(tb_input *input, size_t action_count, size_t context_coun
     }
     input->action_count = action_count;
     input->context_count = context_count;
+    for (size_t index = 0; index < input->player_count; index++)
+    {
+        tb_input_player *const player = &input->players[index];
+        size_t kept = 0;
+        for (size_t rebind = 0; rebind < player->rebind_count; rebind++)
+        {
+            if (player->rebinds[rebind].context.id <= context_count)
+            {
+                player->rebinds[kept] = player->rebinds[rebind];
+                kept++;
+            }
+        }
+        player->rebind_count = kept;
+    }
+}
+
+/* ---------------------------------------------------------------------------
+ * Rebinding.
+ * ------------------------------------------------------------------------- */
+
+void tb_input_context_mapping_at(const tb_input *input, tb_input_context context, size_t mapping,
+                                 tb_input_mapping_info *info)
+{
+    TB_ASSERT(input != NULL);
+    TB_ASSERT(info != NULL);
+    const tb_input_context_def *const def = tb_input_context_def_of(input, context);
+    TB_ASSERT_MSG(mapping < def->mapping_count, "a mapping of the context");
+    *info = (tb_input_mapping_info){.action = def->mappings[mapping].action,
+                                    .key = def->mappings[mapping].key,
+                                    .pass_through = def->mappings[mapping].pass_through};
+}
+
+static const tb_input_mapping_def *tb_input_mapping_of(const tb_input *input,
+                                                       tb_input_context context, size_t mapping)
+{
+    const tb_input_context_def *const def = tb_input_context_def_of(input, context);
+    TB_ASSERT_MSG(mapping < def->mapping_count, "a mapping of the context");
+    return &def->mappings[mapping];
+}
+
+/* Where a player's rebind of a mapping is, or would go: rebinds are kept
+ * in the order of contexts, then of mappings. */
+static size_t tb_input_rebind_place(const tb_input_player *player, tb_input_context context,
+                                    size_t mapping, bool *found)
+{
+    size_t index = 0;
+
+    while (index < player->rebind_count)
+    {
+        const tb_input_rebound *const rebind = &player->rebinds[index];
+        if (rebind->context.id > context.id ||
+            (rebind->context.id == context.id && rebind->mapping >= mapping))
+        {
+            break;
+        }
+        index++;
+    }
+    *found = index < player->rebind_count && player->rebinds[index].context.id == context.id &&
+             player->rebinds[index].mapping == mapping;
+    return index;
+}
+
+tb_input_key tb_input_binding_key(const tb_input_player *player, tb_input_context context,
+                                  size_t mapping)
+{
+    bool found = false;
+
+    TB_ASSERT(player != NULL);
+    const tb_input_mapping_def *const def = tb_input_mapping_of(player->input, context, mapping);
+    const size_t index = tb_input_rebind_place(player, context, mapping, &found);
+    return found ? player->rebinds[index].key : def->key;
+}
+
+bool tb_input_is_rebound(const tb_input_player *player, tb_input_context context, size_t mapping)
+{
+    bool found = false;
+
+    TB_ASSERT(player != NULL);
+    (void)tb_input_mapping_of(player->input, context, mapping);
+    (void)tb_input_rebind_place(player, context, mapping, &found);
+    return found;
+}
+
+/* A player's contexts with a mapping start over, with its key as bound. */
+static void tb_input_rebuild_context(tb_input_player *player, tb_input_context context)
+{
+    for (size_t entry = 0; entry < player->entry_count; entry++)
+    {
+        if (player->entries[entry].context.id == context.id)
+        {
+            tb_input_entry_build(player, &player->entries[entry]);
+        }
+    }
+}
+
+void tb_input_rebind(tb_input_player *player, tb_input_context context, size_t mapping,
+                     tb_input_key key)
+{
+    bool found = false;
+
+    TB_ASSERT(player != NULL);
+    TB_ASSERT_MSG((unsigned)key < (unsigned)TB_INPUT_KEY_COUNT, "a key, or none");
+    const tb_input_mapping_def *const def = tb_input_mapping_of(player->input, context, mapping);
+    const size_t index = tb_input_rebind_place(player, context, mapping, &found);
+    if (key == def->key)
+    {
+        tb_input_reset_binding(player, context, mapping);
+        return;
+    }
+    if (!found)
+    {
+        player->rebinds = tb_input_grow(player->rebinds, &player->rebind_capacity,
+                                        player->rebind_count, sizeof(*player->rebinds));
+        memmove(&player->rebinds[index + 1], &player->rebinds[index],
+                (player->rebind_count - index) * sizeof(*player->rebinds));
+        player->rebind_count++;
+    }
+    player->rebinds[index] = (tb_input_rebound){.context = context, .mapping = mapping, .key = key};
+    tb_input_rebuild_context(player, context);
+}
+
+void tb_input_reset_binding(tb_input_player *player, tb_input_context context, size_t mapping)
+{
+    bool found = false;
+
+    TB_ASSERT(player != NULL);
+    (void)tb_input_mapping_of(player->input, context, mapping);
+    const size_t index = tb_input_rebind_place(player, context, mapping, &found);
+    if (!found)
+    {
+        return;
+    }
+    memmove(&player->rebinds[index], &player->rebinds[index + 1],
+            (player->rebind_count - index - 1) * sizeof(*player->rebinds));
+    player->rebind_count--;
+    tb_input_rebuild_context(player, context);
+}
+
+void tb_input_reset_bindings(tb_input_player *player)
+{
+    TB_ASSERT(player != NULL);
+    if (player->rebind_count == 0)
+    {
+        return;
+    }
+    player->rebind_count = 0;
+    for (size_t entry = 0; entry < player->entry_count; entry++)
+    {
+        tb_input_entry_build(player, &player->entries[entry]);
+    }
+}
+
+size_t tb_input_rebind_count(const tb_input_player *player)
+{
+    TB_ASSERT(player != NULL);
+    return player->rebind_count;
+}
+
+/* The values a key's value is made of: its own, its X's and Y's for a 2D
+ * key, and the axis's for a button made from one. */
+static size_t tb_input_key_roots(tb_input_key key, tb_input_key roots[2])
+{
+    const tb_input_key source = tb_input_key_source(key);
+
+    if (source != TB_INPUT_KEY_NONE)
+    {
+        roots[0] = source;
+        return 1;
+    }
+    if (tb_input_key_kind_of(key) == TB_INPUT_KEY_KIND_COMPOSITE)
+    {
+        tb_input_key_components(key, &roots[0], &roots[1]);
+        return 2;
+    }
+    roots[0] = key;
+    return 1;
+}
+
+static bool tb_input_keys_collide(tb_input_key left, tb_input_key right)
+{
+    tb_input_key left_roots[2] = {TB_INPUT_KEY_NONE, TB_INPUT_KEY_NONE};
+    tb_input_key right_roots[2] = {TB_INPUT_KEY_NONE, TB_INPUT_KEY_NONE};
+
+    if (left == TB_INPUT_KEY_NONE || right == TB_INPUT_KEY_NONE)
+    {
+        return false;
+    }
+    const size_t left_count = tb_input_key_roots(left, left_roots);
+    const size_t right_count = tb_input_key_roots(right, right_roots);
+    for (size_t index = 0; index < left_count; index++)
+    {
+        for (size_t other = 0; other < right_count; other++)
+        {
+            if (left_roots[index] == right_roots[other])
+            {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+size_t tb_input_find_conflicts(const tb_input_player *player, tb_input_context context,
+                               size_t mapping, tb_input_key key, size_t *conflicts, size_t capacity)
+{
+    size_t count = 0;
+
+    TB_ASSERT(player != NULL);
+    TB_ASSERT(conflicts != NULL || capacity == 0);
+    TB_ASSERT_MSG((unsigned)key < (unsigned)TB_INPUT_KEY_COUNT, "a key, or none");
+    const tb_input_context_def *const def = tb_input_context_def_of(player->input, context);
+    TB_ASSERT_MSG(mapping == TB_INPUT_NO_MAPPING || mapping < def->mapping_count,
+                  "a mapping of the context, or none");
+    for (size_t index = 0; index < def->mapping_count; index++)
+    {
+        if (index == mapping ||
+            !tb_input_keys_collide(key, tb_input_binding_key(player, context, index)))
+        {
+            continue;
+        }
+        if (count < capacity)
+        {
+            conflicts[count] = index;
+        }
+        count++;
+    }
+    return count;
+}
+
+tb_input_key tb_input_find_binding(const tb_input_player *player, tb_input_context context,
+                                   tb_input_action action, uint32_t classes)
+{
+    const uint32_t wanted = classes != 0 ? classes : TB_INPUT_CLASS_ALL;
+
+    TB_ASSERT(player != NULL);
+    TB_ASSERT_MSG(tb_input_action_valid(player->input, action), "an action of the input");
+    const tb_input_context_def *const def = tb_input_context_def_of(player->input, context);
+    for (size_t index = 0; index < def->mapping_count; index++)
+    {
+        const tb_input_key key = tb_input_binding_key(player, context, index);
+        if (def->mappings[index].action.id == action.id &&
+            (tb_input_key_class_of(key) & wanted) != 0)
+        {
+            return key;
+        }
+    }
+    return TB_INPUT_KEY_NONE;
+}
+
+tb_input_device tb_input_player_last_device(const tb_input_player *player)
+{
+    TB_ASSERT(player != NULL);
+    return player->last_device;
+}
+
+/* ---------------------------------------------------------------------------
+ * Listening, the API.
+ * ------------------------------------------------------------------------- */
+
+static bool tb_input_listen_desc_valid(const tb_input *input, const tb_input_listen_desc *desc)
+{
+    const bool player_valid = desc->player == NULL || desc->player->input == input;
+    const bool cancel_valid = desc->cancel_keys != NULL || desc->cancel_key_count == 0;
+    bool keys_valid = true;
+
+    for (size_t index = 0; cancel_valid && index < desc->cancel_key_count; index++)
+    {
+        keys_valid = keys_valid && desc->cancel_keys[index] > TB_INPUT_KEY_NONE &&
+                     desc->cancel_keys[index] < TB_INPUT_KEY_COUNT;
+    }
+    return player_valid && cancel_valid && keys_valid &&
+           (desc->classes & ~(uint32_t)TB_INPUT_CLASS_ALL) == 0 &&
+           (unsigned)desc->type < (unsigned)TB_INPUT_VALUE_TYPE_COUNT && desc->threshold >= 0.0f &&
+           desc->threshold <= 1.0f && isfinite(desc->distance) && desc->distance >= 0.0f;
+}
+
+void tb_input_listen(tb_input *input, const tb_input_listen_desc *desc)
+{
+    static const size_t default_cancel_count =
+        sizeof(tb_input_default_cancel_keys) / sizeof(tb_input_default_cancel_keys[0]);
+
+    TB_ASSERT(input != NULL);
+    TB_ASSERT(desc != NULL);
+    TB_ASSERT_MSG(tb_input_listen_desc_valid(input, desc), "a valid listener");
+    tb_input_listener *const listener = &input->listener;
+    *listener = (tb_input_listener){
+        .capture = {.state = TB_INPUT_LISTEN_WAITING, .player = TB_INPUT_NO_PLAYER},
+        .player = desc->player != NULL ? desc->player->index : TB_INPUT_NO_PLAYER,
+        .classes = desc->classes != 0 ? desc->classes : TB_INPUT_CLASS_ALL,
+        .type = desc->type,
+        .threshold = desc->threshold > 0.0f ? desc->threshold : TB_INPUT_DEFAULT_THRESHOLD,
+        .distance = desc->distance > 0.0f ? desc->distance : TB_INPUT_LISTEN_DISTANCE,
+        .cancel_keys = desc->cancel_keys != NULL ? desc->cancel_keys : tb_input_default_cancel_keys,
+        .cancel_key_count =
+            desc->cancel_keys != NULL ? desc->cancel_key_count : default_cancel_count};
+    /* What is down or away from rest now counts once it has been released. */
+    for (size_t player = 0; player < input->player_count; player++)
+    {
+        const tb_input_player *const held = &input->players[player];
+        for (size_t key = 1; key < TB_INPUT_KEY_COUNT; key++)
+        {
+            const tb_input_key_state *const state = &held->keys[key];
+            listener->held[player][key] =
+                state->pressed || tb_input_listen_away(listener, (tb_input_key)key, state->value);
+        }
+    }
+}
+
+void tb_input_stop_listening(tb_input *input)
+{
+    TB_ASSERT(input != NULL);
+    input->listener.capture = (tb_input_capture){.player = TB_INPUT_NO_PLAYER};
+}
+
+tb_input_listen_state tb_input_listen_result(const tb_input *input, tb_input_capture *capture)
+{
+    TB_ASSERT(input != NULL);
+    if (capture != NULL)
+    {
+        *capture = input->listener.capture;
+    }
+    return input->listener.capture.state;
 }

@@ -88,8 +88,7 @@ static void tb_input_append(char *buffer, size_t capacity, size_t *used, const c
     buffer[*used] = '\0';
 }
 
-static void tb_input_error_message(tb_input_file_error *error, const char *file_name,
-                                   const char *detail)
+void tb_input_error_message(tb_input_file_error *error, const char *file_name, const char *detail)
 {
     char place[64] = {0};
     size_t used = 0;
@@ -123,9 +122,8 @@ static void tb_input_error_message(tb_input_file_error *error, const char *file_
     }
 }
 
-static tb_input_file_result tb_input_fail_plain(tb_input_file_error *error,
-                                                tb_input_file_result result, const char *name,
-                                                const char *reason)
+tb_input_file_result tb_input_fail_plain(tb_input_file_error *error, tb_input_file_result result,
+                                         const char *name, const char *reason)
 {
     *error = (tb_input_file_error){.result = result, .reason = reason};
     tb_input_error_message(error, name, NULL);
@@ -977,32 +975,29 @@ cleanup:
     return result;
 }
 
-tb_input_file_result tb_input_load_file(tb_input *input, tb_vfs *vfs, const char *path,
-                                        tb_input_file_error *error)
+tb_input_file_result tb_input_read_vfs_file(tb_vfs *vfs, const char *path,
+                                            tb_input_file_error *error, char **text, size_t *length)
 {
-    tb_input_file_error ignored = {0};
-    tb_input_file_error *const found = error != NULL ? error : &ignored;
     tb_stream stream = {0};
     uint64_t size = 0;
     char *bytes = NULL;
     tb_input_file_result result = TB_INPUT_FILE_OK;
 
-    TB_ASSERT(input != NULL);
-    TB_ASSERT(vfs != NULL);
-    TB_ASSERT(path != NULL);
+    *text = NULL;
+    *length = 0;
     const tb_vfs_result opened = tb_vfs_open(vfs, path, tb_str_length(path), NULL, &stream);
     if (opened == TB_VFS_NOT_FOUND || opened == TB_VFS_NOT_A_FILE || opened == TB_VFS_INVALID)
     {
-        return tb_input_fail_plain(found, TB_INPUT_FILE_NOT_FOUND, path, "no such file");
+        return tb_input_fail_plain(error, TB_INPUT_FILE_NOT_FOUND, path, "no such file");
     }
     if (opened != TB_VFS_OK)
     {
-        return tb_input_fail_plain(found, TB_INPUT_FILE_INPUT_FAILED, path,
+        return tb_input_fail_plain(error, TB_INPUT_FILE_INPUT_FAILED, path,
                                    tb_vfs_result_name(opened));
     }
     if (tb_stream_size(&stream, &size) != TB_STREAM_OK || size > TB_INPUT_FILE_MOST_BYTES)
     {
-        result = tb_input_fail_plain(found, TB_INPUT_FILE_INPUT_FAILED, path,
+        result = tb_input_fail_plain(error, TB_INPUT_FILE_INPUT_FAILED, path,
                                      "a file too large to read");
         goto cleanup;
     }
@@ -1010,15 +1005,37 @@ tb_input_file_result tb_input_load_file(tb_input *input, tb_vfs *vfs, const char
     /* coverage-off: only a failing disk stops a read of a file of known size */
     if (tb_stream_read_exact(&stream, bytes, (size_t)size) != TB_STREAM_OK)
     {
-        result = tb_input_fail_plain(found, TB_INPUT_FILE_INPUT_FAILED, path,
+        result = tb_input_fail_plain(error, TB_INPUT_FILE_INPUT_FAILED, path,
                                      "the file could not be read");
         goto cleanup;
     }
     /* coverage-on */
-    result = tb_input_load(input, bytes, (size_t)size, path, found);
+    *text = bytes;
+    *length = (size_t)size;
+    bytes = NULL;
 cleanup:
     tb_free(bytes);
     (void)tb_stream_close(&stream);
+    return result;
+}
+
+tb_input_file_result tb_input_load_file(tb_input *input, tb_vfs *vfs, const char *path,
+                                        tb_input_file_error *error)
+{
+    tb_input_file_error ignored = {0};
+    tb_input_file_error *const found = error != NULL ? error : &ignored;
+    char *text = NULL;
+    size_t length = 0;
+
+    TB_ASSERT(input != NULL);
+    TB_ASSERT(vfs != NULL);
+    TB_ASSERT(path != NULL);
+    tb_input_file_result result = tb_input_read_vfs_file(vfs, path, found, &text, &length);
+    if (result == TB_INPUT_FILE_OK)
+    {
+        result = tb_input_load(input, text, length, path, found);
+    }
+    tb_free(text);
     return result;
 }
 

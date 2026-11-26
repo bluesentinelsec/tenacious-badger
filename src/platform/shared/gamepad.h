@@ -81,6 +81,26 @@ float tb_gamepad_trigger_value(int32_t value, int32_t minimum, int32_t maximum);
  * fit, and with any byte that is not valid UTF-8 replaced by '?'. */
 void tb_gamepad_copy_name(char *name, const char *source, size_t length);
 
+/* The family of a GameController framework's product category, as
+ * "DualSense" or "Switch Pro Controller", or of a name: by the words in
+ * it. Generic when none is known; `text` may be NULL. */
+tb_gamepad_family tb_gamepad_family_from_name(const char *text);
+
+/* The family a pad's info gives: the backend's, else its USB IDs'. On a
+ * Steam Deck, a pad Steam stands in for (Steam's virtual pad, `28de:11ff`,
+ * or an XInput pad, which has no IDs) is the Deck's own controls: Steam
+ * puts them first, and a game on a Deck is played with them. */
+tb_gamepad_family tb_gamepad_settle_family(const tb_gamepad_info *info, bool steam_deck);
+
+/* Whether the value of the `SteamDeck` environment variable, which Steam
+ * sets to 1 for the games it starts on a Steam Deck, says this is one.
+ * `value` may be NULL, for a variable not set. */
+bool tb_gamepad_steam_deck_variable(const char *value);
+
+/* Say whether the system runs on a Steam Deck, as tb_gamepad_system_open()
+ * finds from the environment: for tests. */
+void tb_gamepad_system_set_steam_deck(tb_gamepad_system *system, bool steam_deck);
+
 /* Whether a list of pads to leave alone names a device: entries of
  * `0xVVVV/0xPPPP`, by USB vendor and product, between commas. Steam sets
  * such a list in SDL_GAMECONTROLLER_IGNORE_DEVICES for the games it
