@@ -104,6 +104,7 @@ TB_TEST(renderer_frame, the_scene_is_letterboxed_between_bars_on_d3d12)
     open_screen(&opened, TB_RHI_BACKEND_D3D12);
     policy.design_width = 320;
     policy.design_height = 160;
+    policy.aspect = TB_VIEWPORT_ASPECT_KEEP;
     TB_TEST_REQUIRE(tb_viewport_parse_color("#204060", &policy.bar_color));
     tb_renderer_set_viewport_policy(opened.renderer, &policy, 0.0f);
     cube = tb_mesh_create_shape(opened.renderer, TB_MESH_CUBE, 0);
@@ -166,6 +167,87 @@ TB_TEST(renderer_frame, a_mesh_and_lines_land_where_they_should_on_d3d12)
         (tb_vec4){0, 1.2f, 0, 1});
     line_y = (uint32_t)((1.0f - clip.y / clip.w) * 0.5f * (float)height);
     TB_TEST_EXPECT_HEX(pixel_at(pixels, width, width / 2, line_y) & 0xFF00FF00u, ==, 0xFF00FF00u);
+    tb_mesh_destroy(opened.renderer, cube);
+    close_screen(&opened);
+}
+
+/* Red pixels of a capture in its columns from `left` up to `right`. */
+static size_t red_pixels(const uint8_t *pixels, uint32_t width, uint32_t height, uint32_t left,
+                         uint32_t right)
+{
+    const uint32_t red = 0xFF000000u | display_rgb(1, 0, 0);
+    size_t count = 0;
+
+    for (uint32_t y = 0; y < height; y++)
+    {
+        for (uint32_t x = left; x < right; x++)
+        {
+            count += pixel_at(pixels, width, x, y) == red ? 1u : 0u;
+        }
+    }
+    return count;
+}
+
+/* Draw a frame of a cube on either side of the view, just inside the
+ * horizontal edges of the design's 16:9 view of a 60 degree camera, and
+ * keep its pixels. */
+static const uint8_t *draw_edges(tb_renderer *renderer, tb_mesh *cube,
+                                 tb_camera_axis_constraint constraint, uint32_t *width,
+                                 uint32_t *height)
+{
+    /* Ten units ahead, the design's view is 10.26 units either side of the
+     * middle (tan 30 degrees by 16:9); a 16:10 view that keeps the
+     * vertical field of view, 9.24. The cubes, 0.8 wide, lie between. */
+    const float distance = 10.0f;
+    const float across = 9.75f;
+    const tb_mat4 size = tb_mat4_scaling((tb_vec3){0.8f, 0.8f, 0.8f});
+    tb_camera camera = tb_camera_perspective(tb_radians(60.0f));
+
+    camera.axis_constraint = constraint;
+    tb_renderer_capture_next_frame(renderer);
+    TB_TEST_REQUIRE(tb_renderer_begin_frame(renderer, &camera, (tb_vec4){0, 0, 0, 1}));
+    tb_renderer_draw_mesh_shaded(
+        renderer, cube,
+        tb_mat4_mul(tb_mat4_translation((tb_vec3){-across, 0, -distance}), size),
+        (tb_vec4){1, 0, 0, 1}, TB_MESH_FLAT);
+    tb_renderer_draw_mesh_shaded(
+        renderer, cube, tb_mat4_mul(tb_mat4_translation((tb_vec3){across, 0, -distance}), size),
+        (tb_vec4){1, 0, 0, 1}, TB_MESH_FLAT);
+    TB_TEST_REQUIRE_UINT(tb_renderer_end_frame(renderer), ==, TB_RHI_OK);
+    return tb_renderer_captured(renderer, width, height);
+}
+
+/* A 16:9 design expanded on a 16:10 frame, the default policy: the camera
+ * holds the whole design view, so a cube at its left and right edges is
+ * still on screen; a camera that keeps its vertical field of view instead
+ * crops the sides, and both are off it. */
+TB_TEST(renderer_frame, expand_keeps_the_design_view_whole_on_a_taller_frame_on_d3d12)
+{
+    screen opened = {0};
+    tb_mesh *cube = NULL;
+    const uint8_t *pixels = NULL;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    const tb_viewport_policy policy = TB_VIEWPORT_POLICY_INIT;
+
+    open_screen(&opened, TB_RHI_BACKEND_D3D12);
+    /* The player's 16:10 narrows any frame to that shape first, so the
+     * viewport is 16:10 whatever size the window is given. */
+    tb_renderer_set_viewport_policy(opened.renderer, &policy, 1.6f);
+    cube = tb_mesh_create_shape(opened.renderer, TB_MESH_CUBE, 0);
+    pixels = draw_edges(opened.renderer, cube, TB_CAMERA_AXIS_DESIGN, &width, &height);
+    TB_TEST_REQUIRE(pixels != NULL);
+    const tb_viewport viewport = tb_renderer_viewport(opened.renderer);
+    TB_TEST_EXPECT_FLOAT_NEAR(tb_viewport_aspect_of(&viewport), 1.6f, 0.02f);
+    TB_TEST_EXPECT_FLOAT_NEAR(tb_viewport_design_aspect(&viewport), 16.0f / 9.0f, 1e-4f);
+    const uint32_t middle = viewport.x + viewport.width / 2u;
+    const uint32_t right = viewport.x + viewport.width;
+    TB_TEST_EXPECT_UINT(red_pixels(pixels, width, height, viewport.x, middle), >, 0u);
+    TB_TEST_EXPECT_UINT(red_pixels(pixels, width, height, middle, right), >, 0u);
+
+    pixels = draw_edges(opened.renderer, cube, TB_CAMERA_AXIS_VERTICAL, &width, &height);
+    TB_TEST_REQUIRE(pixels != NULL);
+    TB_TEST_EXPECT_UINT(red_pixels(pixels, width, height, 0, width), ==, 0u);
     tb_mesh_destroy(opened.renderer, cube);
     close_screen(&opened);
 }

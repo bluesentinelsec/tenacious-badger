@@ -258,6 +258,7 @@ TB_TEST(viewport_render, fractional_scales_filter_linearly_between_exact_bars_on
     open_screen(&opened);
     policy.design_width = 320;
     policy.design_height = 200;
+    policy.aspect = TB_VIEWPORT_ASPECT_KEEP;
     policy.render_mode = TB_VIEWPORT_RENDER_VIEWPORT;
     TB_TEST_REQUIRE(tb_viewport_parse_color("#204060", &policy.bar_color));
     tb_renderer_set_viewport_policy(opened.renderer, &policy, 0.0f);

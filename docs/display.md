@@ -40,7 +40,7 @@ the same by default; an app overrides the policy case by case.
 | Setting | Choices | Default | What it is |
 | --- | --- | --- | --- |
 | `display.design_width`, `display.design_height` | 0 to 16384 | 1920 by 1080 | The design size, in units. 0 by 0 is none: a unit is then a logical pixel at the display's scale, and the viewport is the whole frame, as a tool wants |
-| `display.stretch_aspect` | `keep`, `keep_width`, `keep_height`, `expand`, `ignore` | `keep` | What happens when the frame's shape is not the design's |
+| `display.stretch_aspect` | `keep`, `keep_width`, `keep_height`, `expand`, `ignore` | `expand` | What happens when the frame's shape is not the design's |
 | `display.stretch_scale_mode` | `fractional`, `integer` | `fractional` | Any scale, or whole pixels a unit for pixel art |
 | `display.stretch_render_mode` | `canvas`, `viewport` | `canvas` | At the frame's own pixels, or at the design size then upscaled |
 | `display.stretch_scale` | 0.25 to 8 | 1 | A factor on top: 2 draws every unit twice as large, and shows half as many |
@@ -60,9 +60,50 @@ the same by default; an app overrides the policy case by case.
 | `expand` | Fits by the smaller axis | The whole frame | The design's, and more along the other axis |
 | `ignore` | Stretched to the frame | The whole frame | The design's, each axis at its own scale |
 
-Unit (0, 0) is the viewport's top left, so where more is shown than the
-design, the extra is to the right and below. An app that wants its content
-in the middle lays it out from the middle, as the GUI's grid does.
+`expand` is the default: a 16:9 design fills a 16:10 laptop, a 4:3
+tablet and a 21:9 monitor alike, with no bars, and the 3D camera sees at
+least the design's view on each ([the camera](#the-camera)). `keep` is for
+an app whose picture must be exactly the design's, bars and all.
+
+### The design rectangle
+
+Where more is shown than the design, the design's own units are in the
+middle of those shown: the **design rectangle**
+(`tb_viewport::design_origin` and `design_size`) is centered in the
+**visible rectangle**, the units from (0, 0) to `tb_viewport::size`. Unit
+(0, 0) stays the viewport's top left, so the GUI's root and its grid, the
+canvas's design view and the mouse are the same in every aspect; only the
+design rectangle moves.
+
+| A 1920 by 1080 design, `expand`, on | Units shown | Design rectangle from |
+| --- | --- | --- |
+| 1920 by 1080 (16:9) | 1920 by 1080 | (0, 0) |
+| 2560 by 1600 (16:10) | 1920 by 1200 | (0, 60) |
+| 1024 by 768 (4:3) | 1920 by 1440 | (0, 180) |
+| 2560 by 1080 (21:9) | 2560 by 1080 | (320, 0) |
+| 3840 by 1080 (32:9) | 3840 by 1080 | (960, 0) |
+| 1080 by 1920 (portrait) | 1920 by 3413.3 | (0, 1166.2) |
+
+The design rectangle starts on a whole pixel of what it is drawn into: the
+frame's in the canvas render mode, the target's in the viewport render
+mode. The extra is split evenly, the odd pixel after it, as the bars of a
+kept axis are; less than a pixel of extra is none. Along a kept axis, in
+`ignore` and without a design size, it is the visible rectangle. A frame
+too small for the design at whole pixels shows the design's top left.
+
+Anchors name points of either rectangle as fractions of it, as Godot's
+anchors do: (0, 0) the top left, (0.5, 0.5) the middle, (1, 1) the bottom
+right. `tb_viewport_anchor()` gives a point of the visible rectangle, which
+a HUD pins its corners to, and `tb_viewport_design_anchor()` a point of the
+design rectangle, which content made for the design is placed from.
+
+```c
+const tb_viewport viewport = tb_renderer_viewport(renderer);
+const tb_vec2 corner = tb_viewport_anchor(&viewport, (tb_vec2){1.0f, 0.0f});    /* the frame's top right */
+const tb_vec2 middle = tb_viewport_design_anchor(&viewport, (tb_vec2){0.5f, 0.5f}); /* the design's middle */
+/* a picture drawn in the design's units, offset to stay centered */
+const tb_vec2 at = tb_vec2_add(viewport.design_origin, (tb_vec2){100.0f, 200.0f});
+```
 
 `ignore` is the one aspect that stretches: its scale differs across and
 down. The 3D camera projects at the design's aspect and the picture is
@@ -133,11 +174,16 @@ pure and thread-safe.
 | `size` | The units shown, across and down |
 | `target_width`, `target_height` | In the viewport render mode, the target's pixels: `size` rounded up. 0 by 0 in the canvas mode |
 
+| `design_origin`, `design_size` | The design rectangle, in units: [centered](#the-design-rectangle) in those shown |
+
 `tb_viewport_to_pixels()` and `tb_viewport_from_pixels()` convert between
 pixels and units, `tb_viewport_contains()` says whether a pixel is in the
 rectangle and not on a bar, `tb_viewport_aspect_of()` is the aspect the
-camera projects at, and `tb_viewport_uniform_scale()` the scale of what
-must not stretch, such as text.
+camera projects at, `tb_viewport_design_aspect()` the design's, which its
+field of view is given at, `tb_viewport_anchor()` and
+`tb_viewport_design_anchor()` points of the visible and design
+rectangles, and `tb_viewport_uniform_scale()` the scale of what must not
+stretch, such as text.
 
 Kept axes are centered on whole pixels: the bars on either side differ by a
 pixel at most, the odd one on the right or below. A kept axis shows the
@@ -155,7 +201,9 @@ ratio, 0 for `auto`.
 
 ### Examples
 
-A design of 1920 by 1080, kept, on a few frames:
+A design of 1920 by 1080, expanded, on any frame is the whole frame, at the
+scale of its smaller axis: see [the design rectangle](#the-design-rectangle).
+Kept, on a few frames:
 
 | Frame | Viewport | Pixels a unit | Units |
 | --- | --- | --- | --- |
@@ -168,12 +216,41 @@ A design of 1920 by 1080, kept, on a few frames:
 A design of 320 by 180, kept, at whole pixels: 1366 by 768 is 1280 by 720
 at (43, 24), 4 pixels a unit; 1024 by 768 is 960 by 540 at (32, 114), 3.
 
+## The camera
+
+A camera's field of view is given at a **reference aspect**, the design's
+(`tb_viewport_design_aspect()`); the camera's **axis constraint**
+(`tb_camera::axis_constraint`, after Unreal's `EAspectRatioAxisConstraint`)
+says which extent holds when the viewport's aspect differs:
+
+| Constraint | A wider viewport | A taller viewport | After Unreal's |
+| --- | --- | --- | --- |
+| `TB_CAMERA_AXIS_DESIGN`, the default | Sees more across (Hor+) | Sees more down (Vert+) | none: the larger of the two |
+| `TB_CAMERA_AXIS_VERTICAL` | Sees more across | Sees less across | `MaintainYFOV` |
+| `TB_CAMERA_AXIS_HORIZONTAL` | Sees less down | Sees more down | `MaintainXFOV` |
+
+`design` always holds the whole reference view, so what a game's scene is
+designed to show at 16:9 is on screen at 16:10 and 21:9 alike, and the 3D
+scene agrees with the design rectangle laid over it. At the reference's own
+aspect, every constraint is the camera's own view, exactly; without a
+design size the reference is the viewport's own aspect, so `design` is
+`vertical`. An orthographic camera follows the same rule: in `design`, its
+`height` is the least it shows.
+
+`tb_camera_projection_fit()` is the projection of a camera at an aspect,
+its field of view given at a reference; `tb_camera_half_extent()` how far
+it sees across and down. The renderer projects the scene, the sky, its
+labels and temporal anti-aliasing's jitter through the one projection of
+its viewport, so none of them disagree. `tb_camera_projection_of()`, with
+no reference, keeps the vertical extent.
+
 ## Who follows it
 
 - **The renderer** holds the policy (`tb_renderer_set_viewport_policy()`)
   and computes the viewport each frame from the swap chain's size. The 3D
   scene renders into the rectangle, at the render scale of its pixels, and
-  the camera projects at its aspect; the bars are cleared to the bar color.
+  the camera projects at its aspect, its field of view held by its
+  [axis constraint](#the-camera); the bars are cleared to the bar color.
   A renderer begins with `TB_VIEWPORT_POLICY_LOGICAL`, whose viewport is
   the whole frame, until an app gives it a policy. See
   [the renderer](renderer.md#the-viewport).
@@ -184,7 +261,8 @@ at (43, 24), 4 pixels a unit; 1024 by 768 is 960 by 540 at (32, 114), 3.
   units over the whole frame, stay for overlays, drawn after the upscale.
 - **The GUI** takes the renderer's viewport each frame
   (`tb_gui_set_viewport()`), so the two always agree; its root is the
-  viewport, its units the viewport's times its own interface scale, and a
+  viewport, spanning the units shown, its units the viewport's times its
+  own interface scale, and a
   press on the bars reaches no widget. In the viewport render mode it is
   laid out and drawn in the target. See
   [the GUI](gui.md#units-and-scaling).
@@ -199,7 +277,25 @@ Everything an app shows its players goes in the viewport, in the design's
 units: its scene, its HUD, its menus, its text. Then the interface keeps
 its place and its share of the picture in every window mode, at every
 window size, and on every display: windowed or fullscreen, it differs only
-in scale and in the bars beside it.
+in scale, and in what `expand` shows beyond the design or the bars beside
+it.
+
+In `expand`, an app's interface pins each element to one of two places:
+
+- **The visible rectangle's edges**, for what belongs at the frame's edges
+  and corners: a HUD's health in the bottom left, a minimap in the top
+  right, a menu's title against the left. `tb_viewport_anchor()` gives
+  those corners; in the GUI, the root spans the visible rectangle, so a
+  grid's weighted outer rows and columns push their widgets to its edges.
+- **The design's center**, for what belongs in the middle: a crosshair, a
+  dialog, a pause menu, a picture made for the design.
+  `tb_viewport_design_anchor()` with (0.5, 0.5) gives it, and drawing in
+  the design's units offsets by `design_origin`; in the GUI, a grid's
+  weighted rows and columns either side of a widget keep it in the middle.
+
+Nothing is laid out from unit (0, 0) as if it were the design's corner:
+that is the visible rectangle's, which is the design's only at the
+design's own aspect.
 
 The views of the whole frame, in pixels and logical units, are for the
 engine's developer tools alone: the inspector, the console, statistics.
@@ -215,18 +311,20 @@ facts are drawn so.
 ## In the sandbox
 
 The sandbox's [`display` scene](sandbox.md#the-display-scene) shows the
-policy at work: a lit scene in the viewport, the design's border and grid,
-pixel art and a line of text, a GUI panel, and what the viewport is. F1 to
-F5 change the aspect, the scale mode, the render mode, the design size and
-the window's mode; F6 locks resizing the window to the design's aspect,
-and Alt+Enter switches between windowed and borderless. At 320 by 180,
+policy at work: a lit scene in the viewport, the design's border, centered
+in what is shown, and a grid, pixel art and a line of text, a GUI panel
+pinned to the bottom right, and what the viewport is. F1 to F5 change the
+aspect, the scale mode, the render mode, the design size and the window's
+mode; F6 locks resizing the window to the design's aspect, F7 changes the
+camera's axis constraint, and Alt+Enter switches between windowed and
+borderless. At 320 by 180,
 F3 shows the render modes apart: the canvas mode draws the turning art and
 the text smoothly at the window's pixels, and the viewport mode in whole
 blocks of the target's, the panel's text included.
 
 ```
 badger-sandbox --scene display
-badger-sandbox --scene display --set display.stretch_aspect=expand
+badger-sandbox --scene display --set display.stretch_aspect=keep
 badger-sandbox --scene display --set display.design_width=320 --set display.design_height=180 --set display.stretch_scale_mode=integer
 badger-sandbox --scene display --set display.design_width=320 --set display.design_height=180 --set display.stretch_scale_mode=integer --set display.stretch_render_mode=viewport
 ```

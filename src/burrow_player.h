@@ -87,8 +87,9 @@ tb_quat burrow_view_orientation(float yaw, float pitch);
 void burrow_view_basis(float yaw, float pitch, tb_vec3 *forward, tb_vec3 *right, tb_vec3 *up);
 
 /* The vertical field of view, in radians, of `graphics.field_of_view`,
- * which is horizontal degrees on a 16:9 display. A wider display sees more
- * at the sides, and a narrower one less, at the same vertical view. */
+ * which is horizontal degrees on a 16:9 display, the design's aspect. The
+ * camera's axis constraint holds at least that view: a wider display sees
+ * more at the sides, and a narrower one more above and below. */
 float burrow_vertical_fov(float horizontal_degrees);
 
 /* The way the controls held move the player, of unit length, or zero when

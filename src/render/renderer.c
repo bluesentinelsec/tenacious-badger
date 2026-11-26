@@ -527,6 +527,14 @@ void tb_renderer_update_viewport(tb_renderer *renderer)
     }
 }
 
+tb_mat4 tb_renderer_projection(const tb_renderer *renderer)
+{
+    const tb_viewport *const viewport = &renderer->viewport;
+
+    return tb_camera_projection_fit(&renderer->camera, tb_viewport_aspect_of(viewport),
+                                    tb_viewport_design_aspect(viewport));
+}
+
 void tb_renderer_set_viewport_policy(tb_renderer *renderer, const tb_viewport_policy *policy,
                                      float aspect_ratio)
 {
@@ -755,8 +763,7 @@ static uint64_t tb_renderer_forward_upload(tb_renderer *renderer, const tb_rende
 
 static void tb_renderer_upload_frame(tb_renderer *renderer, tb_renderer_recording *recording)
 {
-    const float aspect = tb_viewport_aspect_of(&renderer->viewport);
-    const tb_mat4 projection = tb_camera_projection_of(&renderer->camera, aspect);
+    const tb_mat4 projection = tb_renderer_projection(renderer);
     const tb_light light = tb_renderer_default_light(renderer);
     tb_vec2 jitter = {0};
 
@@ -787,7 +794,7 @@ static void tb_renderer_upload_frame(tb_renderer *renderer, tb_renderer_recordin
         }
         draw->constants = tb_renderer_forward_upload(renderer, draw, clip, light.direction);
     }
-    recording->sky = tb_renderer_sky_upload(renderer, aspect);
+    recording->sky = tb_renderer_sky_upload(renderer);
     if (renderer->deferred)
     {
         recording->lighting = tb_renderer_lighting_upload(renderer, recording->clip);
