@@ -69,6 +69,20 @@ set(TB_GAMEPAD_SOURCES
 target_sources(badger PRIVATE ${TB_GAMEPAD_SOURCES})
 target_sources(badger_static PRIVATE ${TB_GAMEPAD_SOURCES})
 
+# Audio devices: the shared front, then PipeWire, or ALSA where no PipeWire
+# daemon runs, behind it, each loaded at run time. What a PipeWire format
+# is, as bytes, is standard C, in audio_pipewire_pod.c. They are built on the
+# foundation modules, as windowing is.
+set(TB_AUDIO_DEVICE_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/../shared/audio_device.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/audio_device.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/audio_alsa.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/audio_pipewire.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/audio_pipewire_pod.c"
+    CACHE INTERNAL "Selected audio device sources")
+target_sources(badger PRIVATE ${TB_AUDIO_DEVICE_SOURCES})
+target_sources(badger_static PRIVATE ${TB_AUDIO_DEVICE_SOURCES})
+
 # The shader compilers, DXC and D3DCompiler, which are unavailable here:
 # DXIL runs only on D3D12, and DXBC only on D3D11. They are built on the
 # foundation modules, as windowing is.

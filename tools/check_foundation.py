@@ -297,6 +297,10 @@ AUTHORIZED = {
         {'strstr', 'strrchr', 'strcspn'},
         'measures the C library beside badger/str.h'),
 
+    'src/platform/linux/audio_alsa.c': (
+        {'free'},
+        'releases the text ALSA\'s device hints allocate with the C library'),
+
     'src/platform/win32/system.c': (
         {'HeapAlloc', 'HeapFree'},
         'holds the system\'s description of the processors, whose size the system decides, '

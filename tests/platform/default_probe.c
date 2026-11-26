@@ -7,6 +7,7 @@
  * A case is named after the function it calls. The script reads the public
  * headers for the functions, so a function that is added to a platform
  * interface without a case here fails the test. */
+#include "badger/audio_device.h"
 #include "badger/crash.h"
 #include "badger/d3dcompiler.h"
 #include "badger/dxc.h"
@@ -114,6 +115,74 @@ TB_TEST(platform_default, tb_dxc_release)
 TB_TEST(platform_default, tb_dxc_version)
 {
     (void)tb_dxc_version(NULL);
+}
+
+TB_TEST(platform_default, tb_audio_system_open)
+{
+    tb_audio_system *system = NULL;
+
+    (void)tb_audio_system_open(&system, NULL);
+}
+
+TB_TEST(platform_default, tb_audio_system_close)
+{
+    tb_audio_system_close(NULL);
+}
+
+TB_TEST(platform_default, tb_audio_system_get_info)
+{
+    tb_audio_system_info info = {0};
+
+    tb_audio_system_get_info(NULL, &info);
+}
+
+TB_TEST(platform_default, tb_audio_system_list_devices)
+{
+    (void)tb_audio_system_list_devices(NULL, NULL, 0);
+}
+
+TB_TEST(platform_default, tb_audio_device_open)
+{
+    const tb_audio_device_desc desc = {0};
+    tb_audio_device *device = NULL;
+
+    (void)tb_audio_device_open(NULL, &desc, &device, NULL);
+}
+
+TB_TEST(platform_default, tb_audio_device_close)
+{
+    tb_audio_device_close(NULL);
+}
+
+TB_TEST(platform_default, tb_audio_device_start)
+{
+    tb_audio_device_start(NULL);
+}
+
+TB_TEST(platform_default, tb_audio_device_stop)
+{
+    tb_audio_device_stop(NULL);
+}
+
+TB_TEST(platform_default, tb_audio_device_get_format)
+{
+    tb_audio_format format = {0};
+
+    tb_audio_device_get_format(NULL, &format);
+}
+
+TB_TEST(platform_default, tb_audio_device_get_latency)
+{
+    tb_audio_device_latency latency = {0};
+
+    tb_audio_device_get_latency(NULL, &latency);
+}
+
+TB_TEST(platform_default, tb_audio_device_next_event)
+{
+    tb_audio_device_event event = {0};
+
+    (void)tb_audio_device_next_event(NULL, &event);
 }
 
 TB_TEST(platform_default, tb_gamepad_system_open)

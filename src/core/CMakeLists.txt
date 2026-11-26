@@ -25,6 +25,7 @@ set(TB_CORE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/array.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/assert.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/atom.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/audio_device.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/bit.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/bytes.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/cli.c"

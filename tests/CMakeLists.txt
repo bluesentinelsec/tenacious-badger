@@ -150,6 +150,7 @@ set(TB_TEST_CASE_SOURCES
     input/input_rules_test.c
     jobs/loop_test.c
     anim/anim_test.c
+    platform/audio_device_test.c
     platform/gamepad_test.c
     platform/window_test.c
     settings/engine_settings_test.c
@@ -299,6 +300,23 @@ if(TB_GAMEPAD_SOURCES)
             "${PROJECT_SOURCE_DIR}/src/platform/shared/gamepad_dualsense.c")
     endif()
 endif()
+# Audio devices are above the platform adapters too: the shared front with
+# a backend of the test's own, and what each backend makes of its system's
+# formats and names.
+if(TB_AUDIO_DEVICE_SOURCES)
+    list(APPEND TB_INTERNAL_TEST_CASE_SOURCES platform/audio_device_front_test.c
+        platform/audio_pipewire_test.c)
+    if(WIN32)
+        list(APPEND TB_INTERNAL_TEST_CASE_SOURCES platform/win32/audio_wasapi_test.c)
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        list(APPEND TB_INTERNAL_TEST_CASE_SOURCES platform/linux/audio_linux_test.c)
+    endif()
+    # A PipeWire format is standard C, so it is tested on every platform.
+    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        list(APPEND TB_INTERNAL_TEST_CASE_SOURCES
+            "${PROJECT_SOURCE_DIR}/src/platform/linux/audio_pipewire_pod.c")
+    endif()
+endif()
 # Input that a platform sends only to the window in front is handed to its
 # backend's handling directly.
 if(WIN32)
@@ -315,7 +333,8 @@ set(TB_ENGINE_SOURCES ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES} ${TB_JOBS_SOURCE
     ${TB_VFS_SOURCES}
     ${TB_SETTINGS_SOURCES} ${TB_WINDOW_SOURCES} ${TB_DXC_SOURCES} ${TB_GAME_SOURCES}
     ${TB_SHADER_SOURCES} ${TB_RHI_SOURCES} ${TB_RENDER_SOURCES} ${TB_ANIM_SOURCES}
-    ${TB_UI_SOURCES} ${TB_GUI_SOURCES} ${TB_INPUT_SOURCES} ${TB_GAMEPAD_SOURCES})
+    ${TB_UI_SOURCES} ${TB_GUI_SOURCES} ${TB_INPUT_SOURCES} ${TB_GAMEPAD_SOURCES}
+    ${TB_AUDIO_DEVICE_SOURCES})
 
 # The arguments go to tb_add_tests.
 function(tb_add_internal_tests target)
@@ -515,6 +534,7 @@ target_include_directories(tb_platform_default_probe PRIVATE
 tb_configure_target(tb_platform_default_probe)
 tb_make_standalone(tb_platform_default_probe)
 set(TB_PLATFORM_INTERFACE_HEADERS
+    "${PROJECT_SOURCE_DIR}/include/badger/audio_device.h"
     "${PROJECT_SOURCE_DIR}/include/badger/crash.h"
     "${PROJECT_SOURCE_DIR}/include/badger/d3dcompiler.h"
     "${PROJECT_SOURCE_DIR}/include/badger/dxc.h"
@@ -534,7 +554,7 @@ add_test(NAME platform_default.every_function_reports_not_implemented
     COMMAND "${CMAKE_COMMAND}" "-DTB_PROBE=$<TARGET_FILE:tb_platform_default_probe>"
         "-DTB_HEADERS=${tb_platform_interface_headers}"
         "-DTB_SYSTEM_NAME=${CMAKE_SYSTEM_NAME}"
-        "-DTB_ENGINE_SOURCES=${PROJECT_SOURCE_DIR}/src/core/gamepad.c"
+        "-DTB_ENGINE_SOURCES=${PROJECT_SOURCE_DIR}/src/core/gamepad.c,${PROJECT_SOURCE_DIR}/src/core/audio_device.c"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/ExpectPlatformDefault.cmake")
 # The package key: compiled in from a key file and from a password, it comes
 # back whole and is nowhere in the executable; and keys are made and kept.

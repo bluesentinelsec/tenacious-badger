@@ -64,6 +64,16 @@ set(TB_GAMEPAD_SOURCES
 target_sources(badger PRIVATE ${TB_GAMEPAD_SOURCES})
 target_sources(badger_static PRIVATE ${TB_GAMEPAD_SOURCES})
 
+# Audio devices: the shared front, then Core Audio's HAL output unit behind
+# it, through CoreAudio, AudioToolbox and CoreFoundation loaded at run time.
+# They are built on the foundation modules, as windowing is.
+set(TB_AUDIO_DEVICE_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/../shared/audio_device.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/audio_device.c"
+    CACHE INTERNAL "Selected audio device sources")
+target_sources(badger PRIVATE ${TB_AUDIO_DEVICE_SOURCES})
+target_sources(badger_static PRIVATE ${TB_AUDIO_DEVICE_SOURCES})
+
 # The shader compilers, DXC and D3DCompiler, which are unavailable here:
 # DXIL runs only on D3D12, and DXBC only on D3D11. They are built on the
 # foundation modules, as windowing is.
