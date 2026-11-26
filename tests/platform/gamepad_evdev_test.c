@@ -209,6 +209,127 @@ TB_TEST(platform_gamepad_evdev, playstation_buttons_are_by_place)
     TB_TEST_EXPECT_FLOAT(state.axes[TB_GAMEPAD_AXIS_LEFT_Y], ==, 0.0f);
 }
 
+/* A DualSense as hid-playstation makes it (Linux 5.12 and later): the
+ * kernel's codes for each of its buttons, sticks and triggers from 0 to
+ * 255, the d-pad a hat, and FF_RUMBLE. The Edge (from Linux 6.2) is the
+ * same, and from Linux 7.2 adds its Fn buttons and back buttons as
+ * BTN_TRIGGER_HAPPY1 to 4. */
+static tb_evdev_device dualsense(uint16_t product)
+{
+    tb_evdev_device device = {.vendor = TB_EVDEV_VENDOR_SONY, .product = product};
+    const uint32_t triggers[] = {TB_EVDEV_BTN_TL2, TB_EVDEV_BTN_TR2};
+    const uint32_t edge[] = {TB_EVDEV_BTN_TRIGGER_HAPPY1, TB_EVDEV_BTN_TRIGGER_HAPPY2,
+                             TB_EVDEV_BTN_TRIGGER_HAPPY3, TB_EVDEV_BTN_TRIGGER_HAPPY4};
+
+    add_keys(&device, common_keys, TB_TEST_COUNT_OF(common_keys));
+    add_keys(&device, triggers, TB_TEST_COUNT_OF(triggers));
+    if (product == TB_EVDEV_DUALSENSE_EDGE)
+    {
+        add_keys(&device, edge, TB_TEST_COUNT_OF(edge));
+    }
+    add_axis(&device, TB_EVDEV_ABS_X, 0, 255);
+    add_axis(&device, TB_EVDEV_ABS_Y, 0, 255);
+    add_axis(&device, TB_EVDEV_ABS_Z, 0, 255);
+    add_axis(&device, TB_EVDEV_ABS_RX, 0, 255);
+    add_axis(&device, TB_EVDEV_ABS_RY, 0, 255);
+    add_axis(&device, TB_EVDEV_ABS_RZ, 0, 255);
+    add_axis(&device, TB_EVDEV_ABS_HAT0X, -1, 1);
+    add_axis(&device, TB_EVDEV_ABS_HAT0Y, -1, 1);
+    set_bit(device.effects, TB_EVDEV_FF_RUMBLE);
+    return device;
+}
+
+/* Every DualSense button by place: Cross south, Circle east, Square west,
+ * Triangle north, Create back and Options start; L2 and R2 are their
+ * analog axes, and the PS button (BTN_MODE) is not read. The Edge's back
+ * buttons are the upper paddles, its Fn buttons not read; on a DualSense
+ * the same codes are nothing. */
+TB_TEST(platform_gamepad_evdev, dualsense_and_edge_by_place)
+{
+    static const struct
+    {
+        uint32_t code;
+        uint32_t buttons;
+    } rows[] = {
+        {TB_EVDEV_BTN_SOUTH, 1u << TB_GAMEPAD_BUTTON_SOUTH}, /* Cross */
+        {TB_EVDEV_BTN_EAST, 1u << TB_GAMEPAD_BUTTON_EAST},   /* Circle */
+        {TB_EVDEV_BTN_WEST, 1u << TB_GAMEPAD_BUTTON_WEST},   /* Square */
+        {TB_EVDEV_BTN_NORTH, 1u << TB_GAMEPAD_BUTTON_NORTH}, /* Triangle */
+        {TB_EVDEV_BTN_TL, 1u << TB_GAMEPAD_BUTTON_LEFT_SHOULDER},
+        {TB_EVDEV_BTN_TR, 1u << TB_GAMEPAD_BUTTON_RIGHT_SHOULDER},
+        {TB_EVDEV_BTN_TL2, 0},
+        {TB_EVDEV_BTN_TR2, 0},
+        {TB_EVDEV_BTN_SELECT, 1u << TB_GAMEPAD_BUTTON_BACK}, /* Create */
+        {TB_EVDEV_BTN_START, 1u << TB_GAMEPAD_BUTTON_START}, /* Options */
+        {TB_EVDEV_BTN_THUMBL, 1u << TB_GAMEPAD_BUTTON_LEFT_STICK},
+        {TB_EVDEV_BTN_THUMBR, 1u << TB_GAMEPAD_BUTTON_RIGHT_STICK},
+        {TB_EVDEV_BTN_MODE, 0}, /* PS */
+        {TB_EVDEV_BTN_TRIGGER_HAPPY1, 0},
+        {TB_EVDEV_BTN_TRIGGER_HAPPY2, 0},
+    };
+    const uint16_t products[] = {0x0ce6, TB_EVDEV_DUALSENSE_EDGE};
+
+    for (size_t pad = 0; pad < TB_TEST_COUNT_OF(products); pad++)
+    {
+        const tb_evdev_device device = dualsense(products[pad]);
+        tb_evdev_layout layout = {0};
+        tb_gamepad_state state = {.connected = true};
+        const bool edge = products[pad] == TB_EVDEV_DUALSENSE_EDGE;
+        tb_evdev_layout_make(&device, &layout);
+        TB_TEST_EXPECT(tb_evdev_is_gamepad(&device));
+        TB_TEST_EXPECT(tb_evdev_can_rumble(&device));
+        TB_TEST_EXPECT(layout.positional_faces);
+        TB_TEST_EXPECT(layout.hat_dpad);
+        TB_TEST_EXPECT(!layout.happy_dpad);
+        TB_TEST_EXPECT(layout.edge_paddles == edge);
+        for (size_t index = 0; index < TB_TEST_COUNT_OF(rows); index++)
+        {
+            TB_TEST_CONTEXT("product 0x%04x, code 0x%x", (unsigned)products[pad],
+                            (unsigned)rows[index].code);
+            state.buttons = 0;
+            press(&device, &layout, rows[index].code, &state);
+            TB_TEST_EXPECT_HEX(state.buttons, ==, rows[index].buttons);
+        }
+        state.buttons = 0;
+        press(&device, &layout, TB_EVDEV_BTN_TRIGGER_HAPPY3, &state);
+        press(&device, &layout, TB_EVDEV_BTN_TRIGGER_HAPPY4, &state);
+        TB_TEST_EXPECT_HEX(state.buttons, ==,
+                           edge ? (1u << TB_GAMEPAD_BUTTON_LEFT_PADDLE_1) |
+                                      (1u << TB_GAMEPAD_BUTTON_RIGHT_PADDLE_1)
+                                : 0u);
+        /* The sticks, up positive, and the analog triggers. */
+        move(&device, &layout, TB_EVDEV_ABS_Y, 0, &state);
+        move(&device, &layout, TB_EVDEV_ABS_RX, 255, &state);
+        move(&device, &layout, TB_EVDEV_ABS_Z, 255, &state);
+        move(&device, &layout, TB_EVDEV_ABS_RZ, 0, &state);
+        move(&device, &layout, TB_EVDEV_ABS_HAT0Y, -1, &state);
+        TB_TEST_EXPECT_FLOAT_NEAR(state.axes[TB_GAMEPAD_AXIS_LEFT_Y], 1.0f, 0.001f);
+        TB_TEST_EXPECT_FLOAT_NEAR(state.axes[TB_GAMEPAD_AXIS_RIGHT_X], 1.0f, 0.001f);
+        TB_TEST_EXPECT_FLOAT_NEAR(state.axes[TB_GAMEPAD_AXIS_LEFT_TRIGGER], 1.0f, 0.001f);
+        TB_TEST_EXPECT_FLOAT(state.axes[TB_GAMEPAD_AXIS_RIGHT_TRIGGER], ==, 0.0f);
+        TB_TEST_EXPECT(tb_gamepad_button_down(&state, TB_GAMEPAD_BUTTON_DPAD_UP));
+    }
+}
+
+/* hid-playstation's other two devices of a DualSense are not gamepads: its
+ * touchpad, whose only key is BTN_LEFT, and its motion sensors, which have
+ * no keys. */
+TB_TEST(platform_gamepad_evdev, dualsense_touchpad_and_motion_are_not_gamepads)
+{
+    tb_evdev_device touchpad = {.vendor = TB_EVDEV_VENDOR_SONY, .product = 0x0ce6};
+    tb_evdev_device motion = {.vendor = TB_EVDEV_VENDOR_SONY, .product = 0x0ce6};
+    const uint32_t left = 0x110u; /* BTN_LEFT */
+
+    add_keys(&touchpad, &left, 1);
+    add_axis(&touchpad, TB_EVDEV_ABS_X, 0, 1919);
+    add_axis(&touchpad, TB_EVDEV_ABS_Y, 0, 1079);
+    add_axis(&motion, TB_EVDEV_ABS_X, -32768, 32767);
+    add_axis(&motion, TB_EVDEV_ABS_Y, -32768, 32767);
+    add_axis(&motion, TB_EVDEV_ABS_Z, -32768, 32767);
+    TB_TEST_EXPECT(!tb_evdev_is_gamepad(&touchpad));
+    TB_TEST_EXPECT(!tb_evdev_is_gamepad(&motion));
+}
+
 /* A Switch Pro pad on hid-nintendo: by place, digital triggers, the d-pad
  * as buttons. */
 TB_TEST(platform_gamepad_evdev, nintendo_triggers_are_digital)

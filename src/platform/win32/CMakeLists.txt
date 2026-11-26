@@ -46,6 +46,7 @@ set(TB_GAMEPAD_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/../shared/gamepad_mux.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../shared/gamepad_hid.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/../shared/gamepad_switch2.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../shared/gamepad_dualsense.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/gamepad.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/gamepad_rawhid.c"
     CACHE INTERNAL "Selected gamepad sources")

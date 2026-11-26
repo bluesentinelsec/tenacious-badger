@@ -124,6 +124,22 @@ static void tb_gamepad_mux_rumble(void *native, size_t slot, float low_frequency
     from->child.ops->rumble(from->child.native, owner->pad, low_frequency, high_frequency, seconds);
 }
 
+static void tb_gamepad_mux_player(void *native, size_t slot, size_t player)
+{
+    tb_gamepad_mux *const mux = native;
+    const tb_gamepad_mux_owner *owner = NULL;
+    const tb_gamepad_mux_source *from = NULL;
+
+    TB_ASSERT(slot < TB_GAMEPAD_SLOT_COUNT);
+    owner = &mux->owners[slot];
+    TB_ASSERT_MSG(owner->used, "a slot with a pad");
+    from = &mux->sources[owner->source];
+    if (from->child.ops->player != NULL)
+    {
+        from->child.ops->player(from->child.native, owner->pad, player);
+    }
+}
+
 static void tb_gamepad_mux_close(void *native)
 {
     tb_gamepad_mux *const mux = native;
@@ -139,6 +155,7 @@ const tb_gamepad_ops tb_gamepad_mux_ops = {
     .close = tb_gamepad_mux_close,
     .poll = tb_gamepad_mux_poll,
     .rumble = tb_gamepad_mux_rumble,
+    .player = tb_gamepad_mux_player,
 };
 
 void *tb_gamepad_mux_make(const tb_gamepad_mux_child *children, size_t count)

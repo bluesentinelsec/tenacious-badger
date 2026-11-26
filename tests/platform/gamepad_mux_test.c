@@ -16,6 +16,9 @@ typedef struct fake_child
     size_t rumbles;
     size_t rumble_slot;
     float low;
+    size_t players;     /* Pads shown which player they are. */
+    size_t player_slot; /* The child's slot of the last. */
+    size_t player;
     bool closed;
 } fake_child;
 
@@ -54,8 +57,20 @@ static void fake_rumble(void *native, size_t slot, float low_frequency, float hi
     child->low = low_frequency;
 }
 
+static void fake_player(void *native, size_t slot, size_t player)
+{
+    fake_child *const child = native;
+
+    child->players++;
+    child->player_slot = slot;
+    child->player = player;
+}
+
 static const tb_gamepad_ops fake_ops = {
     .close = fake_close, .poll = fake_poll, .rumble = fake_rumble};
+/* A child whose pads have lights. */
+static const tb_gamepad_ops fake_lit_ops = {
+    .close = fake_close, .poll = fake_poll, .rumble = fake_rumble, .player = fake_player};
 
 static void plug(fake_child *child, size_t slot, uint64_t serial, uint16_t product)
 {
@@ -127,6 +142,30 @@ TB_TEST(platform_gamepad_mux, pads_take_the_lowest_free_slots)
     tb_gamepad_system_close(system);
     TB_TEST_EXPECT(first.closed);
     TB_TEST_EXPECT(second.closed);
+}
+
+/* A pad that comes is shown the system's slot as its player, through the
+ * child that has it, in the child's own slot; a child without lights is
+ * never asked. */
+TB_TEST(platform_gamepad_mux, the_player_reaches_the_child)
+{
+    fake_child unlit = {0};
+    fake_child lit = {0};
+    const tb_gamepad_mux_child children[2] = {{&fake_ops, &unlit}, {&fake_lit_ops, &lit}};
+    tb_gamepad_system *const system =
+        tb_gamepad_system_make(&tb_gamepad_mux_ops, tb_gamepad_mux_make(children, 2), fake_clock);
+
+    plug(&unlit, 0, 1, 0x0a);
+    plug(&lit, 3, 1, 0x0b);
+    tb_gamepad_system_poll(system);
+    TB_TEST_EXPECT_UINT(unlit.players, ==, 0u);
+    TB_TEST_REQUIRE_UINT(lit.players, ==, 1u);
+    TB_TEST_EXPECT_UINT(lit.player_slot, ==, 3u);
+    TB_TEST_EXPECT_UINT(lit.player, ==, 1u);
+    /* Only when it comes. */
+    tb_gamepad_system_poll(system);
+    TB_TEST_EXPECT_UINT(lit.players, ==, 1u);
+    tb_gamepad_system_close(system);
 }
 
 /* A child that replaces a pad in its slot between two polls, as a pad

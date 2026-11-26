@@ -60,7 +60,7 @@ The foundation layer so far, one public header per module under
 | `wav.h` | [WAV files](media.md#wav-files): PCM, float, G.711 and IMA ADPCM read whole or a block at a time, and written |
 | `stream.h` | [Streams](streams.md): one interface for reading and writing bytes, over memory, files, and ranges of other streams |
 | `window.h` | [Windows and displays](windows.md): windowed, borderless and fullscreen windows, displays and their scale, and window events |
-| `gamepad.h` | [Gamepads](gamepad.md): XInput, raw HID (the Switch 2 Pro Controller), evdev and GameController pads in one standard layout, hot-plugging, sticks and triggers as buttons, and rumble |
+| `gamepad.h` | [Gamepads](gamepad.md): XInput, raw HID (the Switch 2 Pro Controller and the DualSense), evdev and GameController pads in one standard layout, hot-plugging, sticks and triggers as buttons, and rumble |
 | `input.h` | [Input](input.md): actions and mapping contexts after Unreal's Enhanced Input, from the keyboard, the mouse and gamepads |
 | `shader.h` | [Shaders](shaders.md): HLSL written once for every backend; virtual shader paths, includes and the preprocessor |
 | `shader_cache.h`, `shader_library.h` | [The shader cache and shader libraries](shader-cache.md): keys of what a compile writes, compiled shaders kept on disk, and the libraries a game ships |

@@ -2,10 +2,13 @@
  * XInput or GameController backend reads already needs none. */
 #include "gamepad_hid.h"
 
+#include "gamepad_dualsense.h"
 #include "gamepad_switch2.h"
 
 static const tb_hid_driver *const tb_hid_drivers[] = {
     &tb_switch2_driver,
+    &tb_dualsense_driver,
+    &tb_dualsense_edge_driver,
 };
 
 const tb_hid_driver *tb_hid_driver_find(uint16_t vendor, uint16_t product)

@@ -23,7 +23,10 @@
  *   BTN_TL2 and BTN_TR2.
  *
  * The guide button (BTN_MODE) and the share button (KEY_RECORD on xpad) are
- * the system's and Steam's, and are never read. */
+ * the system's and Steam's, and are never read. The DualSense Edge's back
+ * buttons, which hid-playstation gives from Linux 7.2 as
+ * BTN_TRIGGER_HAPPY3 and 4, are the upper paddles; its Fn buttons, 1 and 2,
+ * switch the pad's own profiles and are not read. */
 #include "gamepad_evdev.h"
 
 #include "../shared/gamepad.h"
@@ -141,6 +144,8 @@ void tb_evdev_layout_make(const tb_evdev_device *device, tb_evdev_layout *layout
     layout->positional_faces =
         device->vendor == TB_EVDEV_VENDOR_SONY || device->vendor == TB_EVDEV_VENDOR_NINTENDO;
     layout->swapped_south_east = tb_evdev_is_switch2(device);
+    layout->edge_paddles =
+        device->vendor == TB_EVDEV_VENDOR_SONY && device->product == TB_EVDEV_DUALSENSE_EDGE;
     layout->hat_dpad = tb_evdev_has_pair(device, TB_EVDEV_ABS_HAT0X, TB_EVDEV_ABS_HAT0Y);
     layout->happy_dpad = !layout->hat_dpad && !tb_evdev_has_key(device, TB_EVDEV_BTN_DPAD_UP) &&
                          tb_evdev_has_key(device, TB_EVDEV_BTN_TRIGGER_HAPPY1) &&
@@ -170,6 +175,14 @@ static tb_gamepad_button tb_evdev_button(const tb_evdev_layout *layout, uint32_t
         code <= TB_EVDEV_BTN_TRIGGER_HAPPY4)
     {
         return tb_evdev_happy_dpad(code);
+    }
+    if (layout->edge_paddles && code == TB_EVDEV_BTN_TRIGGER_HAPPY3)
+    {
+        return TB_GAMEPAD_BUTTON_LEFT_PADDLE_1;
+    }
+    if (layout->edge_paddles && code == TB_EVDEV_BTN_TRIGGER_HAPPY4)
+    {
+        return TB_GAMEPAD_BUTTON_RIGHT_PADDLE_1;
     }
     switch (code)
     {

@@ -40,6 +40,10 @@ typedef struct tb_gamepad_ops
      * #TB_GAMEPAD_CAPABILITY_RUMBLE. */
     void (*rumble)(void *native, size_t slot, float low_frequency, float high_frequency,
                    double seconds);
+    /* Show on the pad in `slot` that it is the system's player `player`,
+     * from 0, as its lights, where it has lights the backend sets. Called
+     * when a pad comes into a slot. NULL for a backend that sets none. */
+    void (*player)(void *native, size_t slot, size_t player);
 } tb_gamepad_ops;
 
 /* The clock the front times rumble by: tb_platform_clock_nanoseconds(), or

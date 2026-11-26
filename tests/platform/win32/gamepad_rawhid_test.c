@@ -2,10 +2,13 @@
  * replaced by devices of the test's own: pads found by their interfaces
  * and set up through their vendor channel, XInput's and Steam's pads left
  * alone, reports read without waiting, pads that go and come, and rumble
- * sent again while it runs and stopped when its time is up. A last test
- * reads a real Switch 2 Pro Controller, when one is plugged in. */
+ * sent again while it runs and stopped when its time is up; DualSense pads
+ * over USB and Bluetooth, their lights set for their slot, and one pad
+ * connected both ways read once. The last tests read a real Switch 2 Pro
+ * Controller and a real DualSense, when one is plugged in. */
 #include "platform/win32/gamepad_rawhid.h"
 
+#include "platform/shared/gamepad_dualsense.h"
 #include "platform/shared/gamepad_switch2.h"
 
 #include "badger/platform.h"
@@ -48,6 +51,13 @@ typedef struct fake_device
     bool usb_busy;    /* Another program has the vendor channel. */
     bool read_only;   /* Opening for writing is refused. */
     bool writes_hang; /* A write never ends until it is cancelled. */
+    /* The lengths of its longest reports, as its descriptor gives them. */
+    size_t input_length;
+    size_t output_length;
+    size_t feature_length;
+    bool bluetooth; /* Its feature reports end in a CRC-32. */
+    uint8_t address[TB_DUALSENSE_ADDRESS_SIZE];
+    size_t features; /* Feature reports read. */
     uint8_t queue[FAKE_QUEUE][TB_HID_REPORT_CAPACITY];
     size_t queued;
     size_t taken;
@@ -70,6 +80,7 @@ typedef struct fake_system
     bool list_fails;
     bool attributes_lie;
     bool events_fail;
+    bool caps_fail;
     long handles; /* Open handles, made less closed. */
     size_t opens_of_extras;
     size_t usb_frees;
@@ -226,6 +237,70 @@ static BOOLEAN WINAPI fake_attributes(HANDLE file, PHIDD_ATTRIBUTES attributes)
 
     attributes->VendorID = device->vendor;
     attributes->ProductID = fake.attributes_lie ? 0x2009 : device->product;
+    return TRUE;
+}
+
+/* The preparsed data is the file's handle, in the fake. */
+static BOOLEAN WINAPI fake_preparsed(HANDLE file, PHIDP_PREPARSED_DATA *data)
+{
+    *data = (PHIDP_PREPARSED_DATA)file;
+    return fake.caps_fail ? FALSE : TRUE;
+}
+
+static BOOLEAN WINAPI fake_free_preparsed(PHIDP_PREPARSED_DATA data)
+{
+    TB_TEST_EXPECT_POINTER(data, !=, NULL);
+    return TRUE;
+}
+
+static NTSTATUS WINAPI fake_caps(PHIDP_PREPARSED_DATA data, PHIDP_CAPS caps)
+{
+    const fake_device *const device = fake_owner((HANDLE)data);
+
+    *caps = (HIDP_CAPS){0};
+    caps->InputReportByteLength = (USHORT)device->input_length;
+    caps->OutputReportByteLength = (USHORT)device->output_length;
+    caps->FeatureReportByteLength = (USHORT)device->feature_length;
+    return HIDP_STATUS_SUCCESS;
+}
+
+/* A DualSense's feature reports: its address, and its firmware's update
+ * version, 0x0630; over Bluetooth with their CRCs. */
+static BOOLEAN WINAPI fake_get_feature(HANDLE file, PVOID buffer, ULONG length)
+{
+    fake_device *const device = fake_owner(file);
+    uint8_t *const report = buffer;
+    const uint8_t id = report[0];
+    size_t size = 0;
+
+    TB_TEST_REQUIRE_UINT(length, ==, device->feature_length);
+    device->features++;
+    memset(report + 1, 0, length - 1u);
+    switch (id)
+    {
+    case TB_DUALSENSE_FEATURE_CALIBRATION:
+        size = TB_DUALSENSE_CALIBRATION_SIZE;
+        break;
+    case TB_DUALSENSE_FEATURE_PAIRING:
+        size = TB_DUALSENSE_PAIRING_SIZE;
+        memcpy(report + 1, device->address, sizeof(device->address));
+        break;
+    case TB_DUALSENSE_FEATURE_FIRMWARE:
+        size = TB_DUALSENSE_FIRMWARE_SIZE;
+        report[44] = 0x30;
+        report[45] = 0x06;
+        break;
+    default:
+        return FALSE;
+    }
+    if (device->bluetooth)
+    {
+        const uint32_t crc = tb_dualsense_crc(TB_DUALSENSE_SEED_FEATURE, report, size - 4u);
+        for (size_t index = 0; index < 4u; index++)
+        {
+            report[size - 4u + index] = (uint8_t)(crc >> (8u * index));
+        }
+    }
     return TRUE;
 }
 
@@ -390,9 +465,12 @@ static bool fake_take(fake_device *device, uint8_t *buffer, DWORD *received)
     {
         return false;
     }
-    memcpy(buffer, device->queue[device->taken % FAKE_QUEUE], TB_HID_REPORT_CAPACITY);
+    memset(buffer, 0, device->input_length);
+    memcpy(buffer, device->queue[device->taken % FAKE_QUEUE],
+           device->input_length < TB_HID_REPORT_CAPACITY ? device->input_length
+                                                         : TB_HID_REPORT_CAPACITY);
     device->taken++;
-    *received = TB_HID_REPORT_CAPACITY;
+    *received = (DWORD)device->input_length;
     return true;
 }
 
@@ -403,7 +481,7 @@ static BOOL WINAPI fake_read_file(HANDLE file, LPVOID buffer, DWORD length, LPDW
     DWORD received = 0;
 
     TB_TEST_EXPECT_POINTER(read, ==, NULL);
-    TB_TEST_REQUIRE_UINT(length, ==, TB_SWITCH2_REPORT_SIZE);
+    TB_TEST_REQUIRE_UINT(length, ==, device->input_length);
     if (device->unplugged)
     {
         SetLastError(ERROR_DEVICE_NOT_CONNECTED);
@@ -427,7 +505,8 @@ static BOOL WINAPI fake_write_file(HANDLE file, LPCVOID buffer, DWORD length, LP
 {
     fake_device *const device = fake_owner(file);
 
-    if (written != NULL || length > TB_HID_REPORT_CAPACITY)
+    /* Every write is of the descriptor's length. */
+    if (written != NULL || length != device->output_length || length > TB_HID_REPORT_CAPACITY)
     {
         SetLastError(ERROR_INVALID_PARAMETER);
         return FALSE;
@@ -492,6 +571,10 @@ static const tb_hid_calls fake_calls = {
     .locate = fake_locate,
     .node_property = fake_node_property,
     .attributes = fake_attributes,
+    .preparsed = fake_preparsed,
+    .free_preparsed = fake_free_preparsed,
+    .caps = fake_caps,
+    .get_feature = fake_get_feature,
     .usb_initialize = fake_usb_initialize,
     .usb_free = fake_usb_free,
     .usb_query_interface = fake_usb_query_interface,
@@ -519,6 +602,28 @@ static void fake_switch2(size_t index, const wchar_t *hid_path, const wchar_t *u
         .vendor = TB_SWITCH2_VENDOR,
         .product = TB_SWITCH2_PRODUCT_PRO,
         .present = true,
+        .input_length = TB_SWITCH2_REPORT_SIZE,
+        .output_length = TB_SWITCH2_REPORT_SIZE,
+    };
+}
+
+/* A DualSense as Windows shows it, over USB or Bluetooth, with the
+ * lengths its descriptors give, and an address whose last byte is
+ * `address`. */
+static void fake_dualsense(size_t index, const wchar_t *hid_path, bool bluetooth, uint8_t address)
+{
+    fake.devices[index] = (fake_device){
+        .hid_path = hid_path,
+        .container = {0x5f0a1e00u + (unsigned long)index},
+        .vendor = TB_DUALSENSE_VENDOR,
+        .product = TB_DUALSENSE_PRODUCT,
+        .present = true,
+        .input_length = bluetooth ? 547u : TB_DUALSENSE_USB_SIZE,
+        .output_length =
+            bluetooth ? TB_DUALSENSE_OUTPUT_BLUETOOTH_SIZE : TB_DUALSENSE_OUTPUT_USB_SIZE,
+        .feature_length = 64u,
+        .bluetooth = bluetooth,
+        .address = {0x58, 0x6b, 0x75, 0x32, 0xee, address},
     };
 }
 
@@ -863,6 +968,272 @@ TB_TEST(platform_win32_gamepad_rawhid, the_rumble_thread_ends_with_the_system)
     TB_TEST_EXPECT_INT(fake.handles, ==, 0);
 }
 
+/* ---------------------------------------------------------------------------
+ * DualSense pads.
+ * ------------------------------------------------------------------------- */
+
+static const wchar_t dualsense_usb[] =
+    L"\\\\?\\HID#VID_054C&PID_0CE6&MI_03#7&2c0a8d68&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}";
+static const wchar_t dualsense_bluetooth[] =
+    L"\\\\?\\HID#{00001124-0000-1000-8000-00805f9b34fb}_VID&0002054c_PID&0ce6#8&1b2c3d4e&0&0000#"
+    L"{4d1e55b2-f16f-11cf-88cb-001111000030}";
+static const wchar_t other_bluetooth[] =
+    L"\\\\?\\HID#{00001124-0000-1000-8000-00805f9b34fb}_VID&0002054c_PID&0ce6#8&99&0&0000#"
+    L"{4d1e55b2-f16f-11cf-88cb-001111000030}";
+
+static tb_gamepad_system *fake_open_empty(const char *ignored)
+{
+    fake = (fake_system){0};
+    fake_now = 0;
+    return tb_gamepad_system_make(&tb_hid_gamepad_ops,
+                                  tb_hid_gamepads_make(&fake_calls, ignored, fake_clock, false),
+                                  fake_clock);
+}
+
+/* Queue a full DualSense report at rest with a byte of buttons set: over
+ * USB, or over Bluetooth two bytes on and with its CRC. */
+static void queue_dualsense(fake_device *device, uint8_t buttons0)
+{
+    uint8_t *const report = device->queue[device->queued % FAKE_QUEUE];
+    const size_t data = device->bluetooth ? 2u : 1u;
+
+    memset(report, 0, TB_HID_REPORT_CAPACITY);
+    report[0] = device->bluetooth ? TB_DUALSENSE_REPORT_BLUETOOTH : TB_DUALSENSE_REPORT_USB;
+    memset(report + data, 0x80, 4);
+    report[data + 7] = buttons0;
+    if (device->bluetooth)
+    {
+        const uint32_t crc = tb_dualsense_crc(TB_DUALSENSE_SEED_INPUT, report, 74);
+        for (size_t index = 0; index < 4u; index++)
+        {
+            report[74 + index] = (uint8_t)(crc >> (8u * index));
+        }
+    }
+    device->queued++;
+}
+
+/* A DualSense over USB: found by its path, asked its address and firmware,
+ * its fade ended and its lights set for slot 0 (the middle player light,
+ * blue); its reports read, and rumble written once, its motors running
+ * until the next report. Every report is written at the descriptor's
+ * length. */
+TB_TEST(platform_win32_gamepad_rawhid, a_dualsense_over_usb)
+{
+    tb_gamepad_system *const system = fake_open_empty(NULL);
+    fake_device *const device = &fake.devices[0];
+    tb_gamepad_info info = {0};
+
+    fake_dualsense(0, dualsense_usb, false, 0x50);
+    tb_gamepad_system_poll(system);
+    TB_TEST_REQUIRE(state_at(system, 0).connected);
+    tb_gamepad_get_info(system, 0, &info);
+    TB_TEST_EXPECT_STRING(info.name, ==, "DualSense Wireless Controller");
+    TB_TEST_EXPECT_HEX(info.vendor, ==, 0x054c);
+    TB_TEST_EXPECT_HEX(info.product, ==, 0x0ce6);
+    TB_TEST_EXPECT_HEX(info.capabilities, ==, TB_GAMEPAD_CAPABILITY_RUMBLE);
+    TB_TEST_EXPECT_UINT(device->features, ==, 2u);
+    TB_TEST_EXPECT_UINT(device->writes, ==, 2u);
+    TB_TEST_EXPECT_HEX(device->last_write[0], ==, TB_DUALSENSE_OUTPUT_USB);
+    TB_TEST_EXPECT_HEX(device->last_write[2], ==, 0x14);
+    TB_TEST_EXPECT_HEX(device->last_write[1 + 43], ==, 0x04);
+    TB_TEST_EXPECT_HEX(device->last_write[1 + 46], ==, 0x40);
+
+    queue_dualsense(device, 0x28); /* Cross, the hat at rest. */
+    tb_gamepad_system_poll(system);
+    TB_TEST_EXPECT_HEX(state_at(system, 0).buttons, ==, 1u << TB_GAMEPAD_BUTTON_SOUTH);
+
+    TB_TEST_REQUIRE(tb_gamepad_rumble(system, 0, &(tb_gamepad_rumble_desc){1.0f, 0.0f, 0.1}));
+    TB_TEST_EXPECT_UINT(device->writes, ==, 3u);
+    TB_TEST_EXPECT_HEX(device->last_write[4], ==, 0xff);
+    tb_gamepad_system_close(system);
+    /* Closing stopped it. */
+    TB_TEST_EXPECT_UINT(device->writes, ==, 4u);
+    TB_TEST_EXPECT_HEX(device->last_write[4], ==, 0x00);
+    TB_TEST_EXPECT_INT(fake.handles, ==, 0);
+}
+
+/* A DualSense over Bluetooth: its path names the HID service and its IDs
+ * in Bluetooth's form; the calibration is read, which turns on the full
+ * reports; reads are of the descriptor's longest report, and its full
+ * reports are read through their CRC. */
+TB_TEST(platform_win32_gamepad_rawhid, a_dualsense_over_bluetooth)
+{
+    tb_gamepad_system *const system = fake_open_empty(NULL);
+    fake_device *const device = &fake.devices[0];
+
+    fake_dualsense(0, dualsense_bluetooth, true, 0x50);
+    tb_gamepad_system_poll(system);
+    TB_TEST_REQUIRE(state_at(system, 0).connected);
+    TB_TEST_EXPECT_UINT(device->features, ==, 3u);
+    TB_TEST_EXPECT_UINT(device->writes, ==, 2u);
+    TB_TEST_EXPECT_HEX(device->last_write[0], ==, TB_DUALSENSE_OUTPUT_BLUETOOTH);
+    TB_TEST_EXPECT_HEX(device->last_write[1], ==, 0x10); /* The second report. */
+    TB_TEST_EXPECT(tb_dualsense_crc_ok(TB_DUALSENSE_SEED_OUTPUT, device->last_write,
+                                       TB_DUALSENSE_OUTPUT_BLUETOOTH_SIZE));
+    queue_dualsense(device, 0x88); /* Triangle. */
+    tb_gamepad_system_poll(system);
+    TB_TEST_EXPECT_HEX(state_at(system, 0).buttons, ==, 1u << TB_GAMEPAD_BUTTON_NORTH);
+    tb_gamepad_system_close(system);
+}
+
+/* One pad connected over USB and Bluetooth at once is read once, over its
+ * cable, whichever the listing gives first, and its Bluetooth interface is
+ * not started again at every listing. When the cable goes, the pad is read
+ * over Bluetooth. Two pads of their own are both read. */
+TB_TEST(platform_win32_gamepad_rawhid, one_pad_two_ways_is_read_once)
+{
+    tb_gamepad_system *const system = fake_open_empty(NULL);
+    tb_gamepad_event event = {0};
+
+    fake_dualsense(0, dualsense_bluetooth, true, 0x50);
+    fake_dualsense(1, dualsense_usb, false, 0x50);
+    tb_gamepad_system_poll(system);
+    TB_TEST_EXPECT(state_at(system, 0).connected);
+    TB_TEST_EXPECT(!state_at(system, 1).connected);
+    TB_TEST_EXPECT_UINT(fake.devices[1].writes, ==, 2u);
+    /* Bluetooth was started, found to be the same pad, and closed. */
+    TB_TEST_EXPECT_UINT(fake.devices[0].features, ==, 3u);
+    TB_TEST_EXPECT_INT(fake.handles, ==, 3);
+    TB_TEST_REQUIRE(tb_gamepad_system_next_event(system, &event));
+    TB_TEST_EXPECT(!tb_gamepad_system_next_event(system, &event));
+
+    fake_now = TB_HID_SCAN_NANOSECONDS;
+    tb_gamepad_system_poll(system);
+    TB_TEST_EXPECT_UINT(fake.devices[0].features, ==, 3u);
+    TB_TEST_EXPECT(!state_at(system, 1).connected);
+
+    /* The cable goes: the slot empties, and the next listing opens the
+     * pad over Bluetooth. */
+    fake.devices[1].unplugged = true;
+    fake.devices[1].present = false;
+    tb_gamepad_system_poll(system);
+    TB_TEST_EXPECT(!state_at(system, 0).connected);
+    fake_now = 2u * TB_HID_SCAN_NANOSECONDS;
+    tb_gamepad_system_poll(system);
+    TB_TEST_EXPECT(state_at(system, 0).connected);
+    TB_TEST_EXPECT_UINT(fake.devices[0].features, ==, 6u);
+
+    /* A second pad, of its own address. */
+    fake_dualsense(2, other_bluetooth, true, 0x51);
+    fake_now = 3u * TB_HID_SCAN_NANOSECONDS;
+    tb_gamepad_system_poll(system);
+    TB_TEST_EXPECT(state_at(system, 1).connected);
+    TB_TEST_EXPECT_HEX(fake.devices[2].last_write[3 + 43], ==, 0x0a); /* Player 2. */
+    tb_gamepad_system_close(system);
+    TB_TEST_EXPECT_INT(fake.handles, ==, 0);
+}
+
+/* An interface whose pad is open through another is forgotten when it
+ * goes, and the backend forgets it at its close too. */
+TB_TEST(platform_win32_gamepad_rawhid, a_duplicate_that_goes_is_forgotten)
+{
+    tb_gamepad_system *system = fake_open_empty(NULL);
+
+    fake_dualsense(0, dualsense_usb, false, 0x50);
+    fake_dualsense(1, dualsense_bluetooth, true, 0x50);
+    tb_gamepad_system_poll(system);
+    fake.devices[1].present = false;
+    fake_now = TB_HID_SCAN_NANOSECONDS;
+    tb_gamepad_system_poll(system);
+    fake.devices[1].present = true;
+    fake_now = 2u * TB_HID_SCAN_NANOSECONDS;
+    tb_gamepad_system_poll(system);
+    /* Started again, being forgotten, and found the same pad again. */
+    TB_TEST_EXPECT_UINT(fake.devices[1].features, ==, 6u);
+    TB_TEST_EXPECT(!state_at(system, 1).connected);
+    tb_gamepad_system_close(system);
+    TB_TEST_EXPECT_INT(fake.handles, ==, 0);
+}
+
+/* Steam's list names DualSense pads too, and a device whose report lengths
+ * the system will not give is closed again. */
+TB_TEST(platform_win32_gamepad_rawhid, steam_and_unknown_lengths_leave_a_dualsense)
+{
+    tb_gamepad_system *system = fake_open_empty("0x054c/0x0ce6");
+
+    fake_dualsense(0, dualsense_usb, false, 0x50);
+    tb_gamepad_system_poll(system);
+    TB_TEST_EXPECT(!state_at(system, 0).connected);
+    TB_TEST_EXPECT_INT(fake.handles, ==, 0);
+    tb_gamepad_system_close(system);
+
+    system = fake_open_empty(NULL);
+    fake_dualsense(0, dualsense_usb, false, 0x50);
+    fake.caps_fail = true;
+    tb_gamepad_system_poll(system);
+    TB_TEST_EXPECT(!state_at(system, 0).connected);
+    TB_TEST_EXPECT_INT(fake.handles, ==, 0);
+    tb_gamepad_system_close(system);
+}
+
+/* Find a real pad by its IDs in a system's slots, polling for up to a
+ * second and a half; TB_GAMEPAD_SLOT_COUNT for none. */
+static size_t find_real_pad(tb_gamepad_system *system, uint16_t vendor, uint16_t product)
+{
+    const uint64_t start = tb_platform_clock_nanoseconds();
+    const uint64_t patience = 1500u * FAKE_MILLISECONDS;
+
+    while (tb_platform_clock_nanoseconds() - start < patience)
+    {
+        tb_gamepad_system_poll(system);
+        for (size_t slot = 0; slot < TB_GAMEPAD_SLOT_COUNT; slot++)
+        {
+            tb_gamepad_info candidate = {0};
+            tb_gamepad_get_info(system, slot, &candidate);
+            if (candidate.vendor == vendor && candidate.product == product)
+            {
+                return slot;
+            }
+        }
+        tb_platform_sleep(20u * FAKE_MILLISECONDS);
+    }
+    return TB_GAMEPAD_SLOT_COUNT;
+}
+
+/* A real DualSense, over USB or Bluetooth, through the system's own
+ * libraries: found once, named, and read in the layout's ranges. Skipped
+ * without one, as on CI. Its buttons and sticks are whatever the player is
+ * doing, so they are not checked; the sandbox's gamepad scene shows them. */
+TB_TEST(platform_win32_gamepad_rawhid, a_real_dualsense_is_read)
+{
+    tb_gamepad_system *system = NULL;
+    size_t found = TB_GAMEPAD_SLOT_COUNT;
+    size_t count = 0;
+    tb_gamepad_state state = {0};
+    tb_gamepad_info info = {0};
+    const uint32_t layout = (1u << TB_GAMEPAD_BUTTON_COUNT) - 1u;
+
+    TB_TEST_REQUIRE_INT(tb_gamepad_system_open(&system, NULL), ==, TB_GAMEPAD_OK);
+    found = find_real_pad(system, TB_DUALSENSE_VENDOR, TB_DUALSENSE_PRODUCT);
+    if (found == TB_GAMEPAD_SLOT_COUNT)
+    {
+        tb_gamepad_system_close(system);
+        TB_TEST_SKIP("no DualSense is connected");
+    }
+    for (size_t slot = 0; slot < TB_GAMEPAD_SLOT_COUNT; slot++)
+    {
+        tb_gamepad_info candidate = {0};
+        tb_gamepad_get_info(system, slot, &candidate);
+        count +=
+            candidate.vendor == TB_DUALSENSE_VENDOR && candidate.product == TB_DUALSENSE_PRODUCT;
+    }
+    tb_gamepad_get_state(system, found, &state);
+    tb_gamepad_get_info(system, found, &info);
+    tb_gamepad_system_close(system);
+    TB_TEST_EXPECT(state.connected);
+    TB_TEST_EXPECT_STRING(info.name, ==, "DualSense Wireless Controller");
+    TB_TEST_EXPECT_HEX(info.capabilities, ==, TB_GAMEPAD_CAPABILITY_RUMBLE);
+    /* One pad on this machine, over a cable and Bluetooth alike. */
+    TB_TEST_EXPECT_UINT(count, ==, 1u);
+    TB_TEST_EXPECT_HEX(state.buttons & ~layout, ==, 0);
+    for (size_t axis = 0; axis < TB_GAMEPAD_AXIS_COUNT; axis++)
+    {
+        TB_TEST_CONTEXT("axis %zu", axis);
+        TB_TEST_EXPECT_FLOAT(state.axes[axis], >=, -1.0f);
+        TB_TEST_EXPECT_FLOAT(state.axes[axis], <=, 1.0f);
+    }
+}
+
 /* A real Switch 2 Pro Controller, through the system's own libraries:
  * found, named, and read in the layout's ranges. Skipped without one, as
  * on CI. Its buttons and sticks are whatever the player is doing, so they
@@ -871,29 +1242,12 @@ TB_TEST(platform_win32_gamepad_rawhid, a_real_switch2_pad_is_read)
 {
     tb_gamepad_system *system = NULL;
     size_t found = TB_GAMEPAD_SLOT_COUNT;
-    const uint64_t start = tb_platform_clock_nanoseconds();
-    const uint64_t patience = 1500u * FAKE_MILLISECONDS;
     tb_gamepad_state state = {0};
     tb_gamepad_info info = {0};
     const uint32_t layout = (1u << TB_GAMEPAD_BUTTON_COUNT) - 1u;
 
     TB_TEST_REQUIRE_INT(tb_gamepad_system_open(&system, NULL), ==, TB_GAMEPAD_OK);
-    while (tb_platform_clock_nanoseconds() - start < patience)
-    {
-        tb_gamepad_system_poll(system);
-        for (size_t slot = 0; slot < TB_GAMEPAD_SLOT_COUNT && found == TB_GAMEPAD_SLOT_COUNT;
-             slot++)
-        {
-            tb_gamepad_info candidate = {0};
-            tb_gamepad_get_info(system, slot, &candidate);
-            if (candidate.vendor == TB_SWITCH2_VENDOR &&
-                candidate.product == TB_SWITCH2_PRODUCT_PRO)
-            {
-                found = slot;
-            }
-        }
-        tb_platform_sleep(20u * FAKE_MILLISECONDS);
-    }
+    found = find_real_pad(system, TB_SWITCH2_VENDOR, TB_SWITCH2_PRODUCT_PRO);
     if (found == TB_GAMEPAD_SLOT_COUNT)
     {
         tb_gamepad_system_close(system);

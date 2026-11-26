@@ -528,5 +528,7 @@ TB_TEST(platform_gamepad_switch2, driver_is_found_by_its_ids)
     TB_TEST_EXPECT_POINTER(tb_hid_driver_find(0x045e, TB_SWITCH2_PRODUCT_PRO), ==, NULL);
     TB_TEST_EXPECT_STRING(tb_switch2_driver.name, ==, "Switch 2 Pro Controller");
     TB_TEST_EXPECT_HEX(tb_switch2_driver.capabilities, ==, TB_GAMEPAD_CAPABILITY_RUMBLE);
-    TB_TEST_EXPECT_UINT(tb_switch2_driver.report_size, ==, 64u);
+    /* It knows no identity, and its light is set while it is set up. */
+    TB_TEST_EXPECT_UINT(tb_switch2_driver.identity(NULL), ==, 0u);
+    TB_TEST_EXPECT_UINT(tb_switch2_driver.player(NULL, 1, NULL, 0), ==, 0u);
 }
