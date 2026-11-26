@@ -821,6 +821,41 @@ bool tb_input_has_context(const tb_input_player *player, tb_input_context contex
  * Gathering.
  * ------------------------------------------------------------------------- */
 
+static void tb_input_apply(tb_input_player *player, tb_input_key key, tb_input_value value);
+
+/* A virtual button's state from its axis's value toward it. */
+static void tb_input_apply_virtual(tb_input_player *player, tb_input_key button, float value,
+                                   const tb_gamepad_threshold *threshold)
+{
+    const bool was_down = player->keys[button].value.x != 0.0f;
+    const bool down = tb_gamepad_analog_button(value, was_down, threshold);
+
+    if (down != was_down)
+    {
+        tb_input_apply(player, button, (tb_input_value){down ? 1.0f : 0.0f, 0.0f, 0.0f});
+    }
+}
+
+/* The buttons an axis makes, from its new value: a stick's directions and a
+ * trigger's button. They are made here rather than fed, so that a
+ * recording, which holds the axis, makes them again. */
+static void tb_input_apply_virtuals(tb_input_player *player, tb_input_key axis, float value)
+{
+    tb_input_key positive = TB_INPUT_KEY_NONE;
+    tb_input_key negative = TB_INPUT_KEY_NONE;
+    tb_gamepad_threshold threshold = {0};
+
+    if (!tb_input_key_virtual_buttons(axis, &positive, &negative, &threshold))
+    {
+        return;
+    }
+    tb_input_apply_virtual(player, positive, value, &threshold);
+    if (negative != TB_INPUT_KEY_NONE)
+    {
+        tb_input_apply_virtual(player, negative, -value, &threshold);
+    }
+}
+
 /* A key's value into a player's keys. */
 static void tb_input_apply(tb_input_player *player, tb_input_key key, tb_input_value value)
 {
@@ -836,6 +871,7 @@ static void tb_input_apply(tb_input_player *player, tb_input_key key, tb_input_v
         return;
     case TB_INPUT_KEY_KIND_AXIS:
         state->value = (tb_input_value){value.x, 0.0f, 0.0f};
+        tb_input_apply_virtuals(player, key, value.x);
         return;
     case TB_INPUT_KEY_KIND_RELATIVE:
         state->value.x += value.x;
@@ -1005,6 +1041,45 @@ bool tb_input_feed_window_event(tb_input *input, const tb_window_event *event)
         break;
     }
     return false;
+}
+
+/* Feed a key of a pad's when the player has another value for it. */
+static void tb_input_feed_changed(tb_input *input, tb_input_device device,
+                                  const tb_input_player *player, tb_input_key key, float value)
+{
+    if (player->keys[key].value.x == value)
+    {
+        return;
+    }
+    tb_input_feed_key(input, device, key, (tb_input_value){value, 0.0f, 0.0f});
+}
+
+void tb_input_feed_gamepad(tb_input *input, tb_input_device device, const tb_gamepad_state *state)
+{
+    size_t player = TB_INPUT_NO_PLAYER;
+
+    TB_ASSERT(input != NULL);
+    TB_ASSERT(state != NULL);
+    TB_ASSERT_MSG(device != TB_INPUT_DEVICE_NONE, "a device");
+    player = tb_input_device_player(input, device);
+    if (player == TB_INPUT_NO_PLAYER)
+    {
+        return;
+    }
+    for (size_t button = 0; button < TB_GAMEPAD_BUTTON_COUNT; button++)
+    {
+        const bool down =
+            state->connected && tb_gamepad_button_down(state, (tb_gamepad_button)button);
+        tb_input_feed_changed(input, device, &input->players[player],
+                              tb_input_key_from_gamepad_button((tb_gamepad_button)button),
+                              down ? 1.0f : 0.0f);
+    }
+    for (size_t axis = 0; axis < TB_GAMEPAD_AXIS_COUNT; axis++)
+    {
+        const float value = state->connected ? state->axes[axis] : 0.0f;
+        tb_input_feed_changed(input, device, &input->players[player],
+                              tb_input_key_from_gamepad_axis((tb_gamepad_axis)axis), value);
+    }
 }
 
 /* ---------------------------------------------------------------------------

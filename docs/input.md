@@ -21,6 +21,8 @@ const tb_input_action move = tb_input_find_action(input, "move");
 
 /* As the window's events arrive: */
 tb_input_feed_window_event(input, &event);
+/* Once a frame, after polling the gamepads (gamepad.h): */
+tb_input_feed_gamepad(input, TB_INPUT_DEVICE_GAMEPAD(slot), &state);
 /* Once a tick, before the simulation: */
 tb_input_tick(input, time->tick_seconds);
 if (tb_input_action_triggered(player, jump)) { ... }
@@ -28,9 +30,11 @@ const tb_input_value direction = tb_input_action_value(player, move); /* x right
 ```
 
 The module is not yet driven by the [game loop](game-loop.md), the
-[GUI](gui.md) or Burrow: a game feeds it and ticks it itself. Gamepads and
-touch screens come in later changes, through `tb_input_feed_key()`; their
-keys are named now, so that definitions written today hold them.
+[GUI](gui.md) or Burrow: a game feeds it and ticks it itself. Gamepads
+come from the [gamepad interface](gamepad.md), through
+`tb_input_feed_gamepad()`. Touch screens come in a later change, through
+`tb_input_feed_key()`; their keys are named now, so that definitions written
+today hold them.
 The sandbox's `input` scene ([sandbox](sandbox.md)) shows every action of a
 file live.
 
@@ -70,12 +74,34 @@ rather than its label, as Unreal's `EKeys`. Files name keys as
 | The mouse's motion | `mouse_x`, `mouse_y`, and both as `mouse_xy` | how far it moved in a tick; up positive |
 | Gamepad buttons | `gamepad_face_south`, `_east`, `_west`, `_north`, `gamepad_left_shoulder`, `gamepad_right_shoulder`, `gamepad_left_stick_click`, `gamepad_right_stick_click`, `gamepad_dpad_up`, `_down`, `_left`, `_right`, `gamepad_start`, `gamepad_back`, `gamepad_guide`, and the back paddles `gamepad_left_paddle_1`, `_2`, `gamepad_right_paddle_1`, `_2` (the Steam Deck's L4, L5, R4, R5) | a button |
 | Gamepad triggers | `gamepad_left_trigger`, `gamepad_right_trigger` | an axis1d from 0 to 1 |
+| | `gamepad_left_trigger_button`, `gamepad_right_trigger_button` | a button, made from the trigger's value |
 | Gamepad sticks | `gamepad_left_stick_x`, `_y`, and both as `gamepad_left_stick`; the same for `right` | from -1 to 1, right and up positive |
+| | `gamepad_left_stick_up`, `_down`, `_left`, `_right`; the same for `right` | a button, made from the stick's value |
 | Touches | `touch_1` to `touch_10` | a button while a finger is down |
 | | `touch_1_position` to `touch_10_position` | an axis2d in logical units |
 
 The gamepad keys are one standard layout, by place: the bottom face button is
 `gamepad_face_south` whether it says A or Cross.
+
+**Sticks and triggers as buttons.** As a stick's X or Y or a trigger is fed,
+the input makes the buttons of its directions, as Unreal's
+`Gamepad_LeftStick_Up` and `Gamepad_LeftTrigger` are made beside
+`Gamepad_LeftY` and `Gamepad_LeftTriggerAxis`, so that a context maps "jump"
+to a trigger squeezed, or a menu's "up" to the stick. A direction is down
+from 0.5 and up again below 0.4, a trigger's button from 0.2 and below 0.1:
+the defaults of [the gamepad interface](gamepad.md#sticks-and-triggers-as-buttons),
+whose `tb_gamepad_analog_button()` makes them, with the reasons for each.
+Between the two thresholds a button keeps its state, so a value hovering at
+the threshold does not press it again and again. They are made from the
+values as fed, before any dead zone, and a recording, which holds the axes,
+makes them again when replayed.
+
+**The guide button is the system's.** `gamepad_guide` is named, so that a
+device of a game's own may give it, but no gamepad of the engine does: the
+Xbox, PS and Steam buttons, and the share button, belong to the operating
+system and the launcher (Game Bar, the Steam overlay, screenshots, the
+system's gestures), and the [gamepad interface](gamepad.md#the-systems-buttons)
+leaves them to it.
 
 A **button**'s value is 1 while it is down. The **mouse's motion** and the
 **wheel** add up between ticks and start from zero after each. Any other
@@ -217,8 +243,14 @@ fixed ticks.
   motion; otherwise the cursor's motion is taken from its positions, in
   logical units, from the first position after it enters the window. When the
   window loses the focus, every key and button held is released.
-  `tb_input_feed_key()` takes a key's value from any device, and is how
-  gamepads and touch screens will come in.
+  `tb_input_feed_gamepad()` takes a gamepad's state, as the
+  [gamepad interface](gamepad.md) read it, for the player its device is
+  assigned to: each button, stick axis and trigger that changed. A pad that
+  is gone releases everything. Which pad is which device is the game's
+  choice; `TB_INPUT_DEVICE_GAMEPAD(slot)` numbers them by slot, and
+  `tb_input_assign_device()` gives each to a player. `tb_input_feed_key()`
+  takes a key's value from any other device, and is how touch screens will
+  come in.
 - **Evaluation.** `tb_input_tick()` evaluates every action of every player,
   then calls the callbacks. A button pressed and released between two ticks
   is down for the next tick and up for the one after, so a tap is never lost,
@@ -236,6 +268,15 @@ need not:
 | `gamepad` | `controls.gamepad.horizontal_sensitivity` on X and `vertical_sensitivity` on Y, Y negated with `controls.gamepad.invert_y` |
 | `touch` | `controls.touch.sensitivity` on X and Y |
 | `left_stick`, `right_stick` | a radial dead zone of `controls.gamepad.left_dead_zone` or `right_dead_zone` |
+
+Dead zones are applied here, and only here: the gamepad interface and
+`tb_input_feed_gamepad()` give the pad's values as it reported them, scaled
+to the standard ranges, so that a stick's dead zone is applied once, by the
+mapping's `left_stick` or `right_stick` modifier. The buttons made from the
+sticks and triggers have thresholds of their own, well past any dead zone a
+player is likely to choose. `controls.gamepad.vibration` is not an input
+setting: a game gives it to the gamepad system
+(`tb_gamepad_system_set_vibration()`), which scales rumble by it.
 
 `tb_input_follow_settings()` reads them from the engine's
 [settings](settings.md) at the start of every tick, so a change in an options
@@ -343,13 +384,13 @@ An input is **stage-owned**: it, its players and its recordings are used on
 one thread, the one that ticks it, usually the game loop's. Callbacks run on
 that thread, inside `tb_input_tick()`. The functions on keys alone
 (`tb_input_key_name()`, `tb_input_find_key()`, `tb_input_key_type()`,
-`tb_input_key_from_window()`, `tb_input_key_from_mouse_button()`) are
+`tb_input_key_from_window()`, `tb_input_key_from_mouse_button()`,
+`tb_input_key_from_gamepad_button()`, `tb_input_key_from_gamepad_axis()`) are
 thread-safe.
 
 ## Still to come
 
-- **Gamepads**, a platform interface on Windows, Linux and macOS, and
-  **touch**, through `tb_input_feed_key()`.
+- **Touch**, through `tb_input_feed_key()`.
 - **Rebinding and prompts**: listening for a key to bind, conflicts, rebinds
   saved apart from the defaults, and keys' names for button prompts.
 - **Integration**: the game loop gathers and ticks input, the GUI's

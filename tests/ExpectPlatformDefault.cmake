@@ -9,6 +9,10 @@
 #                   by commas.
 #   TB_SYSTEM_NAME  The system the build was configured for, which the report
 #                   names.
+#   TB_ENGINE_SOURCES  Sources of the engine, separated by commas, that define
+#                   functions of the interfaces' headers once for every
+#                   platform: names, and arithmetic on values. Those need
+#                   nothing from the platform, so no adapter defines them.
 
 # The one function the default adapter implements: it ends the process, which
 # the report of every other function relies on.
@@ -16,6 +20,18 @@ set(implemented_function tb_platform_abort)
 
 # Exit status of the framework when no case has the name it was given.
 set(no_such_case_status 2)
+
+# The functions defined at the start of a line of an engine source.
+string(REPLACE "," ";" engine_sources "${TB_ENGINE_SOURCES}")
+set(engine_functions "")
+foreach(source IN LISTS engine_sources)
+    file(STRINGS "${source}" definitions REGEX "^[a-z].*[ *]tb_[a-z0-9_]+\\(")
+    foreach(definition IN LISTS definitions)
+        if(definition MATCHES "[ *](tb_[a-z0-9_]+)\\(")
+            list(APPEND engine_functions "${CMAKE_MATCH_1}")
+        endif()
+    endforeach()
+endforeach()
 
 string(REPLACE "," ";" headers "${TB_HEADERS}")
 set(functions "")
@@ -33,7 +49,8 @@ foreach(header IN LISTS headers)
         # platform: the engine implements it once, and no adapter does. The
         # name is kept first: the next match replaces CMAKE_MATCH_1.
         set(name "${CMAKE_MATCH_1}")
-        if(NOT name MATCHES "_result_name$")
+        list(FIND engine_functions "${name}" engine_index)
+        if(NOT name MATCHES "_result_name$" AND engine_index EQUAL -1)
             list(APPEND functions "${name}")
         endif()
     endforeach()
