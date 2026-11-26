@@ -337,7 +337,7 @@ static void tb_renderer_skinning_pipeline(tb_renderer *renderer)
     tb_rhi_error error = TB_RHI_ERROR_INIT;
     tb_rhi_result result = TB_RHI_OK;
 
-    if ((renderer->info.features & TB_RHI_FEATURE_BINDLESS) == 0)
+    if ((renderer->info.features & TB_RHI_FEATURE_HEAP_INDICES) == 0)
     {
         /* The skinning shader reaches vertices and joints by index. */
         (void)tb_fmt_buffer(renderer->skin_unavailable, sizeof(renderer->skin_unavailable), "%s",

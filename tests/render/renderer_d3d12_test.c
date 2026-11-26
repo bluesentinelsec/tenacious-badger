@@ -6,6 +6,9 @@
 #include "display_color.h"
 #include "tb_test.h"
 
+/* The backend the case runs on: each runs on D3D12, then on D3D11. */
+static tb_rhi_backend tb_test_backend = TB_RHI_BACKEND_D3D12;
+
 typedef struct screen
 {
     tb_window_system *system;
@@ -92,7 +95,7 @@ static uint32_t pixel_at(const uint8_t *pixels, uint32_t width, uint32_t x, uint
  * is letterboxed to the window's width and half that height, centered, and
  * the bars above and below are the policy's color, as written; the cube is
  * in the middle of the viewport, and the clear color at its corner. */
-TB_TEST(renderer_frame, the_scene_is_letterboxed_between_bars_on_d3d12)
+static void the_scene_is_letterboxed_between_bars_case(void)
 {
     screen opened = {0};
     tb_mesh *cube = NULL;
@@ -101,7 +104,7 @@ TB_TEST(renderer_frame, the_scene_is_letterboxed_between_bars_on_d3d12)
     uint32_t height = 0;
     tb_viewport_policy policy = TB_VIEWPORT_POLICY_INIT;
 
-    open_screen(&opened, TB_RHI_BACKEND_D3D12);
+    open_screen(&opened, tb_test_backend);
     policy.design_width = 320;
     policy.design_height = 160;
     policy.aspect = TB_VIEWPORT_ASPECT_KEEP;
@@ -136,10 +139,22 @@ TB_TEST(renderer_frame, the_scene_is_letterboxed_between_bars_on_d3d12)
     close_screen(&opened);
 }
 
+TB_TEST(renderer_frame, the_scene_is_letterboxed_between_bars_on_d3d12)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D12;
+    the_scene_is_letterboxed_between_bars_case();
+}
+
+TB_TEST(renderer_frame, the_scene_is_letterboxed_between_bars_on_d3d11)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D11;
+    the_scene_is_letterboxed_between_bars_case();
+}
+
 /* On D3D12, the cube is red in the middle, as the output transform shows
  * it; the line on top is green over everything, as given, since lines are
  * drawn over the tone-mapped frame; and the corners are the clear color. */
-TB_TEST(renderer_frame, a_mesh_and_lines_land_where_they_should_on_d3d12)
+static void a_mesh_and_lines_land_where_they_should_case(void)
 {
     screen opened = {0};
     tb_mesh *cube = NULL;
@@ -150,7 +165,7 @@ TB_TEST(renderer_frame, a_mesh_and_lines_land_where_they_should_on_d3d12)
     tb_vec4 clip = {0};
     uint32_t line_y = 0;
 
-    open_screen(&opened, TB_RHI_BACKEND_D3D12);
+    open_screen(&opened, tb_test_backend);
     cube = tb_mesh_create_shape(opened.renderer, TB_MESH_CUBE, 0);
     tb_renderer_capture_next_frame(opened.renderer);
     draw_frame(opened.renderer, cube);
@@ -169,6 +184,18 @@ TB_TEST(renderer_frame, a_mesh_and_lines_land_where_they_should_on_d3d12)
     TB_TEST_EXPECT_HEX(pixel_at(pixels, width, width / 2, line_y) & 0xFF00FF00u, ==, 0xFF00FF00u);
     tb_mesh_destroy(opened.renderer, cube);
     close_screen(&opened);
+}
+
+TB_TEST(renderer_frame, a_mesh_and_lines_land_where_they_should_on_d3d12)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D12;
+    a_mesh_and_lines_land_where_they_should_case();
+}
+
+TB_TEST(renderer_frame, a_mesh_and_lines_land_where_they_should_on_d3d11)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D11;
+    a_mesh_and_lines_land_where_they_should_case();
 }
 
 /* Red pixels of a capture in its columns from `left` up to `right`. */
@@ -221,7 +248,7 @@ static const uint8_t *draw_edges(tb_renderer *renderer, tb_mesh *cube,
  * holds the whole design view, so a cube at its left and right edges is
  * still on screen; a camera that keeps its vertical field of view instead
  * crops the sides, and both are off it. */
-TB_TEST(renderer_frame, expand_keeps_the_design_view_whole_on_a_taller_frame_on_d3d12)
+static void expand_keeps_the_design_view_whole_on_a_taller_frame_case(void)
 {
     screen opened = {0};
     tb_mesh *cube = NULL;
@@ -230,7 +257,7 @@ TB_TEST(renderer_frame, expand_keeps_the_design_view_whole_on_a_taller_frame_on_
     uint32_t height = 0;
     const tb_viewport_policy policy = TB_VIEWPORT_POLICY_INIT;
 
-    open_screen(&opened, TB_RHI_BACKEND_D3D12);
+    open_screen(&opened, tb_test_backend);
     /* The player's 16:10 narrows any frame to that shape first, so the
      * viewport is 16:10 whatever size the window is given. */
     tb_renderer_set_viewport_policy(opened.renderer, &policy, 1.6f);
@@ -250,4 +277,16 @@ TB_TEST(renderer_frame, expand_keeps_the_design_view_whole_on_a_taller_frame_on_
     TB_TEST_EXPECT_UINT(red_pixels(pixels, width, height, 0, width), ==, 0u);
     tb_mesh_destroy(opened.renderer, cube);
     close_screen(&opened);
+}
+
+TB_TEST(renderer_frame, expand_keeps_the_design_view_whole_on_a_taller_frame_on_d3d12)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D12;
+    expand_keeps_the_design_view_whole_on_a_taller_frame_case();
+}
+
+TB_TEST(renderer_frame, expand_keeps_the_design_view_whole_on_a_taller_frame_on_d3d11)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D11;
+    expand_keeps_the_design_view_whole_on_a_taller_frame_case();
 }

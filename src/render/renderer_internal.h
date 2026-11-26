@@ -19,6 +19,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+struct tb_d3dcompiler;
 struct tb_dxc;
 struct tb_shader_cache;
 struct tb_shader_library;
@@ -150,6 +151,7 @@ struct tb_renderer
     tb_rhi_device_info info;
     tb_rhi_swap_chain *chain;
     struct tb_dxc *dxc;                       /* NULL where shaders come from the library only */
+    struct tb_d3dcompiler *d3dcompiler;       /* D3D11's; NULL as dxc is */
     struct tb_shader_library *shader_library; /* of the device's backend; NULL for none */
     struct tb_shader_cache *shader_cache;     /* borrowed; NULL for none */
     bool shader_library_only;

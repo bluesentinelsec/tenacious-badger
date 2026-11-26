@@ -17,6 +17,9 @@
 #include <math.h>
 #include <stdlib.h>
 
+/* The backend the case runs on: each runs on D3D12, then on D3D11. */
+static tb_rhi_backend tb_test_backend = TB_RHI_BACKEND_D3D12;
+
 typedef struct screen
 {
     tb_window_system *system;
@@ -72,7 +75,7 @@ static void open_screen_with(screen *opened, tb_renderer_profile profile)
     options.window = opened->window;
     options.log = opened->log;
     options.device = (tb_rhi_device_options){
-        .backend = TB_RHI_BACKEND_D3D12, .adapter = TB_RHI_ADAPTER_SOFTWARE, .validation = true};
+        .backend = tb_test_backend, .adapter = TB_RHI_ADAPTER_SOFTWARE, .validation = true};
     options.profile = profile;
     if (tb_renderer_create(&options, &opened->renderer, &error) != TB_RHI_OK)
     {
@@ -86,7 +89,7 @@ static void open_screen_with(screen *opened, tb_renderer_profile profile)
                                                                      .max_lights = 256,
                                                                      .reflections = true});
     tb_rhi_device_info_of(tb_renderer_device(opened->renderer), &info);
-    if ((info.features & TB_RHI_FEATURE_BINDLESS) == 0)
+    if ((info.features & TB_RHI_FEATURE_HEAP_INDICES) == 0)
     {
         tb_renderer_destroy(opened->renderer);
         (void)tb_log_destroy(opened->log);
@@ -169,7 +172,7 @@ static bool near_color(uint32_t actual, uint32_t expected, int tolerance)
 /* Directional, point and spot lights in the units light.h gives: each
  * lights the quad to 1 where it should, and to nothing past a point
  * light's range or outside a spot's cone. The ambient light is off. */
-TB_TEST(lighting_frame, lights_light_a_white_surface_as_their_units_say_on_d3d12)
+static void lights_light_a_white_surface_as_their_units_say_case(void)
 {
     screen opened = {0};
     tb_light light = TB_LIGHT_INIT;
@@ -215,11 +218,23 @@ TB_TEST(lighting_frame, lights_light_a_white_surface_as_their_units_say_on_d3d12
     close_screen(&opened);
 }
 
+TB_TEST(lighting_frame, lights_light_a_white_surface_as_their_units_say_on_d3d12)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D12;
+    lights_light_a_white_surface_as_their_units_say_case();
+}
+
+TB_TEST(lighting_frame, lights_light_a_white_surface_as_their_units_say_on_d3d11)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D11;
+    lights_light_a_white_surface_as_their_units_say_case();
+}
+
 /* With a light of no intensity, the ambient light alone: a surface facing
  * the horizon takes half of the sky's and half of the ground's, plus a
  * little reflection of the horizon (0.4 of the environment BRDF's 0.016
  * for a rough dielectric seen straight on). */
-TB_TEST(lighting_frame, a_surface_facing_the_horizon_takes_half_of_sky_and_ground_on_d3d12)
+static void a_surface_facing_the_horizon_takes_half_of_sky_and_ground_case(void)
 {
     screen opened = {0};
     tb_light light = TB_LIGHT_INIT;
@@ -235,6 +250,18 @@ TB_TEST(lighting_frame, a_surface_facing_the_horizon_takes_half_of_sky_and_groun
     TB_TEST_CONTEXT("ambient: %06X", (unsigned)color);
     TB_TEST_EXPECT(near_color(color, display_rgb(expected, expected, expected), 2));
     close_screen(&opened);
+}
+
+TB_TEST(lighting_frame, a_surface_facing_the_horizon_takes_half_of_sky_and_ground_on_d3d12)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D12;
+    a_surface_facing_the_horizon_takes_half_of_sky_and_ground_case();
+}
+
+TB_TEST(lighting_frame, a_surface_facing_the_horizon_takes_half_of_sky_and_ground_on_d3d11)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D11;
+    a_surface_facing_the_horizon_takes_half_of_sky_and_ground_case();
 }
 
 /* ---------------------------------------------------------------------------
@@ -348,7 +375,7 @@ static void golden_scene_destroy(screen *opened, golden_scene *scene)
  * WARP and looked at by eye: the G-buffer, every kind of light, the sky's
  * ambient light and reflections, tone mapping, the sky behind, an unlit
  * mesh, and lines over it all, hidden where the scene is nearer. */
-TB_TEST(lighting_frame, a_lit_scene_matches_its_golden_image_on_d3d12)
+static void a_lit_scene_matches_its_golden_image_case(void)
 {
     screen opened = {0};
     golden_scene scene = {0};
@@ -365,6 +392,18 @@ TB_TEST(lighting_frame, a_lit_scene_matches_its_golden_image_on_d3d12)
     expect_golden("lighting", pixels, width, height);
     golden_scene_destroy(&opened, &scene);
     close_screen(&opened);
+}
+
+TB_TEST(lighting_frame, a_lit_scene_matches_its_golden_image_on_d3d12)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D12;
+    a_lit_scene_matches_its_golden_image_case();
+}
+
+TB_TEST(lighting_frame, a_lit_scene_matches_its_golden_image_on_d3d11)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D11;
+    a_lit_scene_matches_its_golden_image_case();
 }
 
 /* Draw the golden scene for some frames, the camera still, and give the
@@ -389,7 +428,7 @@ static const uint8_t *golden_frames(screen *opened, const golden_scene *scene, i
 
 /* Temporal anti-aliasing, a cycle of its jitter blended: the edges smooth,
  * the rest as without it. */
-TB_TEST(lighting_frame, temporal_anti_aliasing_matches_its_golden_image_on_d3d12)
+static void temporal_anti_aliasing_matches_its_golden_image_case(void)
 {
     screen opened = {0};
     golden_scene scene = {0};
@@ -406,10 +445,22 @@ TB_TEST(lighting_frame, temporal_anti_aliasing_matches_its_golden_image_on_d3d12
     close_screen(&opened);
 }
 
+TB_TEST(lighting_frame, temporal_anti_aliasing_matches_its_golden_image_on_d3d12)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D12;
+    temporal_anti_aliasing_matches_its_golden_image_case();
+}
+
+TB_TEST(lighting_frame, temporal_anti_aliasing_matches_its_golden_image_on_d3d11)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D11;
+    temporal_anti_aliasing_matches_its_golden_image_case();
+}
+
 /* At half the output's resolution, temporal anti-aliasing upsamples the
  * scene to the output's: the frame is the output's size, and the
  * accumulated jitter gives back detail a bilinear filter would not. */
-TB_TEST(lighting_frame, temporal_anti_aliasing_upsamples_half_resolution_on_d3d12)
+static void temporal_anti_aliasing_upsamples_half_resolution_case(void)
 {
     screen opened = {0};
     golden_scene scene = {0};
@@ -432,11 +483,23 @@ TB_TEST(lighting_frame, temporal_anti_aliasing_upsamples_half_resolution_on_d3d1
     close_screen(&opened);
 }
 
+TB_TEST(lighting_frame, temporal_anti_aliasing_upsamples_half_resolution_on_d3d12)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D12;
+    temporal_anti_aliasing_upsamples_half_resolution_case();
+}
+
+TB_TEST(lighting_frame, temporal_anti_aliasing_upsamples_half_resolution_on_d3d11)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D11;
+    temporal_anti_aliasing_upsamples_half_resolution_case();
+}
+
 /* WARP runs on the CPU, so a renderer left to choose takes the low profile:
  * half the output's resolution, filtered up, with neither temporal
  * anti-aliasing nor reflections, and says why. The frame is still the
  * output's size. */
-TB_TEST(lighting_frame, warp_takes_the_low_profile_by_itself_on_d3d12)
+static void warp_takes_the_low_profile_by_itself_case(void)
 {
     screen opened = {0};
     golden_scene scene = {0};
@@ -462,6 +525,18 @@ TB_TEST(lighting_frame, warp_takes_the_low_profile_by_itself_on_d3d12)
     expect_golden("lighting_low", pixels, width, height);
     golden_scene_destroy(&opened, &scene);
     close_screen(&opened);
+}
+
+TB_TEST(lighting_frame, warp_takes_the_low_profile_by_itself_on_d3d12)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D12;
+    warp_takes_the_low_profile_by_itself_case();
+}
+
+TB_TEST(lighting_frame, warp_takes_the_low_profile_by_itself_on_d3d11)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D11;
+    warp_takes_the_low_profile_by_itself_case();
 }
 
 /* Pixels of a row neither the quad's nor the background's: those an edge
@@ -503,7 +578,7 @@ static uint32_t partial_pixels(screen *opened, int frames)
 /* The edges of a turned quad are steps of whole pixels without temporal
  * anti-aliasing; with it, after two cycles of its jitter, the pixels the
  * edges cross take shares of both sides, as many as the edges are long. */
-TB_TEST(lighting_frame, temporal_anti_aliasing_smooths_edges_on_d3d12)
+static void temporal_anti_aliasing_smooths_edges_case(void)
 {
     screen opened = {0};
     uint32_t stepped = 0;
@@ -517,4 +592,16 @@ TB_TEST(lighting_frame, temporal_anti_aliasing_smooths_edges_on_d3d12)
     TB_TEST_EXPECT_UINT(stepped, ==, 0);
     TB_TEST_EXPECT_UINT(smoothed, >, GOLDEN_HEIGHT);
     close_screen(&opened);
+}
+
+TB_TEST(lighting_frame, temporal_anti_aliasing_smooths_edges_on_d3d12)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D12;
+    temporal_anti_aliasing_smooths_edges_case();
+}
+
+TB_TEST(lighting_frame, temporal_anti_aliasing_smooths_edges_on_d3d11)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D11;
+    temporal_anti_aliasing_smooths_edges_case();
 }

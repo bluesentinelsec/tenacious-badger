@@ -395,7 +395,7 @@ tb_rhi_result tb_renderer_canvas_create(tb_renderer *renderer, uint32_t glyph_at
     {
         return result;
     }
-    if ((renderer->info.features & TB_RHI_FEATURE_BINDLESS) == 0)
+    if ((renderer->info.features & TB_RHI_FEATURE_HEAP_INDICES) == 0)
     {
         /* The canvas reaches its quads and images by index; without, it
          * draws nothing, and its statistics say so. */

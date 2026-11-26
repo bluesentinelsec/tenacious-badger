@@ -85,6 +85,11 @@ tb_renderer_set_viewport_policy(renderer, &policy, tb_viewport_aspect_ratio_from
 
 Without bindless resources, meshes are drawn straight into the swap
 chain's rectangle; its clear, of the clear color, covers the bars too.
+Throughout the renderer, bindless resources are the RHI's heap indices
+(`TB_RHI_FEATURE_HEAP_INDICES`): indices the same for a whole draw, which
+every shader of the renderer's reads from its constants, so D3D11, which
+binds them before each draw, draws as D3D12 does
+([D3D11](rhi.md#d3d11-what-it-imitates)).
 
 ### The viewport render mode
 
@@ -240,7 +245,7 @@ frame's buffer of skinned vertices, 32 bytes each, which the graph pools
 from frame to frame.
 
 **On the CPU.** Where the GPU cannot skin, the CPU does. A device without
-bindless resources (below Shader Model 6.6 or resource binding tier 3)
+bindless resources (D3D12 below Shader Model 6.6 or resource binding tier 3)
 cannot read vertices and matrices by index, and a backend that cannot make
 the skinning pipeline cannot run it; there, each skinned draw's vertices are
 skinned when the draw is made, by `tb_skin_vertices()`, into the frame's
@@ -720,21 +725,23 @@ The renderer's shaders are the engine's own files, `shaders/Engine/Private/*.hls
 in the source tree, which the engine library carries
 (`tb_shader_engine_loader()`). The build compiles each one that
 `shaders/Engine/Shaders.manifest` lists ahead of time, into the shader library
-of each backend that needs compiled shaders: `bin/Shaders/d3d12.tbsl` on
-Windows (see [badger-shaderc](shader-cache.md#badger-shaderc)). The renderer
+of each backend that needs compiled shaders: `bin/Shaders/d3d12.tbsl` and
+`bin/Shaders/d3d11.tbsl` on Windows (see
+[badger-shaderc](shader-cache.md#badger-shaderc)). The renderer
 finds each shader as `tb_shader_compile_cached()` does:
 
 1. in the library of its device's backend, `Shaders/<backend>.tbsl` in the
    VFS that `tb_renderer_options::shader_vfs` names, by the key of its
    sources: a shipped game needs no compiler for these;
 2. in the shader cache that `shader_cache` names, by the key of its sources
-   and of the DXC loaded;
-3. else it compiles it, through DXC to DXIL for D3D12, and keeps it in the
+   and of the compiler loaded;
+3. else it compiles it, through DXC to DXIL for D3D12 or through
+   D3DCompiler to DXBC for D3D11, and keeps it in the
    cache, unless `shader_library_only` is set, as `shaders.runtime_compile`
    off asks of a shipped game: then a shader the library lacks makes
    `tb_renderer_create()` fail, saying which.
 
-Without DXC, D3D12 draws with the library alone; with neither, the renderer
+Without its compiler, a backend draws with the library alone; with neither, the renderer
 is unavailable, and says why. The null backend runs no shader, and only checks
 each one.
 

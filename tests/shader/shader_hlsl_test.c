@@ -251,6 +251,27 @@ TB_TEST(shader_hlsl, what_shader_model_5_lacks_is_an_error_where_it_is_used)
                    TB_SHADER_STAGE_MISS, "the miss stage", 0, 0);
 }
 
+TB_TEST(shader_hlsl, a_writable_texture_keeps_unorm)
+{
+    /* D3D11 binds a texture of 8-bit channels for writing only where the
+     * shader says its values are unorm, as the source does. */
+    written out = {0};
+    write_source(&out,
+                 "struct Indices { uint Level; };\n"
+                 "ConstantBuffer<Indices> Mip : register(b0);\n"
+                 "[numthreads(8, 8, 1)]\n"
+                 "void main(uint3 id : SV_DispatchThreadID)\n"
+                 "{\n"
+                 "    RWTexture2D<unorm float4> level = ResourceDescriptorHeap[Mip.Level];\n"
+                 "    level[id.xy] = level[id.xy] * 0.5;\n"
+                 "}\n",
+                 "main", TB_SHADER_STAGE_COMPUTE);
+    TB_TEST_REQUIRE(out.ok);
+    TB_TEST_CONTEXT("%s", out.hlsl.text);
+    TB_TEST_EXPECT(has_text(&out, "RWTexture2D<unorm float4> tb_u0 : register(u0);"));
+    tb_arena_destroy(out.arena);
+}
+
 TB_TEST(shader_hlsl, templated_loads_of_bytes_are_loads_of_words)
 {
     written out = {0};

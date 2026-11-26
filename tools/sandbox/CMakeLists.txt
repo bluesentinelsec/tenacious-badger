@@ -136,5 +136,14 @@ if(TB_BUILD_TESTS)
                 --frames 3 --capture "${CMAKE_CURRENT_BINARY_DIR}/sandbox_display.bmp")
         set_tests_properties(sandbox.shows_the_display_policy_on_d3d12 PROPERTIES
             PASS_REGULAR_EXPRESSION "saved")
+        # The same scenes drawn by D3D11 on WARP, its shaders written for
+        # Shader Model 5 and its resources bound from their heap indices.
+        foreach(scene shapes materials lighting sky_cube text skinning ui gui gui_tool display)
+            add_test(NAME sandbox.draws_${scene}_on_d3d11
+                COMMAND badger-sandbox --renderer d3d11 --software --validation --scene ${scene}
+                    --frames 3 --capture "${CMAKE_CURRENT_BINARY_DIR}/sandbox_${scene}_d3d11.bmp")
+            set_tests_properties(sandbox.draws_${scene}_on_d3d11 PROPERTIES
+                PASS_REGULAR_EXPRESSION "saved")
+        endforeach()
     endif()
 endif()

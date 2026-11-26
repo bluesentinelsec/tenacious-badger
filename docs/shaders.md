@@ -637,7 +637,11 @@ written:
   repeats what the case after it does, as Shader Model 5 falls through from
   no case that does anything.
 - **Constant buffers** are `cbuffer`s whose variables are named after them,
-  at the registers the reflection gives them; a matrix keeps its layout.
+  at the registers the reflection gives them; a matrix keeps its layout. A
+  struct's members are `m_` and their names, as a member may be named as
+  Shader Model 5 names a type (`Buffer`). A texture written `unorm` or
+  `snorm` (`RWTexture2D<unorm float4>`) keeps it: D3D11 binds a texture of
+  8-bit channels for a shader to load only where the shader says so.
 - **`Load<T>` and `Store<T>`** of a byte-address buffer are `Load4`,
   `Store4` and their kin, reinterpreted with `asfloat` and `asint`;
   `select`, `and` and `or` are `?:`, `&&` and `||`.

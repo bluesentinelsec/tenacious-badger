@@ -12,6 +12,9 @@
 
 #include <stdlib.h>
 
+/* The backend the case runs on: each runs on D3D12, then on D3D11. */
+static tb_rhi_backend tb_test_backend = TB_RHI_BACKEND_D3D12;
+
 typedef struct screen
 {
     tb_window_system *system;
@@ -58,7 +61,7 @@ static void open_screen(screen *opened)
     options.window = opened->window;
     options.log = opened->log;
     options.device = (tb_rhi_device_options){
-        .backend = TB_RHI_BACKEND_D3D12, .adapter = TB_RHI_ADAPTER_SOFTWARE, .validation = true};
+        .backend = tb_test_backend, .adapter = TB_RHI_ADAPTER_SOFTWARE, .validation = true};
     /* The full path at the output's resolution, without temporal
      * anti-aliasing, so that each pixel is the scene where the camera puts
      * it: WARP would take the low profile by itself. */
@@ -75,7 +78,7 @@ static void open_screen(screen *opened)
                                                                      .max_lights = 256,
                                                                      .reflections = true});
     tb_rhi_device_info_of(tb_renderer_device(opened->renderer), &info);
-    if ((info.features & TB_RHI_FEATURE_BINDLESS) == 0)
+    if ((info.features & TB_RHI_FEATURE_HEAP_INDICES) == 0)
     {
         tb_renderer_destroy(opened->renderer);
         (void)tb_log_destroy(opened->log);
@@ -144,7 +147,7 @@ static bool near_color(uint32_t actual, uint32_t expected, int tolerance)
 /* A procedural sky: straight up is the zenith's color, straight down the
  * ground's, and toward the sun the sun's; a mesh in front hides it. Each
  * is as the output transform shows it. */
-TB_TEST(sky_frame, a_procedural_sky_shows_zenith_ground_and_sun_on_d3d12)
+static void a_procedural_sky_shows_zenith_ground_and_sun_case(void)
 {
     screen opened = {0};
     tb_sky sky = TB_SKY_PROCEDURAL_INIT;
@@ -192,10 +195,22 @@ TB_TEST(sky_frame, a_procedural_sky_shows_zenith_ground_and_sun_on_d3d12)
     close_screen(&opened);
 }
 
+TB_TEST(sky_frame, a_procedural_sky_shows_zenith_ground_and_sun_on_d3d12)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D12;
+    a_procedural_sky_shows_zenith_ground_and_sun_case();
+}
+
+TB_TEST(sky_frame, a_procedural_sky_shows_zenith_ground_and_sun_on_d3d11)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D11;
+    a_procedural_sky_shows_zenith_ground_and_sun_case();
+}
+
 /* A cube map of six plain faces: each direction shows its face, Direct3D's
  * order (+X, -X, +Y, -Y, +Z, -Z). Each channel of a face is 0 or 1, the
  * same in sRGB and in linear. */
-TB_TEST(sky_frame, a_cube_map_sky_shows_each_face_where_it_should_on_d3d12)
+static void a_cube_map_sky_shows_each_face_where_it_should_case(void)
 {
     enum
     {
@@ -242,4 +257,16 @@ TB_TEST(sky_frame, a_cube_map_sky_shows_each_face_where_it_should_on_d3d12)
     tb_texture_destroy(opened.renderer, cube);
     tb_free(pixels);
     close_screen(&opened);
+}
+
+TB_TEST(sky_frame, a_cube_map_sky_shows_each_face_where_it_should_on_d3d12)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D12;
+    a_cube_map_sky_shows_each_face_where_it_should_case();
+}
+
+TB_TEST(sky_frame, a_cube_map_sky_shows_each_face_where_it_should_on_d3d11)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D11;
+    a_cube_map_sky_shows_each_face_where_it_should_case();
 }

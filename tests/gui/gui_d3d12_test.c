@@ -11,6 +11,9 @@
 #include <math.h>
 #include <stddef.h>
 
+/* The backend the case runs on: each runs on D3D12, then on D3D11. */
+static tb_rhi_backend tb_test_backend = TB_RHI_BACKEND_D3D12;
+
 /* Cells across the row. */
 #define CELLS 7
 
@@ -118,7 +121,7 @@ static bool draw_row(tb_renderer *renderer, float scale)
     return true;
 }
 
-TB_TEST(gui_frame, cells_land_on_whole_pixels_with_no_gaps_on_d3d12)
+static void cells_land_on_whole_pixels_with_no_gaps_case(void)
 {
     tb_window_system *system = NULL;
     tb_window *window = NULL;
@@ -138,7 +141,7 @@ TB_TEST(gui_frame, cells_land_on_whole_pixels_with_no_gaps_on_d3d12)
         ==, TB_WINDOW_OK);
     options.window = window;
     options.device = (tb_rhi_device_options){
-        .backend = TB_RHI_BACKEND_D3D12, .adapter = TB_RHI_ADAPTER_SOFTWARE, .validation = true};
+        .backend = tb_test_backend, .adapter = TB_RHI_ADAPTER_SOFTWARE, .validation = true};
     if (tb_renderer_create(&options, &renderer, &error) != TB_RHI_OK)
     {
         tb_window_destroy(window);
@@ -153,4 +156,16 @@ TB_TEST(gui_frame, cells_land_on_whole_pixels_with_no_gaps_on_d3d12)
     {
         TB_TEST_SKIP("no bindless resources on this device");
     }
+}
+
+TB_TEST(gui_frame, cells_land_on_whole_pixels_with_no_gaps_on_d3d12)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D12;
+    cells_land_on_whole_pixels_with_no_gaps_case();
+}
+
+TB_TEST(gui_frame, cells_land_on_whole_pixels_with_no_gaps_on_d3d11)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D11;
+    cells_land_on_whole_pixels_with_no_gaps_case();
 }

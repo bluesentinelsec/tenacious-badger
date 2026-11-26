@@ -133,6 +133,13 @@ typedef enum tb_shader_object
     TB_SHADER_OBJECT_SAMPLER_DESCRIPTOR
 } tb_shader_object;
 
+/* Whether a texture's element is written `unorm` or `snorm`, as
+ * `RWTexture2D<unorm float4>`: what D3D11 needs said of a texture of 8-bit
+ * channels a shader writes. */
+#define TB_SHADER_NORM_NONE 0u
+#define TB_SHADER_NORM_UNORM 1u
+#define TB_SHADER_NORM_SNORM 2u
+
 /* What an object's template arguments are. */
 typedef enum tb_shader_object_template
 {
@@ -188,7 +195,8 @@ struct tb_shader_type
     uint32_t columns;              /* VECTOR: its components; MATRIX; 1 for a scalar. */
     const tb_shader_type *element; /* ARRAY: the element; OBJECT: its template's type, or NULL. */
     uint32_t length; /* ARRAY: elements, 0 when unsized; OBJECT: samples, patch size, flags. */
-    uint32_t second_length;            /* OBJECT: RayQuery's second flags. */
+    uint32_t second_length;            /* OBJECT: RayQuery's second flags; a texture's
+                                          tb_shader_norm. */
     tb_shader_object object;           /* OBJECT */
     tb_shader_structure *structure;    /* STRUCT */
     const tb_shader_node *enumeration; /* ENUM: its declaration. */

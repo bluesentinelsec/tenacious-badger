@@ -11,6 +11,7 @@
 #include "badger/canvas.h"
 #include "badger/cli.h"
 #include "badger/crash.h"
+#include "badger/d3dcompiler.h"
 #include "badger/dxc.h"
 #include "badger/engine_settings.h"
 #include "badger/fmt.h"
@@ -147,8 +148,11 @@ bool sandbox_shader(sandbox *box, const char *path, const char *source, const ch
     request.source.file_count = 1;
     request.entry_point = entry;
     request.stage = sandbox_stage(stage);
-    request.target = box->dxc != NULL ? TB_SHADER_TARGET_DXIL : TB_SHADER_TARGET_NONE;
+    request.target = box->dxc != NULL           ? TB_SHADER_TARGET_DXIL
+                     : box->d3dcompiler != NULL ? TB_SHADER_TARGET_DXBC
+                                                : TB_SHADER_TARGET_NONE;
     request.dxc = box->dxc;
+    request.d3dcompiler = box->d3dcompiler;
     if (tb_shader_compile(&request, arena, &compiled) != TB_SHADER_OK)
     {
         for (size_t index = 0; index < compiled.diagnostic_count; index++)
@@ -634,7 +638,7 @@ static void sandbox_open_fonts(sandbox *box)
 }
 
 /* Where the renderer finds its shaders: the libraries the build writes
- * beside the executable (bin/Shaders/d3d12.tbsl), in a VFS for the caller to
+ * beside the executable (bin/Shaders/d3d12.tbsl, d3d11.tbsl), in a VFS for the caller to
  * destroy; and the user's shader cache, which badger-shaderc shares. */
 static tb_vfs *sandbox_shader_sources(sandbox_run *run)
 {
@@ -660,6 +664,7 @@ static int sandbox_open_renderer(sandbox_run *run, tb_window_system *system)
     tb_window_options options = {0};
     tb_window_error window_error = TB_WINDOW_ERROR_INIT;
     tb_dxc_error dxc_error = TB_DXC_ERROR_INIT;
+    tb_d3dcompiler_error d3dcompiler_error = TB_D3DCOMPILER_ERROR_INIT;
     tb_renderer_options renderer = {0};
 
     tb_engine_settings_window_options(&run->engine, SANDBOX_TITLE, &options);
@@ -700,6 +705,13 @@ static int sandbox_open_renderer(sandbox_run *run, tb_window_system *system)
                                  dxc_error.message);
         return EXIT_FAILURE;
     }
+    if (run->box.info.backend == TB_RHI_BACKEND_D3D11 &&
+        tb_d3dcompiler_open(&run->box.d3dcompiler, &d3dcompiler_error) != TB_D3DCOMPILER_OK)
+    {
+        (void)tb_fmt_print_error("badger-sandbox: error: no shader compiler: %s\n",
+                                 d3dcompiler_error.message);
+        return EXIT_FAILURE;
+    }
     /* Keys 1 to 9 choose the first nine scenes; Tab reaches the rest. */
     const size_t keyed = sandbox_scene_count < 9u ? sandbox_scene_count : 9u;
 
@@ -726,6 +738,7 @@ static void sandbox_close(sandbox_run *run, tb_window_system *system)
     }
     tb_font_catalog_destroy(run->box.catalog);
     tb_dxc_close(run->box.dxc);
+    tb_d3dcompiler_close(run->box.d3dcompiler);
     tb_window_destroy(run->box.window);
     tb_window_system_close(system);
     tb_settings_destroy(run->settings);

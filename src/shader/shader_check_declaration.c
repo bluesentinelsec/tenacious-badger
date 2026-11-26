@@ -167,15 +167,21 @@ static const tb_shader_type *element_object(tb_shader_checker *checker,
     }
     const tb_shader_type *element =
         tb_shader_vector_type(checker->types, TB_SHADER_SCALAR_FLOAT, 4);
+    uint32_t norm = TB_SHADER_NORM_NONE;
     if (syntax->argument_count == 1)
     {
         element = argument_type(checker, syntax->arguments, syntax->location);
+        const tb_shader_type_syntax *const written = syntax->arguments->type;
+        const uint64_t modifiers = written != NULL ? written->modifiers : 0u;
+        norm = (modifiers & TB_SHADER_MODIFIER_UNORM) != 0   ? TB_SHADER_NORM_UNORM
+               : (modifiers & TB_SHADER_MODIFIER_SNORM) != 0 ? TB_SHADER_NORM_SNORM
+                                                             : TB_SHADER_NORM_NONE;
     }
     if (!check_texel(checker, element, info, syntax->location))
     {
         return tb_shader_error_type(checker->types);
     }
-    return tb_shader_object_type(checker->types, info->object, element, 0, 0);
+    return tb_shader_object_type(checker->types, info->object, element, 0, norm);
 }
 
 static const tb_shader_type *structure_object(tb_shader_checker *checker,

@@ -13,6 +13,9 @@
 #include <math.h>
 #include <stdlib.h>
 
+/* The backend the case runs on: each runs on D3D12, then on D3D11. */
+static tb_rhi_backend tb_test_backend = TB_RHI_BACKEND_D3D12;
+
 /* The frame the cases ask for: 1280 by 720, four times a 320 by 180
  * design. A display that gives another size changes only how many pixels
  * a unit the cases expect. */
@@ -50,7 +53,7 @@ static void open_screen(screen *opened)
                          ==, TB_WINDOW_OK);
     options.window = opened->window;
     options.device = (tb_rhi_device_options){
-        .backend = TB_RHI_BACKEND_D3D12, .adapter = TB_RHI_ADAPTER_SOFTWARE, .validation = true};
+        .backend = tb_test_backend, .adapter = TB_RHI_ADAPTER_SOFTWARE, .validation = true};
     if (tb_renderer_create(&options, &opened->renderer, &error) != TB_RHI_OK)
     {
         tb_window_destroy(opened->window);
@@ -173,7 +176,7 @@ static const uint8_t *draw_frame(tb_renderer *renderer, const tb_image *image, c
  * its pixels as an exact block of 4 by 4, nearest-neighbour. A pixel drawn
  * in the frame's view is one pixel of the frame, over the blocks, not a
  * block itself. */
-TB_TEST(viewport_render, whole_pixels_a_unit_upscale_into_exact_blocks_on_d3d12)
+static void whole_pixels_a_unit_upscale_into_exact_blocks_case(void)
 {
     screen opened = {0};
     tb_viewport_policy policy = TB_VIEWPORT_POLICY_INIT;
@@ -230,6 +233,18 @@ TB_TEST(viewport_render, whole_pixels_a_unit_upscale_into_exact_blocks_on_d3d12)
     close_screen(&opened);
 }
 
+TB_TEST(viewport_render, whole_pixels_a_unit_upscale_into_exact_blocks_on_d3d12)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D12;
+    whole_pixels_a_unit_upscale_into_exact_blocks_case();
+}
+
+TB_TEST(viewport_render, whole_pixels_a_unit_upscale_into_exact_blocks_on_d3d11)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D11;
+    whole_pixels_a_unit_upscale_into_exact_blocks_case();
+}
+
 /* The red a linear filter gives at a pixel of the frame, along a ramp of
  * `texels` from 0 to 255 shown across `pixels` of the viewport: the texel
  * centers' ramp, held at its ends. */
@@ -244,7 +259,7 @@ static float linear_ramp(uint32_t pixel, uint32_t pixels, uint32_t texels)
  * pillarboxed, with the bars the policy's color exactly, every pixel of
  * them, and the target upscaled linearly, each pixel of the viewport the
  * ramps' value where it samples, within rounding. */
-TB_TEST(viewport_render, fractional_scales_filter_linearly_between_exact_bars_on_d3d12)
+static void fractional_scales_filter_linearly_between_exact_bars_case(void)
 {
     screen opened = {0};
     tb_viewport_policy policy = TB_VIEWPORT_POLICY_INIT;
@@ -307,4 +322,16 @@ TB_TEST(viewport_render, fractional_scales_filter_linearly_between_exact_bars_on
     TB_TEST_EXPECT_INT(worst, <=, LINEAR_TOLERANCE);
     tb_image_destroy(opened.renderer, ramps);
     close_screen(&opened);
+}
+
+TB_TEST(viewport_render, fractional_scales_filter_linearly_between_exact_bars_on_d3d12)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D12;
+    fractional_scales_filter_linearly_between_exact_bars_case();
+}
+
+TB_TEST(viewport_render, fractional_scales_filter_linearly_between_exact_bars_on_d3d11)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D11;
+    fractional_scales_filter_linearly_between_exact_bars_case();
 }

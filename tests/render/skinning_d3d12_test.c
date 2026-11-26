@@ -15,6 +15,9 @@
 #include <math.h>
 #include <string.h>
 
+/* The backend the case runs on: each runs on D3D12, then on D3D11. */
+static tb_rhi_backend tb_test_backend = TB_RHI_BACKEND_D3D12;
+
 /* Rings along the cylinder, and segments around it. */
 #define RINGS 9u
 #define SEGMENTS 16u
@@ -47,7 +50,7 @@ static void open_screen(screen *opened)
         ==, TB_WINDOW_OK);
     options.window = opened->window;
     options.device = (tb_rhi_device_options){
-        .backend = TB_RHI_BACKEND_D3D12, .adapter = TB_RHI_ADAPTER_SOFTWARE, .validation = true};
+        .backend = tb_test_backend, .adapter = TB_RHI_ADAPTER_SOFTWARE, .validation = true};
     /* The full path at the output's resolution, without temporal
      * anti-aliasing, so that each pixel is the scene where the camera puts
      * it: WARP would take the low profile by itself. */
@@ -166,7 +169,7 @@ static void bend(tb_mat4 skinning[2])
 /* On D3D12, the bent cylinder's front near its tip is drawn where the CPU
  * skins it to, and nothing is drawn where it would be unbent; a material
  * draws it the same. */
-TB_TEST(skinning_frame, a_bent_cylinder_lands_where_the_cpu_skins_it_on_d3d12)
+static void a_bent_cylinder_lands_where_the_cpu_skins_it_case(void)
 {
     static const uint16_t upper[4] = {0, 1, 0, 0};
     static const float upper_weights[4] = {0, 1, 0, 0};
@@ -223,6 +226,18 @@ TB_TEST(skinning_frame, a_bent_cylinder_lands_where_the_cpu_skins_it_on_d3d12)
     close_screen(&opened);
 }
 
+TB_TEST(skinning_frame, a_bent_cylinder_lands_where_the_cpu_skins_it_on_d3d12)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D12;
+    a_bent_cylinder_lands_where_the_cpu_skins_it_case();
+}
+
+TB_TEST(skinning_frame, a_bent_cylinder_lands_where_the_cpu_skins_it_on_d3d11)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D11;
+    a_bent_cylinder_lands_where_the_cpu_skins_it_case();
+}
+
 /* A channel's difference past which two pictures differ at a pixel: the
  * GPU's arithmetic rounds otherwise than the CPU's. */
 #define CHANNEL_TOLERANCE 4
@@ -264,7 +279,7 @@ static uint8_t *draw_bent(screen *opened, const tb_skinned_mesh *cylinder,
  * the GPU's pass and then by the CPU, draw the same pixels but for a few
  * along their edges; and enough of them that the comparison means
  * something. */
-TB_TEST(skinning_frame, the_cpu_path_draws_what_the_gpu_path_draws_on_d3d12)
+static void the_cpu_path_draws_what_the_gpu_path_draws_case(void)
 {
     screen opened = {0};
     tb_skinned_mesh *cylinder = NULL;
@@ -318,4 +333,16 @@ TB_TEST(skinning_frame, the_cpu_path_draws_what_the_gpu_path_draws_on_d3d12)
     tb_material_destroy(opened.renderer, material);
     tb_skinned_mesh_destroy(opened.renderer, cylinder);
     close_screen(&opened);
+}
+
+TB_TEST(skinning_frame, the_cpu_path_draws_what_the_gpu_path_draws_on_d3d12)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D12;
+    the_cpu_path_draws_what_the_gpu_path_draws_case();
+}
+
+TB_TEST(skinning_frame, the_cpu_path_draws_what_the_gpu_path_draws_on_d3d11)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D11;
+    the_cpu_path_draws_what_the_gpu_path_draws_case();
 }

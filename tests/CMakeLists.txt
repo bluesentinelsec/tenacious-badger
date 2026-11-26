@@ -209,11 +209,14 @@ endfunction()
 # are cases of the engine's tests.
 if(WIN32)
     list(APPEND TB_TEST_CASE_SOURCES platform/win32/window_messages_test.c)
-    # DXIL that tools/make_rhi_test_shaders.py compiled from tests/data/rhi.
+    # DXIL that tools/make_rhi_test_shaders.py compiled from tests/data/rhi, and
+    # the sources, which the D3D11 cases compile for themselves.
     tb_embed_test_data(TB_RHI_SHADER_SOURCE tb_rhi_shader_files rhi "*.dxil")
+    tb_embed_test_data(TB_RHI_HLSL_SOURCE tb_rhi_hlsl_files rhi "*.hlsl")
     # Frames the renderer drew on WARP, looked at by eye (see docs/testing.md).
     tb_embed_test_data(TB_GOLDEN_SOURCE tb_golden_files golden "*.bmp")
     list(APPEND TB_TEST_CASE_SOURCES rhi/rhi_d3d12_test.c ${TB_RHI_SHADER_SOURCE}
+        rhi/rhi_d3d11_test.c ${TB_RHI_HLSL_SOURCE}
         render/canvas_d3d12_test.c render/golden.c render/lighting_d3d12_test.c ${TB_GOLDEN_SOURCE}
         render/material_d3d12_test.c
         render/renderer_d3d12_test.c render/resize_d3d12_test.c render/skinning_d3d12_test.c

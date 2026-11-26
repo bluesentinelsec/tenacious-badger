@@ -237,6 +237,12 @@ static const char *resource_text(writer *out, const tb_shader_form_type *type)
     {
         return name;
     }
+    /* A resource of numbers is named as the source names it, `unorm` and
+     * `snorm` kept; only a struct's name is this text's own. */
+    if (tb_shader_form_is_numeric(out->form, type->element))
+    {
+        return type->name;
+    }
     const char *const element = type_text(out, type->element);
     if ((info->template_kind == TB_SHADER_TEMPLATE_SAMPLES ||
          info->template_kind == TB_SHADER_TEMPLATE_PATCH) &&

@@ -8,6 +8,9 @@
 
 #include <stdlib.h>
 
+/* The backend the case runs on: each runs on D3D12, then on D3D11. */
+static tb_rhi_backend tb_test_backend = TB_RHI_BACKEND_D3D12;
+
 typedef struct screen
 {
     tb_window_system *system;
@@ -127,7 +130,7 @@ static void draw_scene(tb_renderer *renderer, const tb_image *checker, const tb_
 /* On D3D12, the 2D layer is drawn over the frame: each shape, image and
  * sprite on its pixels, layers in order, blended and anti-aliased. Pixels
  * well inside a shape are exact; pixels on an edge have a tolerance. */
-TB_TEST(canvas_frame, shapes_images_and_sprites_land_where_they_should_on_d3d12)
+static void shapes_images_and_sprites_land_where_they_should_case(void)
 {
     static const uint8_t strip_pixels[] = {255, 0, 0, 255, 0, 255, 0, 255};
     screen opened = {0};
@@ -140,7 +143,7 @@ TB_TEST(canvas_frame, shapes_images_and_sprites_land_where_they_should_on_d3d12)
     tb_canvas_stats stats = {0};
     int smoothed = 0;
 
-    open_screen(&opened, TB_RHI_BACKEND_D3D12);
+    open_screen(&opened, tb_test_backend);
     tb_image_fill_checkerboard(checker_pixels, sizeof(checker_pixels), 4, 4, 1,
                                (tb_vec4){1, 1, 1, 1}, (tb_vec4){0, 0, 1, 1});
     checker = tb_image_create(opened.renderer,
@@ -226,4 +229,16 @@ TB_TEST(canvas_frame, shapes_images_and_sprites_land_where_they_should_on_d3d12)
     tb_image_destroy(opened.renderer, checker);
     tb_image_destroy(opened.renderer, strip);
     close_screen(&opened);
+}
+
+TB_TEST(canvas_frame, shapes_images_and_sprites_land_where_they_should_on_d3d12)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D12;
+    shapes_images_and_sprites_land_where_they_should_case();
+}
+
+TB_TEST(canvas_frame, shapes_images_and_sprites_land_where_they_should_on_d3d11)
+{
+    tb_test_backend = TB_RHI_BACKEND_D3D11;
+    shapes_images_and_sprites_land_where_they_should_case();
 }
