@@ -105,6 +105,12 @@ set(TB_TEST_CASE_SOURCES
     font/font_layout_test.c
     ${TB_FONT_DATA_SOURCE}
     jobs/jobs_test.c
+    media/sound_edit_test.c
+    media/sound_test.c
+    media/wav_builder.c
+    media/wav_malformed_test.c
+    media/wav_test.c
+    media/wav_write_test.c
     serialize/json_test.c
     serialize/json_suite_test.c
     ${TB_JSON_SUITE_SOURCE}
@@ -269,7 +275,7 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     list(APPEND TB_INTERNAL_TEST_CASE_SOURCES platform/linux/window_input_test.c)
 endif()
 set(TB_ENGINE_SOURCES ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES} ${TB_JOBS_SOURCES}
-    ${TB_CODEC_SOURCES} ${TB_SERIALIZE_SOURCES} ${TB_FONT_SOURCES} ${TB_FONT_DATA_OBJECTS}
+    ${TB_CODEC_SOURCES} ${TB_MEDIA_SOURCES} ${TB_SERIALIZE_SOURCES} ${TB_FONT_SOURCES} ${TB_FONT_DATA_OBJECTS}
     ${TB_VFS_SOURCES}
     ${TB_SETTINGS_SOURCES} ${TB_WINDOW_SOURCES} ${TB_DXC_SOURCES} ${TB_GAME_SOURCES}
     ${TB_SHADER_SOURCES} ${TB_RHI_SOURCES} ${TB_RENDER_SOURCES} ${TB_ANIM_SOURCES}
