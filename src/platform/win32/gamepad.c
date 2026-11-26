@@ -1,5 +1,8 @@
-/* Windows gamepads: XInput, loaded at run time from the system directory,
- * xinput1_4.dll or, before Windows 8, xinput9_1_0.dll; never linked.
+/* Windows gamepads: XInput, and beside it the raw HID pads of
+ * gamepad_rawhid.c, which XInput does not read, as one backend.
+ *
+ * XInput is loaded at run time from the system directory, xinput1_4.dll
+ * or, before Windows 8, xinput9_1_0.dll; never linked.
  *
  * XInput has four users, which are the first four slots. It reads by
  * XInputGetState(), which leaves out the guide button: that is only in the
@@ -9,6 +12,10 @@
  * right the high-frequency one; motors in the triggers need
  * Windows.Gaming.Input, which the engine does not use yet. */
 #include "gamepad_xinput.h"
+
+#include "gamepad_rawhid.h"
+
+#include "../shared/gamepad_mux.h"
 
 #include "badger/assert.h"
 #include "badger/library.h"
@@ -188,8 +195,8 @@ static tb_library_result tb_xinput_load(tb_library **library, tb_library_error *
     /* coverage-on */
 }
 
-tb_gamepad_result tb_native_gamepad_open(const tb_gamepad_ops **ops, void **native,
-                                         tb_gamepad_error *error)
+/* Open XInput over the system's library. */
+static tb_gamepad_result tb_xinput_open(void **native, tb_gamepad_error *error)
 {
     tb_library *library = NULL;
     tb_library_error library_error = TB_LIBRARY_ERROR_INIT;
@@ -222,7 +229,37 @@ tb_gamepad_result tb_native_gamepad_open(const tb_gamepad_ops **ops, void **nati
     xinput.get_capabilities = (tb_xinput_get_capabilities)functions[2];
     made = tb_xinput_make(&xinput);
     made->library = library;
-    *ops = &tb_xinput_ops;
     *native = made;
+    return TB_GAMEPAD_OK;
+}
+
+tb_gamepad_result tb_native_gamepad_open(const tb_gamepad_ops **ops, void **native,
+                                         tb_gamepad_error *error)
+{
+    tb_gamepad_mux_child children[2] = {0};
+    size_t count = 0;
+    tb_gamepad_error xinput_error = TB_GAMEPAD_ERROR_INIT;
+    tb_gamepad_error hid_error = TB_GAMEPAD_ERROR_INIT;
+    void *backend = NULL;
+
+    if (tb_xinput_open(&backend, &xinput_error) == TB_GAMEPAD_OK)
+    {
+        children[count] = (tb_gamepad_mux_child){&tb_xinput_ops, backend};
+        count++;
+    }
+    if (tb_hid_gamepads_open(&backend, &hid_error) == TB_GAMEPAD_OK)
+    {
+        children[count] = (tb_gamepad_mux_child){&tb_hid_gamepad_ops, backend};
+        count++;
+    }
+    if (count == 0)
+    {
+        /* coverage-off: every Windows since Vista has XInput */
+        return tb_gamepad_fail(error, TB_GAMEPAD_UNAVAILABLE, "%s; %s", xinput_error.message,
+                               hid_error.message);
+        /* coverage-on */
+    }
+    *ops = &tb_gamepad_mux_ops;
+    *native = tb_gamepad_mux_make(children, count);
     return TB_GAMEPAD_OK;
 }

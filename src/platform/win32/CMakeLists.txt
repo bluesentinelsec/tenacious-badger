@@ -38,11 +38,16 @@ set(TB_WINDOW_SOURCES
 target_sources(badger PRIVATE ${TB_WINDOW_SOURCES})
 target_sources(badger_static PRIVATE ${TB_WINDOW_SOURCES})
 
-# Gamepads: the shared front, then XInput behind it, loaded at run time.
-# They are built on the foundation modules, as windowing is.
+# Gamepads: the shared front, then XInput and raw HID behind it, their
+# libraries loaded at run time, with the HID pads' protocol drivers. They
+# are built on the foundation modules, as windowing is.
 set(TB_GAMEPAD_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/../shared/gamepad.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../shared/gamepad_mux.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../shared/gamepad_hid.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../shared/gamepad_switch2.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/gamepad.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/gamepad_rawhid.c"
     CACHE INTERNAL "Selected gamepad sources")
 target_sources(badger PRIVATE ${TB_GAMEPAD_SOURCES})
 target_sources(badger_static PRIVATE ${TB_GAMEPAD_SOURCES})

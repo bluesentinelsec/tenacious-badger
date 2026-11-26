@@ -77,4 +77,11 @@ float tb_gamepad_trigger_value(int32_t value, int32_t minimum, int32_t maximum);
  * fit, and with any byte that is not valid UTF-8 replaced by '?'. */
 void tb_gamepad_copy_name(char *name, const char *source, size_t length);
 
+/* Whether a list of pads to leave alone names a device: entries of
+ * `0xVVVV/0xPPPP`, by USB vendor and product, between commas. Steam sets
+ * such a list in SDL_GAMECONTROLLER_IGNORE_DEVICES for the games it
+ * starts, to name the physical pads its own virtual pads stand for, so
+ * that each pad is seen once. `list` may be NULL, for none. */
+bool tb_gamepad_ignored(const char *list, uint16_t vendor, uint16_t product);
+
 #endif

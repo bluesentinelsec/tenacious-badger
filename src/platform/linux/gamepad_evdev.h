@@ -82,6 +82,13 @@
 #define TB_EVDEV_VENDOR_SONY 0x054cu
 #define TB_EVDEV_VENDOR_NINTENDO 0x057eu
 
+/* The Switch 2 controllers, whose driver names A and B by label: the
+ * Joy-Con 2 pair, the Pro Controller and the GameCube controller. */
+#define TB_EVDEV_SWITCH2_JOYCON_RIGHT 0x2066u
+#define TB_EVDEV_SWITCH2_JOYCON_LEFT 0x2067u
+#define TB_EVDEV_SWITCH2_PRO 0x2069u
+#define TB_EVDEV_SWITCH2_GAMECUBE 0x2073u
+
 /* No axis code. */
 #define TB_EVDEV_NO_AXIS 0xffffu
 
@@ -102,9 +109,10 @@ typedef struct tb_evdev_layout
 {
     uint16_t axes[TB_GAMEPAD_AXIS_COUNT]; /* An axis code each, or TB_EVDEV_NO_AXIS. */
     bool positional_faces;                /* BTN_NORTH and BTN_WEST are the top and left buttons. */
-    bool digital_triggers;                /* BTN_TL2 and BTN_TR2 are the triggers, at 0 or 1. */
-    bool hat_dpad;                        /* ABS_HAT0X and ABS_HAT0Y are the d-pad. */
-    bool happy_dpad;                      /* BTN_TRIGGER_HAPPY1 to 4 are the d-pad, as xpad's. */
+    bool swapped_south_east; /* BTN_SOUTH is the right button and BTN_EAST the bottom. */
+    bool digital_triggers;   /* BTN_TL2 and BTN_TR2 are the triggers, at 0 or 1. */
+    bool hat_dpad;           /* ABS_HAT0X and ABS_HAT0Y are the d-pad. */
+    bool happy_dpad;         /* BTN_TRIGGER_HAPPY1 to 4 are the d-pad, as xpad's. */
 } tb_evdev_layout;
 
 /* Whether a device's code is set in one of its bit arrays. */
@@ -130,12 +138,5 @@ void tb_evdev_apply(const tb_evdev_device *device, const tb_evdev_layout *layout
  * dropped. */
 void tb_evdev_resync(const tb_evdev_device *device, const tb_evdev_layout *layout,
                      const uint8_t *keys_down, const int32_t *values, tb_gamepad_state *state);
-
-/* Whether a list of pads to leave alone names a device: entries of
- * `0xVVVV/0xPPPP`, by vendor and product, between commas. Steam sets such
- * a list in SDL_GAMECONTROLLER_IGNORE_DEVICES for the games it starts, to
- * name the physical pads its own virtual pads stand for, so that each pad
- * is seen once. `list` may be NULL, for none. */
-bool tb_evdev_ignored(const char *list, uint16_t vendor, uint16_t product);
 
 #endif
