@@ -361,10 +361,10 @@ bool tb_texture_is_cube(const tb_texture *texture);
 tb_rhi_result tb_renderer_sky_create(tb_renderer *renderer, tb_rhi_error *error);
 void tb_renderer_sky_destroy(tb_renderer *renderer);
 
-/* Write the sky's constants for the frame's camera, seen at an aspect:
- * their offset in the frame's uploads, or UINT64_MAX when there is no sky
- * to draw or no room. */
-uint64_t tb_renderer_sky_upload(tb_renderer *renderer, float aspect);
+/* Write the sky's constants for the frame's camera, seen through the
+ * viewport: their offset in the frame's uploads, or UINT64_MAX when there
+ * is no sky to draw or no room. */
+uint64_t tb_renderer_sky_upload(tb_renderer *renderer);
 
 /* Draw the sky behind what the scene pass drew so far. */
 void tb_renderer_sky_record(tb_renderer *renderer, tb_rhi_command_list *list, uint64_t constants);
@@ -438,6 +438,12 @@ void tb_renderer_quality_begin_frame(tb_renderer *renderer);
  * viewport render mode is drawn as the canvas mode: the viewport has no
  * target. */
 void tb_renderer_update_viewport(tb_renderer *renderer);
+
+/* The frame's camera's projection, unjittered, through the viewport: at
+ * its aspect, the field of view given at the design's. Everything that
+ * projects the scene (the scene itself, the sky, labels, temporal
+ * anti-aliasing) projects through this one, so that none disagrees. */
+tb_mat4 tb_renderer_projection(const tb_renderer *renderer);
 
 /* Draw only into the scene's rectangle of its output, in a pass that draws
  * the 3D scene into it. */

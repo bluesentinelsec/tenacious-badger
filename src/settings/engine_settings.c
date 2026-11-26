@@ -24,6 +24,10 @@
 #define TB_ENGINE_DESIGN_WIDTH ((int64_t)1920)
 #define TB_ENGINE_DESIGN_HEIGHT ((int64_t)1080)
 #define TB_ENGINE_COLOR_LIMIT ((size_t)7)
+/* The built-in aspect, `expand`, by its index in tb_engine_stretch_aspects:
+ * the design fills any frame, with more shown where the frame's shape is
+ * not the design's. */
+#define TB_ENGINE_STRETCH_EXPAND ((size_t)3)
 
 /* The least size of a window by default: a third of 1080p, below which an
  * interface laid out for 1080p no longer reads. */
@@ -331,7 +335,7 @@ static void tb_engine_add_display_policy(tb_settings *settings, tb_engine_settin
         "When the window's shape is not the design's: keep fits it whole between bars, "
         "keep_width and keep_height keep one axis and show more of the other, expand shows more "
         "of either, ignore stretches it.",
-        tb_engine_stretch_aspects, 0);
+        tb_engine_stretch_aspects, TB_ENGINE_STRETCH_EXPAND);
     engine->display.stretch_scale_mode = TB_ENGINE_CHOICE(
         settings, "display.stretch_scale_mode",
         "Fractional scales the design as large as the window allows; integer by whole pixels, "

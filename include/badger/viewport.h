@@ -9,9 +9,12 @@
  * const tb_viewport viewport = tb_viewport_compute(&policy, &(tb_viewport_frame){
  *     .width = 2560, .height = 1600, .display_scale = 1.5f,
  *     .aspect_ratio = tb_viewport_aspect_ratio_from_settings(engine)});
- * // viewport: 2560 by 1440 pixels from (0, 80), 1.333 pixels a unit, 1920 by 1080 units
+ * // viewport: the whole 2560 by 1600 pixels, 1.333 pixels a unit, 1920 by 1200 units;
+ * // the design's 1920 by 1080 units from (0, 60), in the middle
  * const tb_vec2 mouse = tb_viewport_from_pixels(&viewport, (tb_vec2){1280, 800});
- * // mouse: (960, 540), the middle of the design
+ * // mouse: (960, 600), the middle of the design
+ * const tb_vec2 corner = tb_viewport_anchor(&viewport, (tb_vec2){1.0f, 0.0f});
+ * // corner: (1920, 0), the top right of the frame
  * @endcode
  *
  * **The policy** is one per app, set by the `display.design_*` and
@@ -73,8 +76,9 @@ typedef enum tb_viewport_aspect
     /** The design's height is kept: a wider frame shows more width, and a
      * taller one is letterboxed. */
     TB_VIEWPORT_ASPECT_KEEP_HEIGHT,
-    /** The design fits by the smaller axis, and the frame's extra is shown:
-     * the viewport is the whole frame. */
+    /** The design fits by the smaller axis, and the frame's extra is shown,
+     * as much on either side of the design: the viewport is the whole
+     * frame. The engine's default. */
     TB_VIEWPORT_ASPECT_EXPAND,
     /** The design is stretched to the whole frame, each axis its own scale. */
     TB_VIEWPORT_ASPECT_IGNORE,
@@ -124,12 +128,12 @@ typedef struct tb_viewport_policy
 } tb_viewport_policy;
 
 /** @brief The engine's default policy, the settings' built-in values: a
- * design of 1920 by 1080, kept whole, at fractional scales, on the canvas,
- * with black bars. */
+ * design of 1920 by 1080, expanded to fill the frame, at fractional scales,
+ * on the canvas, with black bars. */
 #define TB_VIEWPORT_POLICY_INIT                                                                    \
     {.design_width = 1920u,                                                                        \
      .design_height = 1080u,                                                                       \
-     .aspect = TB_VIEWPORT_ASPECT_KEEP,                                                            \
+     .aspect = TB_VIEWPORT_ASPECT_EXPAND,                                                          \
      .scale_mode = TB_VIEWPORT_SCALE_FRACTIONAL,                                                   \
      .render_mode = TB_VIEWPORT_RENDER_CANVAS,                                                     \
      .scale = 1.0f,                                                                                \
@@ -165,9 +169,18 @@ typedef struct tb_viewport_frame
  *
  * Unit (0, 0) is drawn at the rectangle's top left, and a unit is `scale`
  * pixels: a pixel is `(x, y) + scale * unit`. The scale is the same both
- * ways but in `ignore`. `size` is the units the rectangle shows: the
- * design size in `keep`, more along an axis that grows, and as many as the
- * frame holds without a design size.
+ * ways but in `ignore`. `size` is the units the rectangle shows, the
+ * **visible rectangle** from (0, 0): the design size in `keep`, more along
+ * an axis that grows, and as many as the frame holds without a design size.
+ *
+ * The **design rectangle**, `design_origin` and `design_size`, is where the
+ * design's own units lie among them. Along an axis that grows, as in
+ * `expand`, it is centered, so that the extra is shown equally on both
+ * sides: content drawn in the design's units offsets by `design_origin` to
+ * stay in the middle, and what pins to an edge of the frame pins to the
+ * visible rectangle's (tb_viewport_anchor(), tb_viewport_design_anchor()).
+ * Along a kept axis, and without a design size, it is the visible
+ * rectangle.
  *
  * In the viewport render mode, what is drawn in units is drawn first into
  * a **target** of `target_width` by `target_height` pixels, a pixel a unit
@@ -188,6 +201,16 @@ typedef struct tb_viewport
      * mode, and for a frame of no size. */
     uint32_t target_width;
     uint32_t target_height; /**< The target's pixels down; see `target_width`. */
+    /** The design rectangle's top left, in units, at least 0: centered in
+     * the units shown along an axis that grows, on a whole pixel of what it
+     * is drawn into (the frame's in the canvas render mode, the target's in
+     * the viewport render mode); 0 along a kept axis, and where the design
+     * does not fit, which shows the design's top left. */
+    tb_vec2 design_origin;
+    /** The design's units: the design size over the policy's scale, the
+     * design's share of what is drawn; `size` without a design size. More
+     * than `size` only where the design does not fit at whole pixels. */
+    tb_vec2 design_size;
 } tb_viewport;
 
 /** @brief The most pixels a side of the viewport render mode's target: the
@@ -244,6 +267,39 @@ TB_API bool tb_viewport_contains(const tb_viewport *viewport, tb_vec2 pixel);
  * @par Threading Thread-safe.
  */
 TB_API float tb_viewport_aspect_of(const tb_viewport *viewport);
+
+/**
+ * @brief The design's aspect, width over height of the design rectangle:
+ * the reference the 3D camera's field of view is given at
+ * (#tb_camera_axis_constraint). The viewport's own aspect without a design
+ * size, or for a viewport whose design rectangle is empty.
+ * @param viewport Required.
+ * @return More than 0; 1 for a viewport of no size.
+ * @par Threading Thread-safe.
+ */
+TB_API float tb_viewport_design_aspect(const tb_viewport *viewport);
+
+/**
+ * @brief A point of the visible rectangle, in units, by its anchor: a
+ * fraction of the units shown from the top left, as Godot's anchors are.
+ * (0, 0) is the top left, (0.5, 0.5) the middle, (1, 1) the bottom right:
+ * what a HUD pins its corners to, so that they reach the edges of the frame
+ * at any aspect.
+ * @param viewport Required.
+ * @param anchor Across and down, usually from 0 to 1.
+ * @par Threading Thread-safe.
+ */
+TB_API tb_vec2 tb_viewport_anchor(const tb_viewport *viewport, tb_vec2 anchor);
+
+/**
+ * @brief A point of the design rectangle, in units, by its anchor, as
+ * tb_viewport_anchor(): (0.5, 0.5) is the design's middle, which is the
+ * middle of what is shown wherever the design fits.
+ * @param viewport Required.
+ * @param anchor Across and down, usually from 0 to 1.
+ * @par Threading Thread-safe.
+ */
+TB_API tb_vec2 tb_viewport_design_anchor(const tb_viewport *viewport, tb_vec2 anchor);
 
 /**
  * @brief The pixels a unit of what must not stretch, such as text: the

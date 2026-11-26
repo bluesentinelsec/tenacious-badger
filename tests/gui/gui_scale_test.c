@@ -165,6 +165,62 @@ TB_TEST(gui_scale, expand_scales_by_the_smaller_axis_and_gives_the_rest_to_the_r
     gui_fixture_close(&fixture);
 }
 
+/* In `expand`, the default, the root spans the units the frame shows, not
+ * only the design's: a grid of three by three with weighted outer tracks
+ * pushes its corner widgets to the frame's real edges, and keeps its
+ * middle one in the design's middle, on 16:10, 4:3 and 21:9 frames alike. */
+TB_TEST(gui_scale, expand_pins_corners_to_the_frames_edges_and_centers_the_middle)
+{
+    static const uint32_t frames[][2] = {{2560, 1600}, {1024, 768}, {2560, 1080}, {1920, 1080}};
+    gui_fixture fixture = {0};
+    gui_fixture_open(&fixture, 1.0f);
+    const tb_widget root = tb_gui_root(fixture.gui);
+    const tb_widget top_left = gui_box(root, 100.0f, 50.0f);
+    const tb_widget middle = gui_box(root, 200.0f, 100.0f);
+    const tb_widget bottom_right = gui_box(root, 100.0f, 50.0f);
+    const tb_viewport_policy policy = TB_VIEWPORT_POLICY_INIT;
+
+    TB_TEST_REQUIRE(policy.aspect == TB_VIEWPORT_ASPECT_EXPAND);
+    TB_TEST_REQUIRE(tb_grid(
+        top_left, &(tb_grid_options){.row = 0, .column = 0, .sticky = TB_STICKY_N | TB_STICKY_W}));
+    TB_TEST_REQUIRE(tb_grid(middle, &(tb_grid_options){.row = 1, .column = 1}));
+    TB_TEST_REQUIRE(
+        tb_grid(bottom_right,
+                &(tb_grid_options){.row = 2, .column = 2, .sticky = TB_STICKY_S | TB_STICKY_E}));
+    for (size_t track = 0; track < 3u; track += 2u)
+    {
+        TB_TEST_REQUIRE(tb_grid_column_configure(root, track, &(tb_grid_track){.weight = 1.0f}));
+        TB_TEST_REQUIRE(tb_grid_row_configure(root, track, &(tb_grid_track){.weight = 1.0f}));
+    }
+    for (size_t index = 0; index < TB_TEST_COUNT_OF(frames); index++)
+    {
+        TB_TEST_CONTEXT("frame %u by %u", frames[index][0], frames[index][1]);
+        const tb_viewport viewport = tb_viewport_compute(
+            &policy, &(tb_viewport_frame){.width = frames[index][0], .height = frames[index][1]});
+        place(&fixture, &policy, frames[index][0], frames[index][1], 1.0f);
+        gui_update(&fixture);
+        const tb_gui_view view = tb_gui_view_of(fixture.gui);
+        TB_TEST_EXPECT_FLOAT_NEAR(view.size.x, viewport.size.x, 1e-2f);
+        TB_TEST_EXPECT_FLOAT_NEAR(view.size.y, viewport.size.y, 1e-2f);
+        const tb_canvas_rect first = tb_widget_rect(top_left);
+        const tb_canvas_rect last = tb_widget_rect(bottom_right);
+        const tb_canvas_rect center = tb_widget_rect(middle);
+        TB_TEST_EXPECT_FLOAT_NEAR(first.x, 0.0f, 1e-2f);
+        TB_TEST_EXPECT_FLOAT_NEAR(first.y, 0.0f, 1e-2f);
+        TB_TEST_EXPECT_FLOAT_NEAR(last.x + last.width, viewport.size.x, 1e-2f);
+        TB_TEST_EXPECT_FLOAT_NEAR(last.y + last.height, viewport.size.y, 1e-2f);
+        const tb_vec2 design_middle = tb_viewport_design_anchor(&viewport, (tb_vec2){0.5f, 0.5f});
+        TB_TEST_EXPECT_FLOAT_NEAR(center.x + center.width * 0.5f, design_middle.x, 1.0f);
+        TB_TEST_EXPECT_FLOAT_NEAR(center.y + center.height * 0.5f, design_middle.y, 1.0f);
+        /* The frame's corners are the root's. */
+        const tb_vec2 corner =
+            tb_viewport_to_pixels(&viewport, (tb_vec2){last.x + last.width, last.y + last.height});
+        TB_TEST_EXPECT_FLOAT_NEAR(corner.x, (float)frames[index][0], 0.5f);
+        TB_TEST_EXPECT_FLOAT_NEAR(corner.y, (float)frames[index][1], 0.5f);
+    }
+    gui_fixture_close(&fixture);
+}
+
 TB_TEST(gui_scale, integer_scales_by_whole_pixels_on_whole_pixels)
 {
     gui_fixture fixture = {0};

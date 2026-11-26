@@ -190,6 +190,7 @@ TB_TEST(renderer_quality, the_render_size_is_the_viewports)
     TB_TEST_EXPECT_UINT(viewport.height, ==, output_height);
     quality.temporal_aa = false;
     tb_renderer_set_quality(opened.renderer, &quality);
+    policy.aspect = TB_VIEWPORT_ASPECT_KEEP;
     policy.bar_color = (tb_vec4){0.2f, 0.4f, 0.6f, 1.0f};
     tb_renderer_set_viewport_policy(opened.renderer, &policy, 0.0f);
     tb_renderer_viewport_policy(opened.renderer, &kept);

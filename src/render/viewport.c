@@ -28,6 +28,7 @@ typedef struct tb_viewport_span
     uint32_t length; /* pixels */
     float scale;     /* pixels a unit */
     float units;     /* shown */
+    float design;    /* the design's units, the design rectangle's extent */
 } tb_viewport_span;
 
 static const char *const tb_viewport_aspect_names[TB_VIEWPORT_ASPECT_COUNT] = {
@@ -87,6 +88,7 @@ static tb_viewport_span tb_viewport_place(tb_viewport_span frame, uint32_t desig
     tb_viewport_span span = {.start = frame.start, .length = frame.length};
 
     span.scale = base * factor;
+    span.design = (float)design / factor;
     if (axis == TB_VIEWPORT_AXIS_KEPT)
     {
         const double extent = (double)design * (double)base;
@@ -114,6 +116,7 @@ static tb_viewport_span tb_viewport_logical(tb_viewport_span frame, float pixels
 
     span.scale = whole ? fmaxf(floorf(pixels), 1.0f) : pixels;
     span.units = (float)frame.length / span.scale;
+    span.design = span.units;
     return span;
 }
 
@@ -124,7 +127,24 @@ static tb_viewport tb_viewport_of(tb_viewport_span across, tb_viewport_span down
                          .width = across.length,
                          .height = down.length,
                          .scale = {across.scale, down.scale},
-                         .size = {across.units, down.units}};
+                         .size = {across.units, down.units},
+                         .design_size = {across.design, down.design}};
+}
+
+/* Where the design rectangle starts along an axis, in units: the extra
+ * units split evenly on either side, the odd pixel to the right or below,
+ * on a whole pixel of what the axis is drawn into, `pixels` a unit. None
+ * where the design fills the axis or does not fit. */
+static float tb_viewport_design_start(float units, float design, float pixels)
+{
+    const double extra = ((double)units - (double)design) * (double)pixels;
+
+    if (!(extra >= 1.0 - TB_VIEWPORT_TARGET_SLACK))
+    {
+        return 0.0f;
+    }
+    /* Float arithmetic leaves 191.99997 of 192 pixels: as whole. */
+    return (float)(floor(extra * 0.5 + TB_VIEWPORT_TARGET_SLACK) / (double)pixels);
 }
 
 /* The pixels of a side of the viewport render mode's target: the units
@@ -203,12 +223,23 @@ tb_viewport tb_viewport_compute(const tb_viewport_policy *policy, const tb_viewp
 
     TB_ASSERT(policy != NULL && frame != NULL);
     viewport = tb_viewport_placed(policy, frame);
-    if (policy->render_mode == TB_VIEWPORT_RENDER_VIEWPORT && viewport.width > 0 &&
-        viewport.height > 0)
+    if (viewport.width == 0 || viewport.height == 0)
     {
+        return viewport;
+    }
+    if (policy->render_mode == TB_VIEWPORT_RENDER_VIEWPORT)
+    {
+        /* Drawn into the target, a pixel a unit: on its whole pixels. */
         viewport.target_width = tb_viewport_target_side(viewport.size.x);
         viewport.target_height = tb_viewport_target_side(viewport.size.y);
+        viewport.design_origin =
+            (tb_vec2){tb_viewport_design_start(viewport.size.x, viewport.design_size.x, 1.0f),
+                      tb_viewport_design_start(viewport.size.y, viewport.design_size.y, 1.0f)};
+        return viewport;
     }
+    viewport.design_origin = (tb_vec2){
+        tb_viewport_design_start(viewport.size.x, viewport.design_size.x, viewport.scale.x),
+        tb_viewport_design_start(viewport.size.y, viewport.design_size.y, viewport.scale.y)};
     return viewport;
 }
 
@@ -244,6 +275,29 @@ float tb_viewport_aspect_of(const tb_viewport *viewport)
         return 1.0f;
     }
     return viewport->size.x / viewport->size.y;
+}
+
+float tb_viewport_design_aspect(const tb_viewport *viewport)
+{
+    TB_ASSERT(viewport != NULL);
+    if (!(viewport->design_size.x > 0.0f) || !(viewport->design_size.y > 0.0f))
+    {
+        return tb_viewport_aspect_of(viewport);
+    }
+    return viewport->design_size.x / viewport->design_size.y;
+}
+
+tb_vec2 tb_viewport_anchor(const tb_viewport *viewport, tb_vec2 anchor)
+{
+    TB_ASSERT(viewport != NULL);
+    return (tb_vec2){viewport->size.x * anchor.x, viewport->size.y * anchor.y};
+}
+
+tb_vec2 tb_viewport_design_anchor(const tb_viewport *viewport, tb_vec2 anchor)
+{
+    TB_ASSERT(viewport != NULL);
+    return (tb_vec2){viewport->design_origin.x + viewport->design_size.x * anchor.x,
+                     viewport->design_origin.y + viewport->design_size.y * anchor.y};
 }
 
 float tb_viewport_uniform_scale(const tb_viewport *viewport)

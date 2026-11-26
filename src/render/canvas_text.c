@@ -302,9 +302,8 @@ void tb_debug_text(tb_renderer *renderer, tb_vec3 position, tb_text text, tb_vec
 static void tb_text_draw_labels(tb_renderer *renderer, const tb_font *font)
 {
     const tb_viewport *const viewport = &renderer->viewport;
-    const float aspect = tb_viewport_aspect_of(viewport);
-    const tb_mat4 clip = tb_mat4_mul(tb_camera_projection_of(&renderer->camera, aspect),
-                                     tb_camera_view(&renderer->camera));
+    const tb_mat4 clip =
+        tb_mat4_mul(tb_renderer_projection(renderer), tb_camera_view(&renderer->camera));
     const float size = (renderer->debug_font_size > 0.0f ? renderer->debug_font_size
                                                          : TB_TEXT_DEFAULT_LABEL_SIZE) *
                        tb_canvas_view_logical(renderer).scale;

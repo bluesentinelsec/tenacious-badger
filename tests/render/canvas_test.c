@@ -68,8 +68,9 @@ TB_TEST(canvas_view, points_map_to_pixels_and_back)
  * the smaller, which text is drawn at. */
 TB_TEST(canvas_view, a_view_of_the_viewport_is_in_the_designs_units)
 {
-    const tb_viewport_policy keep = TB_VIEWPORT_POLICY_INIT;
+    tb_viewport_policy keep = TB_VIEWPORT_POLICY_INIT;
     tb_viewport_policy ignore = TB_VIEWPORT_POLICY_INIT;
+    keep.aspect = TB_VIEWPORT_ASPECT_KEEP;
     const tb_viewport kept =
         tb_viewport_compute(&keep, &(tb_viewport_frame){.width = 1920, .height = 1200});
     tb_canvas_view view = tb_canvas_view_viewport(&kept);

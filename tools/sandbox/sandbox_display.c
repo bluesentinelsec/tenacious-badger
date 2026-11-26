@@ -6,7 +6,8 @@
  * viewport, with the policy's bars beside it. Over them, in the design's
  * units: the design's border with a marker at each corner, the edge of
  * what the viewport shows, and a grid centered on it. A panel of the GUI
- * in its bottom right corner, in the same units, holds a button for each
+ * in the bottom right corner of what is shown, in the same units, holds a
+ * button for each
  * hotkey; the mouse over the
  * bars reaches none of them. In the design's units too, pixel art, still
  * and turning, and a line of text, which show the render modes apart: the
@@ -21,8 +22,15 @@
  * at the runtime layer, as the inspector does, so that the inspector (the
  * backquote) shows them change: the aspect, the scale mode, the render mode,
  * the design size, the window's mode, and whether resizing the window
- * keeps the design's aspect. Alt+Enter, the
- * game loop's own, switches between windowed and borderless. */
+ * keeps the design's aspect. F7 changes which of the camera's extents holds
+ * when the viewport's shape is not the design's. Alt+Enter, the game
+ * loop's own, switches between windowed and borderless.
+ *
+ * Where the viewport shows more than the design, as `expand` does on a
+ * frame of another shape, the design's border and what is drawn in its
+ * units are centered in it, at the viewport's design rectangle; the facts
+ * pin to the top left of what is shown, and the panel to its bottom
+ * right. */
 #include "sandbox.h"
 
 #include "badger/canvas.h"
@@ -72,7 +80,7 @@ static const char *const display_window_modes[DISPLAY_WINDOW_MODES] = {"windowed
 #define DISPLAY_LINES_LAYER 10
 #define DISPLAY_OVERLAY_LAYER 900
 #define DISPLAY_LINE_CAPACITY 160u
-#define DISPLAY_LINE_COUNT 13u
+#define DISPLAY_LINE_COUNT 15u
 /* The pixel art, a texel a unit of a 320 by 180 design, and as large
  * against any other: its texels, and the design height it is drawn at. */
 #define DISPLAY_ART_SIDE 16u
@@ -89,6 +97,7 @@ typedef enum display_action
     DISPLAY_ACTION_DESIGN,
     DISPLAY_ACTION_WINDOW,
     DISPLAY_ACTION_ASPECT_LOCK,
+    DISPLAY_ACTION_AXIS,
     DISPLAY_ACTION_COUNT
 } display_action;
 
@@ -210,6 +219,14 @@ static void display_toggle_aspect_lock(const tb_engine_settings *engine)
     (void)tb_setting_set_integer(engine->display.window_aspect_height, height / divisor);
 }
 
+/* The camera's next axis constraint: design, vertical, horizontal. */
+static void display_next_axis(tb_camera *camera)
+{
+    const size_t next = ((size_t)camera->axis_constraint + 1u) % TB_CAMERA_AXIS_COUNT;
+
+    camera->axis_constraint = (tb_camera_axis_constraint)next;
+}
+
 static void display_act(const display_scene *scene, display_action action)
 {
     const tb_engine_settings *const engine = scene->box->engine;
@@ -236,6 +253,9 @@ static void display_act(const display_scene *scene, display_action action)
         /* The game loop applies it to the window. */
         display_toggle_aspect_lock(engine);
         break;
+    case DISPLAY_ACTION_AXIS:
+        display_next_axis(&scene->box->camera);
+        break;
     case DISPLAY_ACTION_COUNT:
         break;
     }
@@ -245,7 +265,8 @@ static void display_act(const display_scene *scene, display_action action)
 static const char *const display_clicks[DISPLAY_ACTION_COUNT] = {
     "Clicked: the next aspect",       "Clicked: the other scale mode",
     "Clicked: the other render mode", "Clicked: the next design size",
-    "Clicked: the next window mode",  "Clicked: the aspect lock switched"};
+    "Clicked: the next window mode",  "Clicked: the aspect lock switched",
+    "Clicked: the next camera axis"};
 
 static void display_clicked(const tb_gui_event *event, void *user)
 {
@@ -293,6 +314,10 @@ static void display_button_text(const display_scene *scene, display_action actio
                             (long long)tb_setting_integer(engine->display.window_aspect_width),
                             (long long)tb_setting_integer(engine->display.window_aspect_height));
         return;
+    case DISPLAY_ACTION_AXIS:
+        (void)tb_fmt_buffer(text, capacity, "F7  Camera: %s",
+                            tb_camera_axis_constraint_name(scene->box->camera.axis_constraint));
+        return;
     case DISPLAY_ACTION_WINDOW:
     case DISPLAY_ACTION_COUNT:
         break;
@@ -313,7 +338,9 @@ static void display_build_panel(display_scene *scene)
         &(tb_frame_desc){.padding = DISPLAY_PANEL_PADDING, .background = true, .border = true});
     const tb_widget title = tb_label(panel, &(tb_label_desc){.text = "Display policy"});
 
-    /* In the viewport's bottom right corner, clear of the facts. */
+    /* In the bottom right corner of what the viewport shows, clear of the
+     * facts: the root spans the units shown, so its weighted cell pushes
+     * the panel to the frame's edges in `expand`. */
     (void)tb_grid_column_configure(root, 0, &(tb_grid_track){.weight = 1.0f});
     (void)tb_grid_row_configure(root, 0, &(tb_grid_track){.weight = 1.0f});
     (void)tb_grid(panel, &(tb_grid_options){.row = 0,
@@ -433,6 +460,8 @@ void display_scene_destroy(sandbox *box, void *state)
         return;
     }
     tb_window_set_cursor(box->window, TB_CURSOR_ARROW);
+    /* The other scenes see through the camera as made. */
+    box->camera.axis_constraint = TB_CAMERA_AXIS_DESIGN;
     tb_renderer_remove_light(box->renderer, scene->sun);
     tb_renderer_set_sky(box->renderer, NULL);
     tb_image_destroy(box->renderer, scene->art);
@@ -462,7 +491,7 @@ void display_scene_destroy(sandbox *box, void *state)
 
 static bool display_hotkey(display_scene *scene, const tb_window_event *event)
 {
-    if (event->key < TB_KEY_F1 || event->key > TB_KEY_F6)
+    if (event->key < TB_KEY_F1 || event->key > TB_KEY_F7)
     {
         return false;
     }
@@ -509,17 +538,6 @@ bool display_scene_event(sandbox *box, void *state, const tb_window_event *event
  * Drawing.
  * ------------------------------------------------------------------------- */
 
-/* The design's units: its size, or, without one, what the viewport shows. */
-static tb_vec2 display_design_units(const tb_viewport_policy *policy, const tb_viewport *viewport)
-{
-    if (policy->design_width == 0 || policy->design_height == 0)
-    {
-        return viewport->size;
-    }
-    const float factor = policy->scale > 0.0f ? policy->scale : 1.0f;
-    return (tb_vec2){(float)policy->design_width / factor, (float)policy->design_height / factor};
-}
-
 /* An L at a corner of the design, its arms along the design's edges. */
 static void display_marker(tb_renderer *renderer, tb_vec2 corner, tb_vec2 inward, float length,
                            float width, tb_vec4 color)
@@ -556,12 +574,14 @@ static void display_grid(tb_renderer *renderer, const tb_viewport *viewport, flo
 }
 
 /* In the design's units: the grid, the edge of what the viewport shows,
- * the design's border and corners, and its middle. */
-static void display_draw_design(tb_renderer *renderer, const tb_viewport_policy *policy,
-                                const tb_viewport *viewport)
+ * and the design's border, corners and middle, where the design rectangle
+ * is: centered in what is shown. */
+static void display_draw_design(tb_renderer *renderer, const tb_viewport *viewport)
 {
     const tb_canvas_view view = tb_canvas_view_viewport(viewport);
-    const tb_vec2 design = display_design_units(policy, viewport);
+    const tb_vec2 design = viewport->design_size;
+    const tb_vec2 first = viewport->design_origin;
+    const tb_vec2 last = tb_vec2_add(first, design);
     const float pixel = 1.0f / view.scale;
     const float line = DISPLAY_LINE_PIXELS * pixel;
     const float cell = design.y / DISPLAY_GRID_CELLS;
@@ -574,15 +594,16 @@ static void display_draw_design(tb_renderer *renderer, const tb_viewport_policy 
     display_grid(renderer, viewport, cell, DISPLAY_GRID_PIXELS * pixel);
     tb_canvas_stroke_rect(
         renderer, (tb_canvas_rect){0.0f, 0.0f, viewport->size.x, viewport->size.y}, line, shown);
-    tb_canvas_stroke_rect(renderer, (tb_canvas_rect){0.0f, 0.0f, design.x, design.y}, line, border);
-    display_marker(renderer, (tb_vec2){0.0f, 0.0f}, (tb_vec2){1.0f, 1.0f}, marker, line * 2.0f,
-                   border);
-    display_marker(renderer, (tb_vec2){design.x, 0.0f}, (tb_vec2){-1.0f, 1.0f}, marker, line * 2.0f,
-                   border);
-    display_marker(renderer, (tb_vec2){0.0f, design.y}, (tb_vec2){1.0f, -1.0f}, marker, line * 2.0f,
-                   border);
-    display_marker(renderer, design, (tb_vec2){-1.0f, -1.0f}, marker, line * 2.0f, border);
-    tb_canvas_stroke_circle(renderer, tb_vec2_scale(design, 0.5f), marker * 0.5f, line, border);
+    tb_canvas_stroke_rect(renderer, (tb_canvas_rect){first.x, first.y, design.x, design.y}, line,
+                          border);
+    display_marker(renderer, first, (tb_vec2){1.0f, 1.0f}, marker, line * 2.0f, border);
+    display_marker(renderer, (tb_vec2){last.x, first.y}, (tb_vec2){-1.0f, 1.0f}, marker,
+                   line * 2.0f, border);
+    display_marker(renderer, (tb_vec2){first.x, last.y}, (tb_vec2){1.0f, -1.0f}, marker,
+                   line * 2.0f, border);
+    display_marker(renderer, last, (tb_vec2){-1.0f, -1.0f}, marker, line * 2.0f, border);
+    tb_canvas_stroke_circle(renderer, tb_viewport_design_anchor(viewport, (tb_vec2){0.5f, 0.5f}),
+                            marker * 0.5f, line, border);
 }
 
 /* A line of text in the design's units, centered under a point. */
@@ -603,17 +624,19 @@ static void display_text_under(tb_renderer *renderer, const tb_font *font, const
  * turn smoothly and the text is crisp. The viewport mode draws them at the
  * target's: at 320 by 180, the turning art stays on the target's pixels,
  * and the text is rasterized at a few pixels to the em, then upscaled. */
-static void display_draw_art(display_scene *scene, const tb_viewport_policy *policy,
-                             const tb_viewport *viewport, const sandbox_frame *frame)
+static void display_draw_art(display_scene *scene, const tb_viewport *viewport,
+                             const sandbox_frame *frame)
 {
     sandbox *const box = scene->box;
     tb_renderer *const renderer = box->renderer;
     const tb_canvas_view view = tb_canvas_view_viewport(viewport);
-    const tb_vec2 design = display_design_units(policy, viewport);
+    const tb_vec2 design = viewport->design_size;
+    /* A quarter of the way across the design, at its middle's height. */
+    const tb_vec2 at = tb_viewport_design_anchor(viewport, (tb_vec2){0.25f, 0.5f});
     const float texel = design.y / DISPLAY_ART_DESIGN_HEIGHT;
     const float side = (float)DISPLAY_ART_SIDE * texel;
-    const tb_vec2 still = {design.x * 0.25f - side * 0.75f, design.y * 0.5f};
-    const tb_vec2 turning = {design.x * 0.25f + side * 0.75f, design.y * 0.5f - side * 0.5f};
+    const tb_vec2 still = {at.x - side * 0.75f, at.y};
+    const tb_vec2 turning = {at.x + side * 0.75f, at.y - side * 0.5f};
     const tb_font *const font = box->fonts[SANDBOX_FONT_UI];
 
     tb_canvas_set_view(renderer, &view);
@@ -634,8 +657,7 @@ static void display_draw_art(display_scene *scene, const tb_viewport_policy *pol
         return;
     }
     display_text_under(renderer, font, "Tenacious Badger", DISPLAY_ART_TEXT_SIZE * texel,
-                       (tb_vec2){design.x * 0.25f, still.y + texel * 2.0f},
-                       (tb_vec4){1.0f, 0.85f, 0.3f, 1.0f});
+                       (tb_vec2){at.x, still.y + texel * 2.0f}, (tb_vec4){1.0f, 0.85f, 0.3f, 1.0f});
 }
 
 /* The facts, a line each. */
@@ -664,6 +686,16 @@ static size_t display_facts(display_scene *scene, const tb_viewport_policy *poli
                         "         %.3f x %.3f pixels a unit, %.1f x %.1f units shown",
                         (double)viewport->scale.x, (double)viewport->scale.y,
                         (double)viewport->size.x, (double)viewport->size.y);
+    (void)tb_fmt_buffer(scene->lines[count++], DISPLAY_LINE_CAPACITY,
+                        "Design   %.1f x %.1f units from (%.1f, %.1f), in the middle of those "
+                        "shown",
+                        (double)viewport->design_size.x, (double)viewport->design_size.y,
+                        (double)viewport->design_origin.x, (double)viewport->design_origin.y);
+    (void)tb_fmt_buffer(scene->lines[count++], DISPLAY_LINE_CAPACITY,
+                        "Camera   %s axis, %.3f aspect against the design's %.3f",
+                        tb_camera_axis_constraint_name(box->camera.axis_constraint),
+                        (double)tb_viewport_aspect_of(viewport),
+                        (double)tb_viewport_design_aspect(viewport));
     if (scene->mouse_seen)
     {
         (void)tb_fmt_buffer(scene->lines[count++], DISPLAY_LINE_CAPACITY,
@@ -703,8 +735,8 @@ static size_t display_facts(display_scene *scene, const tb_viewport_policy *poli
                         "         F4 design size (1920x1080, 1280x720, 640x360, 320x180), F5 "
                         "window mode");
     (void)tb_fmt_buffer(scene->lines[count++], DISPLAY_LINE_CAPACITY,
-                        "         F6 resizing kept at the design's aspect, Alt+Enter windowed or "
-                        "borderless; ` the inspector");
+                        "         F6 resizing kept at the design's aspect, F7 the camera's axis, "
+                        "Alt+Enter windowed or borderless");
     (void)tb_fmt_buffer(scene->lines[count++], DISPLAY_LINE_CAPACITY,
                         "Lines    gold: the design, its corners and middle; blue: what the "
                         "viewport shows");
@@ -806,8 +838,8 @@ void display_scene_draw(sandbox *box, void *state, const sandbox_frame *frame)
 
     tb_renderer_viewport_policy(box->renderer, &policy);
     shapes_draw(box, scene->shapes, frame);
-    display_draw_design(box->renderer, &policy, &viewport);
-    display_draw_art(scene, &policy, &viewport, frame);
+    display_draw_design(box->renderer, &viewport);
+    display_draw_art(scene, &viewport, frame);
     display_draw_panel(scene, &viewport, frame);
     display_draw_facts(scene, &policy, &viewport);
 }

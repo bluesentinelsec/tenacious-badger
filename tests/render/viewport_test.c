@@ -846,6 +846,7 @@ TB_TEST(viewport, the_viewport_render_modes_target_follows_the_policy)
 
     policy.design_width = 320;
     policy.design_height = 180;
+    policy.aspect = TB_VIEWPORT_ASPECT_KEEP;
     policy.scale_mode = TB_VIEWPORT_SCALE_INTEGER;
     policy.render_mode = TB_VIEWPORT_RENDER_VIEWPORT;
     got = tb_viewport_compute(&policy, &(tb_viewport_frame){.width = 1280, .height = 720});
@@ -922,10 +923,40 @@ TB_TEST(viewport, the_players_aspect_ratio_narrows_the_frame_first)
     viewport_check(viewport_ratio_cases, TB_TEST_COUNT_OF(viewport_ratio_cases));
 }
 
+/* Along each axis of a viewport in the canvas render mode, the design
+ * rectangle starts on a whole pixel, and is centered in the units shown:
+ * before it, half the extra pixels rounded down, so that what is after it
+ * is as much or more, by less than two pixels (the odd whole pixel and the
+ * fraction of one that a design of a fractional extent leaves); where the
+ * design does not fit, it starts at 0. */
+static void viewport_require_design_axis(float origin, float design, float units, float scale)
+{
+    const float pixels = origin * scale;
+
+    TB_TEST_REQUIRE_FLOAT(origin, >=, 0.0f);
+    TB_TEST_REQUIRE_FLOAT_NEAR(pixels, roundf(pixels), 1e-2f);
+    if (design >= units)
+    {
+        TB_TEST_REQUIRE_FLOAT(origin, ==, 0.0f);
+        return;
+    }
+    const float after = (units - design - origin) * scale;
+    TB_TEST_REQUIRE_FLOAT(after - pixels, >=, -1e-2f);
+    TB_TEST_REQUIRE_FLOAT(after - pixels, <, 2.0f);
+}
+
+static void viewport_require_design_centered(const tb_viewport *got)
+{
+    viewport_require_design_axis(got->design_origin.x, got->design_size.x, got->size.x,
+                                 got->scale.x);
+    viewport_require_design_axis(got->design_origin.y, got->design_size.y, got->size.y,
+                                 got->scale.y);
+}
+
 /* Over frames of every size up to a few hundred pixels, for every aspect
  * and scale mode: the viewport lies within the frame, its bars differ by a
- * pixel at most from side to side, it is never empty, and whole pixels a
- * unit are whole. */
+ * pixel at most from side to side, it is never empty, whole pixels a unit
+ * are whole, and the design rectangle is centered on whole pixels. */
 TB_TEST(viewport, every_viewport_is_whole_pixels_centered_in_its_frame)
 {
     static const uint32_t designs[][2] = {{1920, 1080}, {320, 180}, {7, 3}, {0, 0}};
@@ -969,6 +1000,7 @@ TB_TEST(viewport, every_viewport_is_whole_pixels_centered_in_its_frame)
                             TB_TEST_REQUIRE_FLOAT(got.scale.x, ==, floorf(got.scale.x));
                             TB_TEST_REQUIRE_FLOAT(got.scale.x, >=, 1.0f);
                         }
+                        viewport_require_design_centered(&got);
                     }
                 }
             }
@@ -978,10 +1010,12 @@ TB_TEST(viewport, every_viewport_is_whole_pixels_centered_in_its_frame)
 
 TB_TEST(viewport, pixels_and_units_convert_both_ways_and_the_bars_are_outside)
 {
-    const tb_viewport_policy policy = TB_VIEWPORT_POLICY_INIT;
+    tb_viewport_policy policy = TB_VIEWPORT_POLICY_INIT;
+    policy.aspect = TB_VIEWPORT_ASPECT_KEEP;
     const tb_viewport viewport =
         tb_viewport_compute(&policy, &(tb_viewport_frame){.width = 1920, .height = 1200});
-    const tb_viewport stretched = {0, 0, 2560, 1080, {FIT(4, 3), 1.0f}, {1920, 1080}, 0, 0};
+    const tb_viewport stretched = {0, 0, 2560,   1080,  {FIT(4, 3), 1.0f}, {1920, 1080},
+                                   0, 0, {0, 0}, {0, 0}};
 
     /* The design's middle is the frame's. */
     const tb_vec2 middle = tb_viewport_to_pixels(&viewport, (tb_vec2){960, 540});
@@ -1008,17 +1042,363 @@ TB_TEST(viewport, pixels_and_units_convert_both_ways_and_the_bars_are_outside)
                               1e-3f);
 }
 
+/* A case of the design rectangle's table: a policy, a frame, and where the
+ * design lies among the units shown. */
+typedef struct viewport_design_case
+{
+    const char *name;
+    uint32_t design_width;
+    uint32_t design_height;
+    tb_viewport_aspect aspect;
+    tb_viewport_scale_mode mode;
+    tb_viewport_render_mode render;
+    float factor;   /* the policy's scale; 0 is 1 */
+    uint32_t width; /* the frame */
+    uint32_t height;
+    tb_vec2 size; /* the units shown */
+    tb_vec2 origin;
+    tb_vec2 design;
+} viewport_design_case;
+
+#define CANVAS TB_VIEWPORT_RENDER_CANVAS
+#define TARGET TB_VIEWPORT_RENDER_VIEWPORT
+
+/* A 16:9 design on frames of every common shape: in `expand`, the design
+ * rectangle is centered in what the frame shows, the extra split on
+ * either side on whole pixels; along a kept axis it is the units shown. */
+static const viewport_design_case viewport_design_cases[] = {
+    {"expand 16:9 at its size",
+     1920,
+     1080,
+     EXPAND,
+     FRACTIONAL,
+     CANVAS,
+     0,
+     1920,
+     1080,
+     {1920, 1080},
+     {0, 0},
+     {1920, 1080}},
+    {"expand 16:10",
+     1920,
+     1080,
+     EXPAND,
+     FRACTIONAL,
+     CANVAS,
+     0,
+     2560,
+     1600,
+     {1920, 1200},
+     {0, 60},
+     {1920, 1080}},
+    /* 360 units more, 192 pixels: 96 above, 180 units. */
+    {"expand 4:3",
+     1920,
+     1080,
+     EXPAND,
+     FRACTIONAL,
+     CANVAS,
+     0,
+     1024,
+     768,
+     {1920, 1440},
+     {0, 180},
+     {1920, 1080}},
+    {"expand 21:9",
+     1920,
+     1080,
+     EXPAND,
+     FRACTIONAL,
+     CANVAS,
+     0,
+     2560,
+     1080,
+     {2560, 1080},
+     {320, 0},
+     {1920, 1080}},
+    {"expand 32:9",
+     1920,
+     1080,
+     EXPAND,
+     FRACTIONAL,
+     CANVAS,
+     0,
+     3840,
+     1080,
+     {3840, 1080},
+     {960, 0},
+     {1920, 1080}},
+    /* 1312.5 pixels more down: 656 above, at 0.5625 pixels a unit. */
+    {"expand portrait",
+     1920,
+     1080,
+     EXPAND,
+     FRACTIONAL,
+     CANVAS,
+     0,
+     1080,
+     1920,
+     {1920, FIT(1920 * 1920, 1080)},
+     {0, FIT(656 * 16, 9)},
+     {1920, 1080}},
+    /* Less than a pixel more is no offset at all. */
+    {"expand 1366 by 768",
+     1920,
+     1080,
+     EXPAND,
+     FRACTIONAL,
+     CANVAS,
+     0,
+     1366,
+     768,
+     {FIT(1366 * 1080, 768), 1080},
+     {0, 0},
+     {1920, 1080}},
+    /* Two pixels more: one on either side. One more: after it. */
+    {"expand two pixels wider",
+     1920,
+     1080,
+     EXPAND,
+     FRACTIONAL,
+     CANVAS,
+     0,
+     1922,
+     1080,
+     {1922, 1080},
+     {1, 0},
+     {1920, 1080}},
+    {"expand a pixel wider",
+     1920,
+     1080,
+     EXPAND,
+     FRACTIONAL,
+     CANVAS,
+     0,
+     1921,
+     1080,
+     {1921, 1080},
+     {0, 0},
+     {1920, 1080}},
+    /* Twice as large a unit: the design is half as many units. */
+    {"expand 16:10 at a scale of 2",
+     1920,
+     1080,
+     EXPAND,
+     FRACTIONAL,
+     CANVAS,
+     2,
+     2560,
+     1600,
+     {960, 600},
+     {0, 30},
+     {960, 540}},
+    /* Whole pixels a unit, 4: 80 pixels more down, 40 above, 10 units. */
+    {"expand integer 16:10",
+     320,
+     180,
+     EXPAND,
+     INTEGER,
+     CANVAS,
+     0,
+     1280,
+     800,
+     {320, 200},
+     {0, 10},
+     {320, 180}},
+    /* 86 pixels more across, 43 before it: 10.75 units, a whole pixel of
+     * the frame, though not a whole unit. */
+    {"expand integer 1366 by 768",
+     320,
+     180,
+     EXPAND,
+     INTEGER,
+     CANVAS,
+     0,
+     1366,
+     768,
+     {341.5f, 192},
+     {10.75f, 6},
+     {320, 180}},
+    /* The viewport render mode: on the target's whole pixels, a unit. */
+    {"expand integer 1366 by 768 in a target",
+     320,
+     180,
+     EXPAND,
+     INTEGER,
+     TARGET,
+     0,
+     1366,
+     768,
+     {341.5f, 192},
+     {10, 6},
+     {320, 180}},
+    {"expand 4:3 in a target",
+     1920,
+     1080,
+     EXPAND,
+     FRACTIONAL,
+     TARGET,
+     0,
+     1024,
+     768,
+     {1920, 1440},
+     {0, 180},
+     {1920, 1080}},
+    /* Too small for a unit a pixel: the design's top left. */
+    {"expand integer too small",
+     320,
+     180,
+     EXPAND,
+     INTEGER,
+     CANVAS,
+     0,
+     200,
+     100,
+     {200, 100},
+     {0, 0},
+     {320, 180}},
+    /* One axis open: centered along it alone. */
+    {"keep_width 16:10",
+     1920,
+     1080,
+     WIDTH,
+     FRACTIONAL,
+     CANVAS,
+     0,
+     1920,
+     1200,
+     {1920, 1200},
+     {0, 60},
+     {1920, 1080}},
+    {"keep_height 21:9",
+     1920,
+     1080,
+     HEIGHT,
+     FRACTIONAL,
+     CANVAS,
+     0,
+     2560,
+     1080,
+     {2560, 1080},
+     {320, 0},
+     {1920, 1080}},
+    {"keep_height 16:10 letterboxed",
+     1920,
+     1080,
+     HEIGHT,
+     FRACTIONAL,
+     CANVAS,
+     0,
+     1920,
+     1200,
+     {1920, 1080},
+     {0, 0},
+     {1920, 1080}},
+    /* Kept and stretched: the design is what is shown. */
+    {"keep 16:10",
+     1920,
+     1080,
+     KEEP,
+     FRACTIONAL,
+     CANVAS,
+     0,
+     1920,
+     1200,
+     {1920, 1080},
+     {0, 0},
+     {1920, 1080}},
+    {"ignore 4:3",
+     1920,
+     1080,
+     IGNORE,
+     FRACTIONAL,
+     CANVAS,
+     0,
+     1024,
+     768,
+     {1920, 1080},
+     {0, 0},
+     {1920, 1080}},
+    /* Without a design, what is shown. */
+    {"no design", 0, 0, EXPAND, FRACTIONAL, CANVAS, 0, 1280, 720, {1280, 720}, {0, 0}, {1280, 720}},
+};
+
+TB_TEST(viewport, the_design_rectangle_is_centered_in_what_is_shown)
+{
+    for (size_t index = 0; index < TB_TEST_COUNT_OF(viewport_design_cases); index++)
+    {
+        const viewport_design_case *const test = &viewport_design_cases[index];
+        tb_viewport_policy policy = TB_VIEWPORT_POLICY_INIT;
+        policy.design_width = test->design_width;
+        policy.design_height = test->design_height;
+        policy.aspect = test->aspect;
+        policy.scale_mode = test->mode;
+        policy.render_mode = test->render;
+        policy.scale = test->factor;
+        const tb_viewport got = tb_viewport_compute(
+            &policy, &(tb_viewport_frame){.width = test->width, .height = test->height});
+        TB_TEST_CONTEXT("%s", test->name);
+        TB_TEST_EXPECT_FLOAT_NEAR(got.size.x, test->size.x, 1e-2f);
+        TB_TEST_EXPECT_FLOAT_NEAR(got.size.y, test->size.y, 1e-2f);
+        TB_TEST_EXPECT_FLOAT_NEAR(got.design_origin.x, test->origin.x, 1e-2f);
+        TB_TEST_EXPECT_FLOAT_NEAR(got.design_origin.y, test->origin.y, 1e-2f);
+        TB_TEST_EXPECT_FLOAT_NEAR(got.design_size.x, test->design.x, 1e-2f);
+        TB_TEST_EXPECT_FLOAT_NEAR(got.design_size.y, test->design.y, 1e-2f);
+        if (test->render == CANVAS)
+        {
+            viewport_require_design_centered(&got);
+        }
+    }
+}
+
+/* Anchors: a HUD pins to the visible rectangle's corners, which are the
+ * frame's in `expand`; content of the design pins to the design's, whose
+ * middle is the frame's. */
+TB_TEST(viewport, anchors_pin_to_the_visible_and_the_design_rectangles)
+{
+    const tb_viewport_policy policy = TB_VIEWPORT_POLICY_INIT;
+    const tb_viewport viewport =
+        tb_viewport_compute(&policy, &(tb_viewport_frame){.width = 2560, .height = 1600});
+    const tb_viewport empty = {0};
+
+    tb_vec2 at = tb_viewport_anchor(&viewport, (tb_vec2){1.0f, 0.0f});
+    TB_TEST_EXPECT_FLOAT_NEAR(at.x, 1920.0f, 1e-3f);
+    TB_TEST_EXPECT_FLOAT_NEAR(at.y, 0.0f, 1e-3f);
+    at = tb_viewport_anchor(&viewport, (tb_vec2){0.0f, 1.0f});
+    TB_TEST_EXPECT_FLOAT_NEAR(tb_viewport_to_pixels(&viewport, at).y, 1600.0f, 1e-2f);
+    at = tb_viewport_design_anchor(&viewport, (tb_vec2){0.0f, 0.0f});
+    TB_TEST_EXPECT_FLOAT_NEAR(at.x, 0.0f, 1e-3f);
+    TB_TEST_EXPECT_FLOAT_NEAR(at.y, 60.0f, 1e-3f);
+    at = tb_viewport_design_anchor(&viewport, (tb_vec2){1.0f, 1.0f});
+    TB_TEST_EXPECT_FLOAT_NEAR(at.x, 1920.0f, 1e-3f);
+    TB_TEST_EXPECT_FLOAT_NEAR(at.y, 1140.0f, 1e-3f);
+    /* The design's middle is the visible one, and the frame's. */
+    const tb_vec2 middle = tb_viewport_design_anchor(&viewport, (tb_vec2){0.5f, 0.5f});
+    const tb_vec2 shown = tb_viewport_anchor(&viewport, (tb_vec2){0.5f, 0.5f});
+    TB_TEST_EXPECT_FLOAT_NEAR(middle.x, shown.x, 1e-3f);
+    TB_TEST_EXPECT_FLOAT_NEAR(middle.y, shown.y, 1e-3f);
+    const tb_vec2 pixel = tb_viewport_to_pixels(&viewport, middle);
+    TB_TEST_EXPECT_FLOAT_NEAR(pixel.x, 1280.0f, 1e-2f);
+    TB_TEST_EXPECT_FLOAT_NEAR(pixel.y, 800.0f, 1e-2f);
+
+    /* The camera's reference is the design's shape; the viewport's own
+     * where there is no design rectangle. */
+    TB_TEST_EXPECT_FLOAT_NEAR(tb_viewport_design_aspect(&viewport), 16.0f / 9.0f, 1e-5f);
+    TB_TEST_EXPECT_FLOAT_NEAR(tb_viewport_aspect_of(&viewport), 1.6f, 1e-5f);
+    TB_TEST_EXPECT_FLOAT(tb_viewport_design_aspect(&empty), ==, 1.0f);
+}
+
 /* The camera's aspect is what the viewport shows: the rectangle's, or in
  * `ignore` the design's, stretched; text's scale is the smaller axis's. */
 TB_TEST(viewport, the_aspect_is_what_the_viewport_shows)
 {
-    const tb_viewport keep = {0, 96, 1024, 576, {FIT(1024, 1920), FIT(1024, 1920)}, {1920, 1080},
-                              0, 0};
-    const tb_viewport ignore = {0, 0, 1024, 768, {FIT(1024, 1920), FIT(768, 1080)}, {1920, 1080},
-                                0, 0};
-    const tb_viewport expand = {0, 0, 1024, 768, {FIT(1024, 1920), FIT(1024, 1920)}, {1920, 1440},
-                                0, 0};
-    const tb_viewport empty = {0, 0, 0, 0, {1, 1}, {0, 0}, 0, 0};
+    const tb_viewport keep = {
+        0, 96, 1024, 576, {FIT(1024, 1920), FIT(1024, 1920)}, {1920, 1080}, 0, 0, {0, 0}, {0, 0}};
+    const tb_viewport ignore = {
+        0, 0, 1024, 768, {FIT(1024, 1920), FIT(768, 1080)}, {1920, 1080}, 0, 0, {0, 0}, {0, 0}};
+    const tb_viewport expand = {
+        0, 0, 1024, 768, {FIT(1024, 1920), FIT(1024, 1920)}, {1920, 1440}, 0, 0, {0, 0}, {0, 0}};
+    const tb_viewport empty = {0, 0, 0, 0, {1, 1}, {0, 0}, 0, 0, {0, 0}, {0, 0}};
 
     TB_TEST_EXPECT_FLOAT_NEAR(tb_viewport_aspect_of(&keep), 16.0f / 9.0f, 1e-5f);
     TB_TEST_EXPECT_FLOAT_NEAR(tb_viewport_aspect_of(&ignore), 16.0f / 9.0f, 1e-5f);
