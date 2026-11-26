@@ -92,10 +92,11 @@ def copy_shader_libraries(build, folder, system):
 
 def verify_shader_libraries(folder, metadata, system):
     """Every shader library the build wrote travels with the export, whole.
-    Windows always has D3D12's, since the build compiles it there."""
+    Windows always has D3D12's and D3D11's, since the build compiles them there."""
     libraries = metadata['shader_libraries']
     if system == 'Windows':
         require('d3d12.tbsl' in libraries, 'The build wrote no D3D12 shader library')
+        require('d3d11.tbsl' in libraries, 'The build wrote no D3D11 shader library')
     for name in libraries:
         library = shader_directory(folder, system) / name
         require(library.is_file(), f'Missing shader library: {name}')

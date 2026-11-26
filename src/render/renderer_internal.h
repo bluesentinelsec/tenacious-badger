@@ -297,6 +297,9 @@ typedef struct tb_canvas_draw
     tb_renderer *renderer;
     uint64_t offset; /* of its quads in the frame's uploads */
     uint32_t count;
+    /* Its quads, in the canvas's batch, which holds them until the next
+     * frame begins: what splits them into runs of one image. */
+    const tb_canvas_quad *quads;
     uint32_t width; /* of the target, in pixels */
     uint32_t height;
 } tb_canvas_draw;

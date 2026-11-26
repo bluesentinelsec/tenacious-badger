@@ -38,10 +38,12 @@ set(TB_WINDOW_SOURCES
 target_sources(badger PRIVATE ${TB_WINDOW_SOURCES})
 target_sources(badger_static PRIVATE ${TB_WINDOW_SOURCES})
 
-# DXC, loaded at run time and called through COM. It is built on the
-# foundation modules, as windowing is, so it is not part of the adapter's own
-# sources and tests.
-set(TB_DXC_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/dxc.c" CACHE INTERNAL "Selected DXC sources")
+# The shader compilers: DXC, loaded at run time and called through COM, and
+# D3DCompiler, part of Windows, loaded from the system directory. They are
+# built on the foundation modules, as windowing is, so they are not part of
+# the adapter's own sources and tests.
+set(TB_DXC_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/dxc.c" "${CMAKE_CURRENT_SOURCE_DIR}/d3dcompiler.c"
+    CACHE INTERNAL "Selected shader compiler sources")
 target_sources(badger PRIVATE ${TB_DXC_SOURCES})
 target_sources(badger_static PRIVATE ${TB_DXC_SOURCES})
 configure_file(api.h.in "${PROJECT_BINARY_DIR}/generated/badger/api.h" @ONLY)

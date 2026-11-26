@@ -9,15 +9,16 @@ tb_analyze_target(badger-shaderc)
 
 # The engine's shaders, compiled when the engine is built into a library for
 # each backend of this platform that needs compiled shaders, beside the
-# executables: bin/Shaders/d3d12.tbsl. The renderer finds them there by the
+# executables: bin/Shaders/d3d12.tbsl and d3d11.tbsl. The renderer finds them there by the
 # keys it compiles them by. shaders/Engine/Shaders.manifest lists them.
 set(TB_SHADER_MANIFEST "${PROJECT_SOURCE_DIR}/shaders/Engine/Shaders.manifest")
 set(TB_SHADER_LIBRARY_DIRECTORY "${PROJECT_BINARY_DIR}/bin/Shaders")
 # The backends this platform builds whose shaders are compiled ahead of time.
-# D3D12's are DXIL, compiled by DXC; the other backends' compilers come later.
+# D3D12's are DXIL, compiled by DXC; D3D11's DXBC, compiled by D3DCompiler,
+# part of Windows. The other backends' compilers come later.
 set(TB_SHADER_BACKENDS "")
 if(WIN32)
-    list(APPEND TB_SHADER_BACKENDS d3d12)
+    list(APPEND TB_SHADER_BACKENDS d3d12 d3d11)
 endif()
 set(TB_SHADER_LIBRARIES "")
 set(backend_arguments "")

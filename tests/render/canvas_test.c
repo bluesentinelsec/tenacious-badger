@@ -251,7 +251,7 @@ static void begin(tb_renderer *renderer)
 
 /* On the null backend, every quad of a frame is drawn in one draw, whatever
  * its layer; what has no size is not drawn; images come and go. */
-TB_TEST(canvas_frame, a_frame_draws_its_quads_in_one_draw_on_the_null_backend)
+TB_TEST(canvas_frame, a_frame_draws_each_run_of_one_image_in_one_draw_on_the_null_backend)
 {
     screen opened = {0};
     tb_canvas_stats stats = {0};
@@ -309,7 +309,10 @@ TB_TEST(canvas_frame, a_frame_draws_its_quads_in_one_draw_on_the_null_backend)
     tb_canvas_stats_of(opened.renderer, &stats);
     TB_TEST_EXPECT_UINT(stats.quads, ==, 10);
     TB_TEST_EXPECT_UINT(stats.dropped, ==, 0);
-    TB_TEST_EXPECT_UINT(stats.draws, ==, 1);
+    /* In order of layers: the shapes of layer -2, which sample white; the
+     * image and the sprite of it; then the white sprite and the rectangle of
+     * layer 3, white again. */
+    TB_TEST_EXPECT_UINT(stats.draws, ==, 3);
 
     /* A frame that draws nothing in 2D has no 2D draw. */
     begin(opened.renderer);

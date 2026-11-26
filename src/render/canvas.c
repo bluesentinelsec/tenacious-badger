@@ -427,22 +427,58 @@ void tb_renderer_canvas_destroy(tb_renderer *renderer)
     tb_canvas_batch_free(&renderer->canvas);
 }
 
+/* Where the run of quads that starts at `first` ends: at the first quad of
+ * another image or another filter, or at `count`. A run is one draw, whose
+ * push constants name its image and its sampler, so that the shader reads
+ * every index from its constants, as D3D11 needs. */
+static uint32_t tb_canvas_run_end(const tb_canvas_quad *quads, uint32_t first, uint32_t count)
+{
+    uint32_t end = first + 1;
+    while (end < count && quads[end].texture == quads[first].texture &&
+           quads[end].sampler == quads[first].sampler)
+    {
+        end++;
+    }
+    return end;
+}
+
+static uint32_t tb_canvas_count_runs(const tb_canvas_quad *quads, uint32_t count)
+{
+    uint32_t runs = 0;
+    for (uint32_t first = 0; first < count; first = tb_canvas_run_end(quads, first, count))
+    {
+        runs++;
+    }
+    return runs;
+}
+
 static void tb_renderer_record_canvas(const tb_render_graph_pass_context *pass)
 {
     const tb_canvas_draw *const draw = pass->context;
     const tb_renderer *const renderer = draw->renderer;
-    const struct
-    {
-        float target[2];
-        uint32_t quads;
-        uint32_t offset;
-    } constants = {{(float)draw->width, (float)draw->height},
-                   tb_rhi_buffer_index(renderer->device, renderer->frames[renderer->slot].upload),
-                   (uint32_t)draw->offset};
+    const uint32_t quads =
+        tb_rhi_buffer_index(renderer->device, renderer->frames[renderer->slot].upload);
 
     tb_rhi_cmd_pipeline(pass->list, renderer->canvas_pipeline);
-    tb_rhi_cmd_push_constants(pass->list, &constants, sizeof(constants));
-    tb_rhi_cmd_draw(pass->list, TB_CANVAS_QUAD_VERTICES, draw->count, 0, 0);
+    for (uint32_t first = 0; first < draw->count;)
+    {
+        const uint32_t end = tb_canvas_run_end(draw->quads, first, draw->count);
+        const struct
+        {
+            float target[2];
+            uint32_t quads;
+            uint32_t offset;
+            uint32_t image;
+            uint32_t sampler;
+        } constants = {{(float)draw->width, (float)draw->height},
+                       quads,
+                       (uint32_t)(draw->offset + (uint64_t)first * sizeof(tb_canvas_quad)),
+                       draw->quads[first].texture,
+                       draw->quads[first].sampler};
+        tb_rhi_cmd_push_constants(pass->list, &constants, sizeof(constants));
+        tb_rhi_cmd_draw(pass->list, TB_CANVAS_QUAD_VERTICES, end - first, 0, 0);
+        first = end;
+    }
 }
 
 void tb_renderer_canvas_upload(tb_renderer *renderer, tb_canvas_recording *recording)
@@ -479,12 +515,13 @@ void tb_renderer_canvas_upload(tb_renderer *renderer, tb_canvas_recording *recor
     /* The viewport target's quads come first, then the frame's. */
     const size_t first =
         counts[TB_CANVAS_TARGET_VIEWPORT] < fit ? counts[TB_CANVAS_TARGET_VIEWPORT] : fit;
-    recording->targets[TB_CANVAS_TARGET_VIEWPORT] =
-        (tb_canvas_draw){.renderer = renderer, .offset = offset, .count = (uint32_t)first};
+    recording->targets[TB_CANVAS_TARGET_VIEWPORT] = (tb_canvas_draw){
+        .renderer = renderer, .offset = offset, .count = (uint32_t)first, .quads = quads};
     recording->targets[TB_CANVAS_TARGET_FRAME] =
         (tb_canvas_draw){.renderer = renderer,
                          .offset = offset + first * sizeof(*quads),
-                         .count = (uint32_t)(fit - first)};
+                         .count = (uint32_t)(fit - first),
+                         .quads = quads + first};
     /* Glyphs the atlas could not hold are drawn with no color: not drawn. */
     renderer->canvas_stats.glyphs = renderer->glyph_count - renderer->glyphs_hidden;
     renderer->canvas_stats.quads =
@@ -505,7 +542,7 @@ void tb_renderer_canvas_record(tb_renderer *renderer, tb_canvas_recording *recor
     }
     draw->width = width;
     draw->height = height;
-    renderer->canvas_stats.draws++;
+    renderer->canvas_stats.draws += tb_canvas_count_runs(draw->quads, draw->count);
     pass.name = target == TB_CANVAS_TARGET_VIEWPORT ? "canvas in the viewport" : "canvas";
     pass.colors[0] = (tb_render_graph_color){.texture = image, .load = TB_RHI_LOAD_KEEP};
     pass.color_count = 1;

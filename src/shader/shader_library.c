@@ -2,6 +2,7 @@
  * finding a shader in a library or a cache or compiling it, and writing one. The format is
  * docs/shader-cache.md's; shader_bytes.h reads and writes its numbers. */
 #include "shader_bytes.h"
+#include "shader_dxbc.h"
 
 #include "badger/arena.h"
 #include "badger/checksum.h"
@@ -356,14 +357,15 @@ tb_shader_result tb_shader_compile_cached(const tb_shader_compile_request *reque
         give_reason(arena, "the shader is in no library, and compiling at run time is off", output);
         return TB_SHADER_UNAVAILABLE;
     }
-    if (request->dxc == NULL)
+    const char *const compiler = tb_shader_compiler_name(request);
+    if (compiler == NULL)
     {
         give_reason(arena, "the shader is in no library, and there is no compiler for its target",
                     output);
         return TB_SHADER_UNAVAILABLE;
     }
     tb_shader_key entry = {0};
-    tb_shader_cache_key(key, tb_dxc_version(request->dxc), &entry);
+    tb_shader_cache_key(key, compiler, &entry);
     if (lookup->cache != NULL &&
         tb_shader_cache_get(lookup->cache, &entry, arena, &code, &size) == TB_SHADER_CACHE_OK)
     {

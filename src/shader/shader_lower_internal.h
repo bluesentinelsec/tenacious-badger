@@ -56,6 +56,9 @@ typedef struct tb_shader_lowerer
     uint32_t block;      /* The block statements are added to. */
     uint32_t last;       /* Its last statement, or NONE. */
     bool ended;          /* The block ended in a jump; what follows is never run. */
+    /* The statement or expression of the source being lowered, which what
+     * is added to the form is stamped with. */
+    tb_shader_location location;
 } tb_shader_lowerer;
 
 /* Diagnostics. */

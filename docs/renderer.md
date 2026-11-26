@@ -665,8 +665,11 @@ and tools.
 
 ### How it draws
 
-Every quad of a frame is one instance of one draw, whatever its layer,
-image or shape, because everything a quad needs is reached by index:
+The quads of a frame are drawn in runs: each run of quads, in the order
+they are drawn, that share an image and its filter is one draw, of an
+instance for each quad, whatever their layers or shapes. A frame of text
+and solid shapes is a few draws, as the glyphs share the atlas and every
+solid quad samples one white pixel:
 
 - At the end of the frame the quads are sorted by a key of their layer
   and their place in the order drawn, and written to the frame's upload
@@ -678,12 +681,16 @@ image or shape, because everything a quad needs is reached by index:
 - The vertex shader reads its quad from that buffer as a
   `ByteAddressBuffer` from `ResourceDescriptorHeap`, by `SV_InstanceID`,
   and its corner by `SV_VertexID`: there is no vertex buffer.
-- The pixel shader samples the quad's image through
-  `ResourceDescriptorHeap` and `SamplerDescriptorHeap`; a solid quad
-  samples a white pixel, so no quad branches on whether it has an image.
+- The pixel shader samples the run's image through
+  `ResourceDescriptorHeap` and `SamplerDescriptorHeap`, by the indices the
+  run's push constants hold; a solid quad samples a white pixel, so no
+  quad branches on whether it has an image. Every index a draw reads is
+  the same for the whole draw, which is what D3D11, whose shaders reach
+  resources by registers, can bind (see
+  [Compiling for D3D11](shaders.md#compiling-for-d3d11-dxbc)).
 
 Views and clips are applied on the CPU, so changing them does not split
-the draw.
+a run.
 
 **Glyphs** are quads too. The renderer keeps a glyph atlas
 (`tb_font_atlas`, 1024 pixels a side unless `tb_renderer_options.glyph_atlas_size`

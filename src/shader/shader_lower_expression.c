@@ -42,7 +42,9 @@ static tb_shader_form_expression new_expression(tb_shader_form_expression_kind k
 uint32_t tb_shader_lower_add(tb_shader_lowerer *lowerer,
                              const tb_shader_form_expression *expression)
 {
-    return tb_shader_form_add_expression(lowerer->function, expression);
+    tb_shader_form_expression stamped = *expression;
+    stamped.location = lowerer->location;
+    return tb_shader_form_add_expression(lowerer->function, &stamped);
 }
 
 uint32_t tb_shader_lower_type_of(const tb_shader_lowerer *lowerer, uint32_t expression)
@@ -1591,7 +1593,19 @@ static uint32_t string_literal(tb_shader_lowerer *lowerer, const tb_shader_node 
     return tb_shader_lower_add(lowerer, &expression);
 }
 
+static uint32_t lower_expression_node(tb_shader_lowerer *lowerer, tb_shader_node *node);
+
+/* An expression, with what it adds stamped with where it is written. */
 static uint32_t lower_expression(tb_shader_lowerer *lowerer, tb_shader_node *node)
+{
+    const tb_shader_location outer = lowerer->location;
+    lowerer->location = node->location;
+    const uint32_t value = lower_expression_node(lowerer, node);
+    lowerer->location = outer;
+    return value;
+}
+
+static uint32_t lower_expression_node(tb_shader_lowerer *lowerer, tb_shader_node *node)
 {
     if (is_scalar_constant(node))
     {

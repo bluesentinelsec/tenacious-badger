@@ -304,7 +304,9 @@ static tb_shader_form_statement new_statement(tb_shader_form_statement_kind kind
 static uint32_t append(tb_shader_lowerer *lowerer, const tb_shader_form_statement *statement)
 {
     tb_shader_form_function *const function = lowerer->function;
-    const uint32_t index = tb_shader_form_add_statement(function, statement);
+    tb_shader_form_statement stamped = *statement;
+    stamped.location = lowerer->location;
+    const uint32_t index = tb_shader_form_add_statement(function, &stamped);
     if (lowerer->last == TB_SHADER_FORM_NONE)
     {
         tb_shader_form_statement_at(function, lowerer->block)->first = index;
@@ -654,7 +656,18 @@ static void lower_return(tb_shader_lowerer *lowerer, tb_shader_node *node)
     (void)tb_shader_lower_statement(lowerer, &statement);
 }
 
+static void lower_statement_node(tb_shader_lowerer *lowerer, tb_shader_node *node);
+
+/* A statement, with what it adds stamped with where it is written. */
 static void lower_statement(tb_shader_lowerer *lowerer, tb_shader_node *node)
+{
+    const tb_shader_location outer = lowerer->location;
+    lowerer->location = node->location;
+    lower_statement_node(lowerer, node);
+    lowerer->location = outer;
+}
+
+static void lower_statement_node(tb_shader_lowerer *lowerer, tb_shader_node *node)
 {
     switch (node->kind)
     {
@@ -862,6 +875,7 @@ static void declare_function(tb_shader_lowerer *lowerer, tb_shader_node *node)
     const uint32_t index =
         tb_shader_form_add_function(lowerer->form, function_name(lowerer, node->symbol), result);
     tb_shader_form_function *const function = tb_shader_form_function_at(lowerer->form, index);
+    function->location = node->location;
     (void)tb_array_push(lowerer->function_locations, &node->location);
     if (tb_shader_lower_takes_this(node->symbol))
     {
@@ -934,6 +948,7 @@ static void lower_function(tb_shader_lowerer *lowerer, tb_shader_node *node)
     lowerer->last = TB_SHADER_FORM_NONE;
     lowerer->ended = false;
     lowerer->has_this = tb_shader_lower_takes_this(node->symbol);
+    lowerer->location = node->location;
     bind_parameters(lowerer, node);
     lower_statements(lowerer, node->body->children);
     tb_shader_lower_flush(lowerer);

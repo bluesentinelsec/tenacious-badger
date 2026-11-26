@@ -7,6 +7,7 @@
 #include "badger/arena.h"
 #include "badger/cli.h"
 #include "badger/crash.h"
+#include "badger/d3dcompiler.h"
 #include "badger/dxc.h"
 #include "badger/fmt.h"
 #include "badger/fs.h"
@@ -51,6 +52,7 @@ typedef struct shaderc_backend
 
 static const shaderc_backend shaderc_known_backends[] = {
     {"d3d12", "d3d12.tbsl", TB_SHADER_TARGET_DXIL},
+    {"d3d11", "d3d11.tbsl", TB_SHADER_TARGET_DXBC},
 };
 
 /* One shader of the manifest, compiled for one backend. */
@@ -70,6 +72,7 @@ typedef struct shaderc_work
     const shaderc_backend *backend;
     tb_shader_loader loader;
     tb_dxc *dxc;
+    tb_d3dcompiler *d3dcompiler;
     tb_shader_cache *cache;
     shaderc_shader *shaders;
 } shaderc_work;
@@ -91,6 +94,7 @@ static void shaderc_compile_range(void *argument, size_t first, size_t count)
         request.target = work->backend->target;
         request.flags = shaderc_debug ? TB_SHADER_COMPILE_DEBUG : 0u;
         request.dxc = work->dxc;
+        request.d3dcompiler = work->d3dcompiler;
         const tb_shader_lookup lookup = {.cache = work->cache};
         shader->arena = tb_arena_create(0);
         shader->result = tb_shader_compile_cached(&request, &lookup, shader->arena,
@@ -176,6 +180,9 @@ static bool shaderc_build(const shaderc_backend *backend, const tb_shader_manife
 {
     tb_dxc *dxc = NULL;
     tb_dxc_error error = TB_DXC_ERROR_INIT;
+    tb_d3dcompiler *d3dcompiler = NULL;
+    tb_d3dcompiler_error d3dcompiler_error = TB_D3DCOMPILER_ERROR_INIT;
+    const char *compiler = NULL;
     bool built = true;
     if (backend->target == TB_SHADER_TARGET_DXIL && tb_dxc_open(&dxc, &error) != TB_DXC_OK)
     {
@@ -183,10 +190,19 @@ static bool shaderc_build(const shaderc_backend *backend, const tb_shader_manife
                                  error.message);
         return false;
     }
+    if (backend->target == TB_SHADER_TARGET_DXBC &&
+        tb_d3dcompiler_open(&d3dcompiler, &d3dcompiler_error) != TB_D3DCOMPILER_OK)
+    {
+        (void)tb_fmt_print_error("badger-shaderc: error: %s needs D3DCompiler: %s\n", backend->name,
+                                 d3dcompiler_error.message);
+        return false;
+    }
+    compiler = dxc != NULL ? tb_dxc_version(dxc) : tb_d3dcompiler_version(d3dcompiler);
     shaderc_work work = {0};
     work.backend = backend;
     work.loader = tb_shader_vfs_loader(vfs);
     work.dxc = dxc;
+    work.d3dcompiler = d3dcompiler;
     work.cache = cache;
     work.shaders =
         tb_calloc(manifest->entry_count == 0 ? 1 : manifest->entry_count, sizeof(shaderc_shader));
@@ -201,14 +217,14 @@ static bool shaderc_build(const shaderc_backend *backend, const tb_shader_manife
     }
     if (built)
     {
-        /* Every library so far is DXIL, whose compiler is DXC. */
-        built = shaderc_write_library(&work, manifest->entry_count, tb_dxc_version(dxc));
+        built = shaderc_write_library(&work, manifest->entry_count, compiler);
     }
     for (size_t index = 0; index < manifest->entry_count; index++)
     {
         tb_arena_destroy(work.shaders[index].arena);
     }
     tb_free(work.shaders);
+    tb_d3dcompiler_close(d3dcompiler);
     tb_dxc_close(dxc);
     return built;
 }
@@ -224,7 +240,7 @@ static const shaderc_backend *shaderc_find_backend(const char *name)
         }
     }
     (void)tb_fmt_print_error("badger-shaderc: error: no shader library is written for '%s' yet; "
-                             "the backends with libraries are: d3d12\n",
+                             "the backends with libraries are: d3d12, d3d11\n",
                              name);
     return NULL;
 }
@@ -365,8 +381,9 @@ static const tb_cli_option shaderc_options[] = {
      .texts = shaderc_backends,
      .capacity = SHADERC_MOST_BACKENDS,
      .count = &shaderc_backend_count,
-     .help = "A backend to write a library for, as graphics.renderer names it: d3d12. May be "
-             "given more than once; none compiles nothing."},
+     .help =
+         "A backend to write a library for, as graphics.renderer names it: d3d12 or d3d11. May be "
+         "given more than once; none compiles nothing."},
     {.long_name = "output",
      .name = "DIRECTORY",
      .text = &shaderc_output,

@@ -42,7 +42,7 @@ and writes each backend's input from that:
 | Backend | The compiler writes | Then |
 | --- | --- | --- |
 | D3D12 | HLSL | DXC to DXIL: the Windows SDK's `dxc` when building, `dxcompiler.dll` at run time |
-| D3D11 | HLSL, Shader Model 5 | `D3DCompiler_47.dll`, part of Windows |
+| D3D11 | HLSL, Shader Model 5, written from the compiler's own form | `D3DCompiler_47.dll`, part of Windows |
 | Vulkan | SPIR-V | the driver |
 | OpenGL | GLSL | the driver |
 | Metal | Metal Shading Language | the OS |
@@ -568,8 +568,11 @@ tb_dxc_close(dxc);
 
 - **What DXC compiles.** The source as the preprocessor wrote it, once it
   has checked as the compiler checks it: defines applied and includes read,
-  so DXC reads no file. Writing HLSL from the compiler's own form, as every
-  other backend's output is written, comes later.
+  so DXC reads no file. DXC reads HLSL itself, every feature of every
+  shader model it knows, so the text the source is written in is the most
+  faithful thing to give it; HLSL is written from the compiler's own form
+  only for D3DCompiler (see [Compiling for D3D11](#compiling-for-d3d11-dxbc)),
+  which cannot read the source as it is written.
 - **How.** As HLSL 2021 (`-HV 2021`), for the entry point (`-E`) and the
   stage's profile in the shader model (`-T ps_6_6`). A ray-tracing stage
   compiles as a library (`lib_6_6`), every entry point of the source at once.
@@ -600,6 +603,85 @@ its parts, and a hash that is not zero, which shows it is signed. They skip
 where DXC is unavailable. The way DXC's messages are read back is tested on
 every platform with messages written as DXC writes them
 (`tests/shader/shader_dxc_test.c`).
+
+## Compiling for D3D11: DXBC
+
+`TB_SHADER_TARGET_DXBC` writes DXBC of Shader Model 5 for D3D11 through
+D3DCompiler, which is part of Windows and which `tb_d3dcompiler_open()`
+loads (see [D3DCompiler](platforms.md#d3dcompiler)):
+
+```c
+tb_d3dcompiler *compiler = NULL;
+tb_d3dcompiler_error error = TB_D3DCOMPILER_ERROR_INIT;
+if (tb_d3dcompiler_open(&compiler, &error) == TB_D3DCOMPILER_OK)
+{
+    request.target = TB_SHADER_TARGET_DXBC;
+    request.d3dcompiler = compiler;
+    /* request.shader_model 0 is 5.0, the only model D3D11 runs */
+    tb_shader_compile(&request, arena, &compiled);
+}
+```
+
+D3DCompiler reads HLSL of Shader Model 5 alone: no descriptor heaps, no
+`ConstantBuffer<T>`, no templated loads, no HLSL 2021. So the compiler
+writes HLSL from its own form for it (`src/shader/shader_hlsl.c`), from the
+part of the form the entry point runs, as SPIR-V, GLSL and Metal will be
+written:
+
+- **What the form wrote out** (implicit conversions, compound assignments,
+  short-circuit operators, `out` arguments, methods of structs, static
+  variables' first values) is written as the form has it: a constant for
+  each value an EMIT evaluates, in the form's order, and structured `if`,
+  loops and `switch`. A loop's continuing block runs at the top of each pass
+  but the first, so that `continue` runs it; a case that falls through
+  repeats what the case after it does, as Shader Model 5 falls through from
+  no case that does anything.
+- **Constant buffers** are `cbuffer`s whose variables are named after them,
+  at the registers the reflection gives them; a matrix keeps its layout.
+- **`Load<T>` and `Store<T>`** of a byte-address buffer are `Load4`,
+  `Store4` and their kin, reinterpreted with `asfloat` and `asint`;
+  `select`, `and` and `or` are `?:`, `&&` and `||`.
+- **Descriptor heaps.** Each resource or sampler a shader takes from a heap
+  gets a register of its own (`t`, `u` or `s`), after those the shader
+  binds; one taken twice by the same index, as the same type, has one. The
+  shader the D3D11 backend gets (`src/shader/shader_dxbc_format.h`) is the
+  DXBC behind a table that says, for each such register, where its heap
+  index is: a 32-bit value at an offset of `b0` (the push constants), `b1`
+  or `b2`. Before each draw or dispatch, the backend reads each index from
+  the constants it was given, and binds what it names: bindless resources,
+  emulated for indices that are the same for the whole draw. So an index
+  must be read as it is from a constant buffer (a member, an element of an
+  array, a component of a vector, through `NonUniformResourceIndex()` or a
+  conversion between `int` and `uint`); one the shader computes, or reads
+  from a vertex, is an error where it is taken. A heap gives Shader Model 5
+  only textures (2D, 2D arrays and cubes, read or written), byte-address
+  buffers and samplers.
+- **What Shader Model 5 lacks** is an error, said once, where it is first
+  used: wave and quad operations, 16-bit and 64-bit integers, 64-bit
+  floats (an option on D3D11), the intrinsics of later models, the methods
+  of 64-bit and floating-point atomics and of later comparisons, register
+  spaces, arrays of resources of no size, ray queries, and the stages of
+  mesh shaders and ray tracing.
+
+**How.** For the stage's profile (`vs_5_0`, `ps_5_0`, `gs_5_0`, `hs_5_0`,
+`ds_5_0`, `cs_5_0`), strict, optimized (`/O3`), or with
+`TB_SHADER_COMPILE_DEBUG` unoptimized with debug information (`/Od /Zi`).
+The written text turns off one warning of D3DCompiler's, that a value may be
+used before it is set (X4000): it is about the text, not the source, whose
+every local the form sets before it is read.
+
+**D3DCompiler's errors and warnings** join the diagnostics. Each line the
+writer writes records where in the sources the statement, expression or
+function it was written for is, so a message D3DCompiler places in the text,
+even after the directory it ran in, is placed in the shader's own file. A
+line written for no place of the source, such as a struct's member, leaves
+its message with no place.
+
+The tests (`tests/shader/shader_dxbc_test.c`) compile every shader of the
+reflection corpus that Shader Model 5 can run, and check each refusal of the
+others says why; they skip where D3DCompiler is unavailable. The writer, the
+table and the reading of D3DCompiler's messages are tested on every platform
+(`tests/shader/shader_hlsl_test.c`), with a compiler of the test's own.
 
 
 

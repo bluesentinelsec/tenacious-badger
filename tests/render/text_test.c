@@ -112,7 +112,8 @@ TB_TEST(canvas_text, each_glyph_with_ink_is_a_quad)
     TB_TEST_EXPECT_UINT(stats.glyphs, ==, 7 + 14);
     TB_TEST_EXPECT_UINT(stats.quads, ==, 7 + 14 + 1);
     TB_TEST_EXPECT_UINT(stats.dropped, ==, 0);
-    TB_TEST_EXPECT_UINT(stats.draws, ==, 1);
+    /* The glyphs share the atlas, and the rectangle samples white. */
+    TB_TEST_EXPECT_UINT(stats.draws, ==, 2);
 
     /* The next frame draws again from the atlas, as many. */
     begin(opened.renderer);

@@ -53,7 +53,7 @@ foreach(function IN LISTS functions)
         message(FATAL_ERROR
             "The default adapter must end the process with a failure status: ${report}")
     endif()
-    set(expected "^platform\\.[a-z]+: ${function} on ${TB_SYSTEM_NAME}: not implemented; add a platform adapter for ${TB_SYSTEM_NAME} under src/platform/\n$")
+    set(expected "^platform\\.[a-z0-9]+: ${function} on ${TB_SYSTEM_NAME}: not implemented; add a platform adapter for ${TB_SYSTEM_NAME} under src/platform/\n$")
     if(function STREQUAL implemented_function)
         if(NOT diagnostic STREQUAL "")
             message(FATAL_ERROR "${function} must end the process and report nothing: ${report}")

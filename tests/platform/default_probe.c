@@ -8,6 +8,7 @@
  * headers for the functions, so a function that is added to a platform
  * interface without a case here fails the test. */
 #include "badger/crash.h"
+#include "badger/d3dcompiler.h"
 #include "badger/dxc.h"
 #include "badger/library.h"
 #include "badger/platform.h"
@@ -48,6 +49,38 @@ TB_TEST(platform_default, tb_crash_report_abort)
 TB_TEST(platform_default, tb_crash_write_dumps)
 {
     (void)tb_crash_write_dumps(NULL);
+}
+
+TB_TEST(platform_default, tb_d3dcompiler_open)
+{
+    tb_d3dcompiler *compiler = NULL;
+
+    (void)tb_d3dcompiler_open(&compiler, NULL);
+}
+
+TB_TEST(platform_default, tb_d3dcompiler_close)
+{
+    tb_d3dcompiler_close(NULL);
+}
+
+TB_TEST(platform_default, tb_d3dcompiler_compile)
+{
+    const tb_d3dcompiler_request request = {0};
+    tb_d3dcompiler_output output = {0};
+
+    (void)tb_d3dcompiler_compile(NULL, &request, &output, NULL);
+}
+
+TB_TEST(platform_default, tb_d3dcompiler_release)
+{
+    tb_d3dcompiler_output output = {0};
+
+    tb_d3dcompiler_release(&output);
+}
+
+TB_TEST(platform_default, tb_d3dcompiler_version)
+{
+    (void)tb_d3dcompiler_version(NULL);
 }
 
 TB_TEST(platform_default, tb_dxc_open)

@@ -27,8 +27,9 @@
  * shader library (badger/shader_library.h) holds shaders by it, so that a
  * game finds its shaders without a compiler. A *cache key*
  * (tb_shader_cache_key()) adds the compiler that did the work, as it names
- * itself (tb_dxc_version()), so that a new DXC compiles again rather than
- * reuse what an old one wrote. Both are SHA-256 digests (badger/sha256.h).
+ * itself (tb_dxc_version(), tb_d3dcompiler_version()), so that a new
+ * compiler compiles again rather than reuse what an old one wrote. Both are SHA-256 digests
+ * (badger/sha256.h).
  *
  * **The cache** is a directory with one file for each cache key, in a
  * documented, versioned format. An entry is written whole, then renamed into
@@ -100,7 +101,7 @@ TB_API tb_shader_result tb_shader_key_make(const tb_shader_compile_request *requ
  * @brief Make the cache key of a shader key compiled by a compiler.
  * @param shader Required; a shader key.
  * @param compiler Required, NUL-terminated: the compiler as it names itself,
- * such as tb_dxc_version() gives.
+ * such as tb_dxc_version() or tb_d3dcompiler_version() gives.
  * @param[out] key Required. Receives the cache key.
  */
 TB_API void tb_shader_cache_key(const tb_shader_key *shader, const char *compiler,
