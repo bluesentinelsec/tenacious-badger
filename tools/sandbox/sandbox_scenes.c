@@ -1130,6 +1130,16 @@ const sandbox_scene sandbox_scenes[] = {
      input_scene_event,
      false,
      false},
+    {"gamepad",
+     "every connected gamepad: its buttons, sticks, triggers, and the buttons the sticks and "
+     "triggers make, live; R rumbles every pad",
+     {0.10f, 0.11f, 0.13f, 1},
+     gamepad_scene_create,
+     gamepad_scene_draw,
+     gamepad_scene_destroy,
+     gamepad_scene_event,
+     false,
+     false},
 };
 
 const size_t sandbox_scene_count = sizeof(sandbox_scenes) / sizeof(sandbox_scenes[0]);

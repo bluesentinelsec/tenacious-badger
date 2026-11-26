@@ -161,6 +161,13 @@ void input_scene_draw(sandbox *box, void *state, const sandbox_frame *frame);
 void input_scene_destroy(sandbox *box, void *state);
 bool input_scene_event(sandbox *box, void *state, const tb_window_event *event);
 
+/* The gamepad scene: every connected pad's buttons, sticks, triggers and
+ * virtual buttons shown live, and R to rumble (sandbox_gamepad.c). */
+bool gamepad_scene_create(sandbox *box, void **state);
+void gamepad_scene_draw(sandbox *box, void *state, const sandbox_frame *frame);
+void gamepad_scene_destroy(sandbox *box, void *state);
+bool gamepad_scene_event(sandbox *box, void *state, const tb_window_event *event);
+
 /* Make a shader for the device's backend from HLSL in memory: compiled to
  * DXIL through DXC for D3D12; the text itself for the null backend, which
  * accepts anything. Errors are printed. */

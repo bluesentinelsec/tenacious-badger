@@ -33,6 +33,12 @@ void tb_input_key_components(tb_input_key key, tb_input_key *x, tb_input_key *y)
  * releases. */
 bool tb_input_key_is_window_button(tb_input_key key);
 
+/* The buttons an axis makes, as its value is fed: a stick's two directions
+ * along it, or a trigger's button, with `*negative` none; and the threshold
+ * they press at. False for an axis that makes none. */
+bool tb_input_key_virtual_buttons(tb_input_key axis, tb_input_key *positive, tb_input_key *negative,
+                                  tb_gamepad_threshold *threshold);
+
 /* ---------------------------------------------------------------------------
  * Rules: modifiers and triggers (input_rules.c).
  * ------------------------------------------------------------------------- */

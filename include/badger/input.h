@@ -22,6 +22,7 @@
  * tb_input_add_context(player, gameplay, 0);
  *
  * // As the window's events arrive:      tb_input_feed_window_event(input, &event);
+ * // Once a frame, for each gamepad:      tb_input_feed_gamepad(input, device, &state);
  * // Once a tick, before the simulation: tb_input_tick(input, time->tick_seconds);
  * if (tb_input_action_triggered(player, jump)) { ... }
  * @endcode
@@ -45,6 +46,16 @@
  * once. What a tick gathered can be recorded and replayed, to give the same
  * actions again.
  *
+ * **Gamepads.** A game reads its pads with `badger/gamepad.h` and hands each
+ * pad's state to tb_input_feed_gamepad(), for the player its device is
+ * assigned to; which pad is whose is the game's choice. A stick's four
+ * directions and each trigger are buttons too, with a threshold and
+ * hysteresis (#TB_INPUT_KEY_GAMEPAD_LEFT_STICK_UP,
+ * #TB_INPUT_KEY_GAMEPAD_LEFT_TRIGGER_BUTTON), as Unreal's
+ * `Gamepad_LeftStick_Up` and `Gamepad_LeftTrigger` are, so that a context
+ * maps "jump" to a trigger squeezed. The guide button is the system's, and
+ * no device of the engine gives #TB_INPUT_KEY_GAMEPAD_GUIDE.
+ *
  * **Definitions.** Actions and contexts are made in code, or loaded from a
  * JSON file (`"format": "badger-input"`) that tb_input_save() writes back.
  *
@@ -55,13 +66,15 @@
  * thread, the one that ticks it, usually the game loop's. Callbacks are
  * called on that thread from inside tb_input_tick(). The functions on keys
  * alone (tb_input_key_name(), tb_input_find_key(), tb_input_key_type(),
- * tb_input_key_from_window(), tb_input_key_from_mouse_button()) are
+ * tb_input_key_from_window(), tb_input_key_from_mouse_button(),
+ * tb_input_key_from_gamepad_button(), tb_input_key_from_gamepad_axis()) are
  * thread-safe.
  */
 #ifndef TB_INPUT_H
 #define TB_INPUT_H
 
 #include "badger/api.h"
+#include "badger/gamepad.h"
 #include "badger/window.h"
 
 #include <stdbool.h>
@@ -119,6 +132,13 @@ typedef enum tb_input_value_type
  * are from -1 to 1, up and right positive, and its 2D key is both. A
  * gamepad's triggers are from 0 to 1. A touch's position is in the window's
  * logical units.
+ *
+ * A stick's directions and the triggers as buttons are made by the input
+ * from the stick's and the trigger's values as they are fed, through
+ * tb_gamepad_analog_button(): a direction is down at
+ * #TB_GAMEPAD_STICK_THRESHOLD_DEFAULT and a trigger at
+ * #TB_GAMEPAD_TRIGGER_THRESHOLD_DEFAULT, before any dead zone. A device
+ * that has such buttons of its own may feed them too.
  */
 typedef enum tb_input_key
 {
@@ -237,11 +257,28 @@ typedef enum tb_input_key
     TB_INPUT_KEY_GAMEPAD_DPAD_RIGHT,        /**< The d-pad's right. */
     TB_INPUT_KEY_GAMEPAD_START,             /**< Start, Menu, Options. */
     TB_INPUT_KEY_GAMEPAD_BACK,              /**< Back, View, Share, Select. */
-    TB_INPUT_KEY_GAMEPAD_GUIDE,             /**< The guide button: Xbox, PS, Steam. */
-    TB_INPUT_KEY_GAMEPAD_LEFT_PADDLE_1,     /**< The upper left back paddle: the Steam Deck's L4. */
-    TB_INPUT_KEY_GAMEPAD_LEFT_PADDLE_2,     /**< The lower left back paddle: L5. */
-    TB_INPUT_KEY_GAMEPAD_RIGHT_PADDLE_1,    /**< The upper right back paddle: R4. */
-    TB_INPUT_KEY_GAMEPAD_RIGHT_PADDLE_2,    /**< The lower right back paddle: R5. */
+    /** The guide button: Xbox, PS, Steam. It belongs to the operating system
+     * and the launcher (Game Bar, the Steam overlay, the system's
+     * gestures), so the engine's gamepads never read it and never give
+     * this key; a context may still map it, for a device of a game's own. */
+    TB_INPUT_KEY_GAMEPAD_GUIDE,
+    TB_INPUT_KEY_GAMEPAD_LEFT_PADDLE_1,  /**< The upper left back paddle: the Steam Deck's L4. */
+    TB_INPUT_KEY_GAMEPAD_LEFT_PADDLE_2,  /**< The lower left back paddle: L5. */
+    TB_INPUT_KEY_GAMEPAD_RIGHT_PADDLE_1, /**< The upper right back paddle: R4. */
+    TB_INPUT_KEY_GAMEPAD_RIGHT_PADDLE_2, /**< The lower right back paddle: R5. */
+    /* A gamepad's sticks and triggers as buttons, made from their values. */
+    TB_INPUT_KEY_GAMEPAD_LEFT_STICK_UP,     /**< The left stick pushed up. */
+    TB_INPUT_KEY_GAMEPAD_LEFT_STICK_DOWN,   /**< The left stick pushed down. */
+    TB_INPUT_KEY_GAMEPAD_LEFT_STICK_LEFT,   /**< The left stick pushed left. */
+    TB_INPUT_KEY_GAMEPAD_LEFT_STICK_RIGHT,  /**< The left stick pushed right. */
+    TB_INPUT_KEY_GAMEPAD_RIGHT_STICK_UP,    /**< The right stick pushed up. */
+    TB_INPUT_KEY_GAMEPAD_RIGHT_STICK_DOWN,  /**< The right stick pushed down. */
+    TB_INPUT_KEY_GAMEPAD_RIGHT_STICK_LEFT,  /**< The right stick pushed left. */
+    TB_INPUT_KEY_GAMEPAD_RIGHT_STICK_RIGHT, /**< The right stick pushed right. */
+    /** The left trigger squeezed, as a button: Unreal's `Gamepad_LeftTrigger`,
+     * where #TB_INPUT_KEY_GAMEPAD_LEFT_TRIGGER is its `Gamepad_LeftTriggerAxis`. */
+    TB_INPUT_KEY_GAMEPAD_LEFT_TRIGGER_BUTTON,
+    TB_INPUT_KEY_GAMEPAD_RIGHT_TRIGGER_BUTTON, /**< The right trigger squeezed, as a button. */
     /* Touches, as buttons while a finger is down. */
     TB_INPUT_KEY_TOUCH_1,  /**< The first finger down. */
     TB_INPUT_KEY_TOUCH_2,  /**< The second. */
@@ -280,6 +317,10 @@ typedef uint32_t tb_input_device;
 #define TB_INPUT_DEVICE_MOUSE ((tb_input_device)2)
 /** @brief The first number of other devices. */
 #define TB_INPUT_DEVICE_FIRST_OTHER ((tb_input_device)16)
+/** @brief A number for the gamepad of a slot of `badger/gamepad.h`, from
+ * #TB_INPUT_DEVICE_FIRST_OTHER: one way to number pads, for a game that
+ * has no other. @param slot Below #TB_GAMEPAD_SLOT_COUNT. */
+#define TB_INPUT_DEVICE_GAMEPAD(slot) ((tb_input_device)(TB_INPUT_DEVICE_FIRST_OTHER + (slot)))
 
 /** @brief An action: a handle that its input gave. Zero is none. Actions
  * last as long as their input. */
@@ -771,6 +812,27 @@ TB_API void tb_input_feed_key(tb_input *input, tb_input_device device, tb_input_
                               tb_input_value value);
 
 /**
+ * @brief Gather a gamepad's state, as tb_gamepad_get_state() gives it, for
+ * the player its device is assigned to: its buttons, its sticks, and its
+ * triggers, each fed as tb_input_feed_key() feeds a key, when it differs
+ * from what the player has. A disconnected state releases every button
+ * and centers every axis.
+ *
+ * Call it once a frame for each pad, after polling the gamepads. Which pad
+ * is which device, and which device is whose, is the caller's choice:
+ * #TB_INPUT_DEVICE_GAMEPAD() numbers them by slot, and
+ * tb_input_assign_device() gives one to a player. Values are fed as the pad
+ * gave them; the dead zones of the `controls.gamepad.*` settings are
+ * applied by the settings modifier of a mapping (#TB_INPUT_SETTINGS_LEFT_STICK),
+ * not here, so that they are applied once. The guide button is never fed.
+ * @param input Required.
+ * @param device The pad's device; not #TB_INPUT_DEVICE_NONE.
+ * @param state Required; its axes finite.
+ */
+TB_API void tb_input_feed_gamepad(tb_input *input, tb_input_device device,
+                                  const tb_gamepad_state *state);
+
+/**
  * @brief Evaluate every player's actions with the input gathered since the
  * last tick, call the callbacks bound to their events, and start gathering
  * for the next.
@@ -968,6 +1030,14 @@ TB_API tb_input_key tb_input_key_from_window(tb_key key);
 /** @brief The key of a mouse button. @param button Any.
  * @return The key, or #TB_INPUT_KEY_NONE for no button. */
 TB_API tb_input_key tb_input_key_from_mouse_button(tb_mouse_button button);
+
+/** @brief The key of a gamepad's button. @param button Any.
+ * @return The key, or #TB_INPUT_KEY_NONE for no button. */
+TB_API tb_input_key tb_input_key_from_gamepad_button(tb_gamepad_button button);
+
+/** @brief The key of a gamepad's axis: a stick's X or Y, or a trigger.
+ * @param axis Any. @return The key, or #TB_INPUT_KEY_NONE for no axis. */
+TB_API tb_input_key tb_input_key_from_gamepad_axis(tb_gamepad_axis axis);
 
 /* ---------------------------------------------------------------------------
  * Files.

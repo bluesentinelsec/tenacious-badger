@@ -52,11 +52,16 @@ The foundation layer so far, one public header per module under
 | `zip.h` | [ZIP archives](archives.md#zip): entries found by name and read as streams, and written stored or deflated |
 | `vfs.h` | [The virtual file system](vfs.md): directories, archive files, and archives in memory, mounted into one namespace |
 | `json.h` | [JSON](serialization.md): a reader of events, documents in arenas, and a writer |
+| `bitmap.h` | [Bitmaps](media.md#bitmaps): pixels in memory to read, change, blit and scale, and the image files they load from, BMP for now |
 | `font.h` | [Fonts](fonts.md): TrueType fonts read from bytes: glyphs, outlines of lines and curves, advances, kerning, metrics, and names |
 | `font_catalog.h` | [Embedded fonts](fonts.md#embedded-fonts): the fonts the engine carries, a catalog that finds fonts by family, weight, and slant, and the default roles |
 | `font_raster.h` | [Drawing glyphs](fonts.md#drawing-glyphs): glyphs rasterized into coverage, smooth or aliased, measures in pixels, and an atlas that packs them into one image |
+| `sound.h` | [Sounds](media.md#sounds): PCM samples in memory, made, read, converted, resampled, faded, cut and joined, with their loops |
+| `wav.h` | [WAV files](media.md#wav-files): PCM, float, G.711 and IMA ADPCM read whole or a block at a time, and written |
 | `stream.h` | [Streams](streams.md): one interface for reading and writing bytes, over memory, files, and ranges of other streams |
 | `window.h` | [Windows and displays](windows.md): windowed, borderless and fullscreen windows, displays and their scale, and window events |
+| `gamepad.h` | [Gamepads](gamepad.md): XInput, evdev and GameController pads in one standard layout, hot-plugging, sticks and triggers as buttons, and rumble |
+| `input.h` | [Input](input.md): actions and mapping contexts after Unreal's Enhanced Input, from the keyboard, the mouse and gamepads |
 | `shader.h` | [Shaders](shaders.md): HLSL written once for every backend; virtual shader paths, includes and the preprocessor |
 | `shader_cache.h`, `shader_library.h` | [The shader cache and shader libraries](shader-cache.md): keys of what a compile writes, compiled shaders kept on disk, and the libraries a game ships |
 | `rhi.h` | [The render hardware interface](rhi.md): one interface to every graphics API, with bindless resources, command lists and submissions |
@@ -303,6 +308,7 @@ publishes verified native exports after all tagged-build checks pass.
 - `src/platform/{win32,linux,macos}/`: CMake-selected native implementations.
 - `src/platform/default/`: the adapter for [any other platform](platforms.md#unsupported-platforms),
   whose every function reports "not implemented".
+- `src/media/`: [media](media.md): bitmaps and sounds, and the files they load from.
 - `src/settings/`: [settings](settings.md) and the engine's catalog of them.
 - `src/game/`: [the game loop](game-loop.md).
 - `src/main.c`, `src/burrow_*.c`: the `burrow` entrypoint, its game, its

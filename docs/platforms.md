@@ -861,6 +861,15 @@ implemented": DXBC runs only on D3D11, which only Windows has.
 (`/Od /Zi`). The output holds the container and the compiler's messages,
 `name(line,column): error X3004: ...`, until it is released.
 
+## Windows and gamepads
+
+Two interfaces are built on the foundation modules rather than beneath
+them, and each has a page of its own: [windows and displays](windows.md)
+(`window.h`) and [gamepads](gamepad.md) (`gamepad.h`). Each is a shared
+front, `src/platform/shared/window.c` and `gamepad.c`, over a backend of each
+adapter: Win32 and XInput on Windows; Wayland, X11 and evdev on Linux; Cocoa
+and the GameController framework on macOS.
+
 ## Unsupported platforms
 
 Windows, Linux, and macOS are the supported platforms, and each implements
@@ -912,7 +921,10 @@ CTest probes the default adapter on every supported platform
 (`tests/platform/default_probe.c`, `tests/ExpectPlatformDefault.cmake`). The
 script reads the functions from the public headers and runs each in a child
 process, so a function that is added to an interface without its default, or
-without a probe, fails the test. `tests/ExpectPlatformSelection.cmake` checks
+without a probe, fails the test. A function the engine implements once for
+every platform, as a result's name or `gamepad.h`'s buttons made from
+values, needs nothing of an adapter and is left out: the script is given the
+sources that define them (`src/core/gamepad.c`). `tests/ExpectPlatformSelection.cmake` checks
 which adapter each system gets, and that any other system stops the build
 with the message above. CI also builds the engine with the default adapter on
 Linux.
@@ -931,8 +943,7 @@ For each new platform interface, add in one change:
   which is the list the default adapter is checked against.
 
 No interface is implemented on fewer than the three platforms. Planned
-services include windowing/events, input, asynchronous files, audio devices,
-and system information. Each loads the system libraries it needs through
+services include asynchronous files, audio devices, and system information. Each loads the system libraries it needs through
 `badger/library.h`.
 Native APIs and future RHI backends are catalogued in the binding vision.
 
