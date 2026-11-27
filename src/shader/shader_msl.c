@@ -2,6 +2,7 @@
 #include "shader_intrinsics.h"
 #include "shader_methods.h"
 #include "shader_msl_bindings.h"
+#include "shader_uniform.h"
 
 #include "badger/fmt.h"
 #include "badger/str.h"
@@ -19,6 +20,12 @@ typedef struct msl_writer
     const char *reason;
     uint32_t vertex_input;
     bool heaps[TB_MSL_HEAP_COUNT];
+    bool dynamic_indices;
+    tb_shader_hlsl_request indices;
+    tb_msl_slot slots[TB_MSL_MAX_SLOTS];
+    uint32_t slot_count;
+    uint32_t heap_sizes[TB_MSL_HEAP_COUNT];
+    uint32_t registers[3]; /* Direct buffers, textures and samplers. */
     const char *context_args;
     const char *context_params;
     tb_shader_location location;
@@ -254,6 +261,39 @@ static const char *intrinsic(msl_writer *writer, const tb_shader_form_expression
     return "";
 }
 
+/* Reuse the register and byte offset that D3D11 derives from reflection.
+ * A stage that computes an index retains the native argument-buffer path. */
+static uint32_t heap_slot(msl_writer *writer, const tb_shader_form_function *fn,
+                          const tb_shader_form_expression *expr)
+{
+    const tb_msl_heap heap = heap_for(tb_shader_form_type_at(writer->form, expr->type)->object);
+    uint32_t buffer = 0, offset = 0;
+    if (!tb_shader_uniform_index(&writer->indices, fn, expr->operands[0], &buffer, &offset))
+    {
+        writer->dynamic_indices = true;
+        return 0;
+    }
+    for (uint32_t i = 0; i < writer->slot_count; i++)
+    {
+        const tb_msl_slot *const slot = &writer->slots[i];
+        if (slot->heap == heap && slot->buffer == buffer && slot->offset == offset)
+        {
+            return slot->element;
+        }
+    }
+    const uint32_t kind = heap == TB_MSL_BUFFERS ? 0u : heap == TB_MSL_SAMPLERS ? 2u : 1u;
+    const uint32_t limits[] = {TB_MSL_FIRST_VERTEX_SLOT - TB_MSL_FIRST_HEAP_SLOT, 31u, 16u};
+    if (writer->slot_count == TB_MSL_MAX_SLOTS || writer->registers[kind] == limits[kind])
+    {
+        writer->dynamic_indices = true;
+        return 0;
+    }
+    const uint32_t element = writer->heap_sizes[heap]++;
+    const uint32_t slot = writer->registers[kind]++ + (kind == 0 ? TB_MSL_FIRST_HEAP_SLOT : 0u);
+    writer->slots[writer->slot_count++] = (tb_msl_slot){heap, buffer, offset, slot, element};
+    return element;
+}
+
 static const char *expression(msl_writer *writer, const tb_shader_form_expression *expr)
 {
     static const char *const operators[] = {"",   "-",  "!",  "~",  "+", "-", "*",  "/",
@@ -325,7 +365,12 @@ static const char *expression(msl_writer *writer, const tb_shader_form_expressio
     case TB_SHADER_FORM_INTRINSIC:
         return intrinsic(writer, expr);
     case TB_SHADER_FORM_HEAP:
-        return values[expr->operands[0]];
+        if (writer->dynamic_indices)
+        {
+            return values[expr->operands[0]];
+        }
+        return tb_fmt_string(allocator, "TB_INDEX(%s,%u)", values[expr->operands[0]],
+                             heap_slot(writer, writer->function, expr));
     case TB_SHADER_FORM_TEXEL: {
         const tb_shader_form_expression *const handle =
             tb_shader_form_expression_at(writer->function, expr->operands[0]);
@@ -584,6 +629,7 @@ static void write_source(msl_writer *writer, const tb_shader_reflection *reflect
     const tb_shader_form_entry_point *const entry =
         TB_ARRAY_AT(form->entry_points, tb_shader_form_entry_point, 0);
     const tb_shader_form_function *const fn = tb_shader_form_function_at(form, entry->function);
+    writer->indices = (tb_shader_hlsl_request){.form = form, .reflection = reflection};
     writer->function = fn;
     writer->location = fn->location;
     const bool vertex = entry->stage == TB_SHADER_FORM_STAGE_VERTEX;
@@ -696,6 +742,7 @@ static void write_source(msl_writer *writer, const tb_shader_reflection *reflect
                     return;
                 }
                 writer->heaps[heap] = true;
+                (void)heap_slot(writer, function, expr);
             }
         }
     }
@@ -740,19 +787,52 @@ static void write_source(msl_writer *writer, const tb_shader_reflection *reflect
         bindings = tb_fmt_string(&writer->allocator, "%s%s%s %s [[buffer(%u)]]", bindings,
                                  bindings[0] ? ", " : "", type, name, binding->register_index);
     }
+    const char *tables = "";
+    const char *fixed = "";
+    const char *locals = "";
+    if (writer->dynamic_indices)
+    {
+        append(writer, "// tb_dynamic\n#ifdef TB_MSL_FIXED\n#error This shader computes a heap "
+                       "index and requires tier 2 argument buffers\n#endif\n");
+    }
+    append(writer, "#ifdef TB_MSL_FIXED\n#define TB_HEAP_SPACE thread const\n#define "
+                   "TB_INDEX(logical,element) element\n#else\n#define TB_HEAP_SPACE "
+                   "constant\n#define TB_INDEX(logical,element) logical\n#endif\n");
     for (unsigned i = 0; i < TB_MSL_HEAP_COUNT; i++)
     {
         if (!writer->heaps[i])
         {
             continue;
         }
-        append(writer, "struct heap%u { array<%s,%u> items; };\n", i, resources[i],
+        append(writer,
+               "#ifdef TB_MSL_FIXED\n#define TB_COUNT%u %u\n#else\n#define TB_COUNT%u %u\n#endif\n",
+               i, writer->heap_sizes[i], i,
                i == TB_MSL_SAMPLERS ? TB_MSL_SAMPLER_COUNT : TB_MSL_RESOURCE_COUNT);
-        const char *const type = tb_fmt_string(&writer->allocator, "constant heap%u &", i);
+        append(writer, "struct heap%u { array<%s,TB_COUNT%u> items; };\n", i, resources[i], i);
         const char *const name = tb_fmt_string(&writer->allocator, "h%u", i);
-        context_argument(writer, type, name);
-        bindings = tb_fmt_string(&writer->allocator, "%s%s%s %s [[buffer(%u)]]", bindings,
-                                 bindings[0] ? ", " : "", type, name, TB_MSL_FIRST_HEAP_SLOT + i);
+        context_argument(writer, tb_fmt_string(&writer->allocator, "TB_HEAP_SPACE heap%u &", i),
+                         name);
+        tables = tb_fmt_string(&writer->allocator, "%s%sconstant heap%u &%s [[buffer(%u)]]", tables,
+                               params || bindings[0] || tables[0] ? ", " : "", i, name,
+                               TB_MSL_FIRST_HEAP_SLOT + i);
+        const char *items = "";
+        for (uint32_t j = 0; j < writer->slot_count; j++)
+        {
+            const tb_msl_slot *const slot = &writer->slots[j];
+            if ((unsigned)slot->heap != i)
+            {
+                continue;
+            }
+            const char *const attribute = i == TB_MSL_BUFFERS    ? "buffer"
+                                          : i == TB_MSL_SAMPLERS ? "sampler"
+                                                                 : "texture";
+            fixed = tb_fmt_string(&writer->allocator, "%s%s%s d%u [[%s(%u)]]", fixed,
+                                  params || bindings[0] || fixed[0] ? ", " : "", resources[i], j,
+                                  attribute, slot->slot);
+            items = tb_fmt_string(&writer->allocator, "%s%sd%u", items, items[0] ? ", " : "", j);
+            append(writer, "// tb_bind %u %u %u %u\n", i, slot->buffer, slot->offset, slot->slot);
+        }
+        locals = tb_fmt_string(&writer->allocator, "%sheap%u %s{{%s}};\n", locals, i, name, items);
     }
     for (size_t i = 0; i < functions; i++)
     {
@@ -814,7 +894,16 @@ static void write_source(msl_writer *writer, const tb_shader_reflection *reflect
             return;
         }
     }
-    append(writer, "%s%s) {\n", params && bindings[0] ? ", " : "", bindings);
+    append(writer, "%s%s", params && bindings[0] ? ", " : "", bindings);
+    if (tables[0])
+    {
+        append(writer, "\n#ifdef TB_MSL_FIXED\n%s\n#else\n%s\n#endif\n", fixed, tables);
+    }
+    append(writer, ") {\n");
+    if (locals[0])
+    {
+        append(writer, "#ifdef TB_MSL_FIXED\n%s#endif\n", locals);
+    }
     function_body(writer, fn, arena);
 }
 

@@ -147,15 +147,25 @@ tb_rhi_result tb_metal_shader_create(void *state, const tb_rhi_shader_desc *desc
     tb_rhi_result result = TB_RHI_OK;
     if (source != NULL)
     {
+        void *msl = source;
+        if (!d->argument_buffers)
+        {
+            void *const prefix = TB_METAL_METHOD(d, void *, const char *)(
+                string, d->selector("stringWithUTF8String:"), "#define TB_MSL_FIXED 1\n");
+            msl = TB_METAL_METHOD(d, void *,
+                                  void *)(prefix, d->selector("stringByAppendingString:"), source);
+        }
         library = TB_METAL_METHOD(d, void *, void *, void *, void **)(
-            d->gpu, d->selector("newLibraryWithSource:options:error:"), source, NULL,
-            &native_error);
+            d->gpu, d->selector("newLibraryWithSource:options:error:"), msl, NULL, &native_error);
     }
     if (library == NULL)
     {
-        result =
-            tb_rhi_fail(error, TB_RHI_SYSTEM_ERROR, "Metal shader compilation: %s",
-                        source == NULL ? "source is not UTF-8" : error_message(d, native_error));
+        const char *const message =
+            source == NULL ? "source is not UTF-8" : error_message(d, native_error);
+        const bool tier_required =
+            !d->argument_buffers && strstr(message, "requires tier 2 argument buffers") != NULL;
+        result = tb_rhi_fail(error, tier_required ? TB_RHI_UNAVAILABLE : TB_RHI_SYSTEM_ERROR,
+                             "Metal shader compilation: %s", message);
     }
     else
     {
@@ -201,7 +211,8 @@ tb_rhi_result tb_metal_sampler_create(void *state, const tb_rhi_sampler_desc *de
     {
         tb_metal_number(d, descriptor, "setCompareFunction:", desc->compare_op);
     }
-    TB_METAL_METHOD(d, void, bool)(descriptor, d->selector("setSupportArgumentBuffers:"), true);
+    TB_METAL_METHOD(d, void, bool)(descriptor, d->selector("setSupportArgumentBuffers:"),
+                                   d->argument_buffers);
     *object = TB_METAL_METHOD(d, void *, void *)(
         d->gpu, d->selector("newSamplerStateWithDescriptor:"), descriptor);
     tb_metal_release(d, descriptor);

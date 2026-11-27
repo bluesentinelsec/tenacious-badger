@@ -4,6 +4,71 @@
 #include "metal_internal.h"
 #include <string.h>
 
+/* The MSL writer records one line per fixed binding in its source. Read
+ * bounded decimal fields even when a shader is supplied by an external game. */
+static bool field(const char **cursor, const char *end, uint32_t *value)
+{
+    const char *p = *cursor;
+    if (p == end || *p < '0' || *p > '9')
+    {
+        return false;
+    }
+    uint32_t number = 0;
+    do
+    {
+        const uint32_t digit = (uint32_t)(*p - '0');
+        if (number > (UINT32_MAX - digit) / 10u)
+        {
+            return false;
+        }
+        number = number * 10 + digit;
+        p++;
+    } while (p != end && *p >= '0' && *p <= '9');
+    *value = number;
+    *cursor = p;
+    return true;
+}
+bool tb_metal_read_bindings(const tb_rhi_shader_desc *shader, tb_metal_bindings *bindings)
+{
+    if (shader == NULL)
+    {
+        return true;
+    }
+    const char *line = shader->code;
+    const char *const end = line + shader->size;
+    const char prefix[] = "// tb_bind ";
+    while (line < end)
+    {
+        const char *const newline = memchr(line, '\n', (size_t)(end - line));
+        const char *const stop = newline != NULL ? newline : end;
+        if ((size_t)(stop - line) >= sizeof(prefix) - 1 &&
+            memcmp(line, prefix, sizeof(prefix) - 1) == 0)
+        {
+            const char *at = line + sizeof(prefix) - 1;
+            uint32_t values[4] = {0};
+            for (size_t n = 0; n < 4; n++)
+            {
+                if (!field(&at, stop, &values[n]) || (n < 3 && (at == stop || *at++ != ' ')))
+                {
+                    return false;
+                }
+            }
+            const uint32_t heap = values[0], buffer = values[1], slot = values[3];
+            if (at != stop || bindings->count == TB_MSL_MAX_SLOTS || heap >= TB_MSL_HEAP_COUNT ||
+                buffer > TB_RHI_CONSTANT_BUFFER_SLOTS ||
+                (heap == TB_MSL_BUFFERS &&
+                 (slot < TB_MSL_FIRST_HEAP_SLOT || slot >= TB_MSL_FIRST_VERTEX_SLOT)) ||
+                (heap == TB_MSL_SAMPLERS ? slot >= 16u : slot >= 31u))
+            {
+                return false;
+            }
+            bindings->slots[bindings->count++] =
+                (tb_msl_slot){(tb_msl_heap)heap, buffer, values[2], slot, 0};
+        }
+        line = newline != NULL ? newline + 1 : end;
+    }
+    return true;
+}
 static void *indexed(tb_metal_device *d, void *object, const char *property, unsigned long index)
 {
     return TB_METAL_METHOD(d, void *, unsigned long)(
@@ -160,6 +225,14 @@ tb_rhi_result tb_metal_graphics_pipeline_create(void *state,
         result = tb_rhi_fail(error, TB_RHI_OUT_OF_MEMORY, "Metal could not allocate depth state");
         goto cleanup;
     }
+    if (!d->argument_buffers &&
+        (!tb_metal_read_bindings(ref->vertex_desc, &made->stages[TB_RHI_STAGE_VERTEX]) ||
+         !tb_metal_read_bindings(ref->pixel_desc, &made->stages[TB_RHI_STAGE_PIXEL])))
+    {
+        tb_metal_pipeline_destroy(d, made);
+        result = tb_rhi_fail(error, TB_RHI_SYSTEM_ERROR, "Invalid Metal raster binding table");
+        goto cleanup;
+    }
     *object = made;
 cleanup:
     tb_metal_release(d, descriptor);
@@ -242,7 +315,16 @@ tb_rhi_result tb_metal_compute_pipeline_create(void *state,
         tb_metal_pipeline *const made = tb_calloc(1, sizeof(*made));
         made->state = native;
         memcpy(made->group, group, sizeof(group));
-        *object = made;
+        if (d->argument_buffers ||
+            tb_metal_read_bindings(shader_desc, &made->stages[TB_RHI_STAGE_COMPUTE]))
+        {
+            *object = made;
+        }
+        else
+        {
+            tb_metal_pipeline_destroy(d, made);
+            result = tb_rhi_fail(error, TB_RHI_SYSTEM_ERROR, "Invalid Metal compute binding table");
+        }
     }
     d->pool_pop(pool);
     return result;

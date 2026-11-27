@@ -67,14 +67,10 @@ tb_rhi_result tb_metal_device_create(const tb_rhi_device_options *options, void 
         d->pool_pop(pool);
         goto failed;
     }
-    /* MTLGPUFamilyMetal3 provides the direct GPU addresses and resource IDs
-     * used by the argument buffers in the cooked shaders. */
-    if (!TB_METAL_METHOD(d, bool, unsigned long)(d->gpu, d->selector("supportsFamily:"), 5001ul))
-    {
-        result = tb_rhi_fail(error, TB_RHI_UNAVAILABLE, "Metal requires a Metal 3 device");
-        d->pool_pop(pool);
-        goto failed;
-    }
+    /* On macOS 13 and later, Tier 2 argument buffers support direct GPU
+     * addresses. Tier 1 devices bind draw-uniform indices to stage slots. */
+    d->argument_buffers = ((unsigned long (*)(void *, void *))d->send)(
+                              d->gpu, d->selector("argumentBuffersSupport")) == 1ul;
     if (info->bindless_resources > TB_MSL_RESOURCE_COUNT ||
         info->bindless_samplers > TB_MSL_SAMPLER_COUNT)
     {
@@ -91,7 +87,8 @@ tb_rhi_result tb_metal_device_create(const tb_rhi_device_options *options, void 
         d->pool_pop(pool);
         goto failed;
     }
-    info->features = TB_RHI_FEATURE_BINDLESS | TB_RHI_FEATURE_HEAP_INDICES;
+    info->features =
+        TB_RHI_FEATURE_HEAP_INDICES | (d->argument_buffers ? TB_RHI_FEATURE_BINDLESS : 0u);
     const char *const name = tb_metal_get(d, tb_metal_get(d, d->gpu, "name"), "UTF8String");
     info->max_texture_size = 8192; /* Conservative 2D limit across macOS Metal families. */
 

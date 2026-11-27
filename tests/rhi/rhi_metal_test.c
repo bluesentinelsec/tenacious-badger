@@ -9,6 +9,30 @@
 extern const tb_test_file tb_rhi_hlsl_files[];
 extern const size_t tb_rhi_hlsl_files_count;
 
+TB_TEST(rhi_metal, fixed_bindings_are_read_within_the_shader_payload)
+{
+    const char valid[] = "// tb_bind 1 0 4 2\n// tb_bind 6 2 64 1";
+    tb_metal_bindings bindings = {0};
+    tb_rhi_shader_desc shader = {.code = valid, .size = sizeof(valid) - 1};
+    TB_TEST_REQUIRE(tb_metal_read_bindings(&shader, &bindings));
+    TB_TEST_REQUIRE_UINT(bindings.count, ==, 2);
+    TB_TEST_EXPECT_UINT(bindings.slots[0].heap, ==, TB_MSL_TEXTURES);
+    TB_TEST_EXPECT_UINT(bindings.slots[0].slot, ==, 2);
+    TB_TEST_EXPECT_UINT(bindings.slots[1].buffer, ==, 2);
+    TB_TEST_EXPECT_UINT(bindings.slots[1].offset, ==, 64);
+    const char *const invalid[] = {
+        "// tb_bind 1 0 4",    "// tb_bind 1 -1 4 0", "// tb_bind 1 0 4294967296 0",
+        "// tb_bind 0 0 0 16", "// tb_bind 6 0 0 16", "// tb_bind 7 0 0 1",
+        "// tb_bind 1 3 0 1"};
+    for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++)
+    {
+        bindings = (tb_metal_bindings){0};
+        shader.code = invalid[i];
+        shader.size = tb_str_length(invalid[i]);
+        TB_TEST_EXPECT(!tb_metal_read_bindings(&shader, &bindings));
+    }
+}
+
 TB_TEST(rhi_metal, unsupported_device_requests_report_the_missing_capability)
 {
     tb_rhi_device *device = NULL;

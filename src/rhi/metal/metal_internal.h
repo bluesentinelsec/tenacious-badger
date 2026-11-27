@@ -8,6 +8,15 @@
 #include "badger/library.h"
 #include "badger/thread.h"
 
+typedef struct tb_metal_resident
+{
+    void *owner;
+    void *resource;
+    tb_msl_heap heap;
+    uint32_t index;
+    unsigned long usage;
+} tb_metal_resident;
+
 typedef struct tb_metal_device
 {
     tb_library *metal;
@@ -19,6 +28,7 @@ typedef struct tb_metal_device
     void (*pool_pop)(void *);
     void *gpu;
     void *queue;
+    bool argument_buffers;
     void *heaps[TB_MSL_HEAP_COUNT];
     uint64_t *entries[TB_MSL_HEAP_COUNT];
     tb_array *residents;
@@ -28,9 +38,16 @@ typedef struct tb_metal_device
     bool lost;
 } tb_metal_device;
 
+typedef struct tb_metal_bindings
+{
+    uint32_t count;
+    tb_msl_slot slots[TB_MSL_MAX_SLOTS];
+} tb_metal_bindings;
+
 typedef struct tb_metal_pipeline
 {
     void *state;
+    tb_metal_bindings stages[3];
     unsigned long primitive;
     void *depth;
     unsigned long cull;
@@ -116,13 +133,14 @@ tb_rhi_result tb_metal_swap_chain_present(void *state, void *chain);
 tb_rhi_result tb_metal_swap_chain_resize(void *state, void *chain, uint32_t width, uint32_t height,
                                          bool vsync, tb_rhi_swap_chain_images *images,
                                          tb_rhi_error *error);
+bool tb_metal_read_bindings(const tb_rhi_shader_desc *shader, tb_metal_bindings *bindings);
+void *tb_metal_resource_at(tb_metal_device *d, tb_msl_heap heap, uint32_t index);
 bool tb_metal_heaps_create(tb_metal_device *device);
 void tb_metal_heaps_destroy(tb_metal_device *device);
 void tb_metal_heap_add(tb_metal_device *device, void *owner, void *resource, tb_msl_heap heap,
                        uint32_t index, unsigned long usage);
 void tb_metal_sampler_destroy(void *state, void *object);
 void tb_metal_resource_destroy(void *state, void *object);
-void tb_metal_residency(tb_metal_device *device, void *encoder, bool compute);
 tb_rhi_result tb_metal_sampler_create(void *state, const tb_rhi_sampler_desc *desc,
                                       tb_rhi_indices indices, void **object, tb_rhi_error *error);
 tb_rhi_result tb_metal_compute_pipeline_create(void *state,

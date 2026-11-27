@@ -3,18 +3,9 @@
 #include "badger/assert.h"
 #include "badger/memory.h"
 
-typedef struct metal_resident
-{
-    void *owner;
-    void *resource;
-    tb_msl_heap heap;
-    uint32_t index;
-    unsigned long usage;
-} metal_resident;
-
 bool tb_metal_heaps_create(tb_metal_device *d)
 {
-    d->residents = TB_ARRAY_CREATE(NULL, metal_resident);
+    d->residents = TB_ARRAY_CREATE(NULL, tb_metal_resident);
     for (size_t i = 0; i < TB_MSL_HEAP_COUNT; i++)
     {
         const size_t count = i == TB_MSL_SAMPLERS ? TB_MSL_SAMPLER_COUNT : TB_MSL_RESOURCE_COUNT;
@@ -49,24 +40,29 @@ void tb_metal_heap_add(tb_metal_device *d, void *owner, void *resource, tb_msl_h
     {
         return;
     }
-    const metal_resident entry = {owner, resource, heap, index, usage};
-    uint64_t value = 0;
-    if (heap == TB_MSL_BUFFERS)
-    {
-        value = ((uint64_t (*)(void *, void *))d->send)(resource, d->selector("gpuAddress"));
-    }
-    else
-    {
-        /* MTLResourceID is a struct containing one uint64_t. */
-        typedef struct metal_resource_id
-        {
-            uint64_t value;
-        } metal_resource_id;
-        value =
-            ((metal_resource_id (*)(void *, void *))d->send)(resource, d->selector("gpuResourceID"))
-                .value;
-    }
+    const tb_metal_resident entry = {owner, resource, heap, index, usage};
     tb_mutex_lock(&d->lock);
+    /* Tier 1 uses the same table as a constant-time CPU lookup for direct
+     * stage bindings. Only Tier 2 binds the table itself to an encoder. */
+    uint64_t value = (uint64_t)(uintptr_t)resource;
+    if (d->argument_buffers)
+    {
+        if (heap == TB_MSL_BUFFERS)
+        {
+            value = ((uint64_t (*)(void *, void *))d->send)(resource, d->selector("gpuAddress"));
+        }
+        else
+        {
+            /* MTLResourceID is a struct containing one uint64_t. */
+            typedef struct metal_resource_id
+            {
+                uint64_t value;
+            } metal_resource_id;
+            value = ((metal_resource_id (*)(void *, void *))d->send)(resource,
+                                                                     d->selector("gpuResourceID"))
+                        .value;
+        }
+    }
     d->entries[heap][index] = value;
     (void)tb_array_push(d->residents, &entry);
     tb_mutex_unlock(&d->lock);
@@ -77,7 +73,7 @@ static void remove_entries(tb_metal_device *d, void *object)
     tb_mutex_lock(&d->lock);
     for (size_t i = tb_array_length(d->residents); i > 0; i--)
     {
-        const metal_resident *const entry = TB_ARRAY_AT(d->residents, metal_resident, i - 1);
+        const tb_metal_resident *const entry = TB_ARRAY_AT(d->residents, tb_metal_resident, i - 1);
         if (entry->owner == object)
         {
             d->entries[entry->heap][entry->index] = 0;
@@ -101,26 +97,9 @@ void tb_metal_sampler_destroy(void *state, void *object)
     tb_free(object);
 }
 
-void tb_metal_residency(tb_metal_device *d, void *encoder, bool compute)
+/* Called under the device lock while recording direct bindings. */
+void *tb_metal_resource_at(tb_metal_device *d, tb_msl_heap heap, uint32_t index)
 {
-    tb_mutex_lock(&d->lock);
-    for (size_t i = 0; i < tb_array_length(d->residents); i++)
-    {
-        const metal_resident *const entry = TB_ARRAY_AT(d->residents, metal_resident, i);
-        if (entry->heap != TB_MSL_SAMPLERS)
-        {
-            if (compute)
-            {
-                TB_METAL_METHOD(d, void, void *, unsigned long)(
-                    encoder, d->selector("useResource:usage:"), entry->resource, entry->usage);
-            }
-            else
-            {
-                TB_METAL_METHOD(d, void, void *, unsigned long,
-                                unsigned long)(encoder, d->selector("useResource:usage:stages:"),
-                                               entry->resource, entry->usage, 3ul);
-            }
-        }
-    }
-    tb_mutex_unlock(&d->lock);
+    const uint32_t count = heap == TB_MSL_SAMPLERS ? TB_MSL_SAMPLER_COUNT : TB_MSL_RESOURCE_COUNT;
+    return index < count ? (void *)(uintptr_t)d->entries[heap][index] : NULL;
 }

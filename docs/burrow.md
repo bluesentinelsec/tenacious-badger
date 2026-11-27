@@ -260,7 +260,7 @@ gives the menus navigation actions, one a frame from the first (`up`,
   way back, and saved in the player's file; and a change let go of.
 
 On macOS, `burrow --renderer=metal` draws the menus and the graybox room on a
-Metal 3 GPU. Automatic selection tries Metal first. An exported game reads
+Metal GPU. Automatic selection tries Metal first. An exported game reads
 `metal.tbsl` from the shader directory in the app bundle.
 
 ## Not yet

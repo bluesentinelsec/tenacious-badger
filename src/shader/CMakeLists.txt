@@ -20,6 +20,7 @@ set(TB_SHADER_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_form_extract.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_form_print.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_form_verify.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shader_uniform.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_hlsl.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_intrinsics.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_lexer.c"

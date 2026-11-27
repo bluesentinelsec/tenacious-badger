@@ -12,8 +12,7 @@ def draw(executable, arguments, directory):
     output = process.stdout + process.stderr
     if process.returncode:
         if any(reason in output for reason in ('no window:', 'no windowing:',
-                                               'Metal: no system default GPU',
-                                               'Metal requires a Metal 3 device')):
+                                               'Metal: no system default GPU')):
             print(output)
             sys.exit(77)
         raise RuntimeError(output)

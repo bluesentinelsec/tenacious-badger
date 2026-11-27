@@ -258,8 +258,11 @@ system-library loader. The backend compiles MSL, records
 render passes into a command buffer, and copies a color target into a shared
 readback buffer. Submission waits for Metal to complete. GPU tests run on an
 available device and report the reason when no device is available. Both `auto` and `--renderer=metal` use Metal on a compatible GPU.
-Metal 3 argument buffers hold indexed buffer addresses and texture and sampler
-IDs. Raster and compute pipelines support the deferred renderer, the canvas,
+Tier 2 argument buffers hold indexed buffer addresses and texture and sampler
+IDs. On a Tier 1 GPU, including virtual GPUs, the compiler also supplies the
+constant-buffer offset of each draw-uniform index. The encoder reads those
+indices from CPU-visible constants and binds the named resources directly to
+the stage. A shader that computes its own index requires Tier 2. Raster and compute pipelines support the deferred renderer, the canvas,
 mesh skinning and mip generation. Set `MTL_DEBUG_LAYER=1` to turn on Metal
 API validation. Ray tracing, GPU timestamps and multisampling are unavailable.
 
