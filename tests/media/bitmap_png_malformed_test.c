@@ -207,6 +207,11 @@ TB_TEST(media_bitmap_png, chunks_out_of_place_are_refused)
     png_build_header(&file, 3, 2, 8, 6, 0);
     expect_malformed(&file, "IHDR chunk at byte 79: a second IHDR chunk");
 
+    valid_rgba(&file);
+    file.length = png_build_find(&file, "IEND");
+    png_build_chunk(&file, "IEND", "a", 1);
+    expect_malformed(&file, "IEND chunk at byte 79: an IEND chunk with data");
+
     png_build_begin(&file);
     png_build_header(&file, 3, 2, 8, 6, 0);
     png_build_data(&file, rows, length, 7);

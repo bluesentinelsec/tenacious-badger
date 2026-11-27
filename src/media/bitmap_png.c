@@ -528,12 +528,14 @@ static uint8_t *png_destination(const png_decoder *decoder, size_t *step)
     return tb_bitmap_row(decoder->bitmap, y) + (size_t)x * 4u;
 }
 
-static void png_put_gray(const png_decoder *decoder, const uint8_t *row, uint8_t *out, size_t step)
+static void png_put_gray(const png_decoder *decoder, const uint8_t *row, uint8_t *first,
+                         size_t step)
 {
     const uint32_t depth = decoder->header.depth;
 
     for (uint32_t x = 0; x < decoder->pass.width; x++)
     {
+        uint8_t *const out = first + (size_t)x * step;
         const uint32_t sample = png_sample(row, x, depth);
         const uint8_t gray = png_widen(sample, depth);
         const bool clear = decoder->keyed && sample == decoder->key[0];
@@ -541,32 +543,32 @@ static void png_put_gray(const png_decoder *decoder, const uint8_t *row, uint8_t
         out[1] = gray;
         out[2] = gray;
         out[3] = clear ? 0u : UINT8_MAX;
-        out += step;
     }
 }
 
-static void png_put_gray_alpha(const png_decoder *decoder, const uint8_t *row, uint8_t *out,
+static void png_put_gray_alpha(const png_decoder *decoder, const uint8_t *row, uint8_t *first,
                                size_t step)
 {
     const uint32_t depth = decoder->header.depth;
 
     for (uint32_t x = 0; x < decoder->pass.width; x++)
     {
+        uint8_t *const out = first + (size_t)x * step;
         const uint8_t gray = png_widen(png_sample(row, (size_t)x * 2u, depth), depth);
         out[0] = gray;
         out[1] = gray;
         out[2] = gray;
         out[3] = png_widen(png_sample(row, (size_t)x * 2u + 1u, depth), depth);
-        out += step;
     }
 }
 
-static void png_put_rgb(const png_decoder *decoder, const uint8_t *row, uint8_t *out, size_t step)
+static void png_put_rgb(const png_decoder *decoder, const uint8_t *row, uint8_t *first, size_t step)
 {
     const uint32_t depth = decoder->header.depth;
 
     for (uint32_t x = 0; x < decoder->pass.width; x++)
     {
+        uint8_t *const out = first + (size_t)x * step;
         const uint32_t red = png_sample(row, (size_t)x * 3u, depth);
         const uint32_t green = png_sample(row, (size_t)x * 3u + 1u, depth);
         const uint32_t blue = png_sample(row, (size_t)x * 3u + 2u, depth);
@@ -576,38 +578,39 @@ static void png_put_rgb(const png_decoder *decoder, const uint8_t *row, uint8_t 
         out[1] = png_widen(green, depth);
         out[2] = png_widen(blue, depth);
         out[3] = clear ? 0u : UINT8_MAX;
-        out += step;
     }
 }
 
-static void png_put_rgba(const png_decoder *decoder, const uint8_t *row, uint8_t *out, size_t step)
+static void png_put_rgba(const png_decoder *decoder, const uint8_t *row, uint8_t *first,
+                         size_t step)
 {
     const uint32_t width = decoder->pass.width;
 
     if (decoder->header.depth == 8u && step == 4u)
     {
-        memcpy(out, row, (size_t)width * 4u);
+        memcpy(first, row, (size_t)width * 4u);
         return;
     }
     for (uint32_t x = 0; x < width; x++)
     {
+        uint8_t *const out = first + (size_t)x * step;
         for (size_t channel = 0; channel < 4u; channel++)
         {
             out[channel] =
                 png_widen(png_sample(row, (size_t)x * 4u + channel, decoder->header.depth),
                           decoder->header.depth);
         }
-        out += step;
     }
 }
 
 static tb_bitmap_result png_put_palette(const png_decoder *decoder, const png_chunk *chunk,
-                                        const uint8_t *row, uint8_t *out, size_t step)
+                                        const uint8_t *row, uint8_t *first, size_t step)
 {
     const uint32_t depth = decoder->header.depth;
 
     for (uint32_t x = 0; x < decoder->pass.width; x++)
     {
+        uint8_t *const out = first + (size_t)x * step;
         const uint32_t index = png_sample(row, x, depth);
         if (index >= decoder->colors)
         {
@@ -618,7 +621,6 @@ static tb_bitmap_result png_put_palette(const png_decoder *decoder, const png_ch
         out[1] = color.g;
         out[2] = color.b;
         out[3] = color.a;
-        out += step;
     }
     return TB_BITMAP_OK;
 }
@@ -788,6 +790,7 @@ static tb_bitmap_result png_read_data(png_decoder *decoder, const png_chunk *chu
     const uint8_t *input = chunk->data;
     size_t left = chunk->length;
 
+    TB_ASSERT(decoder->current != NULL && decoder->above != NULL);
     while (!tb_inflater_finished(decoder->inflater))
     {
         uint8_t spare = 0;
@@ -887,6 +890,10 @@ static tb_bitmap_result png_read_chunk(png_decoder *decoder, const png_chunk *ch
 /* The end: every row decoded, and the zlib stream ended. */
 static tb_bitmap_result png_check_end(png_decoder *decoder, const png_chunk *chunk)
 {
+    if (chunk->length != 0)
+    {
+        return png_malformed_in(decoder, chunk, chunk->at, "an IEND chunk with data");
+    }
     if (!decoder->seen_data)
     {
         return png_malformed_in(decoder, chunk, chunk->at, "no image data before IEND");
