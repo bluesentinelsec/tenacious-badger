@@ -644,8 +644,19 @@ if(TB_SANITIZER)
                 -DTB_RAW=ON -P "${CMAKE_CURRENT_SOURCE_DIR}/ExpectMemoryDebug.cmake")
 
         # Touching memory that an arena has released must end with a report.
+        set(tb_sanitizer_probe_sources core/arena_probe.c)
+        if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID STREQUAL "GNU"
+                AND TB_AUDIO_DEVICE_SOURCES)
+            list(APPEND tb_sanitizer_probe_sources support/support_probe.c)
+            add_custom_target(tb_check_pipewire_output
+                COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tools/pipewire_output_test.py"
+                    "${CMAKE_C_COMPILER}" "$<TARGET_FILE:tb_tests_sanitized>"
+                    "$<TARGET_FILE:tb_internal_tests_sanitized>" "$<TARGET_FILE:tb_probe_sanitized>"
+                COMMENT "Check a real PipeWire output under ASan, UBSan and LeakSanitizer"
+                USES_TERMINAL VERBATIM)
+        endif()
         tb_add_tests(tb_probe_sanitized NO_CTEST FRAMEWORK tb_test_sanitized
-            SOURCES core/arena_probe.c)
+            SOURCES ${tb_sanitizer_probe_sources})
         target_sources(tb_probe_sanitized PRIVATE ${TB_ENGINE_SOURCES})
         tb_make_standalone_sanitized(tb_probe_sanitized)
         add_test(NAME core_arena.released_memory_is_reported.sanitized
