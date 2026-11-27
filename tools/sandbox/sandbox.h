@@ -19,6 +19,9 @@
 struct tb_d3dcompiler;
 struct tb_dxc;
 
+/* Bytes of the reason the sandbox has no shader compiler. */
+#define SANDBOX_REASON_CAPACITY 512
+
 /* The fonts every scene may draw text in: the engine catalog's roles, each
  * at its own size (sandbox.specs). A font this build of the engine does not
  * carry is NULL, and what would be drawn in it is not. */
@@ -38,8 +41,11 @@ typedef struct sandbox
     tb_renderer *renderer;
     tb_rhi_device *device;
     tb_rhi_device_info info;
-    struct tb_dxc *dxc;                 /* for D3D12; NULL for other backends */
-    struct tb_d3dcompiler *d3dcompiler; /* for D3D11; NULL for other backends */
+    struct tb_dxc *dxc;                 /* for D3D12; NULL for other backends, or none */
+    struct tb_d3dcompiler *d3dcompiler; /* for D3D11; NULL for other backends, or none */
+    /* Why the backend has no shader compiler, when it needs one and has
+     * none; empty otherwise. Scenes that compile their own shaders say it. */
+    char no_compiler[SANDBOX_REASON_CAPACITY];
     tb_window *window;
     tb_camera camera;         /* the fly camera, which 3D scenes draw from */
     tb_font_catalog *catalog; /* holds the fonts' bytes */

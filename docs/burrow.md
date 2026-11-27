@@ -13,6 +13,7 @@ burrow --renderer=null                  # in a window, drawing nothing: for test
 burrow --frames=120                     # stop after 120 frames
 burrow --navigate=down,accept           # walk the menus, one action a frame: for tests
 burrow --headless --frames=30           # no window: the loop and the player alone
+burrow --log-file=burrow.log            # the output in a file, as under a launcher or Proton
 burrow settings                         # every setting, and where its value comes from
 burrow check                            # say that it starts against its engine
 ```

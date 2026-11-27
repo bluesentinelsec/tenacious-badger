@@ -18,3 +18,9 @@ void tb_process_release_arguments(tb_arguments *arguments)
     (void)arguments;
     tb_default_not_implemented("platform.process", "tb_process_release_arguments");
 }
+
+bool tb_process_write_output_to(const char *path)
+{
+    (void)path;
+    tb_default_not_implemented("platform.process", "tb_process_write_output_to");
+}
