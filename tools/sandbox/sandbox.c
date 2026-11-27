@@ -8,6 +8,7 @@
 #include "sandbox.h"
 
 #include "badger/arena.h"
+#include "badger/assert.h"
 #include "badger/canvas.h"
 #include "badger/cli.h"
 #include "badger/crash.h"
@@ -68,6 +69,7 @@ static bool sandbox_cpu_skinning = false;
 static bool sandbox_validation = false;
 static const char *sandbox_values[SANDBOX_MOST_VALUES] = {0};
 static size_t sandbox_value_count = 0;
+static const char *sandbox_log_file = NULL;
 
 /* The keys the fly camera reads, held or not. */
 typedef enum sandbox_key
@@ -143,6 +145,12 @@ bool sandbox_shader(sandbox *box, const char *path, const char *source, const ch
     tb_rhi_error error = TB_RHI_ERROR_INIT;
     bool made = false;
 
+    if (box->no_compiler[0] != '\0')
+    {
+        (void)tb_fmt_print_error("badger-sandbox: %s compiles its shaders as it runs, and %s\n",
+                                 path, box->no_compiler);
+        goto done;
+    }
     request.source.path = path;
     request.source.files = &file;
     request.source.file_count = 1;
@@ -658,13 +666,53 @@ static tb_vfs *sandbox_shader_sources(sandbox_run *run)
     return vfs;
 }
 
+/* The compiler of the backend's shaders, for the scenes that compile their
+ * own (the renderer's come from its shader libraries). Without one, as on a
+ * machine without the Windows SDK or under Proton, which has no DXC, or with
+ * shaders.runtime_compile off, those scenes say why they cannot be drawn and
+ * every other scene still is. */
+static void sandbox_open_compiler(sandbox_run *run)
+{
+    sandbox *const box = &run->box;
+    const bool needs_dxc = box->info.backend == TB_RHI_BACKEND_D3D12;
+    const bool needs_d3dcompiler = box->info.backend == TB_RHI_BACKEND_D3D11;
+    tb_dxc_error dxc_error = TB_DXC_ERROR_INIT;
+    tb_d3dcompiler_error d3dcompiler_error = TB_D3DCOMPILER_ERROR_INIT;
+
+    if (!needs_dxc && !needs_d3dcompiler)
+    {
+        return;
+    }
+    if (!tb_setting_boolean(run->engine.shaders.runtime_compile))
+    {
+        (void)tb_fmt_buffer(box->no_compiler, sizeof(box->no_compiler),
+                            "shaders.runtime_compile is off");
+    }
+    else if (needs_dxc && tb_dxc_open(&box->dxc, &dxc_error) != TB_DXC_OK)
+    {
+        (void)tb_fmt_buffer(box->no_compiler, sizeof(box->no_compiler), "%s", dxc_error.message);
+    }
+    else if (needs_d3dcompiler &&
+             tb_d3dcompiler_open(&box->d3dcompiler, &d3dcompiler_error) != TB_D3DCOMPILER_OK)
+    {
+        /* coverage-off: D3DCompiler is part of Windows */
+        (void)tb_fmt_buffer(box->no_compiler, sizeof(box->no_compiler), "%s",
+                            d3dcompiler_error.message);
+        /* coverage-on */
+    }
+    if (box->no_compiler[0] != '\0')
+    {
+        (void)tb_fmt_print_error("badger-sandbox: no shader compiler, so the scenes that compile "
+                                 "their own shaders cannot be drawn: %s\n",
+                                 box->no_compiler);
+    }
+}
+
 static int sandbox_open_renderer(sandbox_run *run, tb_window_system *system)
 {
     tb_rhi_error error = TB_RHI_ERROR_INIT;
     tb_window_options options = {0};
     tb_window_error window_error = TB_WINDOW_ERROR_INIT;
-    tb_dxc_error dxc_error = TB_DXC_ERROR_INIT;
-    tb_d3dcompiler_error d3dcompiler_error = TB_D3DCOMPILER_ERROR_INIT;
     tb_renderer_options renderer = {0};
 
     tb_engine_settings_window_options(&run->engine, SANDBOX_TITLE, &options);
@@ -698,20 +746,7 @@ static int sandbox_open_renderer(sandbox_run *run, tb_window_system *system)
     tb_renderer_force_cpu_skinning(run->box.renderer, sandbox_cpu_skinning);
     sandbox_open_fonts(&run->box);
     tb_rhi_device_info_of(run->box.device, &run->box.info);
-    if (run->box.info.backend == TB_RHI_BACKEND_D3D12 &&
-        tb_dxc_open(&run->box.dxc, &dxc_error) != TB_DXC_OK)
-    {
-        (void)tb_fmt_print_error("badger-sandbox: error: no shader compiler: %s\n",
-                                 dxc_error.message);
-        return EXIT_FAILURE;
-    }
-    if (run->box.info.backend == TB_RHI_BACKEND_D3D11 &&
-        tb_d3dcompiler_open(&run->box.d3dcompiler, &d3dcompiler_error) != TB_D3DCOMPILER_OK)
-    {
-        (void)tb_fmt_print_error("badger-sandbox: error: no shader compiler: %s\n",
-                                 d3dcompiler_error.message);
-        return EXIT_FAILURE;
-    }
+    sandbox_open_compiler(run);
     /* Keys 1 to 9 choose the first nine scenes; Tab reaches the rest. */
     const size_t keyed = sandbox_scene_count < 9u ? sandbox_scene_count : 9u;
 
@@ -857,6 +892,11 @@ static const tb_cli_option sandbox_options[] = {
      .capacity = SANDBOX_MOST_VALUES,
      .count = &sandbox_value_count,
      .help = "Give a setting a value, such as display.vsync=off; may be given more than once."},
+    {.long_name = "log-file",
+     .name = "FILE",
+     .text = &sandbox_log_file,
+     .help = "Write the log and all other output to this file, made or emptied, in place of "
+             "standard output and standard error, which nothing reads under Proton."},
 };
 
 static const tb_cli_command sandbox_commands[] = {
@@ -876,6 +916,27 @@ static const tb_cli_command sandbox_program = {
     .run = sandbox_main,
 };
 
+/* Read the command line, send the output where --log-file says before
+ * anything is written, then run the command chosen. */
+static int sandbox_parse_and_run(const tb_arguments *arguments)
+{
+    tb_cli_outcome outcome = TB_CLI_OUTCOME_INIT;
+
+    if (tb_cli_parse(&sandbox_program, arguments->count, arguments->values, &outcome) != TB_CLI_OK)
+    {
+        return tb_cli_finish(&outcome);
+    }
+    if (sandbox_log_file != NULL && !tb_process_write_output_to(sandbox_log_file))
+    {
+        (void)tb_fmt_print_error("badger-sandbox: error: --log-file %s: the file could not be "
+                                 "made\n",
+                                 sandbox_log_file);
+        return EXIT_FAILURE;
+    }
+    TB_ASSERT(outcome.command != NULL && outcome.command->run != NULL);
+    return outcome.command->run(&outcome, NULL);
+}
+
 int main(int count, char **values)
 {
     tb_arguments arguments = TB_ARGUMENTS_INIT;
@@ -887,7 +948,7 @@ int main(int count, char **values)
         (void)tb_fmt_print_error("badger-sandbox: the command line could not be read\n");
         return EXIT_FAILURE;
     }
-    status = tb_cli_run(&sandbox_program, arguments.count, arguments.values, NULL);
+    status = sandbox_parse_and_run(&arguments);
     tb_process_release_arguments(&arguments);
     return status;
 }

@@ -63,8 +63,8 @@ samples become silence during preparation.
 Start a voice with `tb_mixer_play`. Its parameters control the gain, pitch,
 bus and stereo balance. Pan attenuates the opposite front channel. Mono and
 the remaining surround channels retain their levels. Pitch uses linear
-interpolation, including across loop points. A loop can repeat the whole clip
-or use a selected WAV sampler loop. A forward loop wraps at its exclusive
+interpolation, including across loop points. With sampler metadata, a voice repeats the
+selected WAV loop. Without it, the voice repeats the whole clip. A forward loop wraps at its exclusive
 end. A backward loop traverses the region from the last frame to the first.
 A ping-pong cycle visits both ends once. A nonzero play count completes that
 many cycles before playing the tail. Zero repeats indefinitely.

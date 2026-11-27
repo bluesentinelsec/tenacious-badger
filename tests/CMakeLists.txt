@@ -30,6 +30,9 @@ tb_embed_test_data(TB_TAR_DATA_SOURCE tb_tar_files tar "*.tar*")
 # Archives that Python, bsdtar, and .NET wrote (tools/make_zip_test_data.py).
 tb_embed_test_data(TB_ZIP_DATA_SOURCE tb_zip_files zip "*.zip")
 
+# PNG files that Python's zlib, WIC and GDI+ wrote (tools/make_png_test_data.py).
+tb_embed_test_data(TB_PNG_DATA_SOURCE tb_png_files png "*.png")
+
 # Fonts of the author's font pack, under the licenses beside them (see data/fonts/README.md).
 tb_embed_test_data(TB_FONT_DATA_SOURCE tb_font_files fonts "*.ttf")
 
@@ -107,7 +110,11 @@ set(TB_TEST_CASE_SOURCES
     jobs/jobs_test.c
     audio/mixer_test.c
     media/bitmap_bmp_test.c
+    media/bitmap_png_malformed_test.c
+    media/bitmap_png_test.c
+    ${TB_PNG_DATA_SOURCE}
     media/bitmap_test.c
+    media/png_builder.c
     media/sound_edit_test.c
     media/sound_test.c
     media/wav_builder.c
@@ -145,9 +152,11 @@ set(TB_TEST_CASE_SOURCES
     gui/gui_treeview_test.c
     gui/gui_var_test.c
     gui/gui_watch_test.c
+    input/input_bindings_test.c
     input/input_file_test.c
     input/input_gamepad_test.c
     input/input_test.c
+    input/input_rebind_test.c
     input/input_rules_test.c
     jobs/loop_test.c
     anim/anim_test.c
@@ -365,7 +374,7 @@ endfunction()
 tb_add_tests(tb_probe NO_CTEST
     SOURCES core/assert_probe.c core/cli_probe.c core/crash_probe.c core/fatal_probe.c
         core/fmt_probe.c core/memory_probe.c
-        core/memory_debug_probe.c core/fmt_failure_probe.c core/log_probe.c platform/virtual_memory_probe.c support/support_probe.c
+        core/memory_debug_probe.c core/fmt_failure_probe.c core/log_probe.c platform/process_probe.c platform/virtual_memory_probe.c support/support_probe.c
     LIBRARIES TenaciousBadger::badger)
 function(tb_add_probe_test name script)
     add_test(NAME ${name}
@@ -386,6 +395,9 @@ tb_add_probe_test(core_memory_debug.reports_and_aborts ExpectMemoryDebug.cmake)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_test(NAME core_log.stderr_output_and_failure
     COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tools/log_sink_test.py"
+        "$<TARGET_FILE:tb_probe>")
+add_test(NAME platform_process.output_goes_to_a_file
+    COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tools/output_file_test.py"
         "$<TARGET_FILE:tb_probe>")
 add_test(NAME platform_memory.inaccessible_pages_fault
     COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tools/virtual_memory_fault_test.py"
@@ -431,6 +443,9 @@ if(TARGET burrow)
                 "-DTB_ARGUMENT=${argument}" "-DTB_STATUS=${status}" "-DTB_EXPECTED=${expected}"
                 -P "${CMAKE_CURRENT_SOURCE_DIR}/ExpectProgramOutput.cmake")
     endfunction()
+    add_test(NAME burrow.writes_its_output_to_a_log_file
+        COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tools/log_file_test.py"
+            "$<TARGET_FILE:burrow>" "2 + 3 = 5" check)
     tb_add_burrow_test(help_is_written --help 0 "^usage: burrow \\[options\\]")
     tb_add_burrow_test(the_version_is_written --version 0 "^burrow ${PROJECT_VERSION}")
     tb_add_burrow_test(a_wrong_option_is_refused --nope 2

@@ -91,8 +91,11 @@ another object. Using one is a contract violation caught in every build.
 **Lifetimes.** Destroying an object takes its handle away at once; the
 backend's object, and its bindless indices, go when the GPU has finished
 every submission made up to then. Destroy an object only after submitting
-the command lists that use it. A shader can go as soon as its pipelines are
-made.
+the command lists that use it. A shader handle can go as soon as its pipelines
+are made. Each pipeline retains the compiled bytes, entry point and debug name
+of each stage. Pipelines using the same shader share one copy. A graphics
+pipeline also owns its input attributes and their semantic names, so the
+caller can release those arrays and strings after creation.
 
 ## Binding: bindless, with one layout
 

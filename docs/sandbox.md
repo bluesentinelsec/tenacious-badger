@@ -20,6 +20,7 @@ badger-sandbox --scene gui --ui-scale 200            # the GUI twice as large, l
 badger-sandbox --scene display                       # the display policy, changed by F1 to F7
 badger-sandbox --inspector                           # start with the inspector shown
 badger-sandbox --scene skinning --cpu-skinning       # skin on the CPU, as a weaker device does
+badger-sandbox --log-file sandbox.log                # the output in a file, as under Proton
 ```
 
 While it runs, keys 1 to 9 choose the first nine scenes, Tab moves to the
@@ -67,8 +68,14 @@ the font catalog: each role's font, at the role's size
 text.
 Labels are drawn in the renderer's default debug font, the UI role's.
 
-Shaders are HLSL in the sandbox's sources, compiled when a scene starts by
-the engine's compiler, through DXC to DXIL for D3D12. The window, settings
+The renderer's shaders come from the shader libraries the build writes
+beside the sandbox. The `triangle` and `textured` scenes' own shaders are
+HLSL in the sandbox's sources, compiled when the scene starts by the engine's
+compiler, through DXC to DXIL for D3D12 and D3DCompiler to DXBC for D3D11.
+Where DXC is missing, as on a machine without the Windows SDK or under
+Proton, or where `shaders.runtime_compile` is off, the sandbox says so when
+it starts, those two scenes say why they cannot be drawn, and every other
+scene is drawn. The window, settings
 and frame pacing are the engine's own: the sandbox runs on the game loop with
 the engine's settings, in developer mode.
 

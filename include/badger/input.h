@@ -59,6 +59,13 @@
  * **Definitions.** Actions and contexts are made in code, or loaded from a
  * JSON file (`"format": "badger-input"`) that tb_input_save() writes back.
  *
+ * **Rebinding and prompts.** Each player may bind a mapping to another key,
+ * found by listening for the next key pressed (tb_input_listen()), with
+ * conflicts reported (tb_input_find_conflicts()) and the rebinds saved
+ * apart, as differences from the definitions (tb_input_save_bindings()).
+ * tb_input_key_prompt() gives the label and the glyph a key is shown by,
+ * for the family of the pad in hand.
+ *
  * See `docs/input.md`.
  *
  * @par Threading
@@ -66,9 +73,9 @@
  * thread, the one that ticks it, usually the game loop's. Callbacks are
  * called on that thread from inside tb_input_tick(). The functions on keys
  * alone (tb_input_key_name(), tb_input_find_key(), tb_input_key_type(),
- * tb_input_key_from_window(), tb_input_key_from_mouse_button(),
- * tb_input_key_from_gamepad_button(), tb_input_key_from_gamepad_axis()) are
- * thread-safe.
+ * tb_input_key_class_of(), tb_input_key_prompt(), tb_input_key_from_window(),
+ * tb_input_key_from_mouse_button(), tb_input_key_from_gamepad_button(),
+ * tb_input_key_from_gamepad_axis()) are thread-safe.
  */
 #ifndef TB_INPUT_H
 #define TB_INPUT_H
@@ -1039,6 +1046,268 @@ TB_API tb_input_key tb_input_key_from_gamepad_button(tb_gamepad_button button);
  * @param axis Any. @return The key, or #TB_INPUT_KEY_NONE for no axis. */
 TB_API tb_input_key tb_input_key_from_gamepad_axis(tb_gamepad_axis axis);
 
+/** @brief Where keys come from, as bits: what a listener accepts
+ * (#tb_input_listen_desc) and a prompt looks for (tb_input_find_binding()). */
+typedef enum tb_input_key_class
+{
+    TB_INPUT_CLASS_KEYBOARD = 1u << 0,      /**< The keyboard's keys. */
+    TB_INPUT_CLASS_MOUSE_BUTTONS = 1u << 1, /**< The mouse's buttons. */
+    /** The mouse's motion and its wheel, and the wheel's buttons made from it. */
+    TB_INPUT_CLASS_MOUSE_AXES = 1u << 2,
+    TB_INPUT_CLASS_GAMEPAD_BUTTONS = 1u << 3, /**< A gamepad's buttons. */
+    /** A gamepad's sticks and triggers, and the buttons made from them. */
+    TB_INPUT_CLASS_GAMEPAD_AXES = 1u << 4,
+    TB_INPUT_CLASS_TOUCH = 1u << 5 /**< Touches and their positions. */
+} tb_input_key_class;
+
+/** @brief Every class's bit. */
+#define TB_INPUT_CLASS_ALL 0x3fu
+
+/** @brief A gamepad's classes: its buttons, sticks and triggers. */
+#define TB_INPUT_CLASS_GAMEPAD (TB_INPUT_CLASS_GAMEPAD_BUTTONS | TB_INPUT_CLASS_GAMEPAD_AXES)
+
+/** @brief The keyboard's and the mouse's classes. */
+#define TB_INPUT_CLASS_KEYBOARD_MOUSE                                                              \
+    (TB_INPUT_CLASS_KEYBOARD | TB_INPUT_CLASS_MOUSE_BUTTONS | TB_INPUT_CLASS_MOUSE_AXES)
+
+/** @brief The class a key is of. @param key Any. @return One
+ * #tb_input_key_class bit; 0 for none and for a value that is not a key. */
+TB_API uint32_t tb_input_key_class_of(tb_input_key key);
+
+/* ---------------------------------------------------------------------------
+ * Rebinding.
+ * ------------------------------------------------------------------------- */
+
+/** @brief No mapping: for tb_input_find_conflicts(), to exclude none. */
+#define TB_INPUT_NO_MAPPING ((size_t)-1)
+
+/** @brief A mapping of a context as it was defined, before any player's
+ * rebinds. */
+typedef struct tb_input_mapping_info
+{
+    tb_input_action action; /**< The action it drives. */
+    tb_input_key key;       /**< Its key, the default. */
+    bool pass_through;      /**< It lets lower contexts see its key too. */
+} tb_input_mapping_info;
+
+/**
+ * @brief A context's mapping, by its place in the order mapped: what a
+ * Controls menu lists, and what rebinds name.
+ * @param input Required. @param context One of the input's.
+ * @param mapping Below tb_input_context_mapping_count().
+ * @param[out] info Required.
+ */
+TB_API void tb_input_context_mapping_at(const tb_input *input, tb_input_context context,
+                                        size_t mapping, tb_input_mapping_info *info);
+
+/**
+ * @brief The key a player's mapping is bound to: the one it was rebound to,
+ * else its default.
+ * @param player Required. @param context One of the player's input's.
+ * @param mapping Below tb_input_context_mapping_count().
+ * @return The key; #TB_INPUT_KEY_NONE for a mapping the player unbound.
+ */
+TB_API tb_input_key tb_input_binding_key(const tb_input_player *player, tb_input_context context,
+                                         size_t mapping);
+
+/**
+ * @brief Bind a player's mapping to another key, from the next tick, for
+ * that player alone; or unbind it, with #TB_INPUT_KEY_NONE, so that it
+ * sees no key. Its modifiers and triggers stay the mapping's. Rebinding to
+ * the default forgets the rebind. The player's contexts with the mapping
+ * start over, as a changed context does, and the new key, if held, is
+ * ignored by them until released. Conflicts are not refused:
+ * tb_input_find_conflicts() reports them, for the game to decide.
+ * @param player Required. @param context One of the player's input's.
+ * @param mapping Below tb_input_context_mapping_count().
+ * @param key Any key, or #TB_INPUT_KEY_NONE.
+ */
+TB_API void tb_input_rebind(tb_input_player *player, tb_input_context context, size_t mapping,
+                            tb_input_key key);
+
+/** @brief Whether a player's mapping is bound to other than its default.
+ * @param player Required. @param context One of the player's input's.
+ * @param mapping Below tb_input_context_mapping_count(). */
+TB_API bool tb_input_is_rebound(const tb_input_player *player, tb_input_context context,
+                                size_t mapping);
+
+/** @brief Bind a player's mapping to its default again, as tb_input_rebind()
+ * does. @param player Required. @param context One of the player's input's.
+ * @param mapping Below tb_input_context_mapping_count(). */
+TB_API void tb_input_reset_binding(tb_input_player *player, tb_input_context context,
+                                   size_t mapping);
+
+/** @brief Bind every mapping of a player to its default again: "reset to
+ * defaults". @param player Required. */
+TB_API void tb_input_reset_bindings(tb_input_player *player);
+
+/** @brief How many of a player's mappings are rebound. @param player Required. */
+TB_API size_t tb_input_rebind_count(const tb_input_player *player);
+
+/**
+ * @brief The mappings of a context whose keys a key would collide with for
+ * a player: those bound, as the player has them, to the same key, or to a
+ * key that shares a value with it (a stick and its X, a stick's X and its
+ * directions as buttons, the wheel and its buttons). What a Controls menu
+ * asks before it rebinds, to warn or to swap.
+ * @param player Required. @param context One of the player's input's.
+ * @param mapping A mapping of the context to leave out, the one being
+ * rebound; #TB_INPUT_NO_MAPPING for none.
+ * @param key The key; #TB_INPUT_KEY_NONE collides with nothing.
+ * @param[out] conflicts Receives the first `capacity` of them, by their
+ * places, in order; NULL only when `capacity` is 0.
+ * @param capacity Of `conflicts`.
+ * @return How many there are, which may be more than `capacity`.
+ */
+TB_API size_t tb_input_find_conflicts(const tb_input_player *player, tb_input_context context,
+                                      size_t mapping, tb_input_key key, size_t *conflicts,
+                                      size_t capacity);
+
+/**
+ * @brief The key a prompt shows for an action: the first key, as the
+ * player has it bound, of the context's mappings of the action whose key
+ * is of one of `classes`. "Press [key] to jump."
+ * @param player Required. @param context One of the player's input's.
+ * @param action One of the player's input's.
+ * @param classes #tb_input_key_class bits, as #TB_INPUT_CLASS_GAMEPAD; 0
+ * for any.
+ * @return The key, or #TB_INPUT_KEY_NONE when none is bound.
+ */
+TB_API tb_input_key tb_input_find_binding(const tb_input_player *player, tb_input_context context,
+                                          tb_input_action action, uint32_t classes);
+
+/**
+ * @brief The device that last gave a player a key: a button pressed, an
+ * axis moved, a touch, as fed. What a game shows prompts for: the keyboard's
+ * and the mouse's, or the family of the gamepad it numbered so.
+ * @param player Required.
+ * @return The device, or #TB_INPUT_DEVICE_NONE before any; a replayed
+ * tick's keys have none.
+ */
+TB_API tb_input_device tb_input_player_last_device(const tb_input_player *player);
+
+/* ---------------------------------------------------------------------------
+ * Listening for a key to bind.
+ * ------------------------------------------------------------------------- */
+
+/** @brief How far the mouse moves, in logical units, to be captured by a
+ * listener that gives none. */
+#define TB_INPUT_LISTEN_DISTANCE 32.0f
+
+/** @brief What a listener waits for. Zero-initialize it for any player, any
+ * class, a button, and the defaults. */
+typedef struct tb_input_listen_desc
+{
+    /** The player whose devices count, borrowed while listening; NULL for
+     * every player. */
+    const tb_input_player *player;
+    /** The #tb_input_key_class bits accepted; 0 for all. */
+    uint32_t classes;
+    /**
+     * What the key is for: a bool action takes a button, and a stick or a
+     * trigger as a button (#TB_INPUT_KEY_GAMEPAD_LEFT_STICK_UP), the
+     * wheel's buttons, but not the mouse's motion. An axis1d takes buttons
+     * and the axis moved (#TB_INPUT_KEY_GAMEPAD_LEFT_STICK_X, the mouse's
+     * X); an axis2d or axis3d takes buttons and the 2D key of the axis moved
+     * (#TB_INPUT_KEY_GAMEPAD_LEFT_STICK, #TB_INPUT_KEY_MOUSE_XY, a touch's
+     * position).
+     */
+    tb_input_value_type type;
+    /** How far a stick or a trigger moves to be captured as an axis, from
+     * rest; 0 for #TB_INPUT_DEFAULT_THRESHOLD. At most 1. */
+    float threshold;
+    /** How far the mouse moves, in logical units, to be captured; 0 for
+     * #TB_INPUT_LISTEN_DISTANCE. */
+    float distance;
+    /** Keys that cancel rather than being captured, whatever `classes`
+     * says; borrowed while listening. NULL for Escape and the gamepad's
+     * start (#TB_INPUT_KEY_ESCAPE, #TB_INPUT_KEY_GAMEPAD_START), as
+     * Unreal's key selector cancels; with a count of 0, none. */
+    const tb_input_key *cancel_keys;
+    size_t cancel_key_count; /**< Of `cancel_keys`. */
+} tb_input_listen_desc;
+
+/** @brief Where a listener stands. */
+typedef enum tb_input_listen_state
+{
+    TB_INPUT_LISTEN_IDLE,     /**< Not listening. */
+    TB_INPUT_LISTEN_WAITING,  /**< Listening: no key yet. */
+    TB_INPUT_LISTEN_CAPTURED, /**< A key was captured, and listening ended. */
+    TB_INPUT_LISTEN_CANCELED  /**< A cancel key was pressed, and listening ended. */
+} tb_input_listen_state;
+
+/** @brief What a listener captured. */
+typedef struct tb_input_capture
+{
+    tb_input_listen_state state; /**< Where it stands. */
+    tb_input_key key;            /**< Captured: the key; else none. */
+    tb_input_device device;      /**< Captured or canceled: the device that gave the key. */
+    /** Captured or canceled: the player whose key it was; else
+     * #TB_INPUT_NO_PLAYER. */
+    size_t player;
+} tb_input_capture;
+
+/**
+ * @brief Listen for the next key a player presses or moves, to bind it,
+ * in place of any listening under way: a Controls menu's "press a key".
+ *
+ * Each tick looks at the keys as the tick sees them. A key down or an axis
+ * away from rest when listening began counts only once released or back at
+ * rest, so that the press that chose "rebind" is not captured. Cancel keys
+ * are looked at first; of several keys in one tick, the first in the order
+ * of #tb_input_key is taken. While listening, and in the tick that ends
+ * it, the players listened to have no actions: their actions go to none.
+ * After, a key still held is ignored by their contexts until released, so
+ * that the key captured does not act too.
+ * @param input Required. @param desc Required and valid.
+ */
+TB_API void tb_input_listen(tb_input *input, const tb_input_listen_desc *desc);
+
+/** @brief Stop listening, and forget what was captured: the state is idle
+ * again. @param input Required. */
+TB_API void tb_input_stop_listening(tb_input *input);
+
+/** @brief Where a listener stands, and what it captured.
+ * @param input Required. @param[out] capture NULL when nobody asks.
+ * @return Its state. */
+TB_API tb_input_listen_state tb_input_listen_result(const tb_input *input,
+                                                    tb_input_capture *capture);
+
+/* ---------------------------------------------------------------------------
+ * Prompts.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * @brief How a key is shown to a player: a label to print and a glyph to
+ * draw, for a family of gamepads.
+ *
+ * The **label** is English, as printed on the key or the pad: "Space",
+ * "Left Shift", "Left Mouse Button", "A", "Cross", "ZL". The **glyph** is a
+ * stable identifier of the picture of the key, `set/element`, lowercase:
+ * "keyboard/space", "mouse/left", "xbox/a", "playstation/cross",
+ * "nintendo/zl", "steam_deck/l4", "generic/south". An icon atlas or a
+ * folder of pictures names its entries so; a game that localizes looks the
+ * glyph up in its own strings and falls back to the label. See
+ * `docs/input.md` for every set and element.
+ */
+typedef struct tb_input_prompt
+{
+    const char *label; /**< Static; "" for no key. */
+    const char *glyph; /**< Static; "" for no key. */
+} tb_input_prompt;
+
+/**
+ * @brief How a key is shown for a family of gamepads: a gamepad's key by the
+ * label the family prints at its place (south is "A" on an Xbox pad,
+ * "Cross" on a PlayStation pad and "B" on a Nintendo pad); the keyboard's,
+ * the mouse's and touches the same for every family.
+ * @param key Any; none and a value that is not a key give "".
+ * @param family Any; a value that is no family is generic.
+ * @param[out] prompt Required.
+ */
+TB_API void tb_input_key_prompt(tb_input_key key, tb_gamepad_family family,
+                                tb_input_prompt *prompt);
+
 /* ---------------------------------------------------------------------------
  * Files.
  * ------------------------------------------------------------------------- */
@@ -1119,5 +1388,56 @@ TB_API tb_input_file_result tb_input_load_file(tb_input *input, struct tb_vfs *v
  */
 TB_API tb_input_file_result tb_input_save(const tb_input *input, struct tb_stream *sink,
                                           tb_input_file_error *error);
+
+/** @brief The format a bindings file names: `"format": "badger-input-bindings"`. */
+#define TB_INPUT_BINDINGS_FORMAT "badger-input-bindings"
+
+/** @brief The version of the bindings format this engine writes, and the
+ * newest it reads. */
+#define TB_INPUT_BINDINGS_VERSION 1
+
+/**
+ * @brief Give a player the rebinds of a bindings file's text (see
+ * `docs/input.md`), in place of every rebind the player had: a profile
+ * loaded. All or nothing: a file refused leaves the player's rebinds as
+ * they were. A rebind of a mapping the input no longer has (a context or
+ * an action renamed or gone, a default changed) is passed over, so that a
+ * game's new defaults never refuse a player's old file.
+ * @param player Required.
+ * @param text Strict JSON; NULL only at length 0.
+ * @param length Bytes of text.
+ * @param name The file's name, for messages; NULL for none.
+ * @param[out] error Why it failed; NULL when nobody asks.
+ * @return #TB_INPUT_FILE_OK, #TB_INPUT_FILE_MALFORMED or
+ * #TB_INPUT_FILE_INVALID.
+ */
+TB_API tb_input_file_result tb_input_load_bindings(tb_input_player *player, const char *text,
+                                                   size_t length, const char *name,
+                                                   tb_input_file_error *error);
+
+/**
+ * @brief Give a player the rebinds of a bindings file read through a VFS,
+ * as tb_input_load_bindings().
+ * @param player Required. @param vfs Required. @param path Required.
+ * @param[out] error Why it failed; NULL when nobody asks.
+ * @return As tb_input_load_bindings(), or #TB_INPUT_FILE_NOT_FOUND or
+ * #TB_INPUT_FILE_INPUT_FAILED.
+ */
+TB_API tb_input_file_result tb_input_load_bindings_file(tb_input_player *player, struct tb_vfs *vfs,
+                                                        const char *path,
+                                                        tb_input_file_error *error);
+
+/**
+ * @brief Write a player's rebinds, the differences from the defaults
+ * alone, as a bindings file that tb_input_load_bindings() reads back to the
+ * same. The same rebinds write the same bytes.
+ * @param player Required.
+ * @param sink Required open stream that can write; borrowed.
+ * @param[out] error Why it failed; NULL when nobody asks.
+ * @return #TB_INPUT_FILE_OK or #TB_INPUT_FILE_OUTPUT_FAILED.
+ */
+TB_API tb_input_file_result tb_input_save_bindings(const tb_input_player *player,
+                                                   struct tb_stream *sink,
+                                                   tb_input_file_error *error);
 
 #endif

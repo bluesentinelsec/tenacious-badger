@@ -161,8 +161,9 @@ replaces part of an image from pixels laid out the same way, such as a
 | `tb_bitmap_load` | A file of a [VFS](vfs.md), by its name |
 
 Each recognizes the format by the file's bytes, not its name, and gives an
-RGBA8 bitmap with straight alpha that owns its pixels. BMP is the only
-format for now; `TB_BITMAP_UNKNOWN_FORMAT` is any other.
+RGBA8 bitmap with straight alpha that owns its pixels: a
+[BMP file](#bmp-files) by its `BM`, and a [PNG file](#png-files) by its
+signature of eight bytes. `TB_BITMAP_UNKNOWN_FORMAT` is any other.
 
 **Files are untrusted.** Every size, offset, count and dimension is checked
 against the bytes there are before it is used, with arithmetic that cannot
@@ -186,6 +187,12 @@ knows and the options' `name` gives the others:
 
 ```
 sprites/hero.bmp: byte 26: planes other than 1
+```
+
+A fault in a PNG file's chunk names the chunk too, in the error's `chunk`:
+
+```
+sprites/hero.png: IHDR chunk at byte 24: a bit depth the color type does not have
 ```
 
 | Result | Means |
@@ -238,6 +245,81 @@ A premultiplied bitmap is written straight, as BMP files are, and a gray
 one as its gray in each color channel. A bitmap of no pixels is
 `TB_BITMAP_INVALID`: no BMP file holds one.
 
+### PNG files
+
+PNG is the format most sprite sheets, textures and UI art come in, and is
+read in every form the specification allows:
+
+| Color type | Bit depths | Read as |
+| --- | --- | --- |
+| Gray (0) | 1, 2, 4, 8, 16 | Its gray in each color channel; opaque, or transparent where `tRNS` names the gray |
+| RGB (2) | 8, 16 | Its colors; opaque, or transparent where `tRNS` names the color |
+| Palette (3) | 1, 2, 4, 8 | The `PLTE` color of each index, with the alpha `tRNS` gives the first entries |
+| Gray and alpha (4) | 8, 16 | Its gray, and its alpha |
+| RGBA (6) | 8, 16 | As it is |
+
+- **Samples of fewer than 8 bits** are spread evenly over 0 to 255: a 1-bit
+  sample is 0 or 255, a 2-bit one a multiple of 85, a 4-bit one of 17.
+  **16 bits** are rounded to the nearest 8 (`v * 255 / 65535`), after
+  `tRNS` has compared the full 16, as the specification requires.
+- **Filters and interlacing.** Each row's filter (none, sub, up, average or
+  Paeth) is undone, and an Adam7 image's seven passes are put where their
+  pixels go; a pass of no pixels, in an image narrower or shorter than
+  eight, has no rows.
+- **Chunks.** `IHDR` comes first, `PLTE` and `tRNS` before the image data,
+  the `IDAT` chunks one after another, and `IEND` last; anything after
+  `IEND` is ignored. The image data is one zlib stream across its `IDAT`
+  chunks, which may be of any size, empty ones included. Every chunk's CRC
+  is checked. A critical chunk the engine does not know, its name beginning
+  with a capital, is `TB_BITMAP_UNSUPPORTED`; every ancillary one is
+  skipped.
+- **Gamma and color spaces** (`gAMA`, `sRGB`, `iCCP`, `cHRM`) are
+  recognized as ancillary and not applied: the pixels are taken as sRGB, as
+  the BMP reader takes them, as games and their tools expect, and as
+  SDL_image and stb_image read them. A file of another gamma decodes to
+  the values it stores. Converting between sRGB and linear light is for
+  filtering and the GPU, not for loading ([#361](https://github.com/bluesentinelsec/tenacious-badger/issues/361)).
+- **Animated PNG.** An APNG file's frames are in ancillary chunks (`acTL`,
+  `fcTL`, `fdAT`), and it is read as the image its `IDAT` chunks hold: the
+  first frame, or, when that image is not part of the animation, the image
+  shown by readers that do not animate.
+- **Damage.** A palette that is empty, longer than 256 colors or than the
+  bit depth addresses, or in a gray image; a `tRNS` of the wrong length, or
+  of more alphas than colors; a pixel whose index is past the palette; a
+  filter type that is not one of the five; and image data that is not
+  zlib, that holds fewer or more rows than the image, or whose Adler-32 is
+  wrong, are each `TB_BITMAP_MALFORMED`, with the chunk at fault. Data after
+  the zlib stream's end, which some writers leave, is ignored, and so is a
+  `tRNS` chunk in an image with alpha, which the specification forbids and
+  readers ignore.
+
+**Memory.** The image data is decompressed a row at a time into two rows,
+the row and the one above, which are unfiltered and put in the bitmap: a
+decoder holds the bitmap, two rows and an inflater's window of 32 KiB and its
+code tables, however large
+the file. Before the bitmap is allocated the dimensions are checked against
+the limits, and against the image data there is: DEFLATE makes at most
+1032 bytes of one, so image data too short for the image's rows is damage,
+found before the bitmap is allocated. A file of a few bytes cannot make the
+decoder allocate 256 MiB.
+
+`tb_bitmap_write_png` writes a bitmap as a PNG file of 8 bits a sample, not
+interlaced, marked sRGB:
+
+| `color` of `tb_bitmap_png_options` | Writes |
+| --- | --- |
+| `TB_BITMAP_PNG_AUTO`, the default | The fewest samples that keep every pixel: gray when every pixel is opaque and gray, RGB when every one is opaque, RGBA otherwise |
+| `TB_BITMAP_PNG_RGBA8` | Red, green, blue and alpha |
+| `TB_BITMAP_PNG_RGB8` | Red, green and blue; alpha is dropped |
+| `TB_BITMAP_PNG_GRAY8` | Luminance, as `tb_bitmap_convert` makes it; alpha is dropped |
+
+Each row is filtered by each of the five filters, and written with the one
+whose bytes, taken as signed, sum to the least magnitude: the heuristic of
+the PNG specification and of libpng, which suits images of color. The rows
+are compressed by the engine's DEFLATE at the options' `level`, 1 to 9, 6
+by default, into `IDAT` chunks of 64 KiB. Files read back exactly in
+every color type that keeps the pixels.
+
 ### Threading
 
 A bitmap is externally synchronized: any number of threads may read one
@@ -255,6 +337,21 @@ refuses each way a header, a palette, a mask or a run can be damaged, at
 the byte at fault; and decodes every cut of valid files, and thousands of
 copies with random bytes changed, which the sanitizer build proves never
 read past the end, crash or leak.
+
+`tests/media/bitmap_png_test.c` reads, in the manner of PngSuite, every
+color type at every bit depth, interlaced and not, with and without
+transparency, each row of a different filter, from files that encoders
+other than the engine's wrote: Python's zlib with filters of its own, and
+Windows' WIC and GDI+ (`tools/make_png_test_data.py`, which writes them to
+`tests/data/png/`). Every file holds one pattern, which the test computes,
+so each pixel is checked. It round-trips the writer's files exactly, in
+every color type and at every level. `tests/media/bitmap_png_malformed_test.c`
+refuses each way a chunk, the header, the palette, transparency and the
+image data can be damaged, with the chunk and byte at fault; refuses a
+decompression bomb without allocating; and decodes every cut of files of
+each color type, and thousands of copies with random bytes changed and
+their CRCs made right again, so that the damage reaches past the CRC
+check, under the sanitizers.
 
 ## Sounds
 

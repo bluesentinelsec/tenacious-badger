@@ -15,6 +15,10 @@ tb_analyze_target(badger-sandbox)
 if(TB_BUILD_TESTS)
     add_test(NAME sandbox.lists_its_scenes COMMAND badger-sandbox list)
     set_tests_properties(sandbox.lists_its_scenes PROPERTIES PASS_REGULAR_EXPRESSION "shapes")
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    add_test(NAME sandbox.writes_its_output_to_a_log_file
+        COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tests/tools/log_file_test.py"
+            "$<TARGET_FILE:badger-sandbox>" "shapes" list)
     # A few frames on the null backend, wherever there is a window to open.
     add_test(NAME sandbox.runs_frames_on_the_null_backend
         COMMAND badger-sandbox --renderer null --scene triangle --frames 3)
@@ -59,6 +63,17 @@ if(TB_BUILD_TESTS)
                 --frames 3 --capture "${CMAKE_CURRENT_BINARY_DIR}/sandbox_shapes.bmp")
         set_tests_properties(sandbox.draws_and_captures_on_d3d12 PROPERTIES
             PASS_REGULAR_EXPRESSION "saved")
+        # Without a shader compiler, as under Proton, which has no DXC, the
+        # scenes the renderer draws from its shader libraries are drawn, and
+        # one that compiles its own shaders says why it cannot be.
+        add_test(NAME sandbox.draws_without_a_shader_compiler_on_d3d12
+            COMMAND badger-sandbox --renderer d3d12 --software --validation --scene shapes
+                --set shaders.runtime_compile=false --frames 3)
+        add_test(NAME sandbox.a_scene_that_compiles_says_it_needs_a_compiler_on_d3d12
+            COMMAND badger-sandbox --renderer d3d12 --software --scene triangle
+                --set shaders.runtime_compile=false --frames 3)
+        set_tests_properties(sandbox.a_scene_that_compiles_says_it_needs_a_compiler_on_d3d12
+            PROPERTIES PASS_REGULAR_EXPRESSION "compiles its shaders as it runs")
         # Materials: textures uploaded and mipmapped on the GPU, under validation.
         add_test(NAME sandbox.draws_materials_on_d3d12
             COMMAND badger-sandbox --renderer d3d12 --software --validation --scene materials

@@ -335,3 +335,67 @@ TB_TEST(platform_gamepad_front, steam_names_the_pads_to_leave_alone)
     TB_TEST_EXPECT(!tb_gamepad_ignored(NULL, 0x28de, 0x1205));
     TB_TEST_EXPECT(!tb_gamepad_ignored("", 0x28de, 0x1205));
 }
+
+/* A pad's family, for prompts, is the backend's when it knows, else its USB
+ * IDs'; on a Steam Deck, the pad Steam stands in for is the Deck's own
+ * controls, and a pad of its own IDs keeps its family. */
+TB_TEST(platform_gamepad_front, a_pads_family_comes_from_its_backend_or_its_ids)
+{
+    fake_backend backend = {0};
+    tb_gamepad_system *const system = tb_gamepad_system_make(&fake_ops, &backend, fake_clock);
+    tb_gamepad_info info = {0};
+
+    plug(&backend, 0, 1, false);
+    backend.pads[0].info.vendor = 0x054c;
+    backend.pads[0].info.product = 0x0ce6;
+    plug(&backend, 1, 2, false);
+    backend.pads[1].info.family = TB_GAMEPAD_FAMILY_XBOX;
+    plug(&backend, 2, 3, false);
+    backend.pads[2].info.vendor = 0x28de;
+    backend.pads[2].info.product = 0x11ff;
+    tb_gamepad_system_poll(system);
+    tb_gamepad_get_info(system, 0, &info);
+    TB_TEST_EXPECT_INT(info.family, ==, TB_GAMEPAD_FAMILY_PLAYSTATION);
+    tb_gamepad_get_info(system, 1, &info);
+    TB_TEST_EXPECT_INT(info.family, ==, TB_GAMEPAD_FAMILY_XBOX);
+    tb_gamepad_get_info(system, 2, &info);
+    TB_TEST_EXPECT_INT(info.family, ==, TB_GAMEPAD_FAMILY_GENERIC);
+    tb_gamepad_get_info(system, 3, &info);
+    TB_TEST_EXPECT_INT(info.family, ==, TB_GAMEPAD_FAMILY_GENERIC);
+
+    tb_gamepad_system_set_steam_deck(system, true);
+    tb_gamepad_get_info(system, 0, &info);
+    TB_TEST_EXPECT_INT(info.family, ==, TB_GAMEPAD_FAMILY_PLAYSTATION);
+    tb_gamepad_get_info(system, 1, &info);
+    TB_TEST_EXPECT_INT(info.family, ==, TB_GAMEPAD_FAMILY_STEAM_DECK);
+    tb_gamepad_get_info(system, 2, &info);
+    TB_TEST_EXPECT_INT(info.family, ==, TB_GAMEPAD_FAMILY_STEAM_DECK);
+    /* An empty slot is all zero, on a Deck too. */
+    tb_gamepad_get_info(system, 3, &info);
+    TB_TEST_EXPECT_INT(info.family, ==, TB_GAMEPAD_FAMILY_GENERIC);
+    tb_gamepad_system_close(system);
+}
+
+/* The GameController framework's categories, and names, give families by
+ * their words, whatever their case; Steam sets SteamDeck to 1 on a Deck. */
+TB_TEST(platform_gamepad_front, families_from_names_and_the_steam_deck_variable)
+{
+    TB_TEST_EXPECT_INT(tb_gamepad_family_from_name("Xbox One"), ==, TB_GAMEPAD_FAMILY_XBOX);
+    TB_TEST_EXPECT_INT(tb_gamepad_family_from_name("DualSense"), ==, TB_GAMEPAD_FAMILY_PLAYSTATION);
+    TB_TEST_EXPECT_INT(tb_gamepad_family_from_name("DualShock 4"), ==,
+                       TB_GAMEPAD_FAMILY_PLAYSTATION);
+    TB_TEST_EXPECT_INT(tb_gamepad_family_from_name("Switch Pro Controller"), ==,
+                       TB_GAMEPAD_FAMILY_NINTENDO);
+    TB_TEST_EXPECT_INT(tb_gamepad_family_from_name("Nintendo Switch Joy-Con (L/R)"), ==,
+                       TB_GAMEPAD_FAMILY_NINTENDO);
+    TB_TEST_EXPECT_INT(tb_gamepad_family_from_name("STEAM DECK Controller"), ==,
+                       TB_GAMEPAD_FAMILY_STEAM_DECK);
+    TB_TEST_EXPECT_INT(tb_gamepad_family_from_name("PlayStation Format"), ==,
+                       TB_GAMEPAD_FAMILY_PLAYSTATION);
+    TB_TEST_EXPECT_INT(tb_gamepad_family_from_name("Generic USB Joystick"), ==,
+                       TB_GAMEPAD_FAMILY_GENERIC);
+    TB_TEST_EXPECT_INT(tb_gamepad_family_from_name(NULL), ==, TB_GAMEPAD_FAMILY_GENERIC);
+    TB_TEST_EXPECT(tb_gamepad_steam_deck_variable("1"));
+    TB_TEST_EXPECT(!tb_gamepad_steam_deck_variable("0"));
+    TB_TEST_EXPECT(!tb_gamepad_steam_deck_variable(NULL));
+}

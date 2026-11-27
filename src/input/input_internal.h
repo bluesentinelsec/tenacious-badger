@@ -39,6 +39,14 @@ bool tb_input_key_is_window_button(tb_input_key key);
 bool tb_input_key_virtual_buttons(tb_input_key axis, tb_input_key *positive, tb_input_key *negative,
                                   tb_gamepad_threshold *threshold);
 
+/* The axis a button is made from: a stick's X or Y for its directions, a
+ * trigger for its button, the wheel for its buttons; none for any other. */
+tb_input_key tb_input_key_source(tb_input_key key);
+
+/* The 2D key an axis is one of: a stick's, or the mouse's motion; none for
+ * any other. */
+tb_input_key tb_input_key_composite_of(tb_input_key axis);
+
 /* ---------------------------------------------------------------------------
  * Rules: modifiers and triggers (input_rules.c).
  * ------------------------------------------------------------------------- */
@@ -158,6 +166,9 @@ const tb_input_action_def *tb_input_action_def_of(const tb_input *input, tb_inpu
 const tb_input_context_def *tb_input_context_def_of(const tb_input *input,
                                                     tb_input_context context);
 
+/* The input a player is of. */
+tb_input *tb_input_player_input(const tb_input_player *player);
+
 /* Whether a name is one an action or a context may have. */
 bool tb_input_name_valid(const char *name);
 
@@ -170,5 +181,29 @@ void tb_input_replace_action_rules(tb_input *input, tb_input_action action,
 /* Forget the actions and contexts made after there were these many: a file
  * that failed. No player may have such a context. */
 void tb_input_rollback(tb_input *input, size_t action_count, size_t context_count);
+
+/* ---------------------------------------------------------------------------
+ * Files (input_file.c), for every file the module reads.
+ * ------------------------------------------------------------------------- */
+
+struct tb_json_value;
+
+/* Input names are C strings. A JSON string with an embedded NUL cannot
+ * name a format, action, context or key. */
+const char *tb_input_text_of(const struct tb_json_value *value);
+
+/* Fill in an error's message from its line, column, path and reason, with
+ * `detail` quoted after them when not NULL. */
+void tb_input_error_message(tb_input_file_error *error, const char *file_name, const char *detail);
+
+/* Fail with a result and a reason of no place in the text; returns `result`. */
+tb_input_file_result tb_input_fail_plain(tb_input_file_error *error, tb_input_file_result result,
+                                         const char *name, const char *reason);
+
+/* Read a file through a VFS into `*text`, which the caller frees: OK,
+ * NOT_FOUND or INPUT_FAILED, with the error filled in. */
+tb_input_file_result tb_input_read_vfs_file(struct tb_vfs *vfs, const char *path,
+                                            tb_input_file_error *error, char **text,
+                                            size_t *length);
 
 #endif

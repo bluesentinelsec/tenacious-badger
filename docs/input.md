@@ -283,6 +283,158 @@ setting: a game gives it to the gamepad system
 menu applies at the next one. `tb_input_set_settings()` sets them directly
 instead, for a tool or a test.
 
+## Rebinding
+
+A player may bind any mapping to another key, for that player alone, as
+Unreal's player-mappable keys do: the definitions stay the game's, and each
+player's **rebinds** are differences from them. A Controls menu lists a
+context's mappings with `tb_input_context_mapping_count()` and
+`tb_input_context_mapping_at()`, which give each mapping's action and its
+default key, and shows each as the player has it bound,
+`tb_input_binding_key()`.
+
+```c
+tb_input_rebind(player, gameplay, mapping, TB_INPUT_KEY_F);    /* jump on F, for this player */
+tb_input_rebind(player, gameplay, mapping, TB_INPUT_KEY_NONE); /* unbound */
+tb_input_reset_binding(player, gameplay, mapping);             /* its default again */
+tb_input_reset_bindings(player);                               /* "reset to defaults" */
+```
+
+A rebound mapping keeps its modifiers and triggers, and sees its new key
+from the next tick. An **unbound** mapping sees no key and consumes none, so
+a context below sees the key again. Rebinding to the default forgets the
+rebind; `tb_input_is_rebound()` and `tb_input_rebind_count()` say what
+differs. The player's contexts with the mapping start over, as a changed
+context does, and a new key held as it is bound waits to be released, so
+the press that chose it does not act.
+
+**Conflicts.** A rebind is never refused. `tb_input_find_conflicts()` lists
+the mappings of a context whose keys, as the player has them, would collide
+with a key: the same key, or a key that shares a value with it (a stick and
+its X, a stick's X and its directions as buttons, the wheel and its
+buttons). A menu asks before it rebinds, and warns, swaps or unbinds the
+other, as the game prefers. Keys collide only within a context: two
+contexts on the stack at once see the same key by their priorities, which
+is what contexts are for. To compare with another context, ask of that
+context, with `TB_INPUT_NO_MAPPING` for none left out.
+
+**Classes.** Keys are of six classes (`tb_input_key_class_of()`): the
+keyboard, the mouse's buttons, the mouse's axes (motion, the wheel and the
+wheel's buttons), a gamepad's buttons, a gamepad's axes (sticks, triggers,
+and the buttons made from them), and touch. A listener accepts classes, and
+a prompt looks for a binding of some: `tb_input_find_binding()` gives the
+first key, as the player has it bound, of a context's mappings of an action
+whose class is asked for, so that one action shows Space to a keyboard
+player and A to a gamepad player.
+
+### Listening for a key
+
+`tb_input_listen()` waits for the next key a player presses or moves, for
+a menu's "press a key to bind", and `tb_input_listen_result()` says what
+came: still waiting, a key captured, with the device and the player that
+gave it, or canceled.
+
+```c
+tb_input_listen(input, &(tb_input_listen_desc){.player = player,
+                                               .classes = TB_INPUT_CLASS_GAMEPAD});
+/* each tick: */
+tb_input_capture capture = {0};
+if (tb_input_listen_result(input, &capture) == TB_INPUT_LISTEN_CAPTURED)
+{
+    tb_input_rebind(player, gameplay, mapping, capture.key);
+}
+```
+
+| Field | Default | Does |
+| --- | --- | --- |
+| `player` | every player | whose devices count |
+| `classes` | all | which classes of keys are taken |
+| `type` | `bool` | what the key is for: a bool takes buttons, and a stick or a trigger as a button (`gamepad_left_stick_up`, `gamepad_right_trigger_button`) and the wheel's buttons, never the mouse's motion; an axis1d takes buttons and the axis moved (`gamepad_left_stick_x`, `mouse_x`, `mouse_wheel`); an axis2d or axis3d takes buttons and the 2D key of the axis moved (`gamepad_left_stick`, `mouse_xy`, a touch's position) |
+| `threshold` | 0.5 | how far a stick or a trigger moves from rest to be taken as an axis |
+| `distance` | 32 | how far the mouse moves, in logical units, to be taken |
+| `cancel_keys` | Escape and `gamepad_start` | keys that cancel rather than being taken, whatever the classes; a list of none, with a count of 0, for no cancel |
+
+Listening looks at each tick's keys, as the rest of the input does, so it is
+the same at any frame rate. **The press that started it is not taken**: a
+key down or an axis away from rest when listening began counts only once it
+is released, or back below half the threshold. Cancel keys are looked at
+first; of several keys in one tick, the first in the order of the keys is
+taken. While listening, and in the tick that ends it, the players listened
+to **have no actions**, so that Escape cancels the listener without closing
+the menu; after, a key still held is ignored by their contexts until it is
+released, so that the key captured does not act too. Listening ends at the
+first capture or cancel; `tb_input_stop_listening()` ends it, and forgets
+what came. A replayed tick's keys have no device.
+
+`tb_input_player_last_device()` is the device that last gave a player a key,
+a press or an axis moved, which is what a game shows prompts for: the
+keyboard's and the mouse's labels, or those of the family of the pad it
+numbered so ([gamepad families](gamepad.md#families)).
+
+## Prompts
+
+`tb_input_key_prompt()` gives how a key is shown, for a family of gamepads:
+a **label**, English, as printed on the key or the pad, and a **glyph**, the
+identifier of its picture.
+
+```c
+tb_gamepad_info info = {0};
+tb_gamepad_get_info(gamepads, slot, &info);
+tb_input_prompt prompt = {0};
+tb_input_key_prompt(tb_input_find_binding(player, gameplay, jump, TB_INPUT_CLASS_GAMEPAD),
+                    info.family, &prompt);
+/* prompt.label "Cross", prompt.glyph "playstation/cross" on a DualSense */
+```
+
+A gamepad's key is shown by **the label its family prints at the key's
+place**. South is A on an Xbox pad, Cross on a PlayStation pad, and B on a
+Nintendo pad, whose A is east: the engine reads pads by place
+([the layout](gamepad.md#nintendos-pads-by-place)), and the prompt names the
+label the player sees there. The keyboard's keys, the mouse's and touches
+are the same for every family.
+
+**Glyphs** are `set/element`, lowercase ASCII, stable: the names of an icon
+atlas's entries or of a folder of pictures, and keys of a game's own strings
+for a localized label, falling back to the English one. A set is a family's
+(`xbox`, `playstation`, `nintendo`, `steam_deck`, `generic`), or `keyboard`,
+`mouse` or `touch`. As Steam Input's action origins name each family's
+button by its own label (`XBoxOne_A`, `PS5_X`, `Switch_A`, `SteamDeck_L4`),
+an element names a labeled button by its label, so that one glyph is one
+picture; and as Unreal's CommonUI keeps a table of pictures for each
+controller type, the sets are tables of the same elements. What has no
+label (sticks, their directions, the d-pad) has the same element in every
+set, and `generic` names every key by its place, for neutral pictures; its
+labels are Xbox's, as most PC pads print.
+
+| Key | `xbox` | `playstation` | `nintendo` | `steam_deck` | `generic` |
+| --- | --- | --- | --- | --- | --- |
+| `gamepad_face_south` | A, `a` | Cross, `cross` | B, `b` | A, `a` | A, `south` |
+| `gamepad_face_east` | B, `b` | Circle, `circle` | A, `a` | B, `b` | B, `east` |
+| `gamepad_face_west` | X, `x` | Square, `square` | Y, `y` | X, `x` | X, `west` |
+| `gamepad_face_north` | Y, `y` | Triangle, `triangle` | X, `x` | Y, `y` | Y, `north` |
+| `gamepad_left_shoulder`, `_right_` | LB, RB: `lb`, `rb` | L1, R1 | L, R | L1, R1 | LB, RB: `left_shoulder`, `right_shoulder` |
+| `gamepad_left_trigger`, `_right_`, and their `_button`s | LT, RT | L2, R2 | ZL, ZR | L2, R2 | LT, RT: `left_trigger`, `right_trigger` |
+| `gamepad_left_stick_click`, `_right_` | LS, RS | L3, R3 | LS, RS | L3, R3 | LS, RS: `left_stick_click`, `right_stick_click` |
+| `gamepad_start` | Menu, `menu` | Options, `options` | +, `plus` | Menu, `menu` | Start, `start` |
+| `gamepad_back` | View, `view` | Create, `create` | -, `minus` | View, `view` | Back, `back` |
+| `gamepad_guide` | Xbox, `guide` | PS, `ps` | Home, `home` | Steam, `steam` | Guide, `guide` |
+| `gamepad_left_paddle_1`, `_2` | P3, P4 | Left Back, `left_back`; `left_paddle_2` | GL, `gl`; `left_paddle_2` | L4, L5 | `left_paddle_1`, `_2` |
+| `gamepad_right_paddle_1`, `_2` | P1, P2 | Right Back, `right_back`; `right_paddle_2` | GR, `gr`; `right_paddle_2` | R4, R5 | `right_paddle_1`, `_2` |
+| sticks, their X and Y, their directions, the d-pad | Left Stick, `left_stick`; Left Stick X, `left_stick_x`; Left Stick Up, `left_stick_up`; D-pad Up, `dpad_up`; and so on, in every set | | | | |
+
+Where an element is not given, it is the label in lowercase: `l1`, `zl`,
+`l4`, `p3`. A trigger and its button share a glyph. A paddle a family has no
+button for is named by its place.
+
+| Keys | Labels | Glyphs |
+| --- | --- | --- |
+| The keyboard | `A` to `Z`, `0` to `9`, `F1` to `F12`, `Escape`, `Enter`, `Space`, `Tab`, `Backspace`, `` ` ``, `Left Arrow`, `Right Arrow`, `Up Arrow`, `Down Arrow`, `Left Shift`, `Right Shift`, `Left Ctrl`, `Right Ctrl`, `Left Alt`, `Right Alt`, `Home`, `End`, `Page Up`, `Page Down`, `Insert`, `Delete` | `keyboard/` and the key's name: `keyboard/a`, `keyboard/left_shift` |
+| The mouse | `Left Mouse Button`, `Right Mouse Button`, `Middle Mouse Button`, `Mouse Button 4`, `Mouse Button 5`, `Mouse Wheel Up`, `Mouse Wheel Down`, `Mouse Wheel`, `Mouse X`, `Mouse Y`, `Mouse` | `mouse/left`, `right`, `middle`, `thumb_1`, `thumb_2`, `wheel_up`, `wheel_down`, `wheel`, `x`, `y`, `xy` |
+| Touches | `Touch 1` to `Touch 10`, `Touch 1 Position` to `Touch 10 Position` | `touch/1` to `touch/10`, `touch/1_position` to `touch/10_position` |
+
+The keyboard's keys are by place, as the keys are: their labels are an
+American keyboard's, whatever the layout (see [still to come](#still-to-come)).
+
 ## Recording and replaying
 
 `tb_input_record()` records every tick into a `tb_input_recording`: the keys
@@ -356,8 +508,58 @@ its line and column, a reason, and a message of all of them for a log.
 spaces, actions and contexts in the order made, members in the order of the
 format, numbers in the fewest digits that read back the same, and fields
 left out where they hold their default. A file loaded and saved again is
-unchanged. The bindings a player changes are not written here: rebinds will
-be saved apart, as differences from these defaults.
+unchanged. The bindings a player changes are not written here, but in a
+[bindings file](#bindings-files) of their own.
+
+### Bindings files
+
+A player's rebinds are saved apart from the definitions, as differences
+from them, so that a game's new defaults reach players who changed nothing,
+and a player's changes outlive the game's: `tb_input_save_bindings()` writes
+a player's rebinds, and `tb_input_load_bindings()`, or
+`tb_input_load_bindings_file()` through a VFS, gives a player those of a
+file, in place of every rebind the player had.
+
+```json
+{
+  "format": "badger-input-bindings",
+  "version": 1,
+  "bindings": [
+    {
+      "context": "gameplay",
+      "action": "jump",
+      "default": "space",
+      "key": "f"
+    },
+    {
+      "context": "gameplay",
+      "action": "fire",
+      "default": "mouse_left",
+      "slot": 1,
+      "key": null
+    }
+  ]
+}
+```
+
+A file is an object of `format`, always `"badger-input-bindings"`;
+`version`, 1, and a newer one is refused; and `bindings`, optional. A
+**binding** names a mapping by its `context`, its `action` and its
+`default` key, as the definitions have them, rather than by its place, so
+that a game may add mappings without moving a player's rebinds; `slot`,
+from 0 and left out for 0, tells apart mappings of one action from one key
+in one context. Its `key` is the key the player bound, or `null` for a
+mapping unbound.
+
+**Loading** is all or nothing, with errors as the definitions' are: a file
+that is not JSON is malformed; one with a key the format does not have, a
+value of the wrong type or a key name unknown is invalid; and the player's
+rebinds are as they were. A binding of a mapping the input no longer has, a
+context or an action gone or renamed, a default changed, is **passed over**,
+so that a game's new defaults never refuse a player's old file; saving
+again drops it. **Saving** writes the rebinds alone, in the order of the
+contexts and their mappings, so the same rebinds write the same bytes, and
+a file loaded and saved again is unchanged.
 
 ## Where Unreal's model was adapted
 
@@ -374,6 +576,11 @@ be saved apart, as differences from these defaults.
 - **Ticks, not frames.** Unreal evaluates input once a frame with the frame's
   time. Here it is once a tick with the tick's length, so that it follows the
   fixed tick and can be replayed.
+- **Rebinds by player, by name.** Unreal's user settings save a profile's
+  key mappings by a mapping's name and slot; here a rebind is a player's,
+  saved by its context, its action and its default key, which the
+  definitions already give, with a slot only when one action has two
+  mappings from one key.
 - **Callbacks after evaluation.** Unreal's delegates run as each action is
   processed; here they run once every action of the player has been
   evaluated, so a callback sees the whole tick.
@@ -384,6 +591,7 @@ An input is **stage-owned**: it, its players and its recordings are used on
 one thread, the one that ticks it, usually the game loop's. Callbacks run on
 that thread, inside `tb_input_tick()`. The functions on keys alone
 (`tb_input_key_name()`, `tb_input_find_key()`, `tb_input_key_type()`,
+`tb_input_key_class_of()`, `tb_input_key_prompt()`,
 `tb_input_key_from_window()`, `tb_input_key_from_mouse_button()`,
 `tb_input_key_from_gamepad_button()`, `tb_input_key_from_gamepad_axis()`) are
 thread-safe.
@@ -391,8 +599,10 @@ thread-safe.
 ## Still to come
 
 - **Touch**, through `tb_input_feed_key()`.
-- **Rebinding and prompts**: listening for a key to bind, conflicts, rebinds
-  saved apart from the defaults, and keys' names for button prompts.
+- **Keyboard layouts in prompts**: the keyboard's labels are an American
+  keyboard's; a French player's A is labeled Q. The platform's layout
+  (`ToUnicodeEx`, xkbcommon, `UCKeyTranslate`) would label each key by the
+  character it types. The Mac's Alt is labeled Alt, not Option.
 - **Integration**: the game loop gathers and ticks input, the GUI's
   navigation reads `ui_*` actions, and Burrow's controls become actions.
 - A file format for recordings.

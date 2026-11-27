@@ -34,6 +34,24 @@ TB_TEST(platform_gamepad, names_results_buttons_and_axes)
     }
 }
 
+/* A pad's family by its USB IDs: by maker, and the Steam Deck by its own
+ * product, not by Valve's other pads, which stand for any pad. */
+TB_TEST(platform_gamepad, families_by_name_and_by_usb_ids)
+{
+    TB_TEST_EXPECT_STRING(tb_gamepad_family_name(TB_GAMEPAD_FAMILY_GENERIC), ==, "generic");
+    TB_TEST_EXPECT_STRING(tb_gamepad_family_name(TB_GAMEPAD_FAMILY_STEAM_DECK), ==, "steam_deck");
+    TB_TEST_EXPECT_STRING(tb_gamepad_family_name(TB_GAMEPAD_FAMILY_COUNT), ==, "");
+    TB_TEST_EXPECT_INT(tb_gamepad_family_from_usb(0x045e, 0x0b12), ==, TB_GAMEPAD_FAMILY_XBOX);
+    TB_TEST_EXPECT_INT(tb_gamepad_family_from_usb(0x054c, 0x0df2), ==,
+                       TB_GAMEPAD_FAMILY_PLAYSTATION);
+    TB_TEST_EXPECT_INT(tb_gamepad_family_from_usb(0x057e, 0x2069), ==, TB_GAMEPAD_FAMILY_NINTENDO);
+    TB_TEST_EXPECT_INT(tb_gamepad_family_from_usb(0x28de, 0x1205), ==,
+                       TB_GAMEPAD_FAMILY_STEAM_DECK);
+    TB_TEST_EXPECT_INT(tb_gamepad_family_from_usb(0x28de, 0x11ff), ==, TB_GAMEPAD_FAMILY_GENERIC);
+    TB_TEST_EXPECT_INT(tb_gamepad_family_from_usb(0x2dc8, 0x3106), ==, TB_GAMEPAD_FAMILY_GENERIC);
+    TB_TEST_EXPECT_INT(tb_gamepad_family_from_usb(0, 0), ==, TB_GAMEPAD_FAMILY_GENERIC);
+}
+
 TB_TEST(platform_gamepad, a_button_is_down_by_its_bit)
 {
     const tb_gamepad_state state = {.connected = true,

@@ -1,6 +1,7 @@
 /* The front of the gamepad interface, the same on every platform: the
  * slots and their events, rumble's time and strength, the focus, and the
  * contracts. Each platform's backend reads the pads through its table. */
+#define _CRT_SECURE_NO_WARNINGS /* getenv returns borrowed storage by design. */
 #include "gamepad.h"
 
 #include "badger/array.h"
@@ -8,6 +9,7 @@
 #include "badger/fmt.h"
 #include "badger/memory.h"
 #include "badger/platform.h"
+#include "badger/str.h"
 #include "badger/utf8.h"
 
 #include <math.h>
@@ -20,6 +22,9 @@
 #define TB_GAMEPAD_LONGEST_RUMBLE_SECONDS 3600.0
 
 #define TB_GAMEPAD_NANOSECONDS_PER_SECOND 1e9
+
+/* What Steam sets to 1 for the games it starts on a Steam Deck. */
+#define TB_GAMEPAD_STEAM_DECK_VARIABLE "SteamDeck"
 
 /* A slot's rumble, as the game asked for it before the vibration scaled it. */
 typedef struct tb_gamepad_motors
@@ -42,6 +47,7 @@ struct tb_gamepad_system
     size_t next_event;
     float vibration;
     bool focused;
+    bool steam_deck; /* It runs on a Steam Deck, for its pads' families. */
 };
 
 tb_gamepad_result tb_gamepad_fail(tb_gamepad_error *error, tb_gamepad_result result,
@@ -152,6 +158,94 @@ void tb_gamepad_copy_name(char *name, const char *source, size_t length)
     name[written] = '\0';
 }
 
+/* ---------------------------------------------------------------------------
+ * Families.
+ * ------------------------------------------------------------------------- */
+
+#define TB_GAMEPAD_STEAM_VENDOR 0x28deu
+#define TB_GAMEPAD_STEAM_VIRTUAL_PRODUCT 0x11ffu
+
+/* Whether `text` holds `word`, ignoring the case of ASCII letters; `word`
+ * is lowercase. */
+static bool tb_gamepad_has_word(const char *text, const char *word)
+{
+    const size_t length = tb_str_length(word);
+
+    for (const char *at = text; *at != '\0'; at++)
+    {
+        size_t matched = 0;
+        while (matched < length && at[matched] != '\0')
+        {
+            const char upper = at[matched];
+            const char lower = upper >= 'A' && upper <= 'Z' ? (char)(upper - 'A' + 'a') : upper;
+            if (lower != word[matched])
+            {
+                break;
+            }
+            matched++;
+        }
+        if (matched == length)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* The words that name a family, the Steam Deck's first: "Steam Deck
+ * Controller" is no Xbox pad, whatever else its name says. */
+typedef struct tb_gamepad_family_word
+{
+    const char *word;
+    tb_gamepad_family family;
+} tb_gamepad_family_word;
+
+static const tb_gamepad_family_word tb_gamepad_family_words[] = {
+    {"steam deck", TB_GAMEPAD_FAMILY_STEAM_DECK},   {"xbox", TB_GAMEPAD_FAMILY_XBOX},
+    {"dualsense", TB_GAMEPAD_FAMILY_PLAYSTATION},   {"dualshock", TB_GAMEPAD_FAMILY_PLAYSTATION},
+    {"playstation", TB_GAMEPAD_FAMILY_PLAYSTATION}, {"nintendo", TB_GAMEPAD_FAMILY_NINTENDO},
+    {"switch", TB_GAMEPAD_FAMILY_NINTENDO},         {"joy-con", TB_GAMEPAD_FAMILY_NINTENDO},
+};
+
+tb_gamepad_family tb_gamepad_family_from_name(const char *text)
+{
+    if (text == NULL)
+    {
+        return TB_GAMEPAD_FAMILY_GENERIC;
+    }
+    for (size_t index = 0;
+         index < sizeof(tb_gamepad_family_words) / sizeof(tb_gamepad_family_words[0]); index++)
+    {
+        if (tb_gamepad_has_word(text, tb_gamepad_family_words[index].word))
+        {
+            return tb_gamepad_family_words[index].family;
+        }
+    }
+    return TB_GAMEPAD_FAMILY_GENERIC;
+}
+
+tb_gamepad_family tb_gamepad_settle_family(const tb_gamepad_info *info, bool steam_deck)
+{
+    const bool steam_virtual = info->vendor == TB_GAMEPAD_STEAM_VENDOR &&
+                               info->product == TB_GAMEPAD_STEAM_VIRTUAL_PRODUCT;
+    const bool without_ids = info->vendor == 0 && info->product == 0;
+
+    if (steam_deck && (steam_virtual || without_ids))
+    {
+        return TB_GAMEPAD_FAMILY_STEAM_DECK;
+    }
+    if (info->family != TB_GAMEPAD_FAMILY_GENERIC)
+    {
+        return info->family;
+    }
+    return tb_gamepad_family_from_usb(info->vendor, info->product);
+}
+
+bool tb_gamepad_steam_deck_variable(const char *value)
+{
+    return value != NULL && tb_str_equal(value, "1");
+}
+
 /* One hexadecimal number of an entry, with or without 0x; `*end` is where
  * it ended, which is `text` when there was none. */
 static unsigned long tb_gamepad_hex(const char *text, const char **end)
@@ -234,6 +328,7 @@ tb_gamepad_result tb_gamepad_system_open(tb_gamepad_system **system, tb_gamepad_
         return result;
     }
     *system = tb_gamepad_system_make(ops, native, tb_platform_clock_nanoseconds);
+    (*system)->steam_deck = tb_gamepad_steam_deck_variable(getenv(TB_GAMEPAD_STEAM_DECK_VARIABLE));
     return TB_GAMEPAD_OK;
 }
 
@@ -360,6 +455,16 @@ void tb_gamepad_get_info(const tb_gamepad_system *system, size_t slot, tb_gamepa
     TB_ASSERT(info != NULL);
     TB_ASSERT_MSG(slot < TB_GAMEPAD_SLOT_COUNT, "a slot below TB_GAMEPAD_SLOT_COUNT");
     *info = system->pads[slot].info;
+    if (system->pads[slot].serial != 0)
+    {
+        info->family = tb_gamepad_settle_family(info, system->steam_deck);
+    }
+}
+
+void tb_gamepad_system_set_steam_deck(tb_gamepad_system *system, bool steam_deck)
+{
+    TB_ASSERT(system != NULL);
+    system->steam_deck = steam_deck;
 }
 
 /* ---------------------------------------------------------------------------

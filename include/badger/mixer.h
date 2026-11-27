@@ -48,7 +48,7 @@ typedef struct tb_mixer_play_desc
     float pan;         /**< Stereo balance from -1 (left) through 0 to 1 (right). */
     float pitch;       /**< Source frames per output frame, greater than 0 and at most 16. */
     bool loop;         /**< Repeat a region, or the entire clip if it has no sampler loops. */
-    size_t loop_index; /**< Index of the sampler loop to use, zero for the whole clip. */
+    size_t loop_index; /**< Sampler loop index, or zero for a clip with no sampler loops. */
 } tb_mixer_play_desc;
 
 /** @brief Play at original pitch and full gain, centered on the effects bus. */

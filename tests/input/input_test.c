@@ -697,7 +697,18 @@ TB_TEST(input_settings, the_engine_settings_apply_at_the_next_tick)
 
     tb_engine_settings_add(settings, NULL, &engine);
     tb_input_get_settings(input, &read);
-    TB_TEST_EXPECT(memcmp(&read, &defaults, sizeof(read)) == 0);
+    /* Field by field: the settings have padding, which memcmp would read. */
+    TB_TEST_EXPECT_FLOAT(read.mouse_sensitivity, ==, defaults.mouse_sensitivity);
+    TB_TEST_EXPECT(read.mouse_invert_y == defaults.mouse_invert_y);
+    TB_TEST_EXPECT(read.mouse_smoothing == defaults.mouse_smoothing);
+    TB_TEST_EXPECT_FLOAT(read.gamepad_horizontal_sensitivity, ==,
+                         defaults.gamepad_horizontal_sensitivity);
+    TB_TEST_EXPECT_FLOAT(read.gamepad_vertical_sensitivity, ==,
+                         defaults.gamepad_vertical_sensitivity);
+    TB_TEST_EXPECT(read.gamepad_invert_y == defaults.gamepad_invert_y);
+    TB_TEST_EXPECT_FLOAT(read.gamepad_left_dead_zone, ==, defaults.gamepad_left_dead_zone);
+    TB_TEST_EXPECT_FLOAT(read.gamepad_right_dead_zone, ==, defaults.gamepad_right_dead_zone);
+    TB_TEST_EXPECT_FLOAT(read.touch_sensitivity, ==, defaults.touch_sensitivity);
     tb_input_follow_settings(input, &engine);
     TB_TEST_REQUIRE_UINT(tb_setting_set_number(engine.controls.mouse_sensitivity, 2.5), ==,
                          TB_SETTING_OK);

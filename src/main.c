@@ -1,3 +1,4 @@
+#include "badger/assert.h"
 #include "badger/cli.h"
 #include "badger/core.h"
 #include "badger/crash.h"
@@ -21,7 +22,7 @@
 #define BURROW_DEVELOPER 1
 #endif
 
-/* The command line's choices, read by tb_cli_run() before a command runs. */
+/* The command line's choices, read by tb_cli_parse() before a command runs. */
 static const char *const burrow_modes[] = {"developer", "release"};
 static size_t burrow_mode = BURROW_DEVELOPER ? 0u : 1u;
 static bool burrow_reset = false;
@@ -32,6 +33,7 @@ static size_t burrow_value_count = 0;
 static const char *burrow_renderer = NULL;
 static int64_t burrow_frames = 0;
 static const char *burrow_navigation = NULL;
+static const char *burrow_log_file = NULL;
 
 static int burrow_load(burrow_settings *loaded)
 {
@@ -173,6 +175,12 @@ static const tb_cli_option burrow_options[] = {
      .choice_count = TB_CLI_COUNT_OF(burrow_modes),
      .help = "Behave as a developer build (start in a window, quit on Escape) or a release build "
              "(start fullscreen, ask before quitting); the default is the build's own."},
+    {.long_name = "log-file",
+     .name = "FILE",
+     .text = &burrow_log_file,
+     .help = "Write the log and all other output to this file, made or emptied, in place of "
+             "standard output and standard error, which nothing reads under a launcher or "
+             "Proton."},
 };
 
 static const tb_cli_command burrow_commands[] = {
@@ -199,6 +207,26 @@ static const tb_cli_command burrow = {
     .run = burrow_run,
 };
 
+/* Read the command line, send the output where --log-file says before
+ * anything is written, then run the command chosen. */
+static int burrow_main(const tb_arguments *arguments)
+{
+    tb_cli_outcome outcome = TB_CLI_OUTCOME_INIT;
+
+    if (tb_cli_parse(&burrow, arguments->count, arguments->values, &outcome) != TB_CLI_OK)
+    {
+        return tb_cli_finish(&outcome);
+    }
+    if (burrow_log_file != NULL && !tb_process_write_output_to(burrow_log_file))
+    {
+        (void)tb_fmt_print_error("burrow: error: --log-file %s: the file could not be made\n",
+                                 burrow_log_file);
+        return EXIT_FAILURE;
+    }
+    TB_ASSERT(outcome.command != NULL && outcome.command->run != NULL);
+    return outcome.command->run(&outcome, NULL);
+}
+
 int main(int count, char **values)
 {
     tb_arguments arguments = TB_ARGUMENTS_INIT;
@@ -220,7 +248,7 @@ int main(int count, char **values)
         return EXIT_FAILURE;
     }
     /* coverage-on */
-    status = tb_cli_run(&burrow, arguments.count, arguments.values, NULL);
+    status = burrow_main(&arguments);
     tb_process_release_arguments(&arguments);
     return status;
 }

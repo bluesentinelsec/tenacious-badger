@@ -873,19 +873,19 @@ TB_TEST(media_bitmap_bmp, damaged_runs_are_refused)
 /* Bytes of no format the engine reads, and options it cannot honor. */
 TB_TEST(media_bitmap_bmp, unknown_formats_and_bad_options)
 {
-    static const uint8_t png[] = {0x89, 'P', 'N', 'G', 13, 10, 26, 10};
+    static const uint8_t gif[] = {'G', 'I', 'F', '8', '9', 'a', 1, 0};
     tb_bitmap *bitmap = NULL;
     tb_bitmap_error error = {0};
-    const tb_bitmap_decode_options options = {.name = "logo.png"};
+    const tb_bitmap_decode_options options = {.name = "logo.gif"};
     const tb_bitmap_decode_options too_wide = {.max_side = TB_BITMAP_MAX_DIMENSION + 1u};
 
-    TB_TEST_EXPECT_UINT(tb_bitmap_decode(png, sizeof(png), &options, NULL, &bitmap, &error), ==,
+    TB_TEST_EXPECT_UINT(tb_bitmap_decode(gif, sizeof(gif), &options, NULL, &bitmap, &error), ==,
                         TB_BITMAP_UNKNOWN_FORMAT);
-    TB_TEST_EXPECT_STRING(error.message, ==, "logo.png: bytes of no image format the engine reads");
+    TB_TEST_EXPECT_STRING(error.message, ==, "logo.gif: bytes of no image format the engine reads");
     TB_TEST_EXPECT_UINT(error.offset, ==, 0);
     TB_TEST_EXPECT_UINT(tb_bitmap_decode(NULL, 0, NULL, NULL, &bitmap, &error), ==,
                         TB_BITMAP_UNKNOWN_FORMAT);
-    TB_TEST_EXPECT_UINT(tb_bitmap_decode(png, sizeof(png), &too_wide, NULL, &bitmap, NULL), ==,
+    TB_TEST_EXPECT_UINT(tb_bitmap_decode(gif, sizeof(gif), &too_wide, NULL, &bitmap, NULL), ==,
                         TB_BITMAP_INVALID);
     TB_TEST_EXPECT_POINTER(bitmap, ==, NULL);
 }

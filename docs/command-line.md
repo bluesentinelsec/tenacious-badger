@@ -204,6 +204,33 @@ int main(int count, char **values)
 }
 ```
 
+## The engine's programs
+
+Burrow and the sandbox declare their own command lines with this module,
+and share some options by name, so a habit learned on one works on the
+other: `--renderer NAME`, `--frames COUNT`, `--set NAME=VALUE`, and
+`--log-file FILE`. The last sends standard output and standard error to the
+file for the chosen command ([logging](logging.md#writing-the-log-to-a-file)).
+Help, version information and parsing errors use the original streams. The
+program parses its command line with `tb_cli_parse()`, moves its
+output, and then runs the command chosen, where `tb_cli_run()` would do the
+first and the last together:
+
+```c
+tb_cli_outcome outcome = TB_CLI_OUTCOME_INIT;
+if (tb_cli_parse(&program, arguments.count, arguments.values, &outcome) != TB_CLI_OK)
+{
+    return tb_cli_finish(&outcome);
+}
+if (log_file != NULL && !tb_process_write_output_to(log_file))
+{
+    (void)tb_fmt_print_error("program: error: --log-file %s: the file could not be made\n",
+                             log_file);
+    return EXIT_FAILURE;
+}
+return outcome.command->run(&outcome, NULL);
+```
+
 ## Checking the benchmark ladder
 
 Run the following against a built tree. The acceptance cases check parsed
