@@ -219,6 +219,8 @@ function(tb_add_tests target)
     endif()
 endfunction()
 
+set(tb_test_audio_display platform/audio_display_state.c)
+
 # Windowing is above the platform adapters, so its cases of one platform
 # are cases of the engine's tests.
 if(WIN32)
@@ -243,8 +245,14 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     list(APPEND TB_TEST_CASE_SOURCES platform/linux/window_x11_test.c)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     list(APPEND TB_TEST_CASE_SOURCES platform/macos/window_events_test.c)
+    # Real output and wake checks are opt-in on the operator's Mac.
+    set(tb_test_audio_display platform/macos/audio_display_state.c)
+    add_executable(tb_macos_audio_probe platform/macos/audio_output_probe.c ${tb_test_audio_display})
+    target_link_libraries(tb_macos_audio_probe PRIVATE TenaciousBadger::badger)
+    tb_configure_target(tb_macos_audio_probe)
 endif()
 
+list(APPEND TB_TEST_CASE_SOURCES ${tb_test_audio_display})
 tb_add_tests(tb_tests SOURCES ${TB_TEST_CASE_SOURCES} LIBRARIES TenaciousBadger::badger)
 # The engine's shaders: the manifest, and the libraries the build compiles
 # from it beside the executables (tools/shaderc), which the cases on D3D12 and D3D11

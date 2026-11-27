@@ -88,3 +88,37 @@ Each queued or playing voice holds the clip. `tb_mixer_clip_destroy`
 reports whether it could release the clip. Once the device is stopped,
 destroying the mixer also releases its queued references. Close the
 device before freeing its mixer context.
+
+## Checking physical playback on macOS
+
+A Core Audio unit can open and start on the built-in output of an idle Mac
+while no render callbacks arrive. The device test still requires three
+callbacks within three seconds. On failure it prints the backend, format,
+observed callback count and, when available, the main display's current
+power state. A sleeping display is a diagnostic clue. Other devices can
+continue playing while the display sleeps.
+
+From a Mac build with tests enabled, run the silent output probe:
+
+```sh
+cmake --build build --target tb_macos_audio_probe
+build/bin/tb_macos_audio_probe
+```
+
+For an awake hardware check over SSH, declare user activity and hold a
+display assertion for the duration of the probe:
+
+```sh
+/usr/bin/caffeinate -u -d build/bin/tb_macos_audio_probe
+/usr/bin/caffeinate -u -d ctest --test-dir build -R '^platform_audio_device\.' --output-on-failure
+```
+
+To check recovery on an existing stream, leave the display idle until it
+sleeps, then start `build/bin/tb_macos_audio_probe --await-wake` over SSH.
+After it prints the three-second callback count and asks for a wake, wake
+the display locally or run `/usr/bin/caffeinate -u -t 10` in another SSH
+session. The probe checks that it observes a display wake within 30 seconds
+and receives three callbacks in the next three seconds on the same open
+stream. Its first count distinguishes a stalled output from one that kept
+playing while the display slept. An already-awake display, missing output,
+missed wake or missing callbacks fails this hardware check.
