@@ -20,6 +20,7 @@ tb_window_result tb_linux_confirm(tb_window *window, const char *title, const ch
 /* The key a Linux input event code names: evdev's KEY_* values, which both
  * Wayland and X11 (less 8) report. */
 tb_key tb_linux_key(uint32_t code);
+uint32_t tb_linux_keycode(tb_key key);
 
 /* The button a Linux input event code names: evdev's BTN_* values, which
  * Wayland reports; none for a code of no mouse button. */

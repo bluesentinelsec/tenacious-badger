@@ -27,6 +27,16 @@
  * Xlib, as much as is used.
  * ------------------------------------------------------------------------- */
 
+/* XkbStateRec from Xlib. Only the effective keyboard group is needed here. */
+typedef struct tb_x11_keyboard_state
+{
+    unsigned char group, locked_group;
+    unsigned short base_group, latched_group;
+    unsigned char mods, base_mods, latched_mods, locked_mods, compat_state;
+    unsigned char grab_mods, compat_grab_mods, lookup_mods, compat_lookup_mods;
+    unsigned short pointer_buttons;
+} tb_x11_keyboard_state;
+
 typedef struct tb_x11_display tb_x11_display; /* Display */
 typedef unsigned long tb_x11_id;              /* XID, Window, Atom, Time */
 typedef int tb_x11_bool;
@@ -364,6 +374,10 @@ typedef struct tb_x11_api
     int (*get_geometry)(tb_x11_display *display, tb_x11_id drawable, tb_x11_id *root, int *x,
                         int *y, unsigned *width, unsigned *height, unsigned *border,
                         unsigned *depth);
+    int (*get_keyboard_state)(tb_x11_display *display, unsigned device,
+                              tb_x11_keyboard_state *state);
+    tb_x11_id (*keycode_to_keysym)(tb_x11_display *display, unsigned char code, int group,
+                                   int level);
     tb_x11_bool (*detectable_auto_repeat)(tb_x11_display *display, tb_x11_bool detectable,
                                           tb_x11_bool *supported);
     tb_x11_error_handler (*set_error_handler)(tb_x11_error_handler handler);
@@ -424,6 +438,8 @@ typedef struct tb_x11_system
 {
     tb_library *xlib;
     tb_library *randr_library;
+    tb_library *xkb_library;
+    int (*keysym_to_utf8)(uint32_t symbol, char *buffer, size_t capacity);
     tb_x11_api x;
     tb_randr_api randr;
     bool has_randr;
@@ -514,6 +530,8 @@ static tb_window_result tb_x11_load(tb_x11_system *native, tb_window_error *erro
         "XResourceManagerString",
         "XTranslateCoordinates",
         "XGetGeometry",
+        "XkbGetState",
+        "XkbKeycodeToKeysym",
         "XkbSetDetectableAutoRepeat",
         "XSetErrorHandler",
         "XCreateFontCursor",
@@ -1567,6 +1585,7 @@ static void tb_x11_release(tb_x11_system *native)
     }
     tb_library_close(native->xi_library);
     tb_library_close(native->randr_library);
+    tb_library_close(native->xkb_library);
     tb_library_close(native->xlib);
     tb_free(native);
 }
@@ -1576,10 +1595,26 @@ static void tb_x11_close(tb_window_system *system)
     tb_x11_release(tb_x11_of(system));
 }
 
+static bool tb_x11_key_label(tb_window_system *system, tb_key key, char *label, size_t capacity)
+{
+    tb_x11_system *const native = tb_x11_of(system);
+    tb_x11_keyboard_state state = {0};
+    /* XkbUseCoreKbd selects the keyboard that drives this X display. */
+    if (native->keysym_to_utf8 == NULL ||
+        native->x.get_keyboard_state(native->display, 0x0100u, &state) != 0)
+    {
+        return false;
+    }
+    const unsigned char code = (unsigned char)(tb_linux_keycode(key) + 8u);
+    const tb_x11_id sym = native->x.keycode_to_keysym(native->display, code, state.group, 0);
+    return native->keysym_to_utf8((uint32_t)sym, label, capacity) > 1;
+}
+
 static const tb_window_ops tb_x11_ops = {
     .close = tb_x11_close,
     .pump = tb_x11_pump,
     .wake = tb_x11_wake,
+    .key_label = tb_x11_key_label,
     .create = tb_x11_create,
     .destroy = tb_x11_destroy,
     .configure = tb_x11_configure,
@@ -1636,6 +1671,13 @@ tb_window_result tb_x11_open(tb_window_system *system, tb_window_error *error)
         native->randr.select_input(native->display, native->root, TB_RANDR_SCREEN_CHANGE_MASK);
     }
     tb_x11_load_xi(native);
+    if (tb_library_open("libxkbcommon.so.0", TB_LIBRARY_SEARCH_SYSTEM, &native->xkb_library,
+                        NULL) == TB_LIBRARY_OK)
+    {
+        tb_library_function convert = NULL;
+        (void)tb_library_find_function(native->xkb_library, "xkb_keysym_to_utf8", &convert, NULL);
+        native->keysym_to_utf8 = (int (*)(uint32_t, char *, size_t))convert;
+    }
     tb_x11_open_im(native);
     system->backend = TB_WINDOW_BACKEND_X11;
     system->pointer_in_pixels = true;

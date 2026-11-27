@@ -140,6 +140,18 @@ tb_key tb_linux_key(uint32_t code)
     return TB_KEY_UNKNOWN;
 }
 
+uint32_t tb_linux_keycode(tb_key key)
+{
+    for (size_t index = 0; index < sizeof(tb_linux_keys) / sizeof(tb_linux_keys[0]); index++)
+    {
+        if (tb_linux_keys[index].key == key)
+        {
+            return tb_linux_keys[index].code;
+        }
+    }
+    return 0;
+}
+
 tb_mouse_button tb_linux_button(uint32_t code)
 {
     /* linux/input-event-codes.h: BTN_LEFT and those after it. */

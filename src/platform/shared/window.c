@@ -782,6 +782,28 @@ const char *tb_window_backend_name(tb_window_backend backend)
     return "unknown backend";
 }
 
+bool tb_window_system_key_label(tb_window_system *system, tb_key key, char *label, size_t capacity)
+{
+    TB_ASSERT(system != NULL && label != NULL && capacity > 0);
+    label[0] = '\0';
+    char native[64] = {0};
+    const bool printable = (key >= TB_KEY_A && key <= TB_KEY_9) || key == TB_KEY_GRAVE;
+    const bool modifier = key >= TB_KEY_LEFT_SHIFT && key <= TB_KEY_RIGHT_ALT;
+    if ((printable || modifier) && system->ops->key_label(system, key, native, sizeof(native)) &&
+        (unsigned char)native[0] >= 0x20u && (unsigned char)native[0] != 0x7fu &&
+        tb_str_length(native) < capacity)
+    {
+        memcpy(label, native, tb_str_length(native) + 1);
+        if (label[1] == '\0' && label[0] >= 'a' && label[0] <= 'z')
+        {
+            label[0] = (char)(label[0] - 'a' + 'A');
+        }
+        return true;
+    }
+    label[0] = '\0';
+    return false;
+}
+
 const char *tb_key_name(tb_key key)
 {
     static const char *const names[TB_KEY_COUNT] = {

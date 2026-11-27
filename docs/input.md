@@ -380,11 +380,18 @@ identifier of its picture.
 ```c
 tb_gamepad_info info = {0};
 tb_gamepad_get_info(gamepads, slot, &info);
-tb_input_prompt prompt = {0};
-tb_input_key_prompt(tb_input_find_binding(player, gameplay, jump, TB_INPUT_CLASS_GAMEPAD),
-                    info.family, &prompt);
+tb_input_window_prompt prompt = {0};
+tb_input_key_prompt_for_window(windows,
+    tb_input_find_binding(player, gameplay, jump, TB_INPUT_CLASS_GAMEPAD), info.family, &prompt);
 /* prompt.label "Cross", prompt.glyph "playstation/cross" on a DualSense */
 ```
+
+For an on-screen binding prompt, call `tb_input_key_prompt_for_window()` with
+the window system that receives the player's input. Its caller-owned label
+follows the current keyboard layout and platform names such as Left Option
+on macOS. Read it again when displaying the prompt after a layout change.
+The glyph and the serialized binding still identify the physical key.
+Without a native label the prompt uses the portable name.
 
 A gamepad's key is shown by **the label its family prints at the key's
 place**. South is A on an Xbox pad, Cross on a PlayStation pad, and B on a
@@ -432,8 +439,8 @@ button for is named by its place.
 | The mouse | `Left Mouse Button`, `Right Mouse Button`, `Middle Mouse Button`, `Mouse Button 4`, `Mouse Button 5`, `Mouse Wheel Up`, `Mouse Wheel Down`, `Mouse Wheel`, `Mouse X`, `Mouse Y`, `Mouse` | `mouse/left`, `right`, `middle`, `thumb_1`, `thumb_2`, `wheel_up`, `wheel_down`, `wheel`, `x`, `y`, `xy` |
 | Touches | `Touch 1` to `Touch 10`, `Touch 1 Position` to `Touch 10 Position` | `touch/1` to `touch/10`, `touch/1_position` to `touch/10_position` |
 
-The keyboard's keys are by place, as the keys are: their labels are an
-American keyboard's, whatever the layout (see [still to come](#still-to-come)).
+The table lists the portable labels. Window-aware prompts can display A for
+the physical `keyboard/q` binding on a French layout.
 
 ## Recording and replaying
 
@@ -599,10 +606,6 @@ thread-safe.
 ## Still to come
 
 - **Touch**, through `tb_input_feed_key()`.
-- **Keyboard layouts in prompts**: the keyboard's labels are an American
-  keyboard's; a French player's A is labeled Q. The platform's layout
-  (`ToUnicodeEx`, xkbcommon, `UCKeyTranslate`) would label each key by the
-  character it types. The Mac's Alt is labeled Alt, not Option.
 - **Integration**: the game loop gathers and ticks input, the GUI's
   navigation reads `ui_*` actions, and Burrow's controls become actions.
 - A file format for recordings.

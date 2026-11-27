@@ -34,6 +34,9 @@
 #include "badger/memory.h"
 #include "badger/str.h"
 
+#include "badger/utf8.h"
+
+#include <Carbon/Carbon.h>
 #include <pthread.h>
 #include <stddef.h>
 #include <string.h>
@@ -268,6 +271,18 @@ static tb_id tb_string(const char *text)
 
 typedef struct tb_cocoa_system
 {
+    tb_library *carbon;
+    tb_library *foundation;
+    TISInputSourceRef (*copy_layout)(void);
+    void *(*property)(TISInputSourceRef source, CFStringRef key);
+    const UInt8 *(*data_bytes)(CFDataRef data);
+    void (*release)(CFTypeRef object);
+    UInt8 (*keyboard_type)(void);
+    OSStatus (*translate)(const UCKeyboardLayout *layout, UInt16 code, UInt16 action,
+                          UInt32 modifiers, UInt32 keyboard_type, OptionBits options,
+                          UInt32 *dead_key, UniCharCount capacity, UniCharCount *length,
+                          UniChar *text);
+    CFStringRef layout_data;
     tb_id observer; /* A delegate whose target is the system, for display changes. */
 } tb_cocoa_system;
 
@@ -1687,6 +1702,8 @@ static void tb_cocoa_close(tb_window_system *system)
     tb_send_id(tb_send(tb_class("NSNotificationCenter"), "defaultCenter"),
                "removeObserver:", native->observer);
     (void)tb_send(native->observer, "release");
+    tb_library_close(native->foundation);
+    tb_library_close(native->carbon);
     tb_free(native);
 }
 
@@ -1712,10 +1729,86 @@ static tb_window_result tb_cocoa_confirm(tb_window *window, const char *title, c
     return TB_WINDOW_OK;
 }
 
+static void tb_cocoa_load_layout(tb_cocoa_system *native)
+{
+    void *property = NULL;
+    const tb_library_binding carbon[] = {
+        {"TISCopyCurrentKeyboardLayoutInputSource", (tb_library_function *)&native->copy_layout,
+         true},
+        {"TISGetInputSourceProperty", (tb_library_function *)&native->property, true},
+        {"UCKeyTranslate", (tb_library_function *)&native->translate, true},
+        {"LMGetKbdType", (tb_library_function *)&native->keyboard_type, true}};
+    const tb_library_binding foundation[] = {
+        {"CFDataGetBytePtr", (tb_library_function *)&native->data_bytes, true},
+        {"CFRelease", (tb_library_function *)&native->release, true}};
+    if (tb_library_open("Carbon.framework/Carbon", TB_LIBRARY_SEARCH_SYSTEM, &native->carbon,
+                        NULL) == TB_LIBRARY_OK &&
+        tb_library_open("CoreFoundation.framework/CoreFoundation", TB_LIBRARY_SEARCH_SYSTEM,
+                        &native->foundation, NULL) == TB_LIBRARY_OK &&
+        tb_library_bind(native->carbon, carbon, sizeof(carbon) / sizeof(carbon[0]), NULL) ==
+            TB_LIBRARY_OK &&
+        tb_library_bind(native->foundation, foundation, sizeof(foundation) / sizeof(foundation[0]),
+                        NULL) == TB_LIBRARY_OK &&
+        tb_library_find_data(native->carbon, "kTISPropertyUnicodeKeyLayoutData", &property, NULL) ==
+            TB_LIBRARY_OK)
+    {
+        native->layout_data = *(CFStringRef *)property;
+    }
+}
+
+static bool tb_cocoa_key_label(tb_window_system *system, tb_key key, char *label, size_t capacity)
+{
+    if (key == TB_KEY_LEFT_ALT || key == TB_KEY_RIGHT_ALT)
+    {
+        return tb_fmt_buffer(label, capacity, "%s Option",
+                             key == TB_KEY_LEFT_ALT ? "Left" : "Right") < capacity;
+    }
+    tb_cocoa_system *const native = tb_cocoa_of(system);
+    if (native->layout_data == NULL)
+    {
+        return false;
+    }
+    for (size_t index = 0; index < sizeof(tb_cocoa_keys) / sizeof(tb_cocoa_keys[0]); index++)
+    {
+        if (tb_cocoa_keys[index].key != key)
+        {
+            continue;
+        }
+        TISInputSourceRef source = native->copy_layout();
+        if (source == NULL)
+        {
+            return false;
+        }
+        const CFDataRef data = native->property(source, native->layout_data);
+        UniChar wide[16] = {0};
+        UniCharCount length = 0;
+        UInt32 dead_key = 0;
+        size_t written = 0;
+        bool found = false;
+        if (data != NULL)
+        {
+            const void *layout = native->data_bytes(data);
+            found = layout != NULL &&
+                    native->translate(layout, tb_cocoa_keys[index].code, kUCKeyActionDisplay, 0,
+                                      native->keyboard_type(), kUCKeyTranslateNoDeadKeysMask,
+                                      &dead_key, 16, &length, wide) == noErr &&
+                    length > 0 && tb_utf8_from_utf16(wide, length, label, capacity - 1, &written);
+        }
+        native->release(source);
+        if (found)
+        {
+            label[written] = '\0';
+        }
+        return found;
+    }
+    return false;
+}
+
 static const tb_window_ops tb_cocoa_ops = {
     .close = tb_cocoa_close,
     .pump = tb_cocoa_pump,
     .wake = tb_cocoa_wake,
+    .key_label = tb_cocoa_key_label,
     .create = tb_cocoa_create,
     .destroy = tb_cocoa_destroy,
     .configure = tb_cocoa_configure,
@@ -1756,6 +1849,7 @@ tb_window_result tb_native_window_open(tb_window_system *system, tb_window_backe
         tb_sel_of("addObserver:selector:name:object:"), native->observer,
         tb_sel_of("screensChanged:"), tb_cocoa.screens_changed, NULL);
     tb_cocoa.pool_pop(pool);
+    tb_cocoa_load_layout(native);
     system->backend = TB_WINDOW_BACKEND_COCOA;
     system->keeps_aspect = true;
     system->ops = &tb_cocoa_ops;

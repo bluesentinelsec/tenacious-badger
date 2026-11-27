@@ -124,6 +124,15 @@ const char *tb_window_backend_name(tb_window_backend backend)
     tb_default_not_implemented("platform.window", "tb_window_backend_name");
 }
 
+bool tb_window_system_key_label(tb_window_system *system, tb_key key, char *label, size_t capacity)
+{
+    (void)system;
+    (void)key;
+    (void)label;
+    (void)capacity;
+    tb_default_not_implemented("platform.window", "tb_window_system_key_label");
+}
+
 const char *tb_key_name(tb_key key)
 {
     (void)key;

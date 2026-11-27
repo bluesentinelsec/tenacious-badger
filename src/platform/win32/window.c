@@ -1321,10 +1321,40 @@ static tb_window_result tb_win32_confirm(tb_window *window, const char *title, c
     return TB_WINDOW_OK;
 }
 
+static bool tb_win32_key_label(tb_window_system *system, tb_key key, char *label, size_t capacity)
+{
+    (void)system;
+    const HKL layout = GetKeyboardLayout(0);
+    for (size_t index = 0; index < sizeof(tb_win32_keys) / sizeof(tb_win32_keys[0]); index++)
+    {
+        if (tb_win32_keys[index].key != key)
+        {
+            continue;
+        }
+        const UINT scan = tb_win32_keys[index].scancode;
+        const UINT vk = MapVirtualKeyExW(scan, MAPVK_VSC_TO_VK_EX, layout);
+        const BYTE modifiers[256] = {0};
+        WCHAR wide[16] = {0};
+        /* Bit 2 translates without consuming the player's pending dead key. */
+        const int count = ToUnicodeEx(vk, scan, modifiers, wide, 16, 4u, layout);
+        size_t written = 0;
+        if (count == 0 ||
+            !tb_utf8_from_utf16((const uint16_t *)wide, count < 0 ? 1u : (size_t)count, label,
+                                capacity - 1, &written))
+        {
+            return false;
+        }
+        label[written] = '\0';
+        return true;
+    }
+    return false;
+}
+
 static const tb_window_ops tb_win32_ops = {
     .close = tb_win32_close,
     .pump = tb_win32_pump,
     .wake = tb_win32_wake,
+    .key_label = tb_win32_key_label,
     .create = tb_win32_create,
     .destroy = tb_win32_destroy,
     .configure = tb_win32_configure,

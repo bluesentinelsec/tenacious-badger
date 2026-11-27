@@ -5,6 +5,7 @@
 #include "input_internal.h"
 
 #include "badger/assert.h"
+#include "badger/fmt.h"
 
 /* A key as a prompt shows it. */
 typedef struct tb_input_shown
@@ -533,4 +534,20 @@ void tb_input_key_prompt(tb_input_key key, tb_gamepad_family family, tb_input_pr
         found = tb_input_shown_touches[key - TB_INPUT_KEY_TOUCH_1_POSITION][1];
     }
     *prompt = (tb_input_prompt){.label = found.label, .glyph = found.glyph};
+}
+
+void tb_input_key_prompt_for_window(tb_window_system *system, tb_input_key key,
+                                    tb_gamepad_family family, tb_input_window_prompt *prompt)
+{
+    tb_input_prompt portable = {0};
+    TB_ASSERT(prompt != NULL);
+    tb_input_key_prompt(key, family, &portable);
+    prompt->glyph = portable.glyph;
+    if (system != NULL && key >= TB_INPUT_KEY_A && key <= TB_INPUT_KEY_DELETE &&
+        tb_window_system_key_label(system, (tb_key)(TB_KEY_A + (key - TB_INPUT_KEY_A)),
+                                   prompt->label, sizeof(prompt->label)))
+    {
+        return;
+    }
+    (void)tb_fmt_buffer(prompt->label, sizeof(prompt->label), "%s", portable.label);
 }

@@ -63,8 +63,9 @@
  * found by listening for the next key pressed (tb_input_listen()), with
  * conflicts reported (tb_input_find_conflicts()) and the rebinds saved
  * apart, as differences from the definitions (tb_input_save_bindings()).
- * tb_input_key_prompt() gives the label and the glyph a key is shown by,
- * for the family of the pad in hand.
+ * tb_input_key_prompt_for_window() gives the active layout's keyboard labels
+ * and the connected family's gamepad prompts. tb_input_key_prompt() supplies
+ * portable labels without a window system.
  *
  * See `docs/input.md`.
  *
@@ -1307,6 +1308,25 @@ typedef struct tb_input_prompt
  */
 TB_API void tb_input_key_prompt(tb_input_key key, tb_gamepad_family family,
                                 tb_input_prompt *prompt);
+
+/** @brief A display prompt with a caller-owned UTF-8 label from the active layout. */
+typedef struct tb_input_window_prompt
+{
+    char label[64];    /**< Complete label, including its terminator. */
+    const char *glyph; /**< Static glyph identifier for the physical binding. */
+} tb_input_window_prompt;
+
+/**
+ * @brief Resolve a prompt using the keyboard layout of a window system.
+ * @param system Open window system, or NULL for the portable labels.
+ * @param key Physical input key.
+ * @param family Gamepad family for gamepad prompts.
+ * @param[out] prompt Required. Unknown keys have empty labels and glyphs.
+ * @par Threading Stage-owned by the window system's thread.
+ */
+TB_API void tb_input_key_prompt_for_window(tb_window_system *system, tb_input_key key,
+                                           tb_gamepad_family family,
+                                           tb_input_window_prompt *prompt);
 
 /* ---------------------------------------------------------------------------
  * Files.
