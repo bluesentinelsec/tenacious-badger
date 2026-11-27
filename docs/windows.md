@@ -117,7 +117,7 @@ while the player drags.
 | Windows | `DefWindowProc()`'s, from `WM_ENTERSIZEMOVE` to `WM_EXITSIZEMOVE` while the border or title bar is dragged, and from `WM_ENTERMENULOOP` to `WM_EXITMENULOOP` while the system menu is open | A `SetTimer()` timer for as long as the loop runs, and each `WM_SIZE` |
 | macOS | AppKit's tracking loop, in `NSEventTrackingRunLoopMode`, from the delegate's `windowWillStartLiveResize:` to `windowDidEndLiveResize:` | An `NSTimer` in that mode, at 120 Hz, and each `windowDidResize:` |
 | X11 | None: resizes arrive as `ConfigureNotify` events between frames | Never called |
-| Wayland | None: each `xdg_surface.configure` is acknowledged and answered with a buffer of its size, between frames | Never called |
+| Wayland | None. Between frames the client acknowledges each `xdg_surface.configure` and commits a buffer with the accepted geometry. An activation change that repeats an older floating size preserves a newer client resize. | Never called |
 
 Calls never nest. Inside a refresh, `tb_window_system_poll()` returns the
 events queued without reading the system's messages, and
