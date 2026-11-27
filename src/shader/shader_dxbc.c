@@ -31,6 +31,8 @@ const char *tb_shader_compiler_name(const tb_shader_compile_request *request)
         return request->dxc != NULL ? tb_dxc_version(request->dxc) : NULL;
     case TB_SHADER_TARGET_DXBC:
         return request->d3dcompiler != NULL ? tb_d3dcompiler_version(request->d3dcompiler) : NULL;
+    case TB_SHADER_TARGET_MSL:
+        return "badger-msl";
     case TB_SHADER_TARGET_NONE:
         break;
     }

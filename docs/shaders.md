@@ -738,3 +738,17 @@ A file that holds a NUL byte is refused.
 tb_shader_preprocess() and tb_shader_compile() are thread-safe when each call
 has its own arena and the loader is thread-safe; compiles may share one DXC. The VFS loader is, once mounting is done, because the
 VFS reads from any number of threads at once.
+
+### Compiling a first raster shader for Metal
+
+`TB_SHADER_TARGET_MSL` emits UTF-8 Metal Shading Language from a lowered
+entry point on any desktop platform. Each payload contains one function named
+`tb_main`. Pass its explicit byte length to the Metal source compiler.
+`badger-shaderc --backend metal` packages these payloads into `metal.tbsl`
+using the same compiler and cache as the runtime.
+
+The first supported raster programs return a four-component position or color,
+can read an unsigned vertex ID, and can use arithmetic and straight-line local
+assignments. Constant buffers at b0 through b2 support four-component vectors
+of 32-bit floats or integers. These occupy the same bytes in HLSL and Metal.
+The compiler reports unsupported stages, resources and operations at compile time.

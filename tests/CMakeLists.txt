@@ -219,6 +219,9 @@ function(tb_add_tests target)
     endif()
 endfunction()
 
+tb_embed_test_data(TB_RHI_HLSL_SOURCE tb_rhi_hlsl_files rhi "*.hlsl")
+list(APPEND TB_TEST_CASE_SOURCES shader/shader_msl_test.c ${TB_RHI_HLSL_SOURCE})
+
 set(tb_test_audio_display platform/audio_display_state.c)
 
 # Windowing is above the platform adapters, so its cases of one platform
@@ -228,11 +231,10 @@ if(WIN32)
     # DXIL that tools/make_rhi_test_shaders.py compiled from tests/data/rhi, and
     # the sources, which the D3D11 cases compile for themselves.
     tb_embed_test_data(TB_RHI_SHADER_SOURCE tb_rhi_shader_files rhi "*.dxil")
-    tb_embed_test_data(TB_RHI_HLSL_SOURCE tb_rhi_hlsl_files rhi "*.hlsl")
     # Frames the renderer drew on WARP, looked at by eye (see docs/testing.md).
     tb_embed_test_data(TB_GOLDEN_SOURCE tb_golden_files golden "*.bmp")
     list(APPEND TB_TEST_CASE_SOURCES rhi/rhi_d3d12_test.c ${TB_RHI_SHADER_SOURCE}
-        rhi/rhi_d3d11_test.c ${TB_RHI_HLSL_SOURCE}
+        rhi/rhi_d3d11_test.c
         render/canvas_d3d12_test.c render/golden.c render/lighting_d3d12_test.c ${TB_GOLDEN_SOURCE}
         render/material_d3d12_test.c
         render/renderer_d3d12_test.c render/resize_d3d12_test.c render/skinning_d3d12_test.c
