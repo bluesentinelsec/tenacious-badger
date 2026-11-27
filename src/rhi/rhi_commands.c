@@ -262,12 +262,12 @@ void tb_rhi_cmd_pipeline(tb_rhi_command_list *list, tb_rhi_pipeline pipeline)
     list->has_pipeline = true;
     for (uint32_t index = 0; index < TB_RHI_VERTEX_BUFFERS; index++)
     {
-        if (list->layouts[index].stride != slot->layouts[index].stride &&
+        if (list->layouts[index].stride != slot->desc.pipeline->graphics.buffers[index].stride &&
             list->vertex[index].object != NULL)
         {
             list->vertex_dirty |= 1u << index;
         }
-        list->layouts[index] = slot->layouts[index];
+        list->layouts[index] = slot->desc.pipeline->graphics.buffers[index];
     }
     list->device->table->cmd_pipeline(list->backend, slot->object, slot->compute);
 }

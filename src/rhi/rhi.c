@@ -360,6 +360,40 @@ void tb_rhi_collect(tb_rhi_device *device, uint64_t completed)
     device->retired_count = kept;
 }
 
+static void tb_rhi_release_shader(tb_rhi_shader_data *shader)
+{
+    TB_ASSERT(shader->references > 0);
+    shader->references--;
+    if (shader->references == 0)
+    {
+        tb_free(shader->code);
+        tb_free(shader);
+    }
+}
+
+static void tb_rhi_release_description(tb_rhi_kind kind, tb_rhi_slot *slot)
+{
+    if (kind == TB_RHI_KIND_SHADER)
+    {
+        tb_rhi_release_shader(slot->desc.shader);
+    }
+    else if (kind == TB_RHI_KIND_PIPELINE)
+    {
+        tb_rhi_pipeline_data *const data = slot->desc.pipeline;
+        for (uint32_t i = 0; i < data->graphics.attribute_count; i++)
+        {
+            tb_str_free(NULL, (char *)(uintptr_t)data->attributes[i].semantic);
+        }
+        tb_rhi_release_shader(data->first);
+        if (data->pixel != NULL)
+        {
+            tb_rhi_release_shader(data->pixel);
+        }
+        tb_free(data->attributes);
+        tb_free(data);
+    }
+}
+
 /* Take a handle away now, and the object once the GPU is done with it. */
 static void tb_rhi_retire(tb_rhi_device *device, tb_rhi_kind kind, uint32_t index,
                           uint32_t generation)
@@ -378,10 +412,7 @@ static void tb_rhi_retire(tb_rhi_device *device, tb_rhi_kind kind, uint32_t inde
     device->retired[device->retired_count] = (tb_rhi_retired){
         .kind = kind, .object = slot->object, .indices = slot->indices, .after = device->submitted};
     device->retired_count++;
-    if (kind == TB_RHI_KIND_SHADER)
-    {
-        tb_free((void *)(uintptr_t)slot->desc.shader.code);
-    }
+    tb_rhi_release_description(kind, slot);
     tb_rhi_table_give(&device->tables[kind], index);
     tb_rhi_collect(device, device->table->completed(device->state));
     tb_mutex_unlock(&device->lock);
@@ -579,10 +610,7 @@ void tb_rhi_device_destroy(tb_rhi_device *device)
             if (slot->alive)
             {
                 tb_rhi_release_object(device, (tb_rhi_kind)kind, slot->object);
-            }
-            if (slot->alive && kind == TB_RHI_KIND_SHADER)
-            {
-                tb_free((void *)(uintptr_t)slot->desc.shader.code);
+                tb_rhi_release_description((tb_rhi_kind)kind, slot);
             }
         }
         tb_rhi_table_release(table);
@@ -900,7 +928,7 @@ tb_rhi_result tb_rhi_shader_create(tb_rhi_device *device, const tb_rhi_shader_de
     const tb_rhi_indices none = {.read = TB_RHI_NO_INDEX, .write = TB_RHI_NO_INDEX};
     tb_rhi_shader_desc kept = {0};
     char entry[TB_RHI_ENTRY_CAPACITY] = {0};
-    void *code = NULL;
+    tb_rhi_shader_data *data = NULL;
     void *object = NULL;
     tb_rhi_slot *slot = NULL;
     tb_rhi_result result = TB_RHI_OK;
@@ -918,16 +946,21 @@ tb_rhi_result tb_rhi_shader_create(tb_rhi_device *device, const tb_rhi_shader_de
     {
         return result;
     }
-    code = tb_malloc(desc->size);
-    memcpy(code, desc->code, desc->size);
+    data = TB_NEW(tb_rhi_shader_data);
+    data->code = tb_malloc(desc->size);
+    data->references = 1;
+    data->desc = kept;
+    memcpy(data->code, desc->code, desc->size);
+    memcpy(data->entry, entry, sizeof(entry));
+    data->desc.code = data->code;
+    data->desc.entry = data->entry;
+
+    tb_rhi_copy_name(data->name, desc->name);
+    data->desc.name = desc->name != NULL ? data->name : NULL;
     tb_mutex_lock(&device->lock);
     shader->index = tb_rhi_add(device, TB_RHI_KIND_SHADER, object, none, desc->name, &slot);
     shader->generation = slot->generation;
-    (void)tb_fmt_buffer(slot->entry, sizeof(slot->entry), "%s", entry);
-    slot->desc.shader = kept;
-    slot->desc.shader.code = code;
-    slot->desc.shader.entry = slot->entry;
-    slot->desc.shader.name = NULL;
+    slot->desc.shader = data;
     tb_mutex_unlock(&device->lock);
     tb_rhi_succeed(error);
     return TB_RHI_OK;
@@ -947,8 +980,21 @@ static const tb_rhi_slot *tb_rhi_shader_slot(tb_rhi_device *device, tb_rhi_shade
 {
     const tb_rhi_slot *const slot =
         tb_rhi_slot_of(device, TB_RHI_KIND_SHADER, shader.index, shader.generation);
-    TB_ASSERT_MSG(slot->desc.shader.stage == stage, "a shader of another stage");
+    TB_ASSERT_MSG(slot->desc.shader->desc.stage == stage, "a shader of another stage");
     return slot;
+}
+
+/* Called under the device lock. */
+static tb_rhi_shader_data *tb_rhi_keep_shader(const tb_rhi_slot *slot)
+{
+    if (slot == NULL)
+    {
+        return NULL;
+    }
+    tb_rhi_shader_data *const data = slot->desc.shader;
+    TB_ASSERT(data->references < SIZE_MAX);
+    data->references++;
+    return data;
 }
 
 tb_rhi_result tb_rhi_graphics_pipeline_create(tb_rhi_device *device,
@@ -981,9 +1027,9 @@ tb_rhi_result tb_rhi_graphics_pipeline_create(tb_rhi_device *device,
     }
     ref.desc = desc;
     ref.vertex = vertex->object;
-    ref.vertex_desc = &vertex->desc.shader;
+    ref.vertex_desc = &vertex->desc.shader->desc;
     ref.pixel = pixel == NULL ? NULL : pixel->object;
-    ref.pixel_desc = pixel == NULL ? NULL : &pixel->desc.shader;
+    ref.pixel_desc = pixel == NULL ? NULL : &pixel->desc.shader->desc;
     result = device->table->graphics_pipeline_create(device->state, &ref, &object, error);
     if (result != TB_RHI_OK)
     {
@@ -992,7 +1038,25 @@ tb_rhi_result tb_rhi_graphics_pipeline_create(tb_rhi_device *device,
     tb_mutex_lock(&device->lock);
     pipeline->index = tb_rhi_add(device, TB_RHI_KIND_PIPELINE, object, none, desc->name, &slot);
     pipeline->generation = slot->generation;
-    memcpy(slot->layouts, desc->buffers, sizeof(slot->layouts));
+    /* The handle slots of the shaders can be reused while this pipeline
+     * lives. Keep their descriptions independently of those handles. */
+    tb_rhi_pipeline_data *const data = TB_NEW(tb_rhi_pipeline_data);
+    if (desc->attribute_count != 0)
+    {
+        data->attributes = TB_NEW_ARRAY(tb_rhi_vertex_attribute, desc->attribute_count);
+    }
+    data->first = tb_rhi_keep_shader(vertex);
+    data->pixel = tb_rhi_keep_shader(pixel);
+    data->graphics = *desc;
+    data->graphics.name = desc->name != NULL ? slot->name : NULL;
+    data->graphics.attributes = data->attributes;
+    for (uint32_t i = 0; i < desc->attribute_count; i++)
+    {
+        const char *const semantic = desc->attributes[i].semantic;
+        data->attributes[i] = desc->attributes[i];
+        data->attributes[i].semantic = semantic != NULL ? tb_str_dup(NULL, semantic) : NULL;
+    }
+    slot->desc.pipeline = data;
     tb_mutex_unlock(&device->lock);
     tb_rhi_succeed(error);
     return TB_RHI_OK;
@@ -1012,7 +1076,7 @@ tb_rhi_result tb_rhi_compute_pipeline_create(tb_rhi_device *device,
     *pipeline = (tb_rhi_pipeline){0};
     compute = tb_rhi_shader_slot(device, desc->compute, TB_RHI_STAGE_COMPUTE);
     result = device->table->compute_pipeline_create(device->state, desc, compute->object,
-                                                    &compute->desc.shader, &object, error);
+                                                    &compute->desc.shader->desc, &object, error);
     if (result != TB_RHI_OK)
     {
         return result;
@@ -1020,6 +1084,11 @@ tb_rhi_result tb_rhi_compute_pipeline_create(tb_rhi_device *device,
     tb_mutex_lock(&device->lock);
     pipeline->index = tb_rhi_add(device, TB_RHI_KIND_PIPELINE, object, none, desc->name, &slot);
     pipeline->generation = slot->generation;
+    tb_rhi_pipeline_data *const data = TB_NEW(tb_rhi_pipeline_data);
+    data->first = tb_rhi_keep_shader(compute);
+    data->compute = *desc;
+    data->compute.name = desc->name != NULL ? slot->name : NULL;
+    slot->desc.pipeline = data;
     slot->compute = true;
     tb_mutex_unlock(&device->lock);
     tb_rhi_succeed(error);
