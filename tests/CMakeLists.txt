@@ -117,6 +117,8 @@ set(TB_TEST_CASE_SOURCES
     media/png_builder.c
     media/sound_edit_test.c
     media/sound_test.c
+    media/sprite_atlas_test.c
+    media/sprite_test.c
     media/wav_builder.c
     media/wav_malformed_test.c
     media/wav_test.c

@@ -369,6 +369,81 @@ each color type, and thousands of copies with random bytes changed and
 their CRCs made right again, so that the damage reaches past the CRC
 check, under the sanitizers.
 
+## Sprite sheets and atlases
+
+`badger/sprite.h` describes named rectangles of an image in top-left pixel
+coordinates. The caller owns the bitmap and can use a frame's `rect` as the
+source rectangle when drawing a sprite. Place the rectangle at the frame's
+trim offset relative to the untrimmed image, and apply its pivot in that
+original coordinate system. A sheet copies its names and animation steps.
+Serialize changes to a sheet while other threads read it.
+
+### Files
+
+The version 1 `badger-sprites` format accepts a grid, explicit frames, or both.
+The grid contributes its frames first, in row order. A partial final row
+uses `count`; omitting it takes every complete cell. For example:
+
+```json
+{
+  "format": "badger-sprites",
+  "version": 1,
+  "image": "actors.png",
+  "grid": {
+    "name": "walk", "cellWidth": 16, "cellHeight": 24,
+    "imageWidth": 45, "imageHeight": 25, "marginX": 1, "marginY": 1,
+    "spacingX": 1
+  },
+  "frames": [{
+    "name": "jump",
+    "frame": { "x": 36, "y": 0, "w": 9, "h": 18 },
+    "sourceSize": { "w": 16, "h": 24 },
+    "spriteSourceSize": { "x": 3, "y": 2 },
+    "pivot": { "x": 8, "y": 24 }
+  }],
+  "animations": [{
+    "name": "walk",
+    "loop": "ping-pong",
+    "steps": [
+      { "frame": "walk_0", "duration": 80 },
+      { "frame": "walk_1", "duration": 120 }
+    ]
+  }]
+}
+```
+
+Durations are positive milliseconds. Playback can loop, play once and hold
+the final step, or ping-pong without repeating endpoint steps. Pass elapsed
+milliseconds to `tb_sprite_animation_step_at` and look up the frame named by
+that step. The writer emits explicit frames and preserves frame and animation
+order. Loading appends to a sheet. A duplicate name, invalid frame or malformed
+animation rolls the whole load back. Diagnostics include the file name,
+JSON location and reason. The reader accepts up to 16 MiB of JSON, 65,536
+explicit frames or grid cells per list, and 1,048,576 animation steps per file.
+The repeated prefixes of generated grid names may occupy up to 16 MiB.
+
+Aseprite and TexturePacker exports may supply `frames` as an array of entries
+with `filename` or an object keyed by frame name. The importer reads frame
+rectangles, untrimmed sizes, trim offsets, normalized pivots, the image path
+in `meta.image`, and Aseprite's frame durations and `meta.frameTags`.
+Forward, reverse and both ping-pong directions use the original frame order.
+Disable rotated frames in the exporter.
+
+### Packing bitmaps
+
+`tb_sprite_atlas_pack` places the largest rectangles first using MaxRects'
+best short side fit. Its sheet keeps the caller's input order. The returned
+bitmap has straight RGBA8 pixels. Trimming cuts the transparent border from
+each input and records its offset, source size and pivot. A fully transparent
+input uses a single transparent texel at offset (0, 0).
+
+Extrusion copies edge and corner pixels around each trimmed rectangle.
+Padding adds transparent space between extruded rectangles. Both are in
+pixels. The limits default to 4096 on each axis, and the optional
+power-of-two setting rounds up within each limit. If packing fails, the
+output bitmap is NULL and the sheet retains its earlier entries. The caller
+owns the returned bitmap and releases it with `tb_bitmap_destroy`.
+
 ## Sounds
 
 `badger/sound.h` is a sound in memory: frames of PCM samples at one rate,
