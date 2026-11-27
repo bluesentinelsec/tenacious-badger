@@ -635,10 +635,14 @@ TB_TEST(burrow_menus, large_text_and_interface_scale_keep_options_reachable_on_t
     TB_TEST_REQUIRE(tb_var_set_int(var_of(&made, "text_size"), 2));
     TB_TEST_REQUIRE(tb_var_set_float(var_of(&made, "interface_scale"), 2.0));
     TB_TEST_EXPECT_UINT(tb_setting_choice(made.engine.accessibility.text_size), ==, 0);
-    TB_TEST_REQUIRE(tb_widget_invoke(find(&made, "options/panel/bar/apply")));
+    const tb_widget apply = find(&made, "options/panel/bar/apply");
+    TB_TEST_REQUIRE(tb_widget_focus(apply));
+    TB_TEST_REQUIRE(tb_widget_invoke(apply));
     update_at(&made, 1280, 800, 0.0);
     const tb_gui_view view = tb_gui_view_of(gui);
     TB_TEST_EXPECT_FLOAT(view.size.x, ==, BURROW_MENU_WIDTH / 2.0f);
+    const tb_canvas_rect applied = tb_widget_rect(apply);
+    TB_TEST_EXPECT(applied.y >= 0 && applied.y + applied.height <= view.size.y);
     TB_TEST_EXPECT_FLOAT(tb_widget_measure_text(back, &sample).y, >, normal * 1.3f);
     static const char *const pages[] = {"display", "graphics", "controls", "audio",
                                         "accessibility"};
@@ -658,10 +662,8 @@ TB_TEST(burrow_menus, large_text_and_interface_scale_keep_options_reachable_on_t
             update_at(&made, 1280, 800, 0.0);
             const tb_canvas_rect rect = tb_widget_rect(child);
             TB_TEST_CONTEXT("page %s, control %zu", pages[index], reached);
-            TB_TEST_EXPECT(rect.x + rect.width * 0.5f >= 0 &&
-                           rect.x + rect.width * 0.5f < view.size.x);
-            TB_TEST_EXPECT(rect.y + rect.height * 0.5f >= 0 &&
-                           rect.y + rect.height * 0.5f < view.size.y);
+            TB_TEST_EXPECT(rect.x >= 0.0f && rect.x + rect.width <= view.size.x);
+            TB_TEST_EXPECT(rect.y >= 0.0f && rect.y + rect.height <= view.size.y);
             reached++;
         }
         TB_TEST_EXPECT_UINT(reached, >, 0);
@@ -670,5 +672,13 @@ TB_TEST(burrow_menus, large_text_and_interface_scale_keep_options_reachable_on_t
     update_at(&made, 1280, 800, 0.0);
     const tb_canvas_rect rect = tb_widget_rect(back);
     TB_TEST_EXPECT(rect.y >= 0 && rect.y + rect.height <= view.size.y);
+    TB_TEST_REQUIRE(tb_var_set_float(var_of(&made, "interface_scale"), 1.0));
+    burrow_menus_navigate(made.menus, TB_GUI_NAV_BACK);
+    update_at(&made, 1280, 800, 0.0);
+    const tb_widget dialog = dialog_of(&made);
+    TB_TEST_REQUIRE(tb_widget_alive(dialog));
+    const tb_canvas_rect question = tb_widget_rect(dialog);
+    TB_TEST_EXPECT(question.x >= 0 && question.x + question.width <= view.size.x);
+    TB_TEST_EXPECT(question.y >= 0 && question.y + question.height <= view.size.y);
     close_case(&made);
 }

@@ -459,8 +459,12 @@ void tb_gui_set_scale(tb_gui *gui, float scale)
 {
     TB_ASSERT(gui != NULL);
     TB_ASSERT(scale > 0.0f);
-    gui->zoom = scale;
-    tb_gui_update_view(gui);
+    if (gui->zoom != scale)
+    {
+        gui->zoom = scale;
+        tb_gui_update_view(gui);
+        gui->reveal_focus_after_scale = true;
+    }
 }
 
 void tb_gui_set_text_scale(tb_gui *gui, float scale)
@@ -470,6 +474,7 @@ void tb_gui_set_text_scale(tb_gui *gui, float scale)
     if (gui->text_scale != scale)
     {
         gui->text_scale = scale;
+        gui->reveal_focus_after_scale = true;
         tb_gui_mark_layout(gui);
     }
 }
@@ -487,6 +492,11 @@ void tb_gui_update(tb_gui *gui, double delta_seconds)
     gui->time += delta_seconds;
     tb_gui_watches_poll(gui);
     tb_gui_vars_update(gui);
+    if (gui->reveal_focus_after_scale)
+    {
+        gui->reveal_focus_after_scale = false;
+        (void)tb_widget_see(gui->focus);
+    }
     tb_gui_layout(gui);
     tb_gui_dispatch_resized(gui);
     tb_gui_process_input(gui);

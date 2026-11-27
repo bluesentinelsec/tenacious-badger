@@ -174,6 +174,7 @@ struct tb_gui
     tb_viewport viewport;
     float zoom;
     float text_scale;
+    bool reveal_focus_after_scale;
     tb_gui_view view;
 
     /* Slots. */
