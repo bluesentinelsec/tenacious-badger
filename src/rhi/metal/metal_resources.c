@@ -1,4 +1,5 @@
 #include "badger/memory.h"
+#include "badger/str.h"
 #include "metal_internal.h"
 
 #include <string.h>
@@ -163,7 +164,9 @@ tb_rhi_result tb_metal_shader_create(void *state, const tb_rhi_shader_desc *desc
         const char *const message =
             source == NULL ? "source is not UTF-8" : error_message(d, native_error);
         const bool tier_required =
-            !d->argument_buffers && strstr(message, "requires tier 2 argument buffers") != NULL;
+            !d->argument_buffers &&
+            tb_str_find(message, 0, TB_STR_END, "requires tier 2 argument buffers") !=
+                TB_STR_NOT_FOUND;
         result = tb_rhi_fail(error, tier_required ? TB_RHI_UNAVAILABLE : TB_RHI_SYSTEM_ERROR,
                              "Metal shader compilation: %s", message);
     }
