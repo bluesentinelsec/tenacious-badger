@@ -47,6 +47,12 @@ tb_bitmap_result tb_bitmap_decode_png(const uint8_t *bytes, size_t length, uint3
                                       uint64_t max_pixels, const tb_allocator *allocator,
                                       tb_bitmap **bitmap, tb_bitmap_error *error);
 
+/* TGA has no leading signature. Check its footer or header after the signed formats. */
+bool tb_bitmap_is_tga(const uint8_t *bytes, size_t length);
+tb_bitmap_result tb_bitmap_decode_tga(const uint8_t *bytes, size_t length, uint32_t max_side,
+                                      uint64_t max_pixels, const tb_allocator *allocator,
+                                      tb_bitmap **bitmap, tb_bitmap_error *error);
+
 /* A color's luminance (Rec. 709), as tb_bitmap_convert() makes gray. */
 uint8_t tb_bitmap_luminance(tb_bitmap_color color);
 

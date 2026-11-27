@@ -163,7 +163,7 @@ replaces part of an image from pixels laid out the same way, such as a
 Each recognizes the format by the file's bytes, not its name, and gives an
 RGBA8 bitmap with straight alpha that owns its pixels: a
 [BMP file](#bmp-files) by its `BM`, and a [PNG file](#png-files) by its
-signature of eight bytes. `TB_BITMAP_UNKNOWN_FORMAT` is any other.
+signature of eight bytes. It then checks for a [TGA file](#tga-files) by its footer or header. Other data returns `TB_BITMAP_UNKNOWN_FORMAT`.
 
 **Files are untrusted.** Every size, offset, count and dimension is checked
 against the bytes there are before it is used, with arithmetic that cannot
@@ -319,6 +319,22 @@ the PNG specification and of libpng, which suits images of color. The rows
 are compressed by the engine's DEFLATE at the options' `level`, 1 to 9, 6
 by default, into `IDAT` chunks of 64 KiB. Files read back exactly in
 every color type that keeps the pixels.
+
+### TGA files
+
+The bitmap loaders recognize a TGA v2 footer or a plausible 18-byte header
+after checking PNG and BMP signatures. They accept raw and run-length
+encoded images, all four origins, gray and gray-alpha pixels, 15/16-bit
+packed color, 24/32-bit BGR(A), and 8/16-bit indices into a color map.
+
+The extension area's attributes type takes precedence over the descriptor's
+alpha bits. A premultiplied file decodes to straight RGBA. For 32-bit color
+with unspecified alpha, the reader keeps the alpha channel if any pixel has
+nonzero alpha and makes the image opaque otherwise.
+
+`tb_bitmap_write_tga` writes straight 32-bit BGRA from the top left,
+using raw pixels or row-by-row run-length encoding. Both modes write the
+version 2 footer and preserve alpha.
 
 ### Threading
 

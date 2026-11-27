@@ -8,7 +8,7 @@
  * GPU: an RGBA8 bitmap's pixels are what tb_image_create() takes
  * (badger/canvas.h). It is the first part of loading images as SDL_image
  * does: files are recognized by their bytes, and decode to RGBA8.
- * BMP and PNG files are read and written.
+ * BMP, PNG and TGA files are read and written.
  *
  * @code
  * tb_bitmap_error error = {0};
@@ -444,7 +444,7 @@ typedef struct tb_bitmap_error
 
 /**
  * @brief Decode an image file held in memory, of any format the engine
- * reads, recognized by its bytes: BMP and PNG (see `docs/media.md`).
+ * reads, recognized by its bytes: BMP, PNG and TGA (see `docs/media.md`).
  * @param bytes The file; NULL only at length 0. Not kept.
  * @param length Bytes of the file.
  * @param options How to decode, or NULL for the defaults.
@@ -548,6 +548,19 @@ typedef struct tb_bitmap_png_options
  */
 TB_API tb_bitmap_result tb_bitmap_write_png(const tb_bitmap *bitmap,
                                             const tb_bitmap_png_options *options, tb_stream *sink,
+                                            tb_bitmap_error *error);
+
+/**
+ * @brief Write a 32-bit TGA with straight alpha in top-left order.
+ * @param bitmap Required bitmap with dimensions from 1 through 65535.
+ * @param compress Enable TGA run-length encoding, applied separately to each row.
+ * @param sink Borrowed writable stream. The caller retains ownership.
+ * @param[out] error Optional diagnostic.
+ * @return OK, INVALID for an unsupported size, or OUTPUT_FAILED.
+ * @par Threading Externally synchronized. Keep the bitmap immutable and serialize writes to the
+ * stream.
+ */
+TB_API tb_bitmap_result tb_bitmap_write_tga(const tb_bitmap *bitmap, bool compress, tb_stream *sink,
                                             tb_bitmap_error *error);
 
 /** @brief A short name of a result, such as "malformed"; "unknown result"

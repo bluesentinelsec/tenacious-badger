@@ -111,6 +111,7 @@ set(TB_TEST_CASE_SOURCES
     media/bitmap_bmp_test.c
     media/bitmap_png_malformed_test.c
     media/bitmap_png_test.c
+    media/bitmap_tga_test.c
     ${TB_PNG_DATA_SOURCE}
     media/bitmap_test.c
     media/png_builder.c
