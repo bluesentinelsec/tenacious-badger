@@ -739,16 +739,21 @@ tb_shader_preprocess() and tb_shader_compile() are thread-safe when each call
 has its own arena and the loader is thread-safe; compiles may share one DXC. The VFS loader is, once mounting is done, because the
 VFS reads from any number of threads at once.
 
-### Compiling a first raster shader for Metal
+### Compiling for Metal
 
 `TB_SHADER_TARGET_MSL` emits UTF-8 Metal Shading Language from a lowered
-entry point on any desktop platform. Each payload contains one function named
-`tb_main`. Pass its explicit byte length to the Metal source compiler.
-`badger-shaderc --backend metal` packages these payloads into `metal.tbsl`
-using the same compiler and cache as the runtime.
+vertex, pixel or compute entry point on any desktop platform. Each payload
+contains one function named `tb_main`. Pass the explicit byte length to the
+Metal source compiler. Compute payloads record the HLSL thread-group dimensions
+in their first line so dispatch can use the group shape declared by the shader.
 
-The first supported raster programs return a four-component position or color,
-can read an unsigned vertex ID, and can use arithmetic and straight-line local
-assignments. Constant buffers at b0 through b2 support four-component vectors
-of 32-bit floats or integers. These occupy the same bytes in HLSL and Metal.
-The compiler reports unsupported stages, resources and operations at compile time.
+The macOS build cooks the engine manifest with `badger-shaderc --backend metal`
+and places `metal.tbsl` in Burrow's bundle under `Contents/Resources/Shaders`.
+The build and runtime share the compiler and cache. Tests compare every
+packaged payload with the runtime output.
+
+A stage reads its constants at b0 through b2. The writer checks the native
+field offsets against HLSL reflection. Indexed buffers, textures, texture
+views and samplers use Metal argument buffers. Vertex input fields carry
+their HLSL semantic names for pipeline reflection. Stage outputs use Metal
+position, varying and color attributes.

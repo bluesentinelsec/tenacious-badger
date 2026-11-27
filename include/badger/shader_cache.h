@@ -68,7 +68,7 @@
  * the same sources, such as a change to the text the compiler gives DXC, so
  * that libraries and caches written before it are no longer found.
  */
-#define TB_SHADER_COMPILER_REVISION 3u
+#define TB_SHADER_COMPILER_REVISION 4u
 
 /** @brief A shader key or a cache key. */
 typedef struct tb_shader_key

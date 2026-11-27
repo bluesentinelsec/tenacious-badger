@@ -476,7 +476,8 @@ typedef enum tb_shader_target
      * backend binds what the shader takes from the descriptor heaps to,
      * which only that backend reads. */
     TB_SHADER_TARGET_DXBC,
-    /** UTF-8 Metal Shading Language for one raster stage. The Metal function is tb_main. */
+    /** UTF-8 Metal Shading Language for one raster or compute stage. The Metal function is tb_main.
+     */
     TB_SHADER_TARGET_MSL
 } tb_shader_target;
 

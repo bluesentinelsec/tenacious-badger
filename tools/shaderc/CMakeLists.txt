@@ -19,6 +19,8 @@ set(TB_SHADER_LIBRARY_DIRECTORY "${PROJECT_BINARY_DIR}/bin/Shaders")
 set(TB_SHADER_BACKENDS "")
 if(WIN32)
     list(APPEND TB_SHADER_BACKENDS d3d12 d3d11)
+elseif(APPLE AND NOT TB_USE_DEFAULT_PLATFORM_ADAPTER)
+    list(APPEND TB_SHADER_BACKENDS metal)
 endif()
 set(TB_SHADER_LIBRARIES "")
 set(backend_arguments "")
@@ -39,6 +41,17 @@ if(TB_SHADER_LIBRARIES)
 else()
     message(STATUS "badger: no backend of ${CMAKE_SYSTEM_NAME} needs shaders compiled ahead of "
         "time yet; no shader library is built")
+endif()
+if("metal" IN_LIST TB_SHADER_BACKENDS AND TARGET burrow)
+    set(bundle_library "${PROJECT_BINARY_DIR}/bin/burrow.app/Contents/Resources/Shaders/metal.tbsl")
+    add_custom_command(OUTPUT "${bundle_library}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory
+            "$<TARGET_BUNDLE_CONTENT_DIR:burrow>/Resources/Shaders"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${TB_SHADER_LIBRARIES}" "${bundle_library}"
+        DEPENDS ${TB_SHADER_LIBRARIES}
+        VERBATIM)
+    add_custom_target(burrow_shader_library DEPENDS "${bundle_library}")
+    add_dependencies(burrow burrow_shader_library)
 endif()
 add_custom_target(badger_shaders ALL DEPENDS ${TB_SHADER_LIBRARIES})
 set(TB_SHADER_LIBRARIES "${TB_SHADER_LIBRARIES}" CACHE INTERNAL "The engine's shader libraries")

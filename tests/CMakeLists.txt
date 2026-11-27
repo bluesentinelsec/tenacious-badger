@@ -220,7 +220,7 @@ function(tb_add_tests target)
 endfunction()
 
 tb_embed_test_data(TB_RHI_HLSL_SOURCE tb_rhi_hlsl_files rhi "*.hlsl")
-list(APPEND TB_TEST_CASE_SOURCES shader/shader_msl_test.c ${TB_RHI_HLSL_SOURCE})
+list(APPEND TB_TEST_CASE_SOURCES shader/shader_msl_test.c shader/shader_library_msl_test.c ${TB_RHI_HLSL_SOURCE})
 
 set(tb_test_audio_display platform/audio_display_state.c)
 
@@ -259,11 +259,16 @@ tb_add_tests(tb_tests SOURCES ${TB_TEST_CASE_SOURCES} LIBRARIES TenaciousBadger:
 # The engine's shaders: the manifest, and the libraries the build compiles
 # from it beside the executables (tools/shaderc), which the cases on D3D12 and D3D11
 # compare with what they compile at run time.
-set_source_files_properties(shader/shader_library_d3d12_test.c shader/shader_library_d3d11_test.c
+set_source_files_properties(shader/shader_library_msl_test.c shader/shader_library_d3d12_test.c shader/shader_library_d3d11_test.c
     PROPERTIES COMPILE_DEFINITIONS
     "TB_TEST_SHADER_MANIFEST=\"${PROJECT_SOURCE_DIR}/shaders/Engine/Shaders.manifest\";TB_TEST_SHADER_DIRECTORY=\"${PROJECT_BINARY_DIR}/bin\"")
 if(TB_BUILD_SHADERS)
     add_dependencies(tb_tests badger_shaders)
+endif()
+
+if(APPLE AND TB_BUILD_SHADERS AND NOT TB_USE_DEFAULT_PLATFORM_ADAPTER)
+    set_property(SOURCE shader/shader_library_msl_test.c APPEND PROPERTY COMPILE_DEFINITIONS
+        TB_TEST_BUILT_METAL_LIBRARY)
 endif()
 
 # Repeat the allocation contracts with the checking functions installed.
