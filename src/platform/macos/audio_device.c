@@ -62,8 +62,6 @@
  * notification says one came. */
 #define TB_CA_RETRY_NANOSECONDS 1000000000u
 
-#define TB_CA_MAX_DEVICES 64u
-
 typedef int32_t tb_ca_status;
 typedef uint32_t tb_ca_object;
 typedef void *tb_cf_string;
@@ -109,7 +107,7 @@ typedef struct tb_ca_buffer
 typedef struct tb_ca_buffer_list
 {
     uint32_t count;
-    tb_ca_buffer buffers[1];
+    tb_ca_buffer buffers[];
 } tb_ca_buffer_list;
 
 typedef tb_ca_status tb_au_render_proc(void *context, uint32_t *flags, const void *time,
@@ -228,20 +226,26 @@ static void tb_ca_get_text(const tb_core_audio *audio, tb_ca_object object, uint
 static uint32_t tb_ca_output_channels(const tb_core_audio *audio, tb_ca_object object)
 {
     const tb_ca_address address = tb_ca_output(TB_CA_STREAM_CONFIGURATION);
-    uint32_t size = 0;
+    const size_t header = offsetof(tb_ca_buffer_list, buffers);
+    uint32_t capacity = 0;
     uint32_t channels = 0;
 
-    if (audio->get_size(object, &address, 0, NULL, &size) != 0 || size < sizeof(tb_ca_buffer_list))
+    if (audio->get_size(object, &address, 0, NULL, &capacity) != 0 || capacity < header)
     {
         return 0;
     }
-    tb_ca_buffer_list *const list = tb_calloc(1, size);
-    if (audio->get(object, &address, 0, NULL, &size, list) == 0)
+    tb_ca_buffer_list *const list = tb_calloc(1, capacity);
+    uint32_t size = capacity;
+    if (audio->get(object, &address, 0, NULL, &size, list) == 0 && size >= header &&
+        size <= capacity && list->count <= (size - header) / sizeof(list->buffers[0]))
     {
-        const size_t room =
-            (size - offsetof(tb_ca_buffer_list, buffers)) / sizeof(list->buffers[0]);
-        for (size_t index = 0; index < list->count && index < room; index++)
+        for (size_t index = 0; index < list->count; index++)
         {
+            if (list->buffers[index].channels > UINT32_MAX - channels)
+            {
+                channels = 0;
+                break;
+            }
             channels += list->buffers[index].channels;
         }
     }
@@ -249,17 +253,27 @@ static uint32_t tb_ca_output_channels(const tb_core_audio *audio, tb_ca_object o
     return channels;
 }
 
-/* The system's devices, into `objects`; returns how many. */
-static size_t tb_ca_devices(const tb_core_audio *audio, tb_ca_object *objects)
+/* The caller owns the returned device IDs; count is zero on failure. */
+static tb_ca_object *tb_ca_devices(const tb_core_audio *audio, size_t *count)
 {
     const tb_ca_address address = tb_ca_global(TB_CA_DEVICES);
-    uint32_t size = TB_CA_MAX_DEVICES * sizeof(objects[0]);
+    uint32_t capacity = 0;
 
-    if (audio->get(TB_CA_SYSTEM_OBJECT, &address, 0, NULL, &size, objects) != 0)
+    *count = 0;
+    if (audio->get_size(TB_CA_SYSTEM_OBJECT, &address, 0, NULL, &capacity) != 0 || capacity == 0)
     {
-        return 0;
+        return NULL;
     }
-    return size / sizeof(objects[0]);
+    tb_ca_object *const objects = tb_malloc(capacity);
+    uint32_t size = capacity;
+    if (audio->get(TB_CA_SYSTEM_OBJECT, &address, 0, NULL, &size, objects) != 0 ||
+        size > capacity || size % sizeof(objects[0]) != 0)
+    {
+        tb_free(objects);
+        return NULL;
+    }
+    *count = size / sizeof(objects[0]);
+    return objects;
 }
 
 static tb_ca_object tb_ca_default_output(const tb_core_audio *audio)
@@ -270,19 +284,22 @@ static tb_ca_object tb_ca_default_output(const tb_core_audio *audio)
 /* The output device whose UID is `id`; 0 for none. */
 static tb_ca_object tb_ca_find(const tb_core_audio *audio, const char *id)
 {
-    tb_ca_object objects[TB_CA_MAX_DEVICES] = {0};
-    const size_t count = tb_ca_devices(audio, objects);
+    size_t count = 0;
+    tb_ca_object *const objects = tb_ca_devices(audio, &count);
 
+    tb_ca_object found = 0;
     for (size_t index = 0; index < count; index++)
     {
         char uid[TB_AUDIO_DEVICE_ID_CAPACITY] = {0};
         tb_ca_get_text(audio, objects[index], TB_CA_UID, uid, sizeof(uid));
         if (tb_str_equal(uid, id) && tb_ca_output_channels(audio, objects[index]) > 0)
         {
-            return objects[index];
+            found = objects[index];
+            break;
         }
     }
-    return 0;
+    tb_free(objects);
+    return found;
 }
 
 /* ---------------------------------------------------------------------------
@@ -311,8 +328,8 @@ static void tb_ca_info(void *native, tb_audio_system_info *info)
 static size_t tb_ca_list(void *native, tb_audio_device_info *devices, size_t capacity)
 {
     const tb_core_audio *const audio = native;
-    tb_ca_object objects[TB_CA_MAX_DEVICES] = {0};
-    const size_t count = tb_ca_devices(audio, objects);
+    size_t count = 0;
+    tb_ca_object *const objects = tb_ca_devices(audio, &count);
     const tb_ca_object default_output = tb_ca_default_output(audio);
     size_t outputs = 0;
 
@@ -336,6 +353,7 @@ static size_t tb_ca_list(void *native, tb_audio_device_info *devices, size_t cap
         }
         outputs++;
     }
+    tb_free(objects);
     return outputs;
 }
 

@@ -4,12 +4,16 @@
  * asked for samples on its own thread while started, and refuses a name no
  * device has. The render function writes silence, so the cases make no
  * sound. A machine without either, as CI's runners are, skips them. */
+#define _POSIX_C_SOURCE 200809L
 #include "platform/linux/audio_linux.h"
 
+#include "badger/memory.h"
 #include "badger/platform.h"
 #include "badger/str.h"
 
 #include "tb_test.h"
+
+#include <stdlib.h>
 
 #define WAIT_NANOSECONDS 3000000000ull
 
@@ -91,4 +95,52 @@ TB_TEST(platform_audio_linux, pipewire_plays)
 TB_TEST(platform_audio_linux, alsa_plays)
 {
     exercise(tb_alsa_open, "ALSA");
+}
+
+TB_TEST(platform_audio_linux, alsa_reopens_a_named_output_beyond_the_first_64)
+{
+    const tb_audio_system_ops *ops = NULL;
+    void *native = NULL;
+    tb_audio_device_error error = TB_AUDIO_DEVICE_ERROR_INIT;
+    tb_audio_device *device = NULL;
+    tb_platform_atomic_size calls = {0};
+    tb_audio_device_desc desc = {
+        .format = {.sample_rate = 48000, .channels = 2}, .render = count_calls, .context = &calls};
+    if (tb_alsa_open(&ops, &native, &error) != TB_AUDIO_DEVICE_OK)
+    {
+        TB_TEST_SKIP("no ALSA: %s", error.message);
+    }
+    tb_audio_system *const system = tb_audio_system_make(ops, native);
+    const char *const previous = getenv("ALSA_CONFIG_PATH");
+    char *const saved = previous != NULL ? tb_str_dup(NULL, previous) : NULL;
+    const int configured = setenv("ALSA_CONFIG_PATH", TB_ALSA_FIXTURE, 1);
+    TB_TEST_EXPECT_INT(configured, ==, 0);
+    if (configured == 0)
+    {
+        const size_t count = tb_audio_system_list_devices(system, NULL, 0);
+        tb_audio_device_info *const outputs = TB_NEW_ARRAY(tb_audio_device_info, count);
+        const size_t listed = tb_audio_system_list_devices(system, outputs, count);
+        for (size_t index = 64; index < count && index < listed; index++)
+        {
+            if (tb_str_starts_with(outputs[index].id, "tb_virtual"))
+            {
+                desc.device_id = outputs[index].id;
+                break;
+            }
+        }
+        TB_TEST_EXPECT(desc.device_id != NULL);
+        if (desc.device_id != NULL)
+        {
+            TB_TEST_CONTEXT("opening %s from %zu outputs", desc.device_id, listed);
+            TB_TEST_EXPECT_INT(tb_audio_device_open(system, &desc, &device, &error), ==,
+                               TB_AUDIO_DEVICE_OK);
+            tb_audio_device_close(device);
+        }
+        tb_free(outputs);
+    }
+    tb_audio_system_close(system);
+    const int restored =
+        saved != NULL ? setenv("ALSA_CONFIG_PATH", saved, 1) : unsetenv("ALSA_CONFIG_PATH");
+    TB_TEST_EXPECT_INT(restored, ==, 0);
+    tb_free(saved);
 }
