@@ -387,6 +387,36 @@ CTest script runs each in a child process and checks for the report.
 `tests/core/arena_probe.c` and `tests/ExpectArenaPoison.cmake` are the example
 to follow.
 
+### Real PipeWire output with leak detection
+
+On a Linux desktop with a running PipeWire session and an output, the GCC
+address-sanitizer build has an opt-in hardware check. Run it as the desktop
+user, in the same session as the PipeWire daemon.
+
+```sh
+cmake -S . -B build/audio-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+    -DCMAKE_C_COMPILER=gcc -DTB_ENABLE_SANITIZERS=ON
+cmake --build build/audio-asan --target tb_check_pipewire_output
+```
+
+In a Steam Deck distrobox whose image lacks the host's client configuration,
+set `PIPEWIRE_CONFIG_DIR=/run/host/usr/share/pipewire` for the second
+command. The socket in `XDG_RUNTIME_DIR` must belong to the active session.
+
+The target runs four silent playback and enumeration cases separately. A
+missing daemon or device fails the hardware check. Ordinary CTest runs can
+still skip unavailable hardware. Before playback, the target verifies that
+the engine's allocation counter and LeakSanitizer both report two deliberate
+project leaks. ASan and UBSan remain enabled for each case.
+
+PipeWire may unload libdbus with process-lifetime allocations still in its
+globals. On the Deck this also happens in a native program that creates and
+destroys a PipeWire context. The target keeps the system libdbus loaded
+until process exit so LeakSanitizer can see those globals when it scans its
+roots. This environment applies only to the probe and test processes. The
+upstream teardown report is tracked in
+[#399](https://github.com/bluesentinelsec/tenacious-badger/issues/399).
+
 ### Data races
 
 AddressSanitizer does not see a data race: two threads that touch the same
