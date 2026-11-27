@@ -169,6 +169,12 @@ void input_scene_draw(sandbox *box, void *state, const sandbox_frame *frame);
 void input_scene_destroy(sandbox *box, void *state);
 bool input_scene_event(sandbox *box, void *state, const tb_window_event *event);
 
+/* Audio output status and an explicitly triggered quiet test tone. */
+bool audio_scene_create(sandbox *box, void **state);
+void audio_scene_draw(sandbox *box, void *state, const sandbox_frame *frame);
+void audio_scene_destroy(sandbox *box, void *state);
+bool audio_scene_event(sandbox *box, void *state, const tb_window_event *event);
+
 /* The gamepad scene: every connected pad's buttons, sticks, triggers and
  * virtual buttons shown live, and R to rumble (sandbox_gamepad.c). */
 bool gamepad_scene_create(sandbox *box, void **state);

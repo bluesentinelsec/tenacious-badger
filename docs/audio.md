@@ -47,3 +47,44 @@ before closing their system.
 
 See [the public audio-device interface](../include/badger/audio_device.h)
 for the complete call contracts and [media](media.md) for PCM sound data.
+
+## Mixing sound effects and music
+
+Create a mixer at the rate and channel count requested from the device. Pass
+`tb_mixer_render` as the device's callback and the mixer as its context.
+The same call fills an ordinary float buffer for offline playback and tests.
+
+Prepare a clip from a `tb_sound` once, after decoding. The mixer copies the
+sound, converts it to the output rate, channel layout and float format, and
+retains its sampler loops. The source can then be edited or released. The clip
+can play on several voices or mixers of the same format. Non-finite float
+samples become silence during preparation.
+
+Start a voice with `tb_mixer_play`. Its parameters control the gain, pitch,
+bus and stereo balance. Pan attenuates the opposite front channel. Mono and
+the remaining surround channels retain their levels. Pitch uses linear
+interpolation, including across loop points. With sampler metadata, a voice repeats the
+selected WAV loop. Without it, the voice repeats the whole clip. A forward loop wraps at its exclusive
+end. A backward loop traverses the region from the last frame to the first.
+A ping-pong cycle visits both ends once. A nonzero play count completes that
+many cycles before playing the tail. Zero repeats indefinitely.
+
+The control thread sends play, fade, crossfade and stop commands through a
+bounded single-producer queue. Its capacity is 256 commands. The audio
+thread consumes a snapshot at each render boundary. A full queue rejects a
+command and preserves the existing voices, so the caller can retry. At the
+configured voice limit a play replaces the oldest reserved voice. Handles
+identify individual plays even after a slot is reused. A crossfade keeps
+the outgoing slot while the incoming voice ramps up over the same number
+of output frames. A zero-frame switch reuses the original slot. A ramp
+reaches its target on the last requested frame.
+
+`tb_mixer_apply_settings` reads the master, effects, music, ambient, speech
+and interface levels on the control thread. It applies focus muting to the
+master level. Levels apply to each render block. Summed samples clip to the
+device range after master gain.
+
+Each queued or playing voice holds the clip. `tb_mixer_clip_destroy`
+reports whether it could release the clip. Once the device is stopped,
+destroying the mixer also releases its queued references. Close the
+device before freeing its mixer context.

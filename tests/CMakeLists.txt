@@ -108,6 +108,7 @@ set(TB_TEST_CASE_SOURCES
     font/font_layout_test.c
     ${TB_FONT_DATA_SOURCE}
     jobs/jobs_test.c
+    audio/mixer_test.c
     media/bitmap_bmp_test.c
     media/bitmap_png_malformed_test.c
     media/bitmap_png_test.c
@@ -346,7 +347,7 @@ set(TB_ENGINE_SOURCES ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES} ${TB_JOBS_SOURCE
     ${TB_SETTINGS_SOURCES} ${TB_WINDOW_SOURCES} ${TB_DXC_SOURCES} ${TB_GAME_SOURCES}
     ${TB_SHADER_SOURCES} ${TB_RHI_SOURCES} ${TB_RENDER_SOURCES} ${TB_ANIM_SOURCES}
     ${TB_UI_SOURCES} ${TB_GUI_SOURCES} ${TB_INPUT_SOURCES} ${TB_GAMEPAD_SOURCES}
-    ${TB_AUDIO_DEVICE_SOURCES})
+    ${TB_AUDIO_DEVICE_SOURCES} ${TB_AUDIO_SOURCES})
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND TB_AUDIO_DEVICE_SOURCES)
     # Named null PCMs let the ALSA test open a late registry entry on any host.

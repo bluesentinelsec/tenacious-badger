@@ -42,12 +42,13 @@ grows whenever any value does:
 ```c
 uint64_t applied = 0;
 
-void audio_frame(const tb_engine_settings *engine)
+void audio_frame(tb_mixer *mixer, const tb_engine_settings *engine)
 {
     if (tb_setting_version(engine->audio.master_volume) != applied)
     {
         applied = tb_setting_version(engine->audio.master_volume);
-        mixer_set_master_volume(tb_setting_number(engine->audio.master_volume));
+        tb_mixer_set_volume(mixer, TB_MIXER_MASTER,
+                            (float)tb_setting_number(engine->audio.master_volume));
     }
 }
 ```
@@ -272,14 +273,14 @@ keeps each group as they chose it.
 
 | Setting | Type | Default | Honored by |
 | --- | --- | --- | --- |
-| `audio.master_volume` | number, 0 to 1 | `1.0` | the mixer, to come |
-| `audio.music_volume` | number, 0 to 1 | `1.0` | the mixer, to come |
-| `audio.effects_volume` | number, 0 to 1 | `1.0` | the mixer, to come |
-| `audio.ambient_volume` | number, 0 to 1 | `1.0` | the mixer, to come |
-| `audio.voice_volume` | number, 0 to 1 | `1.0` | the mixer, to come |
-| `audio.interface_volume` | number, 0 to 1 | `1.0` | the mixer, to come |
-| `audio.mute_when_unfocused` | boolean | `false` | the mixer, to come |
-| `audio.output_device` | text | `""`, the system's | the audio device, to come |
+| `audio.master_volume` | number, 0 to 1 | `1.0` | [audio mixer](audio.md#mixing-sound-effects-and-music) |
+| `audio.music_volume` | number, 0 to 1 | `1.0` | [audio mixer](audio.md#mixing-sound-effects-and-music) |
+| `audio.effects_volume` | number, 0 to 1 | `1.0` | [audio mixer](audio.md#mixing-sound-effects-and-music) |
+| `audio.ambient_volume` | number, 0 to 1 | `1.0` | [audio mixer](audio.md#mixing-sound-effects-and-music) |
+| `audio.voice_volume` | number, 0 to 1 | `1.0` | [audio mixer](audio.md#mixing-sound-effects-and-music) |
+| `audio.interface_volume` | number, 0 to 1 | `1.0` | [audio mixer](audio.md#mixing-sound-effects-and-music) |
+| `audio.mute_when_unfocused` | boolean | `false` | the mixer when its caller reports window focus |
+| `audio.output_device` | text | `""`, the system's | the audio sandbox when opening its device |
 | `audio.speaker_mode` | `automatic`, `stereo`, `headphones`, `surround_5_1`, `surround_7_1` | `automatic` | the mixer, to come |
 | `audio.dynamic_range` | `wide`, `standard`, `night` | `standard` | the mixer, to come |
 
