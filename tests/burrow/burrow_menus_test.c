@@ -620,3 +620,65 @@ TB_TEST(burrow_menus, navigation_has_names)
     TB_TEST_EXPECT_INT(action, ==, TB_GUI_NAV_NONE);
     TB_TEST_EXPECT(!burrow_nav_named("jump", &action));
 }
+
+TB_TEST(burrow_menus, large_text_and_interface_scale_keep_options_reachable_on_the_deck)
+{
+    menus_case made = {0};
+    open_case(&made);
+    open_options(&made);
+    tb_gui *const gui = burrow_menus_gui(made.menus);
+    const tb_widget notebook = find(&made, "options/panel/tabs");
+    const tb_widget back = find(&made, "options/panel/bar/back");
+    const tb_gui_text_block sample = {.text = TB_TEXT("Options")};
+    update_at(&made, 1280, 800, 0.0);
+    const float normal = tb_widget_measure_text(back, &sample).y;
+    TB_TEST_REQUIRE(tb_var_set_int(var_of(&made, "text_size"), 2));
+    TB_TEST_REQUIRE(tb_var_set_float(var_of(&made, "interface_scale"), 2.0));
+    TB_TEST_EXPECT_UINT(tb_setting_choice(made.engine.accessibility.text_size), ==, 0);
+    const tb_widget apply = find(&made, "options/panel/bar/apply");
+    TB_TEST_REQUIRE(tb_widget_focus(apply));
+    TB_TEST_REQUIRE(tb_widget_invoke(apply));
+    update_at(&made, 1280, 800, 0.0);
+    const tb_gui_view view = tb_gui_view_of(gui);
+    TB_TEST_EXPECT_FLOAT(view.size.x, ==, BURROW_MENU_WIDTH / 2.0f);
+    const tb_canvas_rect applied = tb_widget_rect(apply);
+    TB_TEST_EXPECT(applied.y >= 0 && applied.y + applied.height <= view.size.y);
+    TB_TEST_EXPECT_FLOAT(tb_widget_measure_text(back, &sample).y, >, normal * 1.3f);
+    static const char *const pages[] = {"display", "graphics", "controls", "audio",
+                                        "accessibility"};
+    for (size_t index = 0; index < TB_TEST_COUNT_OF(pages); index++)
+    {
+        (void)tb_notebook_select(notebook, index);
+        update_at(&made, 1280, 800, 0.0);
+        const tb_widget page = tb_widget_find(notebook, pages[index]);
+        size_t reached = 0;
+        for (tb_widget child = tb_widget_first_child(page); tb_widget_alive(child);
+             child = tb_widget_next_sibling(child))
+        {
+            if (!tb_widget_focus(child))
+            {
+                continue;
+            }
+            update_at(&made, 1280, 800, 0.0);
+            const tb_canvas_rect rect = tb_widget_rect(child);
+            TB_TEST_CONTEXT("page %s, control %zu", pages[index], reached);
+            TB_TEST_EXPECT(rect.x >= 0.0f && rect.x + rect.width <= view.size.x);
+            TB_TEST_EXPECT(rect.y >= 0.0f && rect.y + rect.height <= view.size.y);
+            reached++;
+        }
+        TB_TEST_EXPECT_UINT(reached, >, 0);
+    }
+    TB_TEST_REQUIRE(tb_widget_focus(back));
+    update_at(&made, 1280, 800, 0.0);
+    const tb_canvas_rect rect = tb_widget_rect(back);
+    TB_TEST_EXPECT(rect.y >= 0 && rect.y + rect.height <= view.size.y);
+    TB_TEST_REQUIRE(tb_var_set_float(var_of(&made, "interface_scale"), 1.0));
+    burrow_menus_navigate(made.menus, TB_GUI_NAV_BACK);
+    update_at(&made, 1280, 800, 0.0);
+    const tb_widget dialog = dialog_of(&made);
+    TB_TEST_REQUIRE(tb_widget_alive(dialog));
+    const tb_canvas_rect question = tb_widget_rect(dialog);
+    TB_TEST_EXPECT(question.x >= 0 && question.x + question.width <= view.size.x);
+    TB_TEST_EXPECT(question.y >= 0 && question.y + question.height <= view.size.y);
+    close_case(&made);
+}

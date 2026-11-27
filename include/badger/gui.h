@@ -303,6 +303,14 @@ TB_API void tb_gui_resize(tb_gui *gui, uint32_t width, uint32_t height, float di
  * @param scale More than 0. */
 TB_API void tb_gui_set_scale(tb_gui *gui, float scale);
 
+/**
+ * @brief Scale the fonts used to measure and draw widget text.
+ * @param gui Required GUI.
+ * @param scale Positive factor. The initial factor is 1.
+ * @par Threading Stage-owned by the GUI's thread.
+ */
+TB_API void tb_gui_set_text_scale(tb_gui *gui, float scale);
+
 /** @brief How the GUI's units are placed on the frame now. */
 TB_API tb_gui_view tb_gui_view_of(const tb_gui *gui);
 

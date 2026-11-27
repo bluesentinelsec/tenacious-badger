@@ -307,7 +307,7 @@ which keeps them in a file of their own.
 
 | Setting | Type | Default | Honored by |
 | --- | --- | --- | --- |
-| `interface.scale` | number, 0.5 to 2 | `1.0` | the UI, to come |
+| `interface.scale` | number, 0.5 to 2 | `1.0` | Burrow menus |
 | `interface.font` | text | `""`, the game's own | the UI, to come |
 | `interface.hud_opacity` | number, 0 to 1 | `1.0` | the UI, to come |
 | `interface.crosshair` | boolean | `true` | the UI, to come |
@@ -324,7 +324,7 @@ the Steam Deck's, and a player can still make it larger or smaller.
 | `accessibility.subtitles` | `off`, `dialogue`, `captions` | `dialogue` | the UI, to come |
 | `accessibility.subtitle_size` | `small`, `medium`, `large`, `largest` | `medium` | the UI, to come |
 | `accessibility.subtitle_background` | number, 0 to 1 | `0.5` | the UI, to come |
-| `accessibility.text_size` | `standard`, `large`, `largest` | `standard` | the UI, to come |
+| `accessibility.text_size` | `standard`, `large`, `largest` | `standard` | Burrow menu text at 1?, 1.25?, or 1.5? |
 | `accessibility.color_blind_mode` | `off`, `protanopia`, `deuteranopia`, `tritanopia` | `off` | the renderer, to come |
 | `accessibility.color_blind_strength` | number, 0 to 1 | `1.0` | the renderer, to come |
 | `accessibility.camera_shake` | number, 0 to 1 | `1.0` | the game, to come |

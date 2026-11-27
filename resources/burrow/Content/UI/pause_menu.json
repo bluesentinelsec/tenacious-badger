@@ -2,8 +2,9 @@
   "format": "badger-gui",
   "version": 1,
   "root": {
-    "kind": "frame",
+    "kind": "scrollframe",
     "name": "pause",
+    "properties": {"width": 1, "height": 1, "border": false},
     "grid": {
       "sticky": ["n", "s", "e", "w"]
     },
