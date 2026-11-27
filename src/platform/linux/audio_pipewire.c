@@ -20,6 +20,7 @@
 #include "audio_pipewire.h"
 #include "audio_linux.h"
 
+#include "badger/array.h"
 #include "badger/assert.h"
 #include "badger/fmt.h"
 #include "badger/library.h"
@@ -28,9 +29,6 @@
 #include "badger/str.h"
 
 #include <string.h>
-
-/* The most sinks the backend keeps; past it, more are not listed. */
-#define TB_PIPEWIRE_MAX_SINKS 64u
 
 /* How long the backend waits for the daemon, in seconds. */
 #define TB_PIPEWIRE_TIMEOUT_SECONDS 3
@@ -309,8 +307,7 @@ typedef struct tb_pipewire
     bool failed;
     uint32_t clock_rate;
     /* What the registry and the metadata say; the loop's lock guards them. */
-    tb_pipewire_sink sinks[TB_PIPEWIRE_MAX_SINKS];
-    size_t sink_count;
+    tb_array *sinks;
     char default_sink[TB_AUDIO_DEVICE_ID_CAPACITY];
     tb_pipewire_stream *streams;
 } tb_pipewire;
@@ -388,11 +385,12 @@ static void tb_pipewire_copy(char *destination, size_t capacity, const char *sou
 
 static const tb_pipewire_sink *tb_pipewire_find_sink(const tb_pipewire *pipewire, const char *name)
 {
-    for (size_t index = 0; index < pipewire->sink_count; index++)
+    for (size_t index = 0; index < tb_array_length(pipewire->sinks); index++)
     {
-        if (tb_str_equal(pipewire->sinks[index].name, name))
+        const tb_pipewire_sink *const sink = TB_ARRAY_AT(pipewire->sinks, tb_pipewire_sink, index);
+        if (tb_str_equal(sink->name, name))
         {
-            return &pipewire->sinks[index];
+            return sink;
         }
     }
     return NULL;
@@ -418,7 +416,7 @@ static void tb_pipewire_report_moves(tb_pipewire *pipewire, bool all)
         {
             continue;
         }
-        if (pipewire->sink_count == 0)
+        if (tb_array_length(pipewire->sinks) == 0)
         {
             if (!stream->lost)
             {
@@ -535,12 +533,11 @@ static void tb_pipewire_global(void *data, uint32_t id, uint32_t permissions, co
     }
     const char *const media_class = tb_spa_lookup(props, "media.class");
     if (!tb_str_equal(type, TB_PW_TYPE_NODE) || media_class == NULL ||
-        !tb_str_equal(media_class, "Audio/Sink") || pipewire->sink_count == TB_PIPEWIRE_MAX_SINKS)
+        !tb_str_equal(media_class, "Audio/Sink"))
     {
         return;
     }
-    tb_pipewire_sink *const sink = &pipewire->sinks[pipewire->sink_count];
-    *sink = (tb_pipewire_sink){.id = id};
+    tb_pipewire_sink *const sink = tb_array_push(pipewire->sinks, &(tb_pipewire_sink){.id = id});
     tb_pipewire_copy(sink->name, sizeof(sink->name), tb_spa_lookup(props, "node.name"));
     tb_pipewire_copy(sink->description, sizeof(sink->description),
                      tb_spa_lookup(props, "node.description"));
@@ -550,8 +547,7 @@ static void tb_pipewire_global(void *data, uint32_t id, uint32_t permissions, co
     }
     sink->rate = tb_spa_lookup_number(props, "audio.rate");
     sink->channels = tb_spa_lookup_number(props, "audio.channels");
-    pipewire->sink_count++;
-    if (pipewire->sink_count == 1)
+    if (tb_array_length(pipewire->sinks) == 1)
     {
         /* The first sink of a system that had none: lost streams play again. */
         for (tb_pipewire_stream *stream = pipewire->streams; stream != NULL; stream = stream->next)
@@ -571,15 +567,15 @@ static void tb_pipewire_global_remove(void *data, uint32_t id)
     tb_pipewire *const pipewire = data;
     char removed[TB_AUDIO_DEVICE_ID_CAPACITY] = {0};
 
-    for (size_t index = 0; index < pipewire->sink_count; index++)
+    for (size_t index = 0; index < tb_array_length(pipewire->sinks); index++)
     {
-        if (pipewire->sinks[index].id != id)
+        const tb_pipewire_sink *const sink = TB_ARRAY_AT(pipewire->sinks, tb_pipewire_sink, index);
+        if (sink->id != id)
         {
             continue;
         }
-        memcpy(removed, pipewire->sinks[index].name, sizeof(removed));
-        pipewire->sinks[index] = pipewire->sinks[pipewire->sink_count - 1];
-        pipewire->sink_count--;
+        memcpy(removed, sink->name, sizeof(removed));
+        tb_array_remove_unordered(pipewire->sinks, index, NULL);
         break;
     }
     if (removed[0] == '\0')
@@ -592,7 +588,7 @@ static void tb_pipewire_global_remove(void *data, uint32_t id)
         if (tb_str_equal(stream->target, removed))
         {
             stream->target[0] = '\0';
-            stream->lost = pipewire->sink_count == 0;
+            stream->lost = tb_array_length(pipewire->sinks) == 0;
             if (stream->lost)
             {
                 tb_audio_device_report(stream->device, TB_AUDIO_DEVICE_EVENT_LOST, NULL);
@@ -604,7 +600,7 @@ static void tb_pipewire_global_remove(void *data, uint32_t id)
             }
         }
     }
-    if (pipewire->sink_count == 0)
+    if (tb_array_length(pipewire->sinks) == 0)
     {
         tb_pipewire_report_moves(pipewire, false);
     }
@@ -649,6 +645,7 @@ static void tb_pipewire_close(void *native)
     {
         pipewire->pw.deinit();
     }
+    tb_array_destroy(pipewire->sinks);
     tb_library_close(pipewire->library);
     tb_free(pipewire);
 }
@@ -668,10 +665,10 @@ static size_t tb_pipewire_list(void *native, tb_audio_device_info *devices, size
     size_t count = 0;
 
     tb_pipewire_lock(pipewire);
-    count = pipewire->sink_count;
+    count = tb_array_length(pipewire->sinks);
     for (size_t index = 0; index < count && index < capacity; index++)
     {
-        const tb_pipewire_sink *const sink = &pipewire->sinks[index];
+        const tb_pipewire_sink *const sink = TB_ARRAY_AT(pipewire->sinks, tb_pipewire_sink, index);
         memcpy(devices[index].id, sink->name, sizeof(devices[index].id));
         memcpy(devices[index].name, sink->description, sizeof(devices[index].name));
         devices[index].is_default = tb_str_equal(sink->name, pipewire->default_sink);
@@ -831,7 +828,7 @@ static tb_audio_device_result tb_pipewire_open_stream(void *native,
                                       "PipeWire: no sink is named '%s'", request->device_id);
         goto failed;
     }
-    if (pipewire->sink_count == 0)
+    if (tb_array_length(pipewire->sinks) == 0)
     {
         result = tb_audio_device_fail(error, TB_AUDIO_DEVICE_UNAVAILABLE, "PipeWire: no sink");
         goto failed;
@@ -974,6 +971,7 @@ tb_audio_device_result tb_pipewire_open(const tb_audio_system_ops **ops, void **
                                       "PipeWire: older than 0.3.50: %s", library_error.message);
         goto failed;
     }
+    pipewire->sinks = TB_ARRAY_CREATE(NULL, tb_pipewire_sink);
     pw->init(NULL, NULL);
     pipewire->loop = pw->thread_loop_new("badger-pipewire", NULL);
     if (pipewire->loop == NULL)

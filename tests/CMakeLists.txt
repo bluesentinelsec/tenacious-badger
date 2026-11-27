@@ -337,6 +337,18 @@ set(TB_ENGINE_SOURCES ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES} ${TB_JOBS_SOURCE
     ${TB_UI_SOURCES} ${TB_GUI_SOURCES} ${TB_INPUT_SOURCES} ${TB_GAMEPAD_SOURCES}
     ${TB_AUDIO_DEVICE_SOURCES} ${TB_AUDIO_SOURCES})
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND TB_AUDIO_DEVICE_SOURCES)
+    # Named null PCMs let the ALSA test open a late registry entry on any host.
+    set(tb_alsa_fixture "<confdir:alsa.conf>\n")
+    foreach(index RANGE 1 80)
+        string(APPEND tb_alsa_fixture
+            "pcm.tb_virtual${index} { type null hint { show on description \"Virtual test output\" } }\n")
+    endforeach()
+    file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/audio-many.conf" CONTENT "${tb_alsa_fixture}" @ONLY)
+    set_source_files_properties(platform/linux/audio_linux_test.c PROPERTIES
+        COMPILE_DEFINITIONS "TB_ALSA_FIXTURE=\"${CMAKE_CURRENT_BINARY_DIR}/audio-many.conf\"")
+endif()
+
 # The arguments go to tb_add_tests.
 function(tb_add_internal_tests target)
     tb_add_tests(${target} SOURCES ${TB_INTERNAL_TEST_CASE_SOURCES} ${ARGN})

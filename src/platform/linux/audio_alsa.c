@@ -164,17 +164,25 @@ static size_t tb_alsa_list(void *native, tb_audio_device_info *devices, size_t c
 /* Whether the system lists a device of that name. */
 static bool tb_alsa_listed(tb_alsa *alsa, const char *name)
 {
-    tb_audio_device_info devices[64] = {0};
-    const size_t count = tb_alsa_list(alsa, devices, sizeof(devices) / sizeof(devices[0]));
+    void **hints = NULL;
+    bool found = false;
 
-    for (size_t index = 0; index < count && index < sizeof(devices) / sizeof(devices[0]); index++)
+    if (alsa->device_name_hint(-1, "pcm", &hints) < 0)
     {
-        if (tb_str_equal(devices[index].id, name))
+        return false;
+    }
+    for (size_t index = 0; hints[index] != NULL; index++)
+    {
+        char id[TB_AUDIO_DEVICE_ID_CAPACITY] = {0};
+        tb_alsa_hint(alsa, hints[index], "NAME", id, sizeof(id));
+        if (tb_str_equal(id, name) && tb_alsa_hint_is_output(alsa, hints[index]))
         {
-            return true;
+            found = true;
+            break;
         }
     }
-    return false;
+    (void)alsa->device_name_free_hint(hints);
+    return found;
 }
 
 static tb_audio_device_result tb_alsa_connect(tb_alsa_stream *stream, tb_audio_device_error *error)
@@ -332,10 +340,8 @@ static tb_audio_device_result tb_alsa_open_stream(void *native, tb_audio_device_
     }
     else if (tb_alsa_listed(alsa, request->device_id))
     {
-        /* coverage-off: CI's runners list no device to open by name */
         tb_audio_device_copy_name(stream->name, sizeof(stream->name), request->device_id,
                                   tb_str_length(request->device_id));
-        /* coverage-on */
     }
     else
     {
