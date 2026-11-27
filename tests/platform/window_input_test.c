@@ -6,6 +6,7 @@
  * backend calls them, so no event of the desktop's own is involved. */
 #include "platform/shared/window.h"
 
+#include "badger/input.h"
 #include "badger/str.h"
 
 #include "tb_test.h"
@@ -171,5 +172,58 @@ TB_TEST(platform_window_input, entering_and_leaving_are_reported_once)
     TB_TEST_REQUIRE(next(&made, &event));
     TB_TEST_EXPECT_UINT(event.type, ==, TB_WINDOW_EVENT_MOUSE_LEFT);
     TB_TEST_EXPECT(!next(&made, &event));
+    close_window(&made);
+}
+
+static bool layout_label(tb_window_system *system, tb_key key, char *label, size_t capacity)
+{
+    const char *const letter = system->native;
+    if (key != TB_KEY_A || capacity < 2)
+    {
+        return false;
+    }
+    label[0] = *letter;
+    label[1] = '\0';
+    return true;
+}
+
+TB_TEST(platform_window_input, layout_changes_only_the_displayed_keyboard_label)
+{
+    const tb_window_ops ops = {.key_label = layout_label};
+    char letter = 'q';
+    tb_window_system system = {.ops = &ops, .native = &letter};
+    tb_input_window_prompt first = {0};
+    tb_input_window_prompt second = {0};
+    tb_input_key_prompt_for_window(&system, TB_INPUT_KEY_A, TB_GAMEPAD_FAMILY_GENERIC, &first);
+    letter = 'a';
+    tb_input_key_prompt_for_window(&system, TB_INPUT_KEY_A, TB_GAMEPAD_FAMILY_GENERIC, &second);
+    TB_TEST_EXPECT_STRING(first.label, ==, "Q");
+    TB_TEST_EXPECT_STRING(second.label, ==, "A");
+    TB_TEST_EXPECT_STRING(first.glyph, ==, second.glyph);
+    TB_TEST_EXPECT_STRING(first.glyph, ==, "keyboard/a");
+    char small[1] = {'?'};
+    TB_TEST_EXPECT(!tb_window_system_key_label(&system, TB_KEY_A, small, sizeof(small)));
+    TB_TEST_EXPECT_STRING(small, ==, "");
+    tb_input_key_prompt_for_window(&system, TB_INPUT_KEY_B, TB_GAMEPAD_FAMILY_GENERIC, &second);
+    TB_TEST_EXPECT_STRING(second.label, ==, "B");
+}
+
+TB_TEST(platform_window_input, the_native_layout_names_keys_or_uses_the_portable_prompt)
+{
+    fixture made = open_window();
+    for (tb_key key = TB_KEY_A; key < TB_KEY_COUNT; key++)
+    {
+        tb_input_window_prompt prompt = {0};
+        tb_input_prompt portable = {0};
+        const tb_input_key physical = tb_input_key_from_window(key);
+        tb_input_key_prompt(physical, TB_GAMEPAD_FAMILY_GENERIC, &portable);
+        tb_input_key_prompt_for_window(made.system, physical, TB_GAMEPAD_FAMILY_GENERIC, &prompt);
+        TB_TEST_EXPECT(prompt.label[0] != '\0');
+        TB_TEST_EXPECT_STRING(prompt.glyph, ==, portable.glyph);
+        if (made.system->backend == TB_WINDOW_BACKEND_COCOA && key == TB_KEY_RIGHT_ALT)
+        {
+            TB_TEST_EXPECT_STRING(prompt.label, ==, "Right Option");
+        }
+    }
     close_window(&made);
 }

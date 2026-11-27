@@ -15,6 +15,7 @@
 /* What a backend does; each function is required. */
 typedef struct tb_window_ops
 {
+    bool (*key_label)(tb_window_system *system, tb_key key, char *label, size_t capacity);
     /* Release the backend's state. Every window is destroyed. */
     void (*close)(tb_window_system *system);
     /* Read the system's messages, turning them into events and displays.

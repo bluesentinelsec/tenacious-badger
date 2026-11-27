@@ -182,6 +182,10 @@ typedef struct tb_xkb_api
                              uint32_t locked_layout);
     uint32_t (*state_key_get_one_sym)(tb_xkb_state *state, uint32_t key);
     int (*state_key_get_utf8)(tb_xkb_state *state, uint32_t key, char *buffer, size_t size);
+    uint32_t (*state_key_get_layout)(tb_xkb_state *state, uint32_t code);
+    int (*keymap_key_get_syms_by_level)(tb_xkb_keymap *map, uint32_t code, uint32_t layout,
+                                        uint32_t level, const uint32_t **symbols);
+    int (*keysym_to_utf8)(uint32_t symbol, char *buffer, size_t capacity);
     int (*state_mod_name_is_active)(tb_xkb_state *state, const char *name, int type);
     tb_xkb_compose_table *(*compose_table_new_from_locale)(tb_xkb_context *context,
                                                            const char *locale, int flags);
@@ -2201,10 +2205,26 @@ static void tb_wl_close(tb_window_system *system)
     tb_wl_release(tb_wl_of(system));
 }
 
+static bool tb_wl_key_label(tb_window_system *system, tb_key key, char *label, size_t capacity)
+{
+    tb_wl_system *const native = tb_wl_of(system);
+    if (native->xkb_state == NULL)
+    {
+        return false;
+    }
+    const uint32_t code = tb_linux_keycode(key) + 8u;
+    const uint32_t layout = native->xkb.state_key_get_layout(native->xkb_state, code);
+    const uint32_t *symbols = NULL;
+    return native->xkb.keymap_key_get_syms_by_level(native->keymap, code, layout, 0, &symbols) ==
+               1 &&
+           native->xkb.keysym_to_utf8(symbols[0], label, capacity) > 1;
+}
+
 static const tb_window_ops tb_wl_ops = {
     .close = tb_wl_close,
     .pump = tb_wl_pump,
     .wake = tb_wl_wake,
+    .key_label = tb_wl_key_label,
     .create = tb_wl_create,
     .destroy = tb_wl_destroy,
     .configure = tb_wl_configure,
@@ -2326,6 +2346,9 @@ static void tb_wl_load_xkb(tb_wl_system *native)
         "xkb_state_update_mask",
         "xkb_state_key_get_one_sym",
         "xkb_state_key_get_utf8",
+        "xkb_state_key_get_layout",
+        "xkb_keymap_key_get_syms_by_level",
+        "xkb_keysym_to_utf8",
         "xkb_state_mod_name_is_active",
         "xkb_compose_table_new_from_locale",
         "xkb_compose_table_unref",

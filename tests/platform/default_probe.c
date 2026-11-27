@@ -836,6 +836,12 @@ TB_TEST(platform_default, tb_window_backend_name)
     (void)tb_window_backend_name(TB_WINDOW_BACKEND_AUTOMATIC);
 }
 
+TB_TEST(platform_default, tb_window_system_key_label)
+{
+    char label[8] = {0};
+    (void)tb_window_system_key_label(NULL, TB_KEY_A, label, sizeof(label));
+}
+
 TB_TEST(platform_default, tb_key_name)
 {
     (void)tb_key_name(TB_KEY_ESCAPE);

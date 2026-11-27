@@ -674,6 +674,18 @@ TB_API const char *tb_window_result_name(tb_window_result result);
  * @return A string with static storage duration; "unknown" for no key. */
 TB_API const char *tb_key_name(tb_key key);
 
+/**
+ * @brief Look up the active layout's unmodified label for a physical key.
+ * @param system Open window system that receives this keyboard's events.
+ * @param key Physical key to display.
+ * @param[out] label Caller-owned UTF-8 buffer, emptied on failure.
+ * @param capacity Buffer size including the terminator, at least one.
+ * @return true for a complete native label. On false use a portable label.
+ * @par Threading Stage-owned by the window system's thread.
+ */
+TB_API bool tb_window_system_key_label(tb_window_system *system, tb_key key, char *label,
+                                       size_t capacity);
+
 /** @brief Name a mouse button: "left", "x1". @param button Any value.
  * @return A string with static storage duration; "none" for no button. */
 TB_API const char *tb_mouse_button_name(tb_mouse_button button);
