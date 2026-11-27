@@ -1,6 +1,8 @@
 /* Sheet descriptions must preserve names, timings and trim offsets on import
  * and export, including failures partway through an append. */
 #include "badger/fmt.h"
+#include "badger/fs.h"
+#include "badger/path.h"
 #include "badger/sprite.h"
 #include "badger/str.h"
 #include "badger/vfs.h"
@@ -167,5 +169,60 @@ TB_TEST(media_sprite, grid_name_expansion_is_bounded_before_frames_are_added)
     TB_TEST_EXPECT_UINT(load(sheet, json, &error), ==, TB_SPRITE_TOO_LARGE);
     TB_TEST_EXPECT_UINT(tb_sprite_sheet_frame_count(sheet), ==, 0);
     TB_TEST_EXPECT_STRING(error.path, ==, "$.grid");
+    tb_sprite_sheet_destroy(sheet);
+}
+/* Read the native file through a directory mount, as an asset loader does. */
+TB_TEST(media_sprite, a_mounted_sheet_file_loads_and_names_its_errors)
+{
+    static char scratch[32768];
+    const tb_path_view name = {"hero.sprites.json", sizeof("hero.sprites.json") - 1u};
+    static const char json[] =
+        "{\"format\":\"badger-sprites\",\"version\":1,\"grid\":{\"name\":\"hero\","
+        "\"imageWidth\":8,\"imageHeight\":4,\"cellWidth\":4,\"cellHeight\":4}}";
+    tb_path_result path_result = TB_PATH_OK;
+    tb_sprite_error error = {0};
+    TB_TEST_REQUIRE_UINT(tb_fs_temp_directory((tb_path_view){0}, scratch, sizeof(scratch)), ==,
+                         TB_FS_OK);
+    const tb_path_view root = {scratch, tb_str_length(scratch)};
+    char *const filename =
+        tb_path_rooted_join_new(NULL, tb_fs_native_style(), root, name, &path_result);
+    TB_TEST_REQUIRE_POINTER(filename, !=, NULL);
+    const tb_path_view path = {filename, tb_str_length(filename)};
+    TB_TEST_REQUIRE_UINT(tb_fs_write_file(path, json, sizeof(json) - 1u), ==, TB_FS_OK);
+    tb_vfs *const vfs = tb_vfs_create(NULL);
+    TB_TEST_REQUIRE_UINT(tb_vfs_mount_directory(vfs, "sprites", 7, scratch, 0), ==, TB_VFS_OK);
+    tb_sprite_sheet *const sheet = tb_sprite_sheet_create(NULL);
+    TB_TEST_EXPECT_UINT(tb_sprite_sheet_load_file(sheet, vfs, "sprites/hero.sprites.json", &error),
+                        ==, TB_SPRITE_OK);
+    TB_TEST_EXPECT_UINT(tb_sprite_sheet_frame_count(sheet), ==, 2);
+    TB_TEST_EXPECT_UINT(tb_fs_write_file(path, "{", 1), ==, TB_FS_OK);
+    TB_TEST_EXPECT_UINT(tb_sprite_sheet_load_file(sheet, vfs, "sprites/hero.sprites.json", &error),
+                        ==, TB_SPRITE_MALFORMED);
+    TB_TEST_EXPECT(tb_str_starts_with(error.message, "sprites/hero.sprites.json:"));
+    TB_TEST_EXPECT_UINT(tb_sprite_sheet_frame_count(sheet), ==, 2);
+    tb_sprite_sheet_destroy(sheet);
+    tb_vfs_destroy(vfs);
+    TB_TEST_EXPECT_UINT(tb_fs_remove(path), ==, TB_FS_OK);
+    tb_str_free(NULL, filename);
+    TB_TEST_EXPECT_UINT(tb_fs_remove(root), ==, TB_FS_OK);
+}
+
+TB_TEST(media_sprite, unknown_formats_and_invalid_frame_tags_leave_the_sheet_empty)
+{
+    tb_sprite_sheet *const sheet = tb_sprite_sheet_create(NULL);
+    tb_sprite_error error = {0};
+    TB_TEST_EXPECT_UINT(load(sheet, "{\"format\":\"badger-sprites\",\"version\":2}", &error), ==,
+                        TB_SPRITE_UNSUPPORTED);
+    TB_TEST_EXPECT_UINT(
+        load(sheet,
+             "{\"frames\":[],\"meta\":{\"frameTags\":[{\"name\":\"a\",\"from\":0,\"to\":1}]}}",
+             &error),
+        ==, TB_SPRITE_FILE_INVALID);
+    TB_TEST_EXPECT_STRING(error.path, ==, "$.meta.frameTags[0]");
+    TB_TEST_EXPECT_UINT(load(sheet, "{\"frames\":{},\"meta\":{\"image\":1}}", &error), ==,
+                        TB_SPRITE_FILE_INVALID);
+    TB_TEST_EXPECT_STRING(error.path, ==, "$.meta.image");
+    TB_TEST_EXPECT_UINT(tb_sprite_sheet_animation_count(sheet), ==, 0);
+    TB_TEST_EXPECT_UINT(tb_sprite_sheet_frame_count(sheet), ==, 0);
     tb_sprite_sheet_destroy(sheet);
 }
