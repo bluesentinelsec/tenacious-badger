@@ -884,8 +884,8 @@ static bool tb_inflate_code_lengths(tb_inflater *inflater, tb_inflate_io *io)
  *
  * With at least TB_INFLATE_FAST_INPUT bytes of input and TB_INFLATE_FAST_ROOM
  * of room, a whole symbol, its match and their extra bits can be decoded
- * without stopping, so the loop checks neither. It fills the bit buffer a
- * byte at a time to TB_INFLATE_FAST_BITS, writes literals and copies matches
+ * without stopping. A word fetch supplies at least TB_INFLATE_FAST_BITS.
+ * The loop writes literals and copies matches
  * in the output itself, and brings the window up to date once, when it
  * stops. It gives back the whole bytes it pulled and did not use, so the
  * input is consumed exactly, as everywhere else.
