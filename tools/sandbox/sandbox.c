@@ -156,9 +156,10 @@ bool sandbox_shader(sandbox *box, const char *path, const char *source, const ch
     request.source.file_count = 1;
     request.entry_point = entry;
     request.stage = sandbox_stage(stage);
-    request.target = box->dxc != NULL           ? TB_SHADER_TARGET_DXIL
-                     : box->d3dcompiler != NULL ? TB_SHADER_TARGET_DXBC
-                                                : TB_SHADER_TARGET_NONE;
+    request.target = box->dxc != NULL                            ? TB_SHADER_TARGET_DXIL
+                     : box->d3dcompiler != NULL                  ? TB_SHADER_TARGET_DXBC
+                     : box->info.backend == TB_RHI_BACKEND_METAL ? TB_SHADER_TARGET_MSL
+                                                                 : TB_SHADER_TARGET_NONE;
     request.dxc = box->dxc;
     request.d3dcompiler = box->d3dcompiler;
     if (tb_shader_compile(&request, arena, &compiled) != TB_SHADER_OK)
@@ -679,7 +680,7 @@ static void sandbox_open_compiler(sandbox_run *run)
     tb_dxc_error dxc_error = TB_DXC_ERROR_INIT;
     tb_d3dcompiler_error d3dcompiler_error = TB_D3DCOMPILER_ERROR_INIT;
 
-    if (!needs_dxc && !needs_d3dcompiler)
+    if (!needs_dxc && !needs_d3dcompiler && box->info.backend != TB_RHI_BACKEND_METAL)
     {
         return;
     }

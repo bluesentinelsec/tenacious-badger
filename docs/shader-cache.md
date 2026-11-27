@@ -250,7 +250,8 @@ library again; shaders that did not change come from the cache.
 | Platform | Libraries |
 | --- | --- |
 | Windows | `d3d12.tbsl`, through DXC: the one in the Windows SDK, or beside `badger-shaderc`; and `d3d11.tbsl`, through D3DCompiler, part of Windows |
-| Linux, macOS | None yet: no backend there needs compiled shaders, and the build makes no library |
+| macOS | `metal.tbsl`, cooked from HLSL into MSL and copied to `Burrow.app/Contents/Resources/Shaders/`. Metal compiles each MSL stage on the device. |
+| Linux | None yet: no backend there needs compiled shaders, and the build makes no library |
 
 `TB_BUILD_SHADERS` (on when the engine is built on its own, off when a game
 builds it in its tree) builds `badger-shaderc` and the libraries.

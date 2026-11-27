@@ -233,9 +233,10 @@ static const char *intrinsic(msl_writer *writer, const tb_shader_form_expression
                              writer->values[right]);
     }
     static const char *const supported[] = {
-        "abs",  "all", "any", "clamp",     "cross", "dot",     "exp2",  "length",
-        "lerp", "max", "min", "normalize", "pow",   "reflect", "rsqrt", "saturate",
-        "sqrt", "ddx", "ddy", "floor",     "round", "fwidth",  "exp",   "smoothstep"};
+        "abs",    "all",      "any",        "clamp", "cross",     "dot",   "exp2",
+        "length", "lerp",     "max",        "min",   "normalize", "pow",   "reflect",
+        "rsqrt",  "saturate", "sqrt",       "ddx",   "ddy",       "floor", "round",
+        "fwidth", "exp",      "smoothstep", "sin",   "cos"};
     for (size_t i = 0; i < sizeof(supported) / sizeof(supported[0]); i++)
     {
         if (tb_str_equal(name, supported[i]))

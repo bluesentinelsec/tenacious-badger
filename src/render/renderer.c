@@ -72,8 +72,7 @@ static tb_shader_stage tb_renderer_stage(tb_rhi_stage stage)
     return TB_SHADER_STAGE_COMPUTE;
 }
 
-/* What a backend's shaders compile into: DXIL for D3D12, DXBC for D3D11;
- * nothing for the null backend, which runs no code. */
+/* The payload the backend accepts in shader creation. */
 static tb_shader_target tb_renderer_shader_target(tb_rhi_backend backend)
 {
     if (backend == TB_RHI_BACKEND_D3D12)
@@ -84,13 +83,14 @@ static tb_shader_target tb_renderer_shader_target(tb_rhi_backend backend)
     {
         return TB_SHADER_TARGET_DXBC;
     }
+    if (backend == TB_RHI_BACKEND_METAL)
+    {
+        return TB_SHADER_TARGET_MSL;
+    }
     return TB_SHADER_TARGET_NONE;
 }
 
-/* A shader of the renderer's own, for the device's backend: DXIL for
- * D3D12 and DXBC for D3D11, from the library, the cache, or the backend's
- * compiler; for the null backend, which runs nothing, the checked source
- * itself. */
+/* Load a renderer shader from the library or cache, or compile it for the device. */
 tb_rhi_result tb_renderer_shader(tb_renderer *renderer, const char *path, const char *source,
                                  const char *entry, tb_rhi_stage stage, tb_rhi_shader *shader,
                                  tb_rhi_error *error)
@@ -284,6 +284,10 @@ static void tb_renderer_report_profile(const tb_renderer *renderer)
  * for D3D11. False, with why, where it is unavailable. */
 static bool tb_renderer_open_compiler(tb_renderer *renderer, char *why, size_t size)
 {
+    if (renderer->info.backend == TB_RHI_BACKEND_METAL)
+    {
+        return true;
+    }
     if (renderer->info.backend == TB_RHI_BACKEND_D3D11)
     {
         tb_d3dcompiler_error error = TB_D3DCOMPILER_ERROR_INIT;

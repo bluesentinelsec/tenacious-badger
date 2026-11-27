@@ -488,6 +488,13 @@ if(TARGET burrow)
         COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tools/burrow_play_test.py"
             "$<TARGET_FILE:burrow>")
     set_tests_properties(burrow.plays_a_number_of_frames PROPERTIES SKIP_RETURN_CODE 77)
+    if(APPLE AND TB_BUILD_SHADERS AND NOT TB_USE_DEFAULT_PLATFORM_ADAPTER)
+        add_test(NAME burrow.plays_with_the_bundled_metal_shaders
+            COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tools/metal_play_test.py"
+                burrow "$<TARGET_FILE:burrow>")
+        set_tests_properties(burrow.plays_with_the_bundled_metal_shaders PROPERTIES
+            SKIP_RETURN_CODE 77 ENVIRONMENT "MTL_DEBUG_LAYER=1")
+    endif()
     # Its menus, driven by navigation alone, in a window with the null
     # renderer; skipped where there is no display.
     add_test(NAME burrow.menus_are_driven_by_navigation

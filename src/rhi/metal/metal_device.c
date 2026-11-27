@@ -14,6 +14,7 @@ void tb_metal_device_destroy(void *state)
     tb_metal_device *const d = state;
     if (d->send != NULL)
     {
+        tb_metal_heaps_destroy(d);
         tb_metal_release(d, d->queue);
         tb_metal_release(d, d->gpu);
     }
@@ -66,6 +67,26 @@ tb_rhi_result tb_metal_device_create(const tb_rhi_device_options *options, void 
         d->pool_pop(pool);
         goto failed;
     }
+    /* MTLGPUFamilyMetal3 provides the direct GPU addresses and resource IDs
+     * used by the argument buffers in the cooked shaders. */
+    if (!TB_METAL_METHOD(d, bool, unsigned long)(d->gpu, d->selector("supportsFamily:"), 5001ul) ||
+        info->bindless_resources > TB_MSL_RESOURCE_COUNT ||
+        info->bindless_samplers > TB_MSL_SAMPLER_COUNT)
+    {
+        result =
+            tb_rhi_fail(error, TB_RHI_UNAVAILABLE,
+                        "Metal requires a Metal 3 device and supported argument-buffer capacities");
+        d->pool_pop(pool);
+        goto failed;
+    }
+    if (!tb_metal_heaps_create(d))
+    {
+        result =
+            tb_rhi_fail(error, TB_RHI_OUT_OF_MEMORY, "Metal could not allocate resource tables");
+        d->pool_pop(pool);
+        goto failed;
+    }
+    info->features = TB_RHI_FEATURE_BINDLESS | TB_RHI_FEATURE_HEAP_INDICES;
     const char *const name = tb_metal_get(d, tb_metal_get(d, d->gpu, "name"), "UTF8String");
     info->max_texture_size = 8192; /* Conservative 2D limit across macOS Metal families. */
 
@@ -105,11 +126,18 @@ const tb_rhi_backend_table tb_rhi_metal_backend = {
     .device_create = tb_metal_device_create,
     .device_destroy = tb_metal_device_destroy,
     .buffer_create = tb_metal_buffer_create,
-    .buffer_destroy = tb_metal_release,
+    .buffer_destroy = tb_metal_resource_destroy,
     .buffer_write = tb_metal_buffer_write,
     .buffer_read = tb_metal_buffer_read,
     .texture_create = tb_metal_texture_create,
-    .texture_destroy = tb_metal_release,
+    .texture_destroy = tb_metal_resource_destroy,
+    .sampler_create = tb_metal_sampler_create,
+    .sampler_destroy = tb_metal_sampler_destroy,
+    .compute_pipeline_create = tb_metal_compute_pipeline_create,
+    .cmd_index_buffer = tb_metal_cmd_index_buffer,
+    .cmd_vertex_buffer = tb_metal_cmd_vertex_buffer,
+    .cmd_draw_indexed = tb_metal_cmd_draw_indexed,
+    .cmd_dispatch = tb_metal_cmd_dispatch,
     .shader_create = tb_metal_shader_create,
     .shader_destroy = tb_metal_release,
     .graphics_pipeline_create = tb_metal_graphics_pipeline_create,
