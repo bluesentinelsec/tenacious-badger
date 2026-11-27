@@ -92,7 +92,9 @@ static void tb_xinput_info(const tb_xinput *xinput, DWORD user, tb_gamepad_info 
     XINPUT_CAPABILITIES capabilities = {0};
     const char *name = "XInput controller";
 
-    *info = (tb_gamepad_info){.capabilities = TB_GAMEPAD_CAPABILITY_RUMBLE};
+    /* XInput's pads are Xbox pads, or pads made to be read as one. */
+    *info = (tb_gamepad_info){.capabilities = TB_GAMEPAD_CAPABILITY_RUMBLE,
+                              .family = TB_GAMEPAD_FAMILY_XBOX};
     if (xinput->functions.get_capabilities(user, 0, &capabilities) == ERROR_SUCCESS)
     {
         if (capabilities.SubType == XINPUT_DEVSUBTYPE_GAMEPAD)

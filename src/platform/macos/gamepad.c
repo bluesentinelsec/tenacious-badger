@@ -198,6 +198,19 @@ static void tb_gc_read(const tb_gc_runtime *runtime, tb_gc_id gamepad, tb_gamepa
         tb_gc_value(runtime, tb_gc_send(runtime, gamepad, "rightTrigger"));
 }
 
+/* A controller's family, from its category: "Xbox One", "DualSense",
+ * "Switch Pro Controller", "Nintendo Switch Joy-Con (L/R)". */
+static tb_gamepad_family tb_gc_family(const tb_gc_runtime *runtime, tb_gc_id controller)
+{
+    const tb_gc_id category = tb_gc_send(runtime, controller, "productCategory");
+
+    if (category == NULL)
+    {
+        return TB_GAMEPAD_FAMILY_GENERIC;
+    }
+    return tb_gamepad_family_from_name((const char *)tb_gc_send(runtime, category, "UTF8String"));
+}
+
 /* A controller's name: its vendor's name for it, as "Xbox Wireless
  * Controller", else its category, as "DualSense". */
 static void tb_gc_name(const tb_gc_runtime *runtime, tb_gc_id controller, tb_gamepad_info *info)
@@ -218,6 +231,7 @@ static void tb_gc_name(const tb_gc_runtime *runtime, tb_gc_id controller, tb_gam
         name = "Game controller";
     }
     tb_gamepad_copy_name(info->name, name, tb_str_length(name));
+    info->family = tb_gc_family(runtime, controller);
 }
 
 static size_t tb_gc_take_slot(tb_gc_gamepads *gamepads, tb_gc_id controller, bool simulated)

@@ -71,6 +71,47 @@ const char *tb_gamepad_axis_name(tb_gamepad_axis axis)
     return tb_gamepad_axis_names[axis];
 }
 
+static const char *const tb_gamepad_family_names[TB_GAMEPAD_FAMILY_COUNT] = {
+    [TB_GAMEPAD_FAMILY_GENERIC] = "generic",         [TB_GAMEPAD_FAMILY_XBOX] = "xbox",
+    [TB_GAMEPAD_FAMILY_PLAYSTATION] = "playstation", [TB_GAMEPAD_FAMILY_NINTENDO] = "nintendo",
+    [TB_GAMEPAD_FAMILY_STEAM_DECK] = "steam_deck",
+};
+
+/* USB vendor and product IDs of the families' makers. */
+#define TB_GAMEPAD_VENDOR_MICROSOFT 0x045eu
+#define TB_GAMEPAD_VENDOR_SONY 0x054cu
+#define TB_GAMEPAD_VENDOR_NINTENDO 0x057eu
+#define TB_GAMEPAD_VENDOR_VALVE 0x28deu
+#define TB_GAMEPAD_PRODUCT_STEAM_DECK 0x1205u
+
+const char *tb_gamepad_family_name(tb_gamepad_family family)
+{
+    if ((unsigned)family >= (unsigned)TB_GAMEPAD_FAMILY_COUNT)
+    {
+        return "";
+    }
+    return tb_gamepad_family_names[family];
+}
+
+tb_gamepad_family tb_gamepad_family_from_usb(uint16_t vendor, uint16_t product)
+{
+    switch (vendor)
+    {
+    case TB_GAMEPAD_VENDOR_MICROSOFT:
+        return TB_GAMEPAD_FAMILY_XBOX;
+    case TB_GAMEPAD_VENDOR_SONY:
+        return TB_GAMEPAD_FAMILY_PLAYSTATION;
+    case TB_GAMEPAD_VENDOR_NINTENDO:
+        return TB_GAMEPAD_FAMILY_NINTENDO;
+    case TB_GAMEPAD_VENDOR_VALVE:
+        return product == TB_GAMEPAD_PRODUCT_STEAM_DECK ? TB_GAMEPAD_FAMILY_STEAM_DECK
+                                                        : TB_GAMEPAD_FAMILY_GENERIC;
+    default:
+        break;
+    }
+    return TB_GAMEPAD_FAMILY_GENERIC;
+}
+
 bool tb_gamepad_button_down(const tb_gamepad_state *state, tb_gamepad_button button)
 {
     TB_ASSERT(state != NULL);

@@ -136,6 +136,28 @@ typedef enum tb_gamepad_capability
     TB_GAMEPAD_CAPABILITY_TRIGGER_RUMBLE = 1u << 1
 } tb_gamepad_capability;
 
+/**
+ * @brief Which maker's pads a pad is like: what its buttons are labeled, for
+ * prompts. The layout is the same for every family (see
+ * #tb_gamepad_button); only the labels differ, as `docs/gamepad.md` gives
+ * them.
+ */
+typedef enum tb_gamepad_family
+{
+    /** Not known: a pad of another maker, or Steam's virtual pad, which may
+     * stand for any. Prompts give Xbox's labels, as most PC pads have. */
+    TB_GAMEPAD_FAMILY_GENERIC,
+    TB_GAMEPAD_FAMILY_XBOX,        /**< A, B, X, Y; LB, RB, LT, RT; View and Menu. */
+    TB_GAMEPAD_FAMILY_PLAYSTATION, /**< Cross, Circle, Square, Triangle; L1, R1, L2, R2. */
+    /** B at the bottom, A on the right, Y on the left, X at the top; L, R,
+     * ZL, ZR; - and +. */
+    TB_GAMEPAD_FAMILY_NINTENDO,
+    /** The Steam Deck's own controls: A, B, X, Y; L1, R1, L2, R2; L4, L5,
+     * R4, R5; View and Menu. */
+    TB_GAMEPAD_FAMILY_STEAM_DECK,
+    TB_GAMEPAD_FAMILY_COUNT /**< The number of families; not a family. */
+} tb_gamepad_family;
+
 /** @brief Bytes of a pad's name, its NUL included. */
 #define TB_GAMEPAD_NAME_CAPACITY 128
 
@@ -148,6 +170,11 @@ typedef struct tb_gamepad_info
     uint16_t vendor;       /**< Its USB vendor ID, where the system says; else 0. */
     uint16_t product;      /**< Its USB product ID, where the system says; else 0. */
     uint32_t capabilities; /**< Its #tb_gamepad_capability bits. */
+    /** Its family, for prompts: from what the system says of it (its USB
+     * IDs, XInput's kind, the GameController framework's category), and on
+     * a Steam Deck, Steam's virtual pad is the Deck's controls;
+     * #TB_GAMEPAD_FAMILY_GENERIC when nothing says. See `docs/gamepad.md`. */
+    tb_gamepad_family family;
 } tb_gamepad_info;
 
 /** @brief What happened to a slot. */
@@ -310,6 +337,24 @@ TB_API const char *tb_gamepad_button_name(tb_gamepad_button button);
  * @return A string with static storage duration; "" for no axis.
  * @par Threading Thread-safe. */
 TB_API const char *tb_gamepad_axis_name(tb_gamepad_axis axis);
+
+/** @brief Name a family: "generic", "xbox", "playstation", "nintendo",
+ * "steam_deck". @param family Any value. @return A string with static
+ * storage duration; "" for no family.
+ * @par Threading Thread-safe. */
+TB_API const char *tb_gamepad_family_name(tb_gamepad_family family);
+
+/**
+ * @brief The family of a pad by its USB vendor and product: Microsoft's
+ * pads are Xbox, Sony's PlayStation, Nintendo's Nintendo, and Valve's
+ * Steam Deck controls (`28de:1205`) the Steam Deck. Any other, Steam's
+ * virtual pad (`28de:11ff`) among them, is generic.
+ * @param vendor The USB vendor ID; 0 for none.
+ * @param product The USB product ID.
+ * @return The family.
+ * @par Threading Thread-safe.
+ */
+TB_API tb_gamepad_family tb_gamepad_family_from_usb(uint16_t vendor, uint16_t product);
 
 /** @brief Whether a button of a state is down. @param state Required
  * non-null. @param button Below #TB_GAMEPAD_BUTTON_COUNT.

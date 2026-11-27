@@ -151,9 +151,11 @@ set(TB_TEST_CASE_SOURCES
     gui/gui_treeview_test.c
     gui/gui_var_test.c
     gui/gui_watch_test.c
+    input/input_bindings_test.c
     input/input_file_test.c
     input/input_gamepad_test.c
     input/input_test.c
+    input/input_rebind_test.c
     input/input_rules_test.c
     jobs/loop_test.c
     anim/anim_test.c

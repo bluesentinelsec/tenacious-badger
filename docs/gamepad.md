@@ -350,6 +350,38 @@ code is the engine's own. The tests (`tests/platform/gamepad_dualsense_test.c`)
 read a report captured from a DualSense over USB, and the same state as
 Bluetooth's full report carries it.
 
+## Families
+
+Every pad has the same layout, but not the same labels: south is A, Cross
+or B. A pad's info gives its **family**, `tb_gamepad_info`'s `family`, so
+that a game shows the labels printed on the pad in hand
+([prompts](input.md#prompts)):
+
+| Family | `tb_gamepad_family` | Which pads |
+| --- | --- | --- |
+| Xbox | `TB_GAMEPAD_FAMILY_XBOX` | Microsoft's (`045e`), every XInput pad, and pads the GameController framework calls Xbox |
+| PlayStation | `TB_GAMEPAD_FAMILY_PLAYSTATION` | Sony's (`054c`), and the framework's DualShock and DualSense |
+| Nintendo | `TB_GAMEPAD_FAMILY_NINTENDO` | Nintendo's (`057e`), and the framework's Switch and Joy-Con pads |
+| Steam Deck | `TB_GAMEPAD_FAMILY_STEAM_DECK` | The Deck's own controls (`28de:1205`), and on a Deck, the pad Steam stands in for |
+| Generic | `TB_GAMEPAD_FAMILY_GENERIC` | Any other, and Steam's virtual pad (`28de:11ff`) off a Deck |
+
+The family comes from what the system says of a pad: XInput's pads are
+Xbox pads, or made to be read as one; raw HID pads and Linux's have their
+USB IDs (`tb_gamepad_family_from_usb()`); the GameController framework
+names a category, as "DualSense" or "Switch Pro Controller", read by its
+words.
+
+**The Steam Deck.** A game Steam starts on a Deck reads the Deck's controls
+through Steam's virtual pad: an XInput pad under Proton, `28de:11ff` on
+Linux. Steam sets `SteamDeck=1` in such a game's environment, and the
+system reads it when it opens: on a Deck, a pad Steam stands in for, which
+has Steam's virtual IDs or none, is in the Steam Deck family, since a game
+on a Deck is played with its own controls. A pad of its own IDs, as a
+DualSense read through raw HID, keeps its family. Off a Deck, Steam's
+virtual pad may stand for any pad, and is generic; Steam says which in a
+file named by `SteamVirtualGamepadInfo`, which the engine does not yet read
+(see [known gaps](#known-gaps)).
+
 ## Sticks and triggers as buttons
 
 A menu wants a stick's directions as buttons, and a game may want a trigger
@@ -476,5 +508,9 @@ framework requires. The functions that take no system
   engine does not set them up itself through hidraw and usbfs (#380).
 - macOS's GameController framework does not know the Switch 2 controllers;
   an IOKit HID backend with the same drivers would read them (#379).
+- Steam's virtual pad off a Steam Deck is generic: the pad it stands for is
+  in the file `SteamVirtualGamepadInfo` names, which is not read yet; nor
+  does a Deck's family tell its controls from another pad plugged into it,
+  which Steam also stands in for.
 - Gyros, touchpads and lights are not read; a Switch 2 pad's player light is
   the first, and a DualSense's lights show its slot.

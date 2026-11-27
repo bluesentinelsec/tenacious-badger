@@ -236,6 +236,9 @@ TB_TEST(input_file, invalid_definitions_are_refused_where_they_are)
         const char *reason;
     } cases[] = {
         {"[]", "$", "input definitions: an object"},
+        {HEAD "\"actions\\u0000old\": []}", "$.actions", "a key the format does not have"},
+        {"{\"format\": \"badger-input\\u0000other\", \"version\": 1}", "$.format",
+         "a format other than \"badger-input\""},
         {"{\"format\": \"badger-gui\", \"version\": 1}", "$.format",
          "a format other than \"badger-input\""},
         {"{\"version\": 1}", "$.format", "a format other than \"badger-input\""},
