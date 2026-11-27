@@ -513,9 +513,8 @@ TB_TEST(game_loop, a_game_may_turn_the_fullscreen_shortcut_off)
  * A window, where there is one.
  * ------------------------------------------------------------------------- */
 
-/* Run frames until the window is in a mode at a size, or a while passes:
- * an X server or a compositor answers when it answers. A size of 0 is any
- * size. */
+/* Wait for the native resize as well as the mode. A windowed size is in
+ * logical units, and a borderless surface covers the display in pixels. */
 static void step_until(tb_game_loop *loop, tb_window_system *system, tb_window *window,
                        tb_window_mode mode, uint32_t width, uint32_t height)
 {
@@ -526,7 +525,10 @@ static void step_until(tb_game_loop *loop, tb_window_system *system, tb_window *
     {
         TB_TEST_EXPECT(tb_game_loop_step(loop));
         tb_window_state_of(window, &state);
-        if (state.mode == mode && (width == 0 || (state.width == width && state.height == height)))
+        const bool fits = mode == TB_WINDOW_MODE_WINDOWED
+                              ? (state.width == width && state.height == height)
+                              : (state.pixel_width == width && state.pixel_height == height);
+        if (state.mode == mode && fits)
         {
             return;
         }
@@ -560,6 +562,8 @@ TB_TEST(game_loop, back_from_fullscreen_a_window_has_its_size_again)
     tb_settings *const settings = tb_settings_create();
     tb_engine_settings engine = {0};
     tb_game_loop *loop = NULL;
+    tb_display display = {0};
+    static const uint32_t sizes[][2] = {{800, 450}, {768, 432}};
 
     if (tb_window_system_open(NULL, &system, NULL) != TB_WINDOW_OK)
     {
@@ -574,29 +578,47 @@ TB_TEST(game_loop, back_from_fullscreen_a_window_has_its_size_again)
     loop = tb_game_loop_create(
         &(tb_game_loop_options){.system = system, .window = window, .settings = &engine});
     TB_TEST_EXPECT(tb_game_loop_step(loop));
-    /* The player makes the window larger, as by dragging its border. */
-    options.width = 800;
-    options.height = 450;
-    TB_TEST_REQUIRE_UINT(tb_window_configure(window, &options, NULL), ==, TB_WINDOW_OK);
-    step_until(loop, system, window, TB_WINDOW_MODE_WINDOWED, 800, 450);
+    tb_window_state_of(window, &state);
+    tb_window_system_display(system, state.display, &display);
+    for (size_t index = 0; index < TB_TEST_COUNT_OF(sizes); index++)
+    {
+        /* A new size each time, as if the player dragged the window's border. */
+        options.width = sizes[index][0];
+        options.height = sizes[index][1];
+        TB_TEST_CONTEXT("resize %u x %u on %s", options.width, options.height,
+                        tb_window_backend_name(tb_window_system_backend(system)));
+        TB_TEST_REQUIRE_UINT(tb_window_configure(window, &options, NULL), ==, TB_WINDOW_OK);
+        step_until(loop, system, window, TB_WINDOW_MODE_WINDOWED, options.width, options.height);
+        shortcut = fullscreen_shortcut(system, window);
+        TB_TEST_EXPECT_UINT(shortcut.state.width, ==, options.width);
+        TB_TEST_EXPECT_UINT(shortcut.state.height, ==, options.height);
+        tb_game_loop_inject(loop, &shortcut);
+        step_until(loop, system, window, TB_WINDOW_MODE_BORDERLESS, display.pixel_width,
+                   display.pixel_height);
+        shortcut = fullscreen_shortcut(system, window);
+        TB_TEST_EXPECT_UINT(shortcut.state.mode, ==, TB_WINDOW_MODE_BORDERLESS);
+        TB_TEST_EXPECT_UINT(shortcut.state.pixel_width, ==, display.pixel_width);
+        TB_TEST_EXPECT_UINT(shortcut.state.pixel_height, ==, display.pixel_height);
 
+        tb_game_loop_inject(loop, &shortcut);
+        step_until(loop, system, window, TB_WINDOW_MODE_WINDOWED, options.width, options.height);
+        tb_window_state_of(window, &state);
+        TB_TEST_EXPECT_UINT(state.mode, ==, TB_WINDOW_MODE_WINDOWED);
+        TB_TEST_EXPECT_UINT(state.width, ==, options.width);
+        TB_TEST_EXPECT_UINT(state.height, ==, options.height);
+    }
+
+    /* A new windowed size requested while fullscreen replaces the one
+     * remembered by both the shortcut and the compositor. */
     shortcut = fullscreen_shortcut(system, window);
     tb_game_loop_inject(loop, &shortcut);
-    step_until(loop, system, window, TB_WINDOW_MODE_BORDERLESS, 0, 0);
-    tb_window_state_of(window, &state);
-    TB_TEST_EXPECT_UINT(state.mode, ==, TB_WINDOW_MODE_BORDERLESS);
-
-    shortcut = fullscreen_shortcut(system, window);
-    tb_game_loop_inject(loop, &shortcut);
-    step_until(loop, system, window, TB_WINDOW_MODE_WINDOWED, 800, 450);
-    tb_window_state_of(window, &state);
-    TB_TEST_EXPECT_UINT(state.mode, ==, TB_WINDOW_MODE_WINDOWED);
-    TB_TEST_EXPECT_UINT(state.width, ==, 800);
-    TB_TEST_EXPECT_UINT(state.height, ==, 450);
-
-    /* A size the settings give replaces it. */
+    step_until(loop, system, window, TB_WINDOW_MODE_BORDERLESS, display.pixel_width,
+               display.pixel_height);
     (void)tb_settings_set(settings, TB_SETTING_LAYER_RUNTIME, "display.window_width", "720");
     (void)tb_settings_set(settings, TB_SETTING_LAYER_RUNTIME, "display.window_height", "405");
+    TB_TEST_EXPECT(tb_game_loop_step(loop));
+    shortcut = fullscreen_shortcut(system, window);
+    tb_game_loop_inject(loop, &shortcut);
     step_until(loop, system, window, TB_WINDOW_MODE_WINDOWED, 720, 405);
     tb_window_state_of(window, &state);
     TB_TEST_EXPECT_UINT(state.width, ==, 720);

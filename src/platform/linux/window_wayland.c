@@ -403,6 +403,14 @@ enum
 #define TB_WL_SEAT_VERSION 8u
 #define TB_WL_SHM_VERSION 1u
 
+/* xdg_toplevel.state values in the version of xdg-shell we bind. */
+enum
+{
+    TB_XDG_STATE_MAXIMIZED = 1,
+    TB_XDG_STATE_FULLSCREEN = 2,
+    TB_XDG_STATE_RESIZING = 3
+};
+
 /* ---------------------------------------------------------------------------
  * State.
  * ------------------------------------------------------------------------- */
@@ -470,6 +478,13 @@ struct tb_wl_system
     uint32_t modifiers;
 };
 
+typedef enum tb_wl_size_policy
+{
+    TB_WL_FLOATING,
+    TB_WL_FULLSCREEN,
+    TB_WL_COMPOSITOR_SIZED /* Maximized or being resized by the player. */
+} tb_wl_size_policy;
+
 typedef struct tb_wl_window
 {
     tb_wl_proxy *surface;
@@ -480,6 +495,11 @@ typedef struct tb_wl_window
     tb_array *entered;        /* tb_wl_output *, the outputs the surface is on. */
     int32_t configured_width; /* As the compositor's last configure asked; 0 for the client's. */
     int32_t configured_height;
+    tb_wl_size_policy pending_policy; /* Applied together at xdg_surface.configure. */
+    tb_wl_size_policy policy;
+    bool restore_requested;   /* The client asked to leave fullscreen at options.width/height. */
+    uint32_t last_hint_width; /* Last configure, resolved to our size when it supplied none. */
+    uint32_t last_hint_height;
     uint32_t width; /* The logical size shown. */
     uint32_t height;
     int32_t scale;
@@ -1715,13 +1735,25 @@ static void tb_wl_choose_size(tb_window *window)
     tb_wl_window *const record = tb_wl_window_of(window);
     tb_window_placement placement = {0};
 
-    if (record->configured_width > 0 && record->configured_height > 0)
+    const bool has_hint = record->configured_width > 0 && record->configured_height > 0;
+    const bool restoring = record->restore_requested && record->pending_policy == TB_WL_FLOATING;
+    /* An activation change can repeat the previous size after the client
+     * has resized. Keep the newer size. A drag or a maximized/fullscreen
+     * configure still takes the compositor's dimensions. */
+    if (record->configured && record->policy == TB_WL_FLOATING &&
+        record->pending_policy == TB_WL_FLOATING &&
+        (!has_hint || ((uint32_t)record->configured_width == record->last_hint_width &&
+                       (uint32_t)record->configured_height == record->last_hint_height)))
+    {
+        return;
+    }
+    if (has_hint && !restoring)
     {
         record->width = (uint32_t)record->configured_width;
         record->height = (uint32_t)record->configured_height;
         return;
     }
-    if (window->state.mode != TB_WINDOW_MODE_WINDOWED)
+    if (record->pending_policy == TB_WL_FULLSCREEN)
     {
         /* Fullscreen before the compositor says how large: the display's
          * size. */
@@ -1746,6 +1778,15 @@ static void tb_wl_xdg_surface_configure(void *data, tb_wl_proxy *xdg_surface, ui
     (void)native->wl.marshal_flags(xdg_surface, TB_XDG_SURFACE_ACK_CONFIGURE, NULL,
                                    native->wl.get_version(xdg_surface), 0, serial);
     tb_wl_choose_size(window);
+    record->last_hint_width =
+        record->configured_width > 0 ? (uint32_t)record->configured_width : record->width;
+    record->last_hint_height =
+        record->configured_height > 0 ? (uint32_t)record->configured_height : record->height;
+    record->policy = record->pending_policy;
+    if (record->policy != TB_WL_FULLSCREEN)
+    {
+        record->restore_requested = false;
+    }
     record->configured = true;
     tb_wl_present(window);
 }
@@ -1762,7 +1803,20 @@ static void tb_wl_toplevel_configure(void *data, tb_wl_proxy *toplevel, int32_t 
     tb_wl_window *const record = tb_wl_window_of(window);
 
     (void)toplevel;
-    (void)states;
+    const uint32_t *const values = states->data;
+    record->pending_policy = TB_WL_FLOATING;
+    for (size_t index = 0; index < states->size / sizeof(*values); index++)
+    {
+        if (values[index] == TB_XDG_STATE_FULLSCREEN)
+        {
+            record->pending_policy = TB_WL_FULLSCREEN;
+            break;
+        }
+        if (values[index] == TB_XDG_STATE_MAXIMIZED || values[index] == TB_XDG_STATE_RESIZING)
+        {
+            record->pending_policy = TB_WL_COMPOSITOR_SIZED;
+        }
+    }
     record->configured_width = width;
     record->configured_height = height;
 }
@@ -1831,13 +1885,13 @@ static void tb_wl_apply(tb_window *window, bool created)
                                        version, 0, most_width, most_height);
         if (!created && !was_windowed)
         {
+            record->restore_requested = true;
             (void)native->wl.marshal_flags(record->toplevel, TB_XDG_TOPLEVEL_UNSET_FULLSCREEN, NULL,
                                            version, 0);
         }
-        /* The compositor's last configure was for the old size. */
-        record->configured_width = 0;
-        record->configured_height = 0;
-        if (record->configured)
+        /* Leave the compositor's geometry in place until it configures the
+         * surface as a floating window again. */
+        if (record->configured && record->policy == TB_WL_FLOATING)
         {
             record->width = placement.width;
             record->height = placement.height;
@@ -1850,6 +1904,7 @@ static void tb_wl_apply(tb_window *window, bool created)
             placement.display < tb_array_length(native->outputs)
                 ? *TB_ARRAY_AT(native->outputs, tb_wl_output *, placement.display)
                 : NULL;
+        record->restore_requested = false;
         (void)native->wl.marshal_flags(record->toplevel, TB_XDG_TOPLEVEL_SET_FULLSCREEN, NULL,
                                        version, 0, output != NULL ? output->proxy : NULL);
     }
