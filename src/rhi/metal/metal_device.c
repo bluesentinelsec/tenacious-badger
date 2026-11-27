@@ -69,13 +69,18 @@ tb_rhi_result tb_metal_device_create(const tb_rhi_device_options *options, void 
     }
     /* MTLGPUFamilyMetal3 provides the direct GPU addresses and resource IDs
      * used by the argument buffers in the cooked shaders. */
-    if (!TB_METAL_METHOD(d, bool, unsigned long)(d->gpu, d->selector("supportsFamily:"), 5001ul) ||
-        info->bindless_resources > TB_MSL_RESOURCE_COUNT ||
+    if (!TB_METAL_METHOD(d, bool, unsigned long)(d->gpu, d->selector("supportsFamily:"), 5001ul))
+    {
+        result = tb_rhi_fail(error, TB_RHI_UNAVAILABLE, "Metal requires a Metal 3 device");
+        d->pool_pop(pool);
+        goto failed;
+    }
+    if (info->bindless_resources > TB_MSL_RESOURCE_COUNT ||
         info->bindless_samplers > TB_MSL_SAMPLER_COUNT)
     {
-        result =
-            tb_rhi_fail(error, TB_RHI_UNAVAILABLE,
-                        "Metal requires a Metal 3 device and supported argument-buffer capacities");
+        result = tb_rhi_fail(error, TB_RHI_UNAVAILABLE,
+                             "Metal argument-buffer capacities are %u resources and %u samplers",
+                             TB_MSL_RESOURCE_COUNT, TB_MSL_SAMPLER_COUNT);
         d->pool_pop(pool);
         goto failed;
     }

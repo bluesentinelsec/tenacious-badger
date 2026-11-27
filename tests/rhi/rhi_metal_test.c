@@ -9,6 +9,29 @@
 extern const tb_test_file tb_rhi_hlsl_files[];
 extern const size_t tb_rhi_hlsl_files_count;
 
+TB_TEST(rhi_metal, unsupported_device_requests_report_the_missing_capability)
+{
+    tb_rhi_device *device = NULL;
+    tb_rhi_error error = TB_RHI_ERROR_INIT;
+    tb_rhi_device_options options = {.backend = TB_RHI_BACKEND_METAL,
+                                     .adapter = TB_RHI_ADAPTER_SOFTWARE};
+    TB_TEST_EXPECT_UINT(tb_rhi_device_create(&options, &device, &error), ==, TB_RHI_UNAVAILABLE);
+    TB_TEST_EXPECT_POINTER(device, ==, NULL);
+    TB_TEST_EXPECT_STRING(error.message, ==, "Metal requires a hardware GPU");
+    options.adapter = TB_RHI_ADAPTER_HIGH_PERFORMANCE;
+    const tb_rhi_result opened = tb_rhi_device_create(&options, &device, &error);
+    if (opened == TB_RHI_UNAVAILABLE)
+    {
+        TB_TEST_SKIP("%s", error.message);
+    }
+    TB_TEST_REQUIRE_UINT(opened, ==, TB_RHI_OK);
+    tb_rhi_device_destroy(device);
+    options.bindless_resources = TB_MSL_RESOURCE_COUNT + 1;
+    TB_TEST_EXPECT_UINT(tb_rhi_device_create(&options, &device, &error), ==, TB_RHI_UNAVAILABLE);
+    TB_TEST_EXPECT_POINTER(device, ==, NULL);
+    TB_TEST_EXPECT(tb_str_starts_with(error.message, "Metal argument-buffer capacities"));
+}
+
 static tb_rhi_shader triangle(tb_rhi_device *device, bool vertex)
 {
     tb_shader_file source = {.path = "/Engine/Private/triangle.hlsl"};
