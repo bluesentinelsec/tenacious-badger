@@ -4,6 +4,8 @@
  * was opened in, only while it is started. The render function writes
  * silence, so the cases make no sound. A machine without audio, as CI's
  * runners are, skips them. */
+#include "audio_display_state.h"
+
 #include "badger/audio_device.h"
 
 #include "badger/platform.h"
@@ -125,13 +127,36 @@ TB_TEST(platform_audio_device, the_default_output_asks_for_samples)
     TB_TEST_EXPECT_UINT(format.channels, ==, 2);
 
     tb_audio_device_start(device);
-    TB_TEST_EXPECT(wait_for_calls(&heard, 3));
+    const bool delivered = wait_for_calls(&heard, 3);
+    if (!delivered)
+    {
+        tb_audio_system_info info = {0};
+        tb_audio_system_get_info(system, &info);
+        const tb_test_audio_display display = tb_test_audio_display_state();
+        const char *hint = "check the default output route";
+        if (display == TB_TEST_AUDIO_DISPLAY_ASLEEP)
+        {
+            hint = "main display asleep; repeat awake (see docs/audio.md)";
+        }
+        else if (display == TB_TEST_AUDIO_DISPLAY_AWAKE)
+        {
+            hint = "main display awake; check the audio route and callback delivery";
+        }
+        TB_TEST_CONTEXT("%s default output opened at %u Hz, %u channels, and requested %zu "
+                        "callbacks in 3 s; %s",
+                        info.backend, format.sample_rate, format.channels,
+                        tb_platform_atomic_size_load(&heard.calls), hint);
+    }
+    TB_TEST_EXPECT(delivered);
     tb_audio_device_stop(device);
     const size_t calls = tb_platform_atomic_size_load(&heard.calls);
     tb_platform_sleep(QUIET_NANOSECONDS);
     TB_TEST_EXPECT_UINT(tb_platform_atomic_size_load(&heard.calls), ==, calls);
-    TB_TEST_EXPECT_UINT(tb_platform_atomic_u32_load(&heard.thread_differs), ==, 1);
-    TB_TEST_EXPECT_UINT(tb_platform_atomic_u32_load(&heard.wrong_channels), ==, 0);
+    if (calls > 0)
+    {
+        TB_TEST_EXPECT_UINT(tb_platform_atomic_u32_load(&heard.thread_differs), ==, 1);
+        TB_TEST_EXPECT_UINT(tb_platform_atomic_u32_load(&heard.wrong_channels), ==, 0);
+    }
 
     tb_audio_device_get_latency(device, &latency);
     TB_TEST_CONTEXT("latency: period %u, buffer %u, %.1f ms", latency.period_frames,
