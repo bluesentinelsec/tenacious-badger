@@ -19,6 +19,7 @@
  * metadata, and reports them. */
 #include "audio_pipewire.h"
 #include "audio_linux.h"
+#include "library_linux.h"
 
 #include "badger/array.h"
 #include "badger/assert.h"
@@ -988,6 +989,9 @@ tb_audio_device_result tb_pipewire_open(const tb_audio_system_ops **ops, void **
                                       "PipeWire: no context: is its configuration installed?");
         goto failed;
     }
+    /* PipeWire can load libdbus for RTKit. Its process-wide allocations
+     * must survive context teardown so the next context can reuse them. */
+    (void)tb_linux_library_keep_loaded("libdbus-1.so.3");
     pipewire->core = pw->context_connect(pipewire->context, NULL, 0);
     if (pipewire->core == NULL)
     {

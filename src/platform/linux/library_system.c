@@ -2,9 +2,12 @@
  * directories of LD_LIBRARY_PATH, of the engine library's run path, of
  * /etc/ld.so.cache, and in /lib and /usr/lib. A name with no '/' is never
  * looked for in the working directory. */
+#include "library_linux.h"
+
 #include "../posix/library.h"
 #include "../shared/library.h"
 
+#include <dlfcn.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -29,4 +32,15 @@ tb_library_result tb_posix_library_system_path(const char *name, char **path,
     /* coverage-on */
     memcpy(*path, name, length + 1);
     return TB_LIBRARY_OK;
+}
+
+bool tb_linux_library_keep_loaded(const char *name)
+{
+    void *const handle = dlopen(name, RTLD_NOW | RTLD_LOCAL | RTLD_NOLOAD | RTLD_NODELETE);
+    if (handle == NULL)
+    {
+        return false;
+    }
+    (void)dlclose(handle);
+    return true;
 }

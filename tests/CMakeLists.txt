@@ -557,6 +557,10 @@ function(tb_add_platform_tests target)
     tb_configure_target(${target})
     tb_make_standalone(${target})
     add_dependencies(${target} tb_library_fixture)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        target_compile_definitions(${target} PRIVATE
+            "TB_LIBRARY_FIXTURE_PATH=\"$<TARGET_FILE:tb_library_fixture>\"")
+    endif()
     target_compile_definitions(${target} PRIVATE
         "TB_LIBRARY_FIXTURE_FILE=\"$<TARGET_FILE_NAME:tb_library_fixture>\"")
 endfunction()
@@ -659,7 +663,7 @@ if(TB_SANITIZER)
             list(APPEND tb_sanitizer_probe_sources support/support_probe.c)
             add_custom_target(tb_check_pipewire_output
                 COMMAND Python3::Interpreter "${CMAKE_CURRENT_SOURCE_DIR}/tools/pipewire_output_test.py"
-                    "${CMAKE_C_COMPILER}" "$<TARGET_FILE:tb_tests_sanitized>"
+                    "$<TARGET_FILE:tb_tests_sanitized>"
                     "$<TARGET_FILE:tb_internal_tests_sanitized>" "$<TARGET_FILE:tb_probe_sanitized>"
                 COMMENT "Check a real PipeWire output under ASan, UBSan and LeakSanitizer"
                 USES_TERMINAL VERBATIM)

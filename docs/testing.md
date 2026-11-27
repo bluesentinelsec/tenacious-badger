@@ -96,7 +96,7 @@ for (size_t index = 0; index < TB_TEST_COUNT_OF(rows); index++)
 
 ```
 text_test.c(40): error: text.measures_length: TB_TEST_EXPECT_UINT(...) failed with 4 == 5
-    context: row 7: "naïve"
+    context: row 7: "naÃ¯ve"
 ```
 
 **Deterministic random inputs.** `tb_test_random_u64()`,
@@ -409,13 +409,10 @@ still skip unavailable hardware. Before playback, the target verifies that
 the engine's allocation counter and LeakSanitizer both report two deliberate
 project leaks. ASan and UBSan remain enabled for each case.
 
-PipeWire may unload libdbus with process-lifetime allocations still in its
-globals. On the Deck this also happens in a native program that creates and
-destroys a PipeWire context. The target keeps the system libdbus loaded
-until process exit so LeakSanitizer can see those globals when it scans its
-roots. This environment applies only to the probe and test processes. The
-upstream teardown report is tracked in
-[#399](https://github.com/bluesentinelsec/tenacious-badger/issues/399).
+The PipeWire case closes and reopens the backend in one process. The
+hardware check runs without library preloads. When a client context loads
+libdbus for services such as RTKit, the Linux adapter keeps that library
+mapped so its process-wide allocations can be reused on the next open.
 
 ### Data races
 

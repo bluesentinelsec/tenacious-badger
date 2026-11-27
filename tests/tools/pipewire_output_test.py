@@ -1,19 +1,14 @@
 """Validate live PipeWire playback with GCC sanitizers and project allocation checks."""
 import os
-from pathlib import Path
 import subprocess
 import sys
 
 
-def main(compiler, public_tests, internal_tests, probe):
-    # GCC's ASan must be first. Keeping libdbus loaded preserves its global
-    # roots when PipeWire unloads its client modules during context teardown.
-    asan = subprocess.check_output([compiler, "-print-file-name=libasan.so"], text=True).strip()
-    dbus = subprocess.check_output([compiler, "-print-file-name=libdbus-1.so.3"], text=True).strip()
-    if not all(Path(library).is_absolute() and Path(library).is_file() for library in (asan, dbus)):
-        raise SystemExit("The GCC ASan runtime and the system libdbus-1.so.3 must be installed")
-    env = dict(os.environ, LD_PRELOAD=f"{asan}:{dbus}", ASAN_OPTIONS="detect_leaks=1",
-               LSAN_OPTIONS="exitcode=23", UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1")
+def main(public_tests, internal_tests, probe):
+    env = dict(os.environ, ASAN_OPTIONS="detect_leaks=1", LSAN_OPTIONS="exitcode=23",
+               UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1")
+    # Exercise the loader lifetime of an ordinary game process.
+    env.pop("LD_PRELOAD", None)
 
     # This existing probe leaks through tb_malloc and tb_calloc. The engine
     # counts the lost blocks, and LSan must independently report the bytes.
