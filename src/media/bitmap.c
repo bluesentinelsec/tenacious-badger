@@ -51,7 +51,7 @@ const char *tb_bitmap_format_name(tb_bitmap_format format)
     return "unknown format";
 }
 
-static uint8_t tb_bitmap_luminance(tb_bitmap_color color)
+uint8_t tb_bitmap_luminance(tb_bitmap_color color)
 {
     const uint32_t sum = TB_BITMAP_LUMA_RED * color.r + TB_BITMAP_LUMA_GREEN * color.g +
                          TB_BITMAP_LUMA_BLUE * color.b + (1u << (TB_BITMAP_LUMA_SHIFT - 1u));

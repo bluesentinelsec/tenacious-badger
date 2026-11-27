@@ -48,6 +48,15 @@ tb_bitmap_result tb_bitmap_fail(tb_bitmap_error *error, tb_bitmap_result result,
     return result;
 }
 
+tb_bitmap_result tb_bitmap_fail_in(tb_bitmap_error *error, tb_bitmap_result result,
+                                   const char *chunk, size_t offset, const char *reason)
+{
+    (void)tb_bitmap_fail(error, result, offset, reason);
+    memcpy(error->chunk, chunk, sizeof(error->chunk) - 1u);
+    error->chunk[sizeof(error->chunk) - 1u] = '\0';
+    return result;
+}
+
 void tb_bitmap_describe(tb_bitmap_error *error, const char *name)
 {
     size_t used = 0;
@@ -65,6 +74,11 @@ void tb_bitmap_describe(tb_bitmap_error *error, const char *name)
     if (name != NULL)
     {
         used += tb_fmt_buffer(error->message + used, sizeof(error->message) - used, "%s: ", name);
+    }
+    if (error->chunk[0] != '\0' && used < sizeof(error->message))
+    {
+        used += tb_fmt_buffer(error->message + used, sizeof(error->message) - used,
+                              at_offset ? "%s chunk at " : "%s chunk: ", error->chunk);
     }
     if (at_offset && used < sizeof(error->message))
     {
@@ -110,6 +124,12 @@ static tb_bitmap_result tb_bitmap_decode_limited(const void *bytes, size_t lengt
     if (length >= sizeof(bmp_signature) && memcmp(bytes, bmp_signature, sizeof(bmp_signature)) == 0)
     {
         return tb_bitmap_decode_bmp(bytes, length, limits->max_side, limits->max_pixels, allocator,
+                                    bitmap, error);
+    }
+    if (length >= sizeof(tb_bitmap_png_signature) &&
+        memcmp(bytes, tb_bitmap_png_signature, sizeof(tb_bitmap_png_signature)) == 0)
+    {
+        return tb_bitmap_decode_png(bytes, length, limits->max_side, limits->max_pixels, allocator,
                                     bitmap, error);
     }
     return tb_bitmap_fail(error, TB_BITMAP_UNKNOWN_FORMAT, TB_BITMAP_NO_OFFSET,
