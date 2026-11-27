@@ -8,8 +8,8 @@
 #include "sandbox.h"
 
 #include "badger/arena.h"
-#include "badger/canvas.h"
 #include "badger/assert.h"
+#include "badger/canvas.h"
 #include "badger/cli.h"
 #include "badger/crash.h"
 #include "badger/d3dcompiler.h"

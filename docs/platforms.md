@@ -706,7 +706,7 @@ report lands in the same file, in order, and it leaves both unbuffered.
 
 | Platform | How |
 | --- | --- |
-| Windows | `CreateFileW`, shared for reading and writing, made a C runtime descriptor and duplicated onto descriptors 1 and 2 with `_dup2`; `SetStdHandle` for the standard handles |
+| Windows | `CreateFileW`, shared for reading and writing, made a C runtime descriptor and duplicated onto the C standard streams with `_dup2`, reopening detached streams first; `SetStdHandle` for the standard handles |
 | Linux, macOS | `open`, duplicated onto descriptors 1 and 2 with `dup2` |
 | Other | "not implemented" |
 

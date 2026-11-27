@@ -132,11 +132,29 @@ static WCHAR *tb_win32_output_path(const char *path)
     return wide;
 }
 
+/* Without an inherited handle the UCRT gives the stream a sentinel that
+ * _dup2 cannot target. Reopening the FILE gives it a real descriptor. */
+static int tb_win32_stream_descriptor(FILE *stream)
+{
+    if (_fileno(stream) < 0)
+    {
+        FILE *opened = NULL;
+        if (_wfreopen_s(&opened, L"NUL", L"w", stream) != 0)
+        {
+            return -1;
+        }
+    }
+    return _fileno(stream);
+}
+
 bool tb_process_write_output_to(const char *path)
 {
     WCHAR *wide = NULL;
     HANDLE file = INVALID_HANDLE_VALUE;
     int descriptor = -1;
+    int output = -1;
+    int error = -1;
+    int saved_output = -1;
     bool moved = false;
 
     TB_ASSERT(path != NULL);
@@ -160,16 +178,24 @@ bool tb_process_write_output_to(const char *path)
         goto cleanup;
     }
     /* coverage-on */
-    (void)fflush(stdout);
-    (void)fflush(stderr);
-    /* Both descriptors share the file's position, so lines keep their order.
-     * A program without a console has no descriptors 1 and 2 until now. */
-    /* coverage-off: duplicating an open descriptor fails only without memory */
-    if (_dup2(descriptor, _fileno(stdout)) != 0 || _dup2(descriptor, _fileno(stderr)) != 0)
+    output = tb_win32_stream_descriptor(stdout);
+    error = tb_win32_stream_descriptor(stderr);
+    if (output < 0 || error < 0)
     {
         goto cleanup;
     }
-    /* coverage-on */
+    /* Save stdout until stderr has moved, so a second duplication failure
+     * leaves the original output available for diagnostics. */
+    saved_output = _dup(output);
+    if (saved_output < 0 || _dup2(descriptor, output) != 0)
+    {
+        goto cleanup;
+    }
+    if (_dup2(descriptor, error) != 0)
+    {
+        (void)_dup2(saved_output, output);
+        goto cleanup;
+    }
     /* The system's standard handles too, which a crash report writes to. */
     (void)SetStdHandle(STD_OUTPUT_HANDLE, (HANDLE)_get_osfhandle(_fileno(stdout)));
     (void)SetStdHandle(STD_ERROR_HANDLE, (HANDLE)_get_osfhandle(_fileno(stderr)));
@@ -177,6 +203,10 @@ bool tb_process_write_output_to(const char *path)
     (void)setvbuf(stderr, NULL, _IONBF, 0);
     moved = true;
 cleanup:
+    if (saved_output >= 0)
+    {
+        (void)_close(saved_output);
+    }
     if (descriptor >= 0)
     {
         (void)_close(descriptor);

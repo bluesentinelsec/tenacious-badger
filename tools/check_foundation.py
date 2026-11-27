@@ -240,13 +240,11 @@ AUTHORIZED = {
            'src/platform/linux/library_system.c': 'malloc strlen',
            'src/platform/macos/library_system.c': 'malloc strlen strchr',
        }.items()},
-    # The arguments are converted beneath the foundation too, for main, and
-    # the standard streams are flushed before they are moved to a file.
+    # The arguments are converted beneath the foundation too, for main.
     **{path: (set(names.split()),
-              'implements the process arguments and output beneath the foundation modules')
+              'implements the process arguments beneath the foundation modules')
        for path, names in {
-           'src/platform/win32/process.c': 'malloc free fflush',
-           'src/platform/posix/process.c': 'fflush',
+           'src/platform/win32/process.c': 'malloc free',
        }.items()},
 
     # The modules that implement the replacements.

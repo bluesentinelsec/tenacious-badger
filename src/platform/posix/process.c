@@ -6,6 +6,7 @@
 
 #include "badger/assert.h"
 
+#include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -31,31 +32,59 @@ void tb_process_release_arguments(tb_arguments *arguments)
     arguments->storage = NULL;
 }
 
+static bool tb_posix_move_output(int file, int target)
+{
+    int result = -1;
+    do
+    {
+        result = dup2(file, target);
+    } while (result < 0 && errno == EINTR);
+    return result >= 0;
+}
+
 bool tb_process_write_output_to(const char *path)
 {
     int descriptor = -1;
+    int saved_output = -1;
     bool moved = false;
 
     TB_ASSERT(path != NULL);
-    descriptor = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, TB_POSIX_OUTPUT_MODE);
-    if (descriptor < 0)
+    /* Keep descriptors 0 through 2 free if the launcher left them closed. */
+    saved_output = fcntl(STDOUT_FILENO, F_DUPFD_CLOEXEC, STDERR_FILENO + 1);
+    if (saved_output < 0 && errno != EBADF)
     {
         return false;
     }
-    (void)fflush(stdout);
-    (void)fflush(stderr);
-    /* Both descriptors share the file's position, so lines keep their order.
-     * dup2 clears close-on-exec, so a child writes there too. */
-    /* coverage-off: duplicating an open descriptor onto 1 or 2 cannot fail */
-    if (dup2(descriptor, STDOUT_FILENO) < 0 || dup2(descriptor, STDERR_FILENO) < 0)
+    /* open may itself supply descriptor 1 or 2. Both are inherited by
+     * children, including when dup2(file, file) leaves its flags alone. */
+    descriptor = open(path, O_WRONLY | O_CREAT | O_TRUNC, TB_POSIX_OUTPUT_MODE);
+    if (descriptor < 0 || !tb_posix_move_output(descriptor, STDOUT_FILENO))
     {
         goto cleanup;
     }
-    /* coverage-on */
+    if (!tb_posix_move_output(descriptor, STDERR_FILENO))
+    {
+        if (saved_output >= 0)
+        {
+            (void)tb_posix_move_output(saved_output, STDOUT_FILENO);
+        }
+        else if (descriptor != STDOUT_FILENO)
+        {
+            (void)close(STDOUT_FILENO);
+        }
+        goto cleanup;
+    }
     (void)setvbuf(stdout, NULL, _IONBF, 0);
     (void)setvbuf(stderr, NULL, _IONBF, 0);
     moved = true;
 cleanup:
-    (void)close(descriptor);
+    if (descriptor >= 0 && (!moved || (descriptor != STDOUT_FILENO && descriptor != STDERR_FILENO)))
+    {
+        (void)close(descriptor);
+    }
+    if (saved_output >= 0)
+    {
+        (void)close(saved_output);
+    }
     return moved;
 }

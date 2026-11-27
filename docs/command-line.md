@@ -210,8 +210,9 @@ Burrow and the sandbox declare their own command lines with this module,
 and share some options by name, so a habit learned on one works on the
 other: `--renderer NAME`, `--frames COUNT`, `--set NAME=VALUE`, and
 `--log-file FILE`. The last sends standard output and standard error to the
-file before anything is written ([logging](logging.md#writing-the-log-to-a-file)),
-so such a program parses its command line with `tb_cli_parse()`, moves its
+file for the chosen command ([logging](logging.md#writing-the-log-to-a-file)).
+Help, version information and parsing errors use the original streams. The
+program parses its command line with `tb_cli_parse()`, moves its
 output, and then runs the command chosen, where `tb_cli_run()` would do the
 first and the last together:
 
