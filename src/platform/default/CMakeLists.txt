@@ -6,6 +6,7 @@ set(TB_PLATFORM_DEFAULT_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/fs.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/abort.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/atomic.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/audio_device.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/crash.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/d3dcompiler.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/dxc.c"

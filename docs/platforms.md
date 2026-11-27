@@ -1,9 +1,8 @@
 # Platform interfaces and bootstrap scope
 
 The binding architecture is in [AGENTS.md](../AGENTS.md). The existing
-[vision.md](vision.md) is an earlier draft. Only the clock,
-abnormal-termination, atomic-value, thread, and processor-count interfaces
-exist so far; the other platform services and rendering backends are still planned. No renderer, window, vendor SDK, or game loop is implemented.
+[vision.md](vision.md) is an earlier draft. The sections below describe the implemented
+platform interfaces and the native services behind them.
 
 Every interface is implemented on Windows, Linux, and macOS.
 [Any other platform](#unsupported-platforms) stops the build, and reports
@@ -884,6 +883,12 @@ front, `src/platform/shared/window.c` and `gamepad.c`, over a backend of each
 adapter: Win32, and XInput with raw HID, on Windows; Wayland, X11 and evdev on
 Linux; Cocoa and the GameController framework on macOS.
 
+## Audio output
+
+The audio device interface pulls interleaved float samples from the game.
+It uses WASAPI on Windows, PipeWire or ALSA on Linux, and Core Audio on macOS.
+See [audio devices](audio.md) for device selection, callback lifetime and latency.
+
 ## Unsupported platforms
 
 Windows, Linux, and macOS are the supported platforms, and each implements
@@ -957,7 +962,7 @@ For each new platform interface, add in one change:
   which is the list the default adapter is checked against.
 
 No interface is implemented on fewer than the three platforms. Planned
-services include asynchronous files, audio devices, and system information. Each loads the system libraries it needs through
+services include asynchronous files and system information. Each loads the system libraries it needs through
 `badger/library.h`.
 Native APIs and future RHI backends are catalogued in the binding vision.
 

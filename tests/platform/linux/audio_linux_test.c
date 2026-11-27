@@ -1,0 +1,146 @@
+/* Each Linux audio backend by itself, where the machine has it: PipeWire
+ * where a daemon runs, and ALSA where a sound card is, though PipeWire
+ * would be chosen first. Each lists its outputs, opens the default, is
+ * asked for samples on its own thread while started, and refuses a name no
+ * device has. The render function writes silence, so the cases make no
+ * sound. A machine without either, as CI's runners are, skips them. */
+#define _POSIX_C_SOURCE 200809L
+#include "platform/linux/audio_linux.h"
+
+#include "badger/memory.h"
+#include "badger/platform.h"
+#include "badger/str.h"
+
+#include "tb_test.h"
+
+#include <stdlib.h>
+
+#define WAIT_NANOSECONDS 3000000000ull
+
+typedef tb_audio_device_result open_function(const tb_audio_system_ops **ops, void **native,
+                                             tb_audio_device_error *error);
+
+static void count_calls(void *context, float *samples, size_t frame_count, uint32_t channels)
+{
+    tb_platform_atomic_size *const calls = context;
+
+    (void)samples;
+    (void)frame_count;
+    (void)channels;
+    (void)tb_platform_atomic_size_add(calls, 1);
+}
+
+static void exercise(open_function *open_backend, const char *backend)
+{
+    const tb_audio_system_ops *ops = NULL;
+    void *native = NULL;
+    tb_audio_device_error error = TB_AUDIO_DEVICE_ERROR_INIT;
+    tb_platform_atomic_size calls = {0};
+    tb_audio_device *device = NULL;
+    tb_audio_system_info info = {0};
+    tb_audio_device_info devices[8] = {0};
+    tb_audio_device_latency latency = {0};
+    tb_audio_device_desc desc = {
+        .format = {.sample_rate = 48000, .channels = 2}, .render = count_calls, .context = &calls};
+
+    if (open_backend(&ops, &native, &error) != TB_AUDIO_DEVICE_OK)
+    {
+        TB_TEST_SKIP("no %s: %s", backend, error.message);
+    }
+    tb_audio_system *const system = tb_audio_system_make(ops, native);
+    tb_audio_system_get_info(system, &info);
+    TB_TEST_EXPECT_STRING(info.backend, ==, backend);
+    const size_t count = tb_audio_system_list_devices(system, devices, TB_TEST_COUNT_OF(devices));
+    for (size_t index = 0; index < count && index < TB_TEST_COUNT_OF(devices); index++)
+    {
+        TB_TEST_EXPECT(tb_str_length(devices[index].id) > 0);
+    }
+    if (tb_audio_device_open(system, &desc, &device, &error) != TB_AUDIO_DEVICE_OK)
+    {
+        tb_audio_system_close(system);
+        TB_TEST_SKIP("%s has no output: %s", backend, error.message);
+    }
+    tb_audio_device_start(device);
+    const uint64_t deadline = tb_platform_clock_nanoseconds() + WAIT_NANOSECONDS;
+    while (tb_platform_atomic_size_load(&calls) < 3 && tb_platform_clock_nanoseconds() < deadline)
+    {
+        tb_platform_sleep(1000000u);
+    }
+    tb_audio_device_get_latency(device, &latency);
+    TB_TEST_CONTEXT("%s latency: period %u, buffer %u, %.1f ms", backend, latency.period_frames,
+                    latency.buffer_frames, latency.seconds * 1000.0);
+    TB_TEST_EXPECT_UINT(tb_platform_atomic_size_load(&calls), >=, 3);
+    TB_TEST_EXPECT(latency.period_frames > 0);
+    tb_audio_device_close(device);
+
+    if (count > 0)
+    {
+        /* A device the system listed opens by its identifier. */
+        desc.device_id = devices[0].id;
+        TB_TEST_EXPECT_INT(tb_audio_device_open(system, &desc, &device, &error), ==,
+                           TB_AUDIO_DEVICE_OK);
+        tb_audio_device_close(device);
+    }
+    desc.device_id = "no such device, anywhere";
+    TB_TEST_EXPECT_INT(tb_audio_device_open(system, &desc, &device, NULL), ==,
+                       TB_AUDIO_DEVICE_NOT_FOUND);
+    tb_audio_system_close(system);
+}
+
+TB_TEST(platform_audio_linux, pipewire_plays)
+{
+    exercise(tb_pipewire_open, "PipeWire");
+}
+
+TB_TEST(platform_audio_linux, alsa_plays)
+{
+    exercise(tb_alsa_open, "ALSA");
+}
+
+TB_TEST(platform_audio_linux, alsa_reopens_a_named_output_beyond_the_first_64)
+{
+    const tb_audio_system_ops *ops = NULL;
+    void *native = NULL;
+    tb_audio_device_error error = TB_AUDIO_DEVICE_ERROR_INIT;
+    tb_audio_device *device = NULL;
+    tb_platform_atomic_size calls = {0};
+    tb_audio_device_desc desc = {
+        .format = {.sample_rate = 48000, .channels = 2}, .render = count_calls, .context = &calls};
+    if (tb_alsa_open(&ops, &native, &error) != TB_AUDIO_DEVICE_OK)
+    {
+        TB_TEST_SKIP("no ALSA: %s", error.message);
+    }
+    tb_audio_system *const system = tb_audio_system_make(ops, native);
+    const char *const previous = getenv("ALSA_CONFIG_PATH");
+    char *const saved = previous != NULL ? tb_str_dup(NULL, previous) : NULL;
+    const int configured = setenv("ALSA_CONFIG_PATH", TB_ALSA_FIXTURE, 1);
+    TB_TEST_EXPECT_INT(configured, ==, 0);
+    if (configured == 0)
+    {
+        const size_t count = tb_audio_system_list_devices(system, NULL, 0);
+        tb_audio_device_info *const outputs = TB_NEW_ARRAY(tb_audio_device_info, count);
+        const size_t listed = tb_audio_system_list_devices(system, outputs, count);
+        for (size_t index = 64; index < count && index < listed; index++)
+        {
+            if (tb_str_starts_with(outputs[index].id, "tb_virtual"))
+            {
+                desc.device_id = outputs[index].id;
+                break;
+            }
+        }
+        TB_TEST_EXPECT(desc.device_id != NULL);
+        if (desc.device_id != NULL)
+        {
+            TB_TEST_CONTEXT("opening %s from %zu outputs", desc.device_id, listed);
+            TB_TEST_EXPECT_INT(tb_audio_device_open(system, &desc, &device, &error), ==,
+                               TB_AUDIO_DEVICE_OK);
+            tb_audio_device_close(device);
+        }
+        tb_free(outputs);
+    }
+    tb_audio_system_close(system);
+    const int restored =
+        saved != NULL ? setenv("ALSA_CONFIG_PATH", saved, 1) : unsetenv("ALSA_CONFIG_PATH");
+    TB_TEST_EXPECT_INT(restored, ==, 0);
+    tb_free(saved);
+}

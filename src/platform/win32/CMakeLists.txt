@@ -53,6 +53,16 @@ set(TB_GAMEPAD_SOURCES
 target_sources(badger PRIVATE ${TB_GAMEPAD_SOURCES})
 target_sources(badger_static PRIVATE ${TB_GAMEPAD_SOURCES})
 
+# Audio devices: the shared front, then WASAPI behind it, through ole32.dll
+# and avrt.dll loaded at run time. They are built on the foundation modules,
+# as windowing is.
+set(TB_AUDIO_DEVICE_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/../shared/audio_device.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/audio_device.c"
+    CACHE INTERNAL "Selected audio device sources")
+target_sources(badger PRIVATE ${TB_AUDIO_DEVICE_SOURCES})
+target_sources(badger_static PRIVATE ${TB_AUDIO_DEVICE_SOURCES})
+
 # The shader compilers: DXC, loaded at run time and called through COM, and
 # D3DCompiler, part of Windows, loaded from the system directory. They are
 # built on the foundation modules, as windowing is, so they are not part of
