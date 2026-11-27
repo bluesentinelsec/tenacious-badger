@@ -34,6 +34,7 @@
 #include "badger/fmt.h"
 #include "badger/library.h"
 #include "badger/memory.h"
+#include "badger/platform.h"
 #include "badger/str.h"
 
 #include <stddef.h>
@@ -45,6 +46,58 @@
 /* ---------------------------------------------------------------------------
  * libwayland, as much as is used.
  * ------------------------------------------------------------------------- */
+
+void tb_wl_repeat_configure(tb_wl_repeat *repeat, int32_t rate, int32_t delay, uint64_t now)
+{
+    if (rate <= 0 || delay < 0)
+    {
+        *repeat = (tb_wl_repeat){0};
+        return;
+    }
+    repeat->interval = (UINT64_C(1000000000) + (uint32_t)rate - 1) / (uint32_t)rate;
+    repeat->delay = (uint64_t)delay * UINT64_C(1000000);
+    repeat->started = now;
+    repeat->duration = repeat->delay;
+}
+
+void tb_wl_repeat_key(tb_wl_repeat *repeat, uint32_t key, bool down, bool repeatable, uint64_t now)
+{
+    if (down && repeatable && repeat->interval != 0)
+    {
+        repeat->active = true;
+        repeat->key = key;
+        repeat->started = now;
+        repeat->duration = repeat->delay;
+    }
+    else if (!down && key == repeat->key)
+    {
+        repeat->active = false;
+    }
+}
+
+uint64_t tb_wl_repeat_wait(const tb_wl_repeat *repeat, uint64_t now, uint64_t timeout)
+{
+    if (!repeat->active)
+    {
+        return timeout;
+    }
+    const uint64_t elapsed = now - repeat->started;
+    const uint64_t remaining = elapsed < repeat->duration ? repeat->duration - elapsed : 0;
+    return remaining < timeout ? remaining : timeout;
+}
+
+bool tb_wl_repeat_due(tb_wl_repeat *repeat, uint64_t now)
+{
+    if (!repeat->active || now - repeat->started < repeat->duration)
+    {
+        return false;
+    }
+    /* A delayed pump emits one repeat, then resumes the compositor's cadence. */
+    const uint64_t late = now - repeat->started - repeat->duration;
+    repeat->started = now;
+    repeat->duration = repeat->interval - late % repeat->interval;
+    return true;
+}
 
 typedef struct tb_wl_display tb_wl_display;
 typedef struct tb_wl_proxy tb_wl_proxy;
@@ -175,6 +228,7 @@ typedef struct tb_xkb_api
     tb_xkb_keymap *(*keymap_new_from_string)(tb_xkb_context *context, const char *text, int format,
                                              int flags);
     void (*keymap_unref)(tb_xkb_keymap *keymap);
+    int (*keymap_key_repeats)(tb_xkb_keymap *keymap, uint32_t key);
     tb_xkb_state *(*state_new)(tb_xkb_keymap *keymap);
     void (*state_unref)(tb_xkb_state *state);
     int (*state_update_mask)(tb_xkb_state *state, uint32_t depressed, uint32_t latched,
@@ -446,6 +500,7 @@ struct tb_wl_system
     tb_wl_proxy *decoration_manager;
     tb_array *outputs; /* tb_wl_output *; the first is the primary. */
     tb_window *keyboard_focus;
+    tb_wl_repeat repeat;
     tb_linux_waker waker;
     tb_window_system *system;
     bool displays_changed;
@@ -856,6 +911,8 @@ static void tb_wl_keymap(void *data, tb_wl_proxy *keyboard, uint32_t format, int
     char *text = NULL;
 
     (void)keyboard;
+    tb_wl_forget_keymap(native);
+    native->repeat.active = false;
     if (native->xkb_context == NULL || format != TB_WL_KEYMAP_XKB_V1)
     {
         (void)close(fd);
@@ -863,7 +920,6 @@ static void tb_wl_keymap(void *data, tb_wl_proxy *keyboard, uint32_t format, int
     }
     text = tb_wl_read_keymap(fd, size);
     (void)close(fd);
-    tb_wl_forget_keymap(native);
     native->keymap =
         native->xkb.keymap_new_from_string(native->xkb_context, text, TB_WL_KEYMAP_XKB_V1, 0);
     tb_free(text);
@@ -886,6 +942,7 @@ static void tb_wl_keyboard_enter(void *data, tb_wl_proxy *keyboard, uint32_t ser
     (void)keyboard;
     (void)serial;
     (void)keys;
+    native->repeat.active = false;
     native->keyboard_focus = tb_wl_window_of_surface(native, surface);
     if (native->keyboard_focus != NULL)
     {
@@ -906,6 +963,7 @@ static void tb_wl_keyboard_leave(void *data, tb_wl_proxy *keyboard, uint32_t ser
         tb_window_focused(window, false);
     }
     native->keyboard_focus = NULL;
+    native->repeat.active = false;
     if (native->compose_state != NULL)
     {
         native->xkb.compose_state_reset(native->compose_state);
@@ -967,7 +1025,9 @@ static void tb_wl_key(void *data, tb_wl_proxy *keyboard, uint32_t serial, uint32
     {
         return;
     }
-    /* A compositor sends no repeats: a client repeats keys itself. */
+    const bool repeatable = down && native->keymap != NULL &&
+                            native->xkb.keymap_key_repeats(native->keymap, key + 8u) != 0;
+    tb_wl_repeat_key(&native->repeat, key, down, repeatable, tb_platform_clock_nanoseconds());
     tb_window_key(native->keyboard_focus, tb_linux_key(key), key, down, false, native->modifiers);
     if (down)
     {
@@ -1008,10 +1068,9 @@ static void tb_wl_modifiers(void *data, tb_wl_proxy *keyboard, uint32_t serial, 
 
 static void tb_wl_repeat_info(void *data, tb_wl_proxy *keyboard, int32_t rate, int32_t delay)
 {
-    (void)data;
+    tb_wl_system *const native = data;
     (void)keyboard;
-    (void)rate;
-    (void)delay;
+    tb_wl_repeat_configure(&native->repeat, rate, delay, tb_platform_clock_nanoseconds());
 }
 
 static struct
@@ -1042,6 +1101,7 @@ static void tb_wl_release_keyboard(tb_wl_system *native)
         native->wl.destroy(native->keyboard);
     }
     native->keyboard = NULL;
+    native->repeat = (tb_wl_repeat){0};
     native->keyboard_focus = NULL;
 }
 
@@ -1984,6 +2044,7 @@ static void tb_wl_destroy(tb_window *window)
 
     if (native->keyboard_focus == window)
     {
+        native->repeat.active = false;
         native->keyboard_focus = NULL;
     }
     if (native->pointer_focus == window)
@@ -2074,6 +2135,7 @@ static void tb_wl_pump(tb_window_system *system, uint64_t nanoseconds)
     }
     (void)native->wl.flush(native->display);
     /* What the dispatch above queued is enough; otherwise wait. */
+    nanoseconds = tb_wl_repeat_wait(&native->repeat, tb_platform_clock_nanoseconds(), nanoseconds);
     ready = tb_linux_wait(native->wl.get_fd(native->display), native->waker.read_end,
                           tb_array_length(system->events) > queued ? 0 : nanoseconds);
     if ((ready & 1u) != 0)
@@ -2085,6 +2147,13 @@ static void tb_wl_pump(tb_window_system *system, uint64_t nanoseconds)
         native->wl.cancel_read(native->display);
     }
     (void)native->wl.dispatch_pending(native->display);
+    if (tb_wl_repeat_due(&native->repeat, tb_platform_clock_nanoseconds()))
+    {
+        const uint32_t key = native->repeat.key;
+        tb_window_key(native->keyboard_focus, tb_linux_key(key), key, true, true,
+                      native->modifiers);
+        tb_wl_key_text(native, native->keyboard_focus, key);
+    }
     tb_wl_after_dispatch(system);
 }
 
@@ -2321,6 +2390,7 @@ static void tb_wl_load_xkb(tb_wl_system *native)
         "xkb_context_unref",
         "xkb_keymap_new_from_string",
         "xkb_keymap_unref",
+        "xkb_keymap_key_repeats",
         "xkb_state_new",
         "xkb_state_unref",
         "xkb_state_update_mask",

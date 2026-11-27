@@ -69,3 +69,30 @@ TB_TEST(platform_linux_window, raw_motion_reads_the_valuators_the_mask_names)
     TB_TEST_EXPECT_FLOAT(delta_x, ==, 0.0);
     TB_TEST_EXPECT_FLOAT(delta_y, ==, 0.0);
 }
+
+TB_TEST(platform_linux_window, wayland_key_repeat_follows_the_seat_clock)
+{
+    tb_wl_repeat repeat = {0};
+    const uint64_t ms = UINT64_C(1000000);
+    tb_wl_repeat_configure(&repeat, 20, 200, 0);
+    tb_wl_repeat_key(&repeat, 30, true, true, 10 * ms);
+    TB_TEST_EXPECT_UINT(tb_wl_repeat_wait(&repeat, 20 * ms, UINT64_MAX), ==, 190 * ms);
+    TB_TEST_EXPECT_UINT(tb_wl_repeat_wait(&repeat, 20 * ms, ms), ==, ms);
+    TB_TEST_EXPECT(!tb_wl_repeat_due(&repeat, 209 * ms));
+    TB_TEST_EXPECT(tb_wl_repeat_due(&repeat, 210 * ms));
+    tb_wl_repeat_key(&repeat, 42, true, false, 211 * ms);
+    tb_wl_repeat_key(&repeat, 42, false, false, 212 * ms);
+    TB_TEST_EXPECT_UINT(repeat.key, ==, 30);
+    TB_TEST_EXPECT(tb_wl_repeat_due(&repeat, 371 * ms));
+    TB_TEST_EXPECT(!tb_wl_repeat_due(&repeat, 371 * ms));
+    TB_TEST_EXPECT_UINT(tb_wl_repeat_wait(&repeat, 371 * ms, UINT64_MAX), ==, 39 * ms);
+    tb_wl_repeat_key(&repeat, 14, true, true, 372 * ms);
+    tb_wl_repeat_key(&repeat, 30, false, false, 373 * ms);
+    TB_TEST_EXPECT(tb_wl_repeat_due(&repeat, 572 * ms));
+    tb_wl_repeat_key(&repeat, 14, false, false, 573 * ms);
+    TB_TEST_EXPECT_UINT(tb_wl_repeat_wait(&repeat, 600 * ms, UINT64_MAX), ==, UINT64_MAX);
+    tb_wl_repeat_key(&repeat, 30, true, true, 600 * ms);
+    tb_wl_repeat_configure(&repeat, 0, 0, 601 * ms);
+    tb_wl_repeat_key(&repeat, 30, true, true, 602 * ms);
+    TB_TEST_EXPECT(!tb_wl_repeat_due(&repeat, 1000 * ms));
+}
