@@ -1140,6 +1140,15 @@ const sandbox_scene sandbox_scenes[] = {
      gamepad_scene_event,
      false,
      false},
+    {"audio",
+     "output device, sample format and latency; Space plays a quiet test tone",
+     {0.10f, 0.11f, 0.13f, 1},
+     audio_scene_create,
+     audio_scene_draw,
+     audio_scene_destroy,
+     audio_scene_event,
+     true,
+     false},
 };
 
 const size_t sandbox_scene_count = sizeof(sandbox_scenes) / sizeof(sandbox_scenes[0]);
