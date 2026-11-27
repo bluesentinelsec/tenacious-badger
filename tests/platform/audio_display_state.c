@@ -5,3 +5,8 @@ tb_test_audio_display tb_test_audio_display_state(void)
 {
     return TB_TEST_AUDIO_DISPLAY_UNKNOWN;
 }
+
+tb_test_audio_power tb_test_audio_power_state(void)
+{
+    return TB_TEST_AUDIO_POWER_UNKNOWN;
+}
