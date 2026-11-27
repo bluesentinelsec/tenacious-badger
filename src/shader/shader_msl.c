@@ -287,7 +287,7 @@ static void write_source(msl_writer *writer, const tb_shader_reflection *reflect
                              "vectors at b0 through b2";
             return;
         }
-        append(writer, "%sconstant %s &g%zu [[buffer(%u)]]", params + i ? ", " : "",
+        append(writer, "%sconstant %s &g%zu [[buffer(%u)]]", params != 0 || i != 0 ? ", " : "",
                type_name(writer, g->type), i, binding->register_index);
     }
     append(writer, ") {\n");
