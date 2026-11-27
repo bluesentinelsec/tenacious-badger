@@ -155,7 +155,9 @@ def bindings(lines):
                 fields = fields[:5] + [fields[5][:-len('unbounded')], 'unbounded']
             if len(fields) < 7:
                 break
-            name, kind, _form, _dimension, _id, bind, count = fields[:7]
+            name, kind, _form, dimension, _id, bind, count = fields[:7]
+            if dimension == 'tbuffer':
+                kind = 'tbuffer'
             result.append('binding %s %s %s %s' % (name, kind, bind, count))
     return result
 
@@ -194,7 +196,7 @@ def reflect(dxc, shader):
 
 
 def nested_buffers(lines):
-    """Each cbuffer's size and its variables' offsets, struct members by
+    """Each cbuffer or tbuffer's size and its variables' offsets, struct members by
     their path: DXC opens a struct with `struct X {` and closes it with
     `} name; ; Offset: N`, so members are named when their struct closes."""
     start = next((index for index, line in enumerate(lines) if line.strip() == '; Buffer Definitions:'),
@@ -208,7 +210,7 @@ def nested_buffers(lines):
         text = line[1:].strip() if line.startswith(';') else line.strip()
         if text.startswith('Resource Bindings:'):
             break
-        opened = re.match(r'cbuffer (\S+)$', text)
+        opened = re.match(r'(?:cbuffer|tbuffer) (\S+)$', text)
         if opened:
             buffer = opened.group(1)
             stack = []

@@ -555,7 +555,7 @@ static bool trace(const writer *out, const tb_shader_form_function *function, ui
         source->buffer = buffer_named(out, global->name);
         source->buffer_register = binding->register_index;
         source->type = global->type;
-        source->variable = SIZE_MAX;
+        source->variable = global->typed_buffer ? 0 : SIZE_MAX;
         source->offset = 0;
         return source->buffer != NULL;
     }

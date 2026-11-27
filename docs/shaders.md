@@ -503,7 +503,11 @@ if (tb_shader_compile(&request, arena, &compiled) == TB_SHADER_OK)
 - **The thread group** of `[numthreads]`.
 - **Constant buffers' layouts,** for each constant and texture buffer bound:
   its size, and each variable's offset, size, shape, and an array's elements
-  and stride, a struct's members described for its first element. They are
+  and stride, a struct's members described for its first element. A bound
+  `ConstantBuffer<T> draw` or `TextureBuffer<T> draw` has one top-level
+  struct variable named `draw`. Its fields are members of that variable.
+  A `cbuffer` or `tbuffer` block exposes its declarations as top-level
+  variables. In both forms offsets are relative to the buffer's start. They are
   packed as HLSL packs a constant buffer: in registers of 16 bytes that no
   vector crosses; each array element, matrix and struct starting a register,
   the last element of an array unpadded and what follows a struct packed into

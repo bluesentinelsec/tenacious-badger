@@ -1,0 +1,18 @@
+binding Options cbuffer cb0 1
+binding draw cbuffer cb1 1
+binding lookup tbuffer t0 1
+buffer Options 4
+buffer draw 44
+buffer lookup 12
+output SV_Target 0 float 4 r0.x
+variable Options.mask 0
+variable draw.draw 0
+variable draw.draw.passes 16
+variable draw.draw.passes.image 24
+variable draw.draw.passes.source 16
+variable draw.draw.passes.target 20
+variable draw.draw.tint 0
+variable lookup.lookup 0
+variable lookup.lookup.image 8
+variable lookup.lookup.source 0
+variable lookup.lookup.target 4

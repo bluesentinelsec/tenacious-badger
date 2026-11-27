@@ -1496,7 +1496,10 @@ TB_TEST(shader_form, the_verifier_checks_statements)
 
     /* A constant buffer is read, never written. */
     start(&b, false);
-    tb_shader_form_global input = {"Frame", b.f32, TB_SHADER_FORM_UNIFORM, {'b', false, 0, 0}};
+    tb_shader_form_global input = {.name = "Frame",
+                                   .type = b.f32,
+                                   .space = TB_SHADER_FORM_UNIFORM,
+                                   .binding = {.register_class = 'b'}};
     (void)tb_shader_form_add_global(&b.form, &input);
     tb_shader_form_expression pointer = {0};
     pointer.kind = TB_SHADER_FORM_GLOBAL;
@@ -1530,7 +1533,10 @@ static uint32_t texel_of(built *b, uint32_t resource, uint32_t location, uint32_
 static uint32_t handle_of(built *b, tb_shader_object object, bool global_handle)
 {
     const uint32_t type = tb_shader_form_resource(&b->form, object, b->f32, 0, 0, "resource");
-    tb_shader_form_global global = {"r", type, TB_SHADER_FORM_HANDLE, {'t', false, 0, 0}};
+    tb_shader_form_global global = {.name = "r",
+                                    .type = type,
+                                    .space = TB_SHADER_FORM_HANDLE,
+                                    .binding = {.register_class = 't'}};
     const uint32_t index = tb_shader_form_add_global(&b->form, &global);
     tb_shader_form_expression pointer = {0};
     pointer.kind = TB_SHADER_FORM_GLOBAL;
@@ -1697,7 +1703,10 @@ TB_TEST(shader_form, the_verifier_checks_the_module)
 {
     built b = {0};
     start(&b, false);
-    tb_shader_form_global global = {"g", b.f32, TB_SHADER_FORM_FUNCTION, {0, false, 0, 0}};
+    tb_shader_form_global global = {.name = "g",
+                                    .type = b.f32,
+                                    .space = TB_SHADER_FORM_FUNCTION,
+                                    .binding = {.register_class = 0}};
     (void)tb_shader_form_add_global(&b.form, &global);
     expect_broken(&b, "global 0: a global is private, groupshared, uniform or a handle");
 

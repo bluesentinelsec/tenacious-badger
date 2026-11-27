@@ -415,6 +415,6 @@ TB_TEST(shader_dxbc, the_corpus_compiles_or_says_what_shader_model_5_lacks)
         }
         tb_arena_destroy(out.arena);
     }
-    TB_TEST_EXPECT_UINT(compiled_count, ==, 18);
+    TB_TEST_EXPECT_UINT(compiled_count, ==, 19);
     tb_d3dcompiler_close(compiler);
 }
