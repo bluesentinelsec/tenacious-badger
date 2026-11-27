@@ -1,5 +1,6 @@
 /* Sheet descriptions must preserve names, timings and trim offsets on import
  * and export, including failures partway through an append. */
+#include "badger/fmt.h"
 #include "badger/sprite.h"
 #include "badger/str.h"
 #include "badger/vfs.h"
@@ -146,5 +147,25 @@ TB_TEST(media_sprite, malformed_input_rolls_back_and_reports_its_location)
     TB_TEST_EXPECT_UINT(tb_sprite_sheet_load_file(sheet, vfs, "missing.json", &error), ==,
                         TB_SPRITE_NOT_FOUND);
     tb_vfs_destroy(vfs);
+    tb_sprite_sheet_destroy(sheet);
+}
+
+TB_TEST(media_sprite, grid_name_expansion_is_bounded_before_frames_are_added)
+{
+    char prefix[320] = {0};
+    char json[640] = {0};
+    for (size_t i = 0; i + 1u < sizeof(prefix); i++)
+    {
+        prefix[i] = 'x';
+    }
+    (void)tb_fmt_buffer(json, sizeof(json),
+                        "{\"format\":\"badger-sprites\",\"version\":1,\"grid\":{\"name\":\"%s\","
+                        "\"cellWidth\":1,\"cellHeight\":1,\"imageWidth\":256,\"imageHeight\":256}}",
+                        prefix);
+    tb_sprite_sheet *const sheet = tb_sprite_sheet_create(NULL);
+    tb_sprite_error error = {0};
+    TB_TEST_EXPECT_UINT(load(sheet, json, &error), ==, TB_SPRITE_TOO_LARGE);
+    TB_TEST_EXPECT_UINT(tb_sprite_sheet_frame_count(sheet), ==, 0);
+    TB_TEST_EXPECT_STRING(error.path, ==, "$.grid");
     tb_sprite_sheet_destroy(sheet);
 }

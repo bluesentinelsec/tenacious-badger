@@ -404,6 +404,7 @@ order. Loading appends to a sheet. A duplicate name, invalid frame or malformed
 animation rolls the whole load back. Diagnostics include the file name,
 JSON location and reason. The reader accepts up to 16 MiB of JSON, 65,536
 explicit frames or grid cells per list, and 1,048,576 animation steps per file.
+The repeated prefixes of generated grid names may occupy up to 16 MiB.
 
 Aseprite and TexturePacker exports may supply `frames` as an array of entries
 with `filename` or an object keyed by frame name. The importer reads frame

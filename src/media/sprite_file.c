@@ -213,9 +213,15 @@ static tb_sprite_result read_grid(sprite_reader *r, const tb_json_value *object)
         grid.image_height >= grid.margin_y ? grid.image_height - grid.margin_y : 0;
     const uint64_t cols = (width + grid.spacing_x) / ((uint64_t)grid.cell_width + grid.spacing_x);
     const uint64_t rows = (height + grid.spacing_y) / ((uint64_t)grid.cell_height + grid.spacing_y);
-    if ((grid.count ? grid.count : cols * rows) > SPRITE_FILE_FRAMES)
+    const uint64_t count = grid.count != 0 ? grid.count : cols * rows;
+    if (count > SPRITE_FILE_FRAMES)
     {
         return fail(r, object, "grid", TB_SPRITE_TOO_LARGE, "too many grid frames");
+    }
+    /* JSON names each grid once, but the sheet owns one name per cell. */
+    if (grid.name != NULL && count != 0 && tb_str_length(grid.name) > SPRITE_FILE_BYTES / count)
+    {
+        return fail(r, object, "grid", TB_SPRITE_TOO_LARGE, "expanded grid names exceed 16 MiB");
     }
     const tb_sprite_result added = tb_sprite_sheet_add_grid(r->sheet, &grid, NULL, NULL);
     return added == TB_SPRITE_OK
