@@ -31,6 +31,10 @@ tb_mouse_button tb_linux_button(uint32_t code);
 void tb_x11_raw_motion(const unsigned char *mask, int mask_length, const double *raw_values,
                        double *delta_x, double *delta_y);
 
+/* Read the compositor's entire NUL-terminated keymap from byte zero. The
+ * caller frees the returned text and always retains ownership of fd. */
+char *tb_wl_read_keymap(int fd, uint32_t size);
+
 /* Wayland's repeating key, timed against the monotonic clock. */
 typedef struct tb_wl_repeat
 {

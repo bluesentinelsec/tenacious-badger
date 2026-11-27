@@ -37,6 +37,7 @@
 #include "badger/platform.h"
 #include "badger/str.h"
 
+#include <errno.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
@@ -46,6 +47,37 @@
 /* ---------------------------------------------------------------------------
  * libwayland, as much as is used.
  * ------------------------------------------------------------------------- */
+
+char *tb_wl_read_keymap(int fd, uint32_t size)
+{
+    if (size == 0)
+    {
+        return NULL;
+    }
+    char *const text = tb_malloc(size);
+    size_t done = 0;
+    while (done < size)
+    {
+        /* The descriptor can share its file offset with the compositor. */
+        const ssize_t got = pread(fd, text + done, size - done, (off_t)done);
+        if (got < 0 && errno == EINTR)
+        {
+            continue;
+        }
+        if (got <= 0)
+        {
+            tb_free(text);
+            return NULL;
+        }
+        done += (size_t)got;
+    }
+    if (text[size - 1u] != '\0')
+    {
+        tb_free(text);
+        return NULL;
+    }
+    return text;
+}
 
 void tb_wl_repeat_configure(tb_wl_repeat *repeat, int32_t rate, int32_t delay, uint64_t now)
 {
@@ -884,25 +916,6 @@ static void tb_wl_forget_keymap(tb_wl_system *native)
     }
 }
 
-/* The keymap's text, read from the file the compositor shares. */
-static char *tb_wl_read_keymap(int32_t fd, uint32_t size)
-{
-    char *const text = tb_calloc((size_t)size + 1u, 1);
-    size_t done = 0;
-
-    while (done < size)
-    {
-        const ssize_t got = read(fd, text + done, size - done);
-        if (got <= 0)
-        {
-            break;
-        }
-        done += (size_t)got;
-    }
-    text[done] = '\0';
-    return text;
-}
-
 /* The keymap turns keys into text; without xkbcommon, keys have none. */
 static void tb_wl_keymap(void *data, tb_wl_proxy *keyboard, uint32_t format, int32_t fd,
                          uint32_t size)
@@ -920,6 +933,10 @@ static void tb_wl_keymap(void *data, tb_wl_proxy *keyboard, uint32_t format, int
     }
     text = tb_wl_read_keymap(fd, size);
     (void)close(fd);
+    if (text == NULL)
+    {
+        return;
+    }
     native->keymap =
         native->xkb.keymap_new_from_string(native->xkb_context, text, TB_WL_KEYMAP_XKB_V1, 0);
     tb_free(text);

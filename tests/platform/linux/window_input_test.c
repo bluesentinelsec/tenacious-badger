@@ -2,9 +2,15 @@
  * system send: Wayland's buttons, by their evdev codes, which a headless
  * compositor without a seat never sends; and XInput2's raw motion, whose
  * valuators come packed by a mask. */
+#define _GNU_SOURCE
 #include "platform/linux/window_linux.h"
 
+#include "badger/memory.h"
+
 #include "tb_test.h"
+
+#include <sys/mman.h>
+#include <unistd.h>
 
 TB_TEST(platform_linux_window, evdev_buttons_are_mouse_buttons)
 {
@@ -95,4 +101,24 @@ TB_TEST(platform_linux_window, wayland_key_repeat_follows_the_seat_clock)
     tb_wl_repeat_configure(&repeat, 0, 0, 601 * ms);
     tb_wl_repeat_key(&repeat, 30, true, true, 602 * ms);
     TB_TEST_EXPECT(!tb_wl_repeat_due(&repeat, 1000 * ms));
+}
+
+TB_TEST(platform_linux_window, the_compositors_keymap_is_read_from_byte_zero)
+{
+    const int fd = memfd_create("tb-keymap-test", MFD_CLOEXEC);
+    TB_TEST_REQUIRE(fd >= 0);
+    static const char contents[] = "xkb_keymap";
+    TB_TEST_REQUIRE_INT(write(fd, contents, sizeof(contents)), ==, (ssize_t)sizeof(contents));
+    char *const map = tb_wl_read_keymap(fd, sizeof(contents));
+    TB_TEST_EXPECT_POINTER(map, !=, NULL);
+    if (map != NULL)
+    {
+        TB_TEST_EXPECT_STRING(map, ==, contents);
+    }
+    tb_free(map);
+    TB_TEST_EXPECT_INT(lseek(fd, 0, SEEK_CUR), ==, (off_t)sizeof(contents));
+    TB_TEST_EXPECT_POINTER(tb_wl_read_keymap(fd, 0), ==, NULL);
+    TB_TEST_EXPECT_POINTER(tb_wl_read_keymap(fd, sizeof(contents) + 1u), ==, NULL);
+    TB_TEST_EXPECT_POINTER(tb_wl_read_keymap(fd, sizeof(contents) - 1u), ==, NULL);
+    (void)close(fd);
 }
