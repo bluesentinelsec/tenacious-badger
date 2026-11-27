@@ -31,6 +31,26 @@ tb_mouse_button tb_linux_button(uint32_t code);
 void tb_x11_raw_motion(const unsigned char *mask, int mask_length, const double *raw_values,
                        double *delta_x, double *delta_y);
 
+/* Read the compositor's entire NUL-terminated keymap from byte zero. The
+ * caller frees the returned text and always retains ownership of fd. */
+char *tb_wl_read_keymap(int fd, uint32_t size);
+
+/* Wayland's repeating key, timed against the monotonic clock. */
+typedef struct tb_wl_repeat
+{
+    uint64_t delay;
+    uint64_t interval;
+    uint64_t started;
+    uint64_t duration;
+    uint32_t key;
+    bool active;
+} tb_wl_repeat;
+
+void tb_wl_repeat_configure(tb_wl_repeat *repeat, int32_t rate, int32_t delay, uint64_t now);
+void tb_wl_repeat_key(tb_wl_repeat *repeat, uint32_t key, bool down, bool repeatable, uint64_t now);
+uint64_t tb_wl_repeat_wait(const tb_wl_repeat *repeat, uint64_t now, uint64_t timeout);
+bool tb_wl_repeat_due(tb_wl_repeat *repeat, uint64_t now);
+
 /* A pipe that wakes a backend's wait, both ends non-blocking. */
 typedef struct tb_linux_waker
 {

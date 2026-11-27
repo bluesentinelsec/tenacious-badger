@@ -324,6 +324,9 @@ AUTHORIZED = {
     'tests/platform/win32/affinity_test.c': (
         {'GetProcessAffinityMask'},
         'reads the processors of the process to confine it and to give them back'),
+    'tests/platform/linux/window_input_test.c': (
+        {'write', 'lseek', 'close'},
+        'supplies an anonymous Wayland keymap descriptor and checks its shared file offset'),
     'tests/platform/linux/affinity_test.c': (
         {'sched_getaffinity'},
         'reads the processors of the process to confine it and to give them back'),

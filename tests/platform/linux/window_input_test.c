@@ -2,9 +2,15 @@
  * system send: Wayland's buttons, by their evdev codes, which a headless
  * compositor without a seat never sends; and XInput2's raw motion, whose
  * valuators come packed by a mask. */
+#define _GNU_SOURCE
 #include "platform/linux/window_linux.h"
 
+#include "badger/memory.h"
+
 #include "tb_test.h"
+
+#include <sys/mman.h>
+#include <unistd.h>
 
 TB_TEST(platform_linux_window, evdev_buttons_are_mouse_buttons)
 {
@@ -68,4 +74,51 @@ TB_TEST(platform_linux_window, raw_motion_reads_the_valuators_the_mask_names)
     tb_x11_raw_motion(NULL, 0, NULL, &delta_x, &delta_y);
     TB_TEST_EXPECT_FLOAT(delta_x, ==, 0.0);
     TB_TEST_EXPECT_FLOAT(delta_y, ==, 0.0);
+}
+
+TB_TEST(platform_linux_window, wayland_key_repeat_follows_the_seat_clock)
+{
+    tb_wl_repeat repeat = {0};
+    const uint64_t ms = UINT64_C(1000000);
+    tb_wl_repeat_configure(&repeat, 20, 200, 0);
+    tb_wl_repeat_key(&repeat, 30, true, true, 10 * ms);
+    TB_TEST_EXPECT_UINT(tb_wl_repeat_wait(&repeat, 20 * ms, UINT64_MAX), ==, 190 * ms);
+    TB_TEST_EXPECT_UINT(tb_wl_repeat_wait(&repeat, 20 * ms, ms), ==, ms);
+    TB_TEST_EXPECT(!tb_wl_repeat_due(&repeat, 209 * ms));
+    TB_TEST_EXPECT(tb_wl_repeat_due(&repeat, 210 * ms));
+    tb_wl_repeat_key(&repeat, 42, true, false, 211 * ms);
+    tb_wl_repeat_key(&repeat, 42, false, false, 212 * ms);
+    TB_TEST_EXPECT_UINT(repeat.key, ==, 30);
+    TB_TEST_EXPECT(tb_wl_repeat_due(&repeat, 371 * ms));
+    TB_TEST_EXPECT(!tb_wl_repeat_due(&repeat, 371 * ms));
+    TB_TEST_EXPECT_UINT(tb_wl_repeat_wait(&repeat, 371 * ms, UINT64_MAX), ==, 39 * ms);
+    tb_wl_repeat_key(&repeat, 14, true, true, 372 * ms);
+    tb_wl_repeat_key(&repeat, 30, false, false, 373 * ms);
+    TB_TEST_EXPECT(tb_wl_repeat_due(&repeat, 572 * ms));
+    tb_wl_repeat_key(&repeat, 14, false, false, 573 * ms);
+    TB_TEST_EXPECT_UINT(tb_wl_repeat_wait(&repeat, 600 * ms, UINT64_MAX), ==, UINT64_MAX);
+    tb_wl_repeat_key(&repeat, 30, true, true, 600 * ms);
+    tb_wl_repeat_configure(&repeat, 0, 0, 601 * ms);
+    tb_wl_repeat_key(&repeat, 30, true, true, 602 * ms);
+    TB_TEST_EXPECT(!tb_wl_repeat_due(&repeat, 1000 * ms));
+}
+
+TB_TEST(platform_linux_window, the_compositors_keymap_is_read_from_byte_zero)
+{
+    const int fd = memfd_create("tb-keymap-test", MFD_CLOEXEC);
+    TB_TEST_REQUIRE(fd >= 0);
+    static const char contents[] = "xkb_keymap";
+    TB_TEST_REQUIRE_INT(write(fd, contents, sizeof(contents)), ==, (ssize_t)sizeof(contents));
+    char *const map = tb_wl_read_keymap(fd, sizeof(contents));
+    TB_TEST_EXPECT_POINTER(map, !=, NULL);
+    if (map != NULL)
+    {
+        TB_TEST_EXPECT_STRING(map, ==, contents);
+    }
+    tb_free(map);
+    TB_TEST_EXPECT_INT(lseek(fd, 0, SEEK_CUR), ==, (off_t)sizeof(contents));
+    TB_TEST_EXPECT_POINTER(tb_wl_read_keymap(fd, 0), ==, NULL);
+    TB_TEST_EXPECT_POINTER(tb_wl_read_keymap(fd, sizeof(contents) + 1u), ==, NULL);
+    TB_TEST_EXPECT_POINTER(tb_wl_read_keymap(fd, sizeof(contents) - 1u), ==, NULL);
+    (void)close(fd);
 }

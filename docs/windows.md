@@ -176,11 +176,14 @@ pointer-constraints protocols, or a seat without a mouse, has no such mode:
 the call says it is unavailable. `tb_window_set_cursor()` and
 `tb_window_show_cursor()` set the cursor over the client area.
 
+On Wayland, repeatable keys follow the compositor's repeat rate and delay.
+A repeated key-down carries the repeat flag and emits text using the current
+modifiers. Releasing the key or losing keyboard focus stops the repeat.
+
 Known gaps:
 
 - Input method editors' compositions (Chinese, Japanese, Korean) are not
   reported as they are composed; their committed text arrives as text.
-- Wayland compositors do not repeat keys; a held key types its text once.
 - X11's wheel is in whole notches; XInput2's smooth scrolling is not read.
 - Wayland's theme cursors, without `wp_cursor_shape_v1`, are drawn at 24
   units in the default theme, not scaled to the display.
