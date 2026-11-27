@@ -497,6 +497,7 @@ typedef struct tb_wl_window
     int32_t configured_height;
     tb_wl_size_policy pending_policy; /* Applied together at xdg_surface.configure. */
     tb_wl_size_policy policy;
+    bool restore_requested;   /* The client asked to leave fullscreen at options.width/height. */
     uint32_t last_hint_width; /* Last configure, resolved to our size when it supplied none. */
     uint32_t last_hint_height;
     uint32_t width; /* The logical size shown. */
@@ -1735,9 +1736,7 @@ static void tb_wl_choose_size(tb_window *window)
     tb_window_placement placement = {0};
 
     const bool has_hint = record->configured_width > 0 && record->configured_height > 0;
-    const bool restoring = record->policy == TB_WL_FULLSCREEN &&
-                           record->pending_policy == TB_WL_FLOATING &&
-                           window->options.mode == TB_WINDOW_MODE_WINDOWED;
+    const bool restoring = record->restore_requested && record->pending_policy == TB_WL_FLOATING;
     /* An activation change can repeat the previous size after the client
      * has resized. Keep the newer size. A drag or a maximized/fullscreen
      * configure still takes the compositor's dimensions. */
@@ -1784,6 +1783,10 @@ static void tb_wl_xdg_surface_configure(void *data, tb_wl_proxy *xdg_surface, ui
     record->last_hint_height =
         record->configured_height > 0 ? (uint32_t)record->configured_height : record->height;
     record->policy = record->pending_policy;
+    if (record->policy != TB_WL_FULLSCREEN)
+    {
+        record->restore_requested = false;
+    }
     record->configured = true;
     tb_wl_present(window);
 }
@@ -1882,6 +1885,7 @@ static void tb_wl_apply(tb_window *window, bool created)
                                        version, 0, most_width, most_height);
         if (!created && !was_windowed)
         {
+            record->restore_requested = true;
             (void)native->wl.marshal_flags(record->toplevel, TB_XDG_TOPLEVEL_UNSET_FULLSCREEN, NULL,
                                            version, 0);
         }
@@ -1900,6 +1904,7 @@ static void tb_wl_apply(tb_window *window, bool created)
             placement.display < tb_array_length(native->outputs)
                 ? *TB_ARRAY_AT(native->outputs, tb_wl_output *, placement.display)
                 : NULL;
+        record->restore_requested = false;
         (void)native->wl.marshal_flags(record->toplevel, TB_XDG_TOPLEVEL_SET_FULLSCREEN, NULL,
                                        version, 0, output != NULL ? output->proxy : NULL);
     }

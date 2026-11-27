@@ -608,9 +608,17 @@ TB_TEST(game_loop, back_from_fullscreen_a_window_has_its_size_again)
         TB_TEST_EXPECT_UINT(state.height, ==, options.height);
     }
 
-    /* A size the settings give replaces it. */
+    /* A new windowed size requested while fullscreen replaces the one
+     * remembered by both the shortcut and the compositor. */
+    shortcut = fullscreen_shortcut(system, window);
+    tb_game_loop_inject(loop, &shortcut);
+    step_until(loop, system, window, TB_WINDOW_MODE_BORDERLESS, display.pixel_width,
+               display.pixel_height);
     (void)tb_settings_set(settings, TB_SETTING_LAYER_RUNTIME, "display.window_width", "720");
     (void)tb_settings_set(settings, TB_SETTING_LAYER_RUNTIME, "display.window_height", "405");
+    TB_TEST_EXPECT(tb_game_loop_step(loop));
+    shortcut = fullscreen_shortcut(system, window);
+    tb_game_loop_inject(loop, &shortcut);
     step_until(loop, system, window, TB_WINDOW_MODE_WINDOWED, 720, 405);
     tb_window_state_of(window, &state);
     TB_TEST_EXPECT_UINT(state.width, ==, 720);
