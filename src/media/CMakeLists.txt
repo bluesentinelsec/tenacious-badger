@@ -6,6 +6,7 @@ set(TB_MEDIA_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/bitmap_file.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/bitmap_png.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/bitmap_png_write.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/bitmap_tga.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/sound.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/sound_edit.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/wav_codec.c"

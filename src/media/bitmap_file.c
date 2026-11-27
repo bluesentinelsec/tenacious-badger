@@ -132,6 +132,11 @@ static tb_bitmap_result tb_bitmap_decode_limited(const void *bytes, size_t lengt
         return tb_bitmap_decode_png(bytes, length, limits->max_side, limits->max_pixels, allocator,
                                     bitmap, error);
     }
+    if (tb_bitmap_is_tga(bytes, length))
+    {
+        return tb_bitmap_decode_tga(bytes, length, limits->max_side, limits->max_pixels, allocator,
+                                    bitmap, error);
+    }
     return tb_bitmap_fail(error, TB_BITMAP_UNKNOWN_FORMAT, TB_BITMAP_NO_OFFSET,
                           "bytes of no image format the engine reads");
 }
