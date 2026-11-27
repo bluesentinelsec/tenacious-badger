@@ -1079,6 +1079,7 @@ static void declare_input(tb_shader_lowerer *lowerer, tb_shader_node *node)
     global.name = name_text(lowerer, symbol->name);
     global.type = tb_shader_lower_type(lowerer, symbol->type, node->location);
     global.space = is_buffer ? TB_SHADER_FORM_UNIFORM : TB_SHADER_FORM_HANDLE;
+    global.typed_buffer = is_buffer;
     global.binding.register_class = register_class_of(symbol->type);
     read_register(node->annotations, &global.binding);
     if (global.type == TB_SHADER_FORM_NONE)

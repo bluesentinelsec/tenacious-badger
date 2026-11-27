@@ -136,6 +136,7 @@ typedef struct tb_shader_form_global
     uint32_t type;
     tb_shader_form_space space;     /* PRIVATE, GROUPSHARED, UNIFORM or HANDLE */
     tb_shader_form_binding binding; /* UNIFORM, HANDLE */
+    bool typed_buffer;              /* ConstantBuffer<T> or TextureBuffer<T>. */
 } tb_shader_form_global;
 
 /* A local variable, which starts undefined, as in HLSL. */

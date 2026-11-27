@@ -1055,23 +1055,15 @@ static void place(reflector *state, tb_array *variables, size_t slot, uint32_t t
 
 /* A buffer's layout: its variables in order, each after the one before, or
  * where `packoffset` puts it. */
-static void lay_out_buffer(reflector *state, const tb_shader_form_global *global,
-                           tb_shader_constant_buffer *buffer)
+static unsigned place_buffer_members(reflector *state, tb_array *variables,
+                                     const tb_shader_form_type *structure)
 {
-    tb_array *const variables = TB_ARRAY_CREATE(&state->allocator, tb_shader_variable);
-    buffer->name = global->name;
-    const tb_shader_form_type *const structure = type_at(state, global->type);
-    if (structure->kind != TB_SHADER_FORM_STRUCT)
-    {
-        return;
-    }
     for (uint32_t at = 0; at < structure->member_count; at++)
     {
         const tb_shader_variable empty = {0};
         (void)tb_array_push(variables, &empty);
     }
     unsigned cursor = 0;
-    unsigned size = 0;
     for (uint32_t at = 0; at < structure->member_count; at++)
     {
         const tb_shader_form_member *const member =
@@ -1084,12 +1076,34 @@ static void lay_out_buffer(reflector *state, const tb_shader_form_global *global
             variable_at(variables, at)->offset = member->packoffset;
         }
         cursor = position > cursor ? position : cursor;
-        size = position > size ? position : size;
     }
-    buffer->size = size;
+    return cursor;
+}
+
+static void lay_out_buffer(reflector *state, const tb_shader_form_global *global,
+                           tb_shader_constant_buffer *buffer)
+{
+    buffer->name = global->name;
+    const tb_shader_form_type *const structure = type_at(state, global->type);
+    if (structure->kind != TB_SHADER_FORM_STRUCT)
+    {
+        return;
+    }
+    tb_array *const variables = TB_ARRAY_CREATE(&state->allocator, tb_shader_variable);
+    if (global->typed_buffer)
+    {
+        const tb_shader_variable root = {.name = global->name};
+        (void)tb_array_push(variables, &root);
+        place(state, variables, 0, global->type, 0, &buffer->size);
+        buffer->top_count = 1;
+    }
+    else
+    {
+        buffer->size = place_buffer_members(state, variables, structure);
+        buffer->top_count = structure->member_count;
+    }
     buffer->variables = tb_array_data(variables);
     buffer->variable_count = tb_array_length(variables);
-    buffer->top_count = structure->member_count;
 }
 
 /* The layout of each constant and texture buffer bound, in their bindings' order. */
