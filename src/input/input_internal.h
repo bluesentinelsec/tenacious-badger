@@ -186,6 +186,12 @@ void tb_input_rollback(tb_input *input, size_t action_count, size_t context_coun
  * Files (input_file.c), for every file the module reads.
  * ------------------------------------------------------------------------- */
 
+struct tb_json_value;
+
+/* Input names are C strings. A JSON string with an embedded NUL cannot
+ * name a format, action, context or key. */
+const char *tb_input_text_of(const struct tb_json_value *value);
+
 /* Fill in an error's message from its line, column, path and reason, with
  * `detail` quoted after them when not NULL. */
 void tb_input_error_message(tb_input_file_error *error, const char *file_name, const char *detail);

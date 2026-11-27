@@ -219,7 +219,8 @@ static tb_input_file_result tb_input_known_keys(tb_input_reader *reader,
         bool known = false;
         for (size_t index = 0; index < count && names[index] != NULL; index++)
         {
-            known = known || tb_str_equal(names[index], key);
+            known = known || (length == tb_str_length(names[index]) &&
+                              memcmp(names[index], key, length) == 0);
         }
         if (!known)
         {
@@ -230,12 +231,15 @@ static tb_input_file_result tb_input_known_keys(tb_input_reader *reader,
     return TB_INPUT_FILE_OK;
 }
 
-static const char *tb_input_text_of(const tb_json_value *value)
+const char *tb_input_text_of(const tb_json_value *value)
 {
     size_t length = 0;
-    return value != NULL && tb_json_type_of(value) == TB_JSON_STRING
-               ? tb_json_as_text(value, &length)
-               : NULL;
+    if (value == NULL || tb_json_type_of(value) != TB_JSON_STRING)
+    {
+        return NULL;
+    }
+    const char *const text = tb_json_as_text(value, &length);
+    return tb_str_length(text) == length ? text : NULL;
 }
 
 /* A string member that is one of `names`: its index, or `count` when it is

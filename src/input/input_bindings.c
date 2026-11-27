@@ -84,7 +84,8 @@ static tb_input_file_result tb_input_bindings_known(tb_input_bindings_reader *re
         bool known = false;
         for (size_t index = 0; index < count; index++)
         {
-            known = known || tb_str_equal(names[index], key);
+            known = known || (length == tb_str_length(names[index]) &&
+                              memcmp(names[index], key, length) == 0);
         }
         if (!known)
         {
@@ -95,14 +96,6 @@ static tb_input_file_result tb_input_bindings_known(tb_input_bindings_reader *re
     return TB_INPUT_FILE_OK;
 }
 
-static const char *tb_input_bindings_text(const tb_json_value *value)
-{
-    size_t length = 0;
-    return value != NULL && tb_json_type_of(value) == TB_JSON_STRING
-               ? tb_json_as_text(value, &length)
-               : NULL;
-}
-
 /* A string member, required. */
 static tb_input_file_result tb_input_bindings_string(tb_input_bindings_reader *reader,
                                                      const tb_json_value *object,
@@ -110,7 +103,7 @@ static tb_input_file_result tb_input_bindings_string(tb_input_bindings_reader *r
 {
     const tb_json_value *const value = tb_json_find(object, member, tb_str_length(member));
 
-    *text = tb_input_bindings_text(value);
+    *text = tb_input_text_of(value);
     if (*text == NULL)
     {
         return tb_input_bindings_fail(reader, value != NULL ? value : object, member, "a string",
@@ -260,7 +253,7 @@ static tb_input_file_result tb_input_bindings_read_head(tb_input_bindings_reader
     {
         return result;
     }
-    const char *const format = tb_input_bindings_text(tb_json_find(root, "format", 6));
+    const char *const format = tb_input_text_of(tb_json_find(root, "format", 6));
     if (format == NULL || !tb_str_equal(format, TB_INPUT_BINDINGS_FORMAT))
     {
         const tb_json_value *const found = tb_json_find(root, "format", 6);

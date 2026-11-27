@@ -169,6 +169,10 @@ TB_TEST(input_bindings, broken_files_are_refused_and_change_nothing)
     } broken_case;
     static const broken_case cases[] = {
         {"[]", "$", "bindings: an object"},
+        {"{\"format\": \"badger-input-bindings\\u0000other\", \"version\": 1}", "$.format",
+         "a format other than \"badger-input-bindings\""},
+        {"{\"format\": \"badger-input-bindings\", \"version\": 1, \"bindings\\u0000x\": []}",
+         "$.bindings", "a key the format does not have"},
         {"{\"format\": \"badger-input\", \"version\": 1}", "$.format",
          "a format other than \"badger-input-bindings\""},
         {"{\"version\": 1}", "$.format", "a format other than \"badger-input-bindings\""},
