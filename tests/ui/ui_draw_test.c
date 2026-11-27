@@ -27,7 +27,7 @@ static void draw_scene(ui_fixture *fixture)
     }
 }
 
-TB_TEST(ui_draw, commands_become_quads_on_the_canvas)
+static void check_canvas_clipping(float scale)
 {
     ui_fixture fixture = {0};
     tb_window_system *system = NULL;
@@ -36,6 +36,8 @@ TB_TEST(ui_draw, commands_become_quads_on_the_canvas)
     tb_rhi_error error = TB_RHI_ERROR_INIT;
     tb_renderer_options options = {0};
     tb_canvas_stats stats = {0};
+    uint32_t width = 0;
+    uint32_t height = 0;
     size_t count = 0;
     size_t texts = 0;
     tb_camera camera = tb_camera_perspective(1.2f);
@@ -54,7 +56,12 @@ TB_TEST(ui_draw, commands_become_quads_on_the_canvas)
     options.device = (tb_rhi_device_options){.backend = TB_RHI_BACKEND_NULL};
     TB_TEST_REQUIRE_UINT(tb_renderer_create(&options, &renderer, &error), ==, TB_RHI_OK);
 
-    ui_fixture_open(&fixture, 1.0f, 0);
+    tb_renderer_size(renderer, &width, &height);
+    const float frame_width = (float)width / scale;
+    ui_fixture_open(&fixture, scale, 0);
+    /* Leave one fixture's width beyond the drawable so the UI can lay out
+     * the window there and hand its commands to the canvas. */
+    fixture.input.size.x += (float)width;
     fixture.flag = true;
     fixture.scene = draw_scene;
     ui_frame(&fixture);
@@ -72,25 +79,40 @@ TB_TEST(ui_draw, commands_become_quads_on_the_canvas)
     TB_TEST_EXPECT_UINT(stats.glyphs, >, texts);
     TB_TEST_EXPECT_UINT(stats.quads, >, count - texts);
 
-    /* Commands clipped to what is wholly outside the frame draw nothing:
-     * the contents of a window moved past its right edge. */
-    const size_t quads = stats.quads;
+    const size_t visible_shapes = stats.quads - stats.glyphs;
     ui_move(&fixture, 50.0f, 20.0f);
     ui_frame(&fixture);
     ui_press(&fixture);
     ui_frame(&fixture);
-    ui_move(&fixture, 50.0f + 600.0f, 20.0f);
+    ui_move(&fixture, 50.0f + frame_width, 20.0f);
     ui_frame(&fixture);
     ui_release(&fixture);
     ui_frame(&fixture);
+    const tb_ui_command *const label = ui_text_command(&fixture, "Text");
+    TB_TEST_REQUIRE_POINTER(label, !=, NULL);
+    TB_TEST_REQUIRE(label->clip.x >= frame_width);
     TB_TEST_REQUIRE(tb_renderer_begin_frame(renderer, &camera, (tb_vec4){0, 0, 0, 1}));
     tb_ui_draw(fixture.ui, renderer);
     TB_TEST_REQUIRE_UINT(tb_renderer_end_frame(renderer), ==, TB_RHI_OK);
     tb_canvas_stats_of(renderer, &stats);
-    TB_TEST_EXPECT_UINT(stats.quads, <, quads / 2);
+    TB_TEST_EXPECT_UINT(stats.dropped, ==, 0);
+    TB_TEST_EXPECT_UINT(stats.glyphs, ==, 0);
+    /* The window decorations share the broad UI clip. The shapes clipped
+     * to the window's contents must have disappeared from the draw. */
+    TB_TEST_EXPECT_UINT(stats.quads, <, visible_shapes);
 
     ui_fixture_close(&fixture);
     tb_renderer_destroy(renderer);
     tb_window_destroy(window);
     tb_window_system_close(system);
+}
+
+TB_TEST(ui_draw, commands_become_quads_on_the_canvas)
+{
+    check_canvas_clipping(1.0f);
+}
+
+TB_TEST(ui_draw, commands_become_quads_on_the_canvas_at_double_scale)
+{
+    check_canvas_clipping(2.0f);
 }
