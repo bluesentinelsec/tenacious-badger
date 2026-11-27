@@ -173,6 +173,7 @@ struct tb_gui
     /* The view: the viewport given, and the GUI's own factor on it. */
     tb_viewport viewport;
     float zoom;
+    float text_scale;
     tb_gui_view view;
 
     /* Slots. */

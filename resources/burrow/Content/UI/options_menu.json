@@ -2,6 +2,8 @@
   "format": "badger-gui",
   "version": 1,
   "variables": [
+    {"name": "interface_scale", "type": "float", "setting": "interface.scale", "deferred": true},
+    {"name": "text_size", "type": "int", "setting": "accessibility.text_size", "deferred": true},
     {
       "name": "window_mode",
       "type": "int",
@@ -202,8 +204,9 @@
     }
   ],
   "root": {
-    "kind": "frame",
+    "kind": "scrollframe",
     "name": "options",
+    "properties": {"width": 1, "height": 1, "border": false},
     "grid": {
       "sticky": ["n", "s", "e", "w"]
     },
@@ -255,7 +258,7 @@
             "kind": "notebook",
             "name": "tabs",
             "properties": {
-              "tabs": "Display\nGraphics\nControls\nAudio",
+              "tabs": "Display\nGraphics\nControls\nAudio\nAccessibility",
               "padding": 32,
               "default_focus": true
             },
@@ -1358,6 +1361,33 @@
                       "sticky": ["w"],
                       "pady": [6, 6]
                     }
+                  }
+                ]
+              },
+              {
+                "kind": "frame",
+                "name": "accessibility",
+                "columns": [{"minsize": 400}, {"weight": 1}],
+                "children": [
+                  {
+                    "kind": "label", "name": "interface_scale_label",
+                    "properties": {"style": "Field.Label", "text": "Interface scale"},
+                    "grid": {"row": 0, "sticky": ["w"], "padx": [0, 32], "pady": [6, 6]}
+                  },
+                  {
+                    "kind": "spinbox", "name": "interface_scale",
+                    "properties": {"variable": "interface_scale", "from": 0.5, "to": 2, "increment": 0.1, "format": "%.1f", "width": 6},
+                    "grid": {"row": 0, "column": 1, "sticky": ["w"], "pady": [6, 6]}
+                  },
+                  {
+                    "kind": "label", "name": "text_size_label",
+                    "properties": {"style": "Field.Label", "text": "Text size"},
+                    "grid": {"row": 1, "sticky": ["w"], "padx": [0, 32], "pady": [6, 6]}
+                  },
+                  {
+                    "kind": "combobox", "name": "text_size",
+                    "properties": {"variable": "text_size", "values": "Standard\nLarge\nLargest", "width": 12},
+                    "grid": {"row": 1, "column": 1, "sticky": ["w"], "pady": [6, 6]}
                   }
                 ]
               }

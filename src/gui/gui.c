@@ -341,6 +341,7 @@ tb_gui *tb_gui_create(const tb_gui_options *options)
     gui->catalog = chosen->catalog;
     gui->layer = chosen->layer != 0 ? chosen->layer : TB_GUI_DEFAULT_LAYER;
     gui->viewport = (tb_viewport){.scale = {1.0f, 1.0f}};
+    gui->text_scale = 1.0f;
     gui->zoom = chosen->scale > 0.0f ? chosen->scale : 1.0f;
     gui->cursor = TB_CURSOR_ARROW;
     gui->arena = tb_arena_create(TB_GUI_ARENA_CHUNK);
@@ -460,6 +461,17 @@ void tb_gui_set_scale(tb_gui *gui, float scale)
     TB_ASSERT(scale > 0.0f);
     gui->zoom = scale;
     tb_gui_update_view(gui);
+}
+
+void tb_gui_set_text_scale(tb_gui *gui, float scale)
+{
+    TB_ASSERT(gui != NULL);
+    TB_ASSERT(scale > 0.0f);
+    if (gui->text_scale != scale)
+    {
+        gui->text_scale = scale;
+        tb_gui_mark_layout(gui);
+    }
 }
 
 tb_gui_view tb_gui_view_of(const tb_gui *gui)
@@ -754,7 +766,8 @@ tb_gui_resolved_font tb_gui_resolve_font(tb_gui *gui, tb_font_spec base, tb_font
     {
         size = base.size;
     }
-    resolved = (tb_gui_resolved_font){.font = gui->theme.fonts[TB_UI_FONT_REGULAR], .size = size};
+    resolved = (tb_gui_resolved_font){.font = gui->theme.fonts[TB_UI_FONT_REGULAR],
+                                      .size = size * gui->text_scale};
     if (face.weight != 0 && gui->catalog != NULL)
     {
         const tb_font *const font = tb_gui_catalog_font(gui, face);

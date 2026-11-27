@@ -3,6 +3,7 @@
  * and the questions asked before leaving with changes or quitting. */
 #include "burrow_menus.h"
 
+#include "badger/assert.h"
 #include "badger/canvas.h"
 #include "badger/fmt.h"
 #include "badger/fs.h"
@@ -568,7 +569,14 @@ void burrow_menus_update(burrow_menus *menus, const tb_viewport *viewport, doubl
 
     if (fit > 0.0f)
     {
-        tb_gui_set_scale(menus->gui, fit);
+        const tb_engine_settings *const engine = menus->options.engine;
+        const float interface_scale = (float)tb_setting_number(engine->user_interface.scale);
+        /* The settings register standard, large and largest in this order. */
+        static const float text_factors[] = {1.0f, 1.25f, 1.5f};
+        const size_t text_size = tb_setting_choice(engine->accessibility.text_size);
+        TB_ASSERT(text_size < sizeof(text_factors) / sizeof(text_factors[0]));
+        tb_gui_set_text_scale(menus->gui, text_factors[text_size]);
+        tb_gui_set_scale(menus->gui, fit * interface_scale);
     }
     tb_gui_set_viewport(menus->gui, viewport);
     tb_gui_update(menus->gui, delta_seconds);

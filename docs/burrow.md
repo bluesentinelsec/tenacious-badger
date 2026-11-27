@@ -56,13 +56,17 @@ design, as it shows more of the room behind the menus, and no bars. The
 pause and options menus are centered in it by their grids' weights; the
 main menu keeps its margin from the window's left edge. Whatever the
 policy's design size,
-the menus are scaled to show 1920 by 1080 of their units in the viewport.
+at the default interface scale the menus show 1920 by 1080 units. The
+Accessibility tab applies `interface.scale` to the whole menu and
+`accessibility.text_size` to the text used for layout and drawing. Menus
+scroll when their controls exceed the viewport, including on keyboard or
+gamepad focus changes.
 
 | Screen | Shows | Back |
 | --- | --- | --- |
 | Main menu | Burrow's title over the room, which a camera circles; Play, Options, and Quit | asks whether to quit |
 | Pause menu | Escape while playing, or the window losing the focus as `gameplay.pause_when_unfocused` says, over the room frozen and shaded; Resume, Options, Quit to menu, and Quit | resumes |
-| Options | A notebook of four tabs, Display, Graphics, Controls, and Audio; Defaults, Revert, Apply, and Back | goes back to the menu it was opened from |
+| Options | A notebook with Display, Graphics, Controls, Audio, and Accessibility tabs; Defaults, Revert, Apply, and Back | goes back to the menu it was opened from |
 
 The game starts at the main menu, with the world paused and the mouse the
 menus'. Play captures the mouse and starts the world; a menu over it
