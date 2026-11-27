@@ -23,6 +23,26 @@ typedef enum tb_rhi_kind
 /* Bytes of a shader's entry point's name, its NUL included. */
 #define TB_RHI_ENTRY_CAPACITY 64u
 
+/* One immutable copy of the compiled shader, shared by its live handle and
+ * by each pipeline using it. The device lock protects the reference count. */
+typedef struct tb_rhi_shader_data
+{
+    size_t references;
+    tb_rhi_shader_desc desc;
+    char name[TB_RHI_NAME_CAPACITY];
+    char entry[TB_RHI_ENTRY_CAPACITY];
+    void *code;
+} tb_rhi_shader_data;
+
+typedef struct tb_rhi_pipeline_data
+{
+    tb_rhi_graphics_pipeline_desc graphics;
+    tb_rhi_compute_pipeline_desc compute;
+    tb_rhi_shader_data *first; /* vertex or compute */
+    tb_rhi_shader_data *pixel; /* optional */
+    tb_rhi_vertex_attribute *attributes;
+} tb_rhi_pipeline_data;
+
 /* One object of a kind. Slots live in chunks that never move, so a pointer
  * into one stays valid while the device lives. */
 typedef struct tb_rhi_slot
@@ -37,11 +57,10 @@ typedef struct tb_rhi_slot
         tb_rhi_buffer_desc buffer;
         tb_rhi_texture_desc texture;
         tb_rhi_sampler_desc sampler;
-        tb_rhi_shader_desc shader;
-    } desc; /* names NULL; a shader's code and entry point the slot's own */
+        tb_rhi_shader_data *shader;
+        tb_rhi_pipeline_data *pipeline;
+    } desc;
     char name[TB_RHI_NAME_CAPACITY];
-    char entry[TB_RHI_ENTRY_CAPACITY];
-    tb_rhi_vertex_buffer_layout layouts[TB_RHI_VERTEX_BUFFERS]; /* a graphics pipeline's */
 } tb_rhi_slot;
 
 /* The slots of one kind. */
