@@ -91,12 +91,20 @@ device before freeing its mixer context.
 
 ## Checking physical playback on macOS
 
-A Core Audio unit can open and start on the built-in output of an idle Mac
-while no render callbacks arrive. The device test still requires three
-callbacks within three seconds. On failure it prints the backend, format,
-observed callback count and, when available, the main display's current
-power state. A sleeping display is a diagnostic clue. Other devices can
-continue playing while the display sleeps.
+A Mac can service SSH during dark wake while system audio power is off.
+The renderer can then receive zero callbacks from an open Core Audio unit.
+The hardware test waits three seconds for three callbacks. If it receives
+none and the kernel reports audio power off both before and after the wait,
+it records the output as unavailable. A partial callback count, unknown
+power state, or powered output must still meet the callback requirement.
+A sleeping display alone does not determine whether audio can play.
+
+The test reads the audio bit of the power root's System Capabilities
+property through IOKit. XNU defines this bit as
+[kIOPMSystemCapabilityAudio](https://github.com/apple-oss-distributions/xnu/blob/main/iokit/IOKit/pwr_mgt/IOPM.h).
+To inspect the current mask over SSH, run
+`ioreg -r -n IOPMrootDomain -d 1 | grep 'System Capabilities'`.
+For example, 15 includes audio (bit 0x04).
 
 From a Mac build with tests enabled, run the silent output probe:
 
@@ -122,3 +130,9 @@ and receives three callbacks in the next three seconds on the same open
 stream. Its first count distinguishes a stalled output from one that kept
 playing while the display slept. An already-awake display, missing output,
 missed wake or missing callbacks fails this hardware check.
+
+For a dark-wake observation, use `--await-audio-power` in place of
+`--await-wake`. It requires the audio bit to be off before and after the
+initial three-second sample. After the wake, it requires the bit to return
+and the same output to deliver callbacks. Both modes print the observed
+power states and counts.

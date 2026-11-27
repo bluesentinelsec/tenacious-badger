@@ -126,10 +126,20 @@ TB_TEST(platform_audio_device, the_default_output_asks_for_samples)
     TB_TEST_EXPECT_UINT(format.sample_rate, ==, 48000);
     TB_TEST_EXPECT_UINT(format.channels, ==, 2);
 
+    const tb_test_audio_power initial_power = tb_test_audio_power_state();
     tb_audio_device_start(device);
     const bool delivered = wait_for_calls(&heard, 3);
+    tb_audio_device_stop(device);
     if (!delivered)
     {
+        const tb_test_audio_power final_power = tb_test_audio_power_state();
+        if (initial_power == TB_TEST_AUDIO_POWER_OFF && final_power == TB_TEST_AUDIO_POWER_OFF &&
+            tb_platform_atomic_size_load(&heard.calls) == 0)
+        {
+            tb_audio_device_close(device);
+            tb_audio_system_close(system);
+            TB_TEST_SKIP("system audio power unavailable before and after the callback wait");
+        }
         tb_audio_system_info info = {0};
         tb_audio_system_get_info(system, &info);
         const tb_test_audio_display display = tb_test_audio_display_state();
@@ -143,12 +153,13 @@ TB_TEST(platform_audio_device, the_default_output_asks_for_samples)
             hint = "main display awake; check the audio route and callback delivery";
         }
         TB_TEST_CONTEXT("%s default output opened at %u Hz, %u channels, and requested %zu "
-                        "callbacks in 3 s; %s",
+                        "callbacks in 3 s; system audio power %s to %s; %s",
                         info.backend, format.sample_rate, format.channels,
-                        tb_platform_atomic_size_load(&heard.calls), hint);
+                        tb_platform_atomic_size_load(&heard.calls),
+                        tb_test_audio_power_name(initial_power),
+                        tb_test_audio_power_name(final_power), hint);
     }
     TB_TEST_EXPECT(delivered);
-    tb_audio_device_stop(device);
     const size_t calls = tb_platform_atomic_size_load(&heard.calls);
     tb_platform_sleep(QUIET_NANOSECONDS);
     TB_TEST_EXPECT_UINT(tb_platform_atomic_size_load(&heard.calls), ==, calls);

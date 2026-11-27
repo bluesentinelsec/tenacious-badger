@@ -20,12 +20,19 @@ static void count_calls(void *context, float *samples, size_t frames, uint32_t c
     (void)tb_platform_atomic_size_add(context, 1);
 }
 
-static bool observe(tb_platform_atomic_size *calls, bool await_wake)
+static bool observe(tb_platform_atomic_size *calls, bool await_wake, bool await_audio)
 {
     const tb_test_audio_display initial = tb_test_audio_display_state();
-    if (initial == TB_TEST_AUDIO_DISPLAY_UNKNOWN)
+    if (await_wake && initial == TB_TEST_AUDIO_DISPLAY_UNKNOWN)
     {
         (void)tb_fmt_print_error("Could not determine the main display's power state.\n");
+        return false;
+    }
+    const tb_test_audio_power initial_power = tb_test_audio_power_state();
+    if (await_audio && initial_power != TB_TEST_AUDIO_POWER_OFF)
+    {
+        (void)tb_fmt_print_error("Audio wake observation needs system audio power off (now %s).\n",
+                                 tb_test_audio_power_name(initial_power));
         return false;
     }
     const bool initial_sleep = initial == TB_TEST_AUDIO_DISPLAY_ASLEEP;
@@ -38,15 +45,22 @@ static bool observe(tb_platform_atomic_size *calls, bool await_wake)
     tb_platform_sleep(OBSERVE_NANOSECONDS);
     const size_t first = tb_platform_atomic_size_load(calls) - initial_calls;
     const tb_test_audio_display after = tb_test_audio_display_state();
-    if (after == TB_TEST_AUDIO_DISPLAY_UNKNOWN)
+    if (await_wake && after == TB_TEST_AUDIO_DISPLAY_UNKNOWN)
     {
         (void)tb_fmt_print_error("The main display disappeared during observation.\n");
         return false;
     }
-    (void)tb_fmt_print("Display %s at start, %s after 3 s; %zu callbacks on the open output.\n",
-                       initial_sleep ? "asleep" : "awake",
-                       after == TB_TEST_AUDIO_DISPLAY_ASLEEP ? "asleep" : "awake", first);
-    if (!await_wake)
+    if (initial != TB_TEST_AUDIO_DISPLAY_UNKNOWN && after != TB_TEST_AUDIO_DISPLAY_UNKNOWN)
+    {
+        (void)tb_fmt_print("Display %s at start, %s after 3 s.\n",
+                           initial_sleep ? "asleep" : "awake",
+                           after == TB_TEST_AUDIO_DISPLAY_ASLEEP ? "asleep" : "awake");
+    }
+    const tb_test_audio_power after_power = tb_test_audio_power_state();
+    (void)tb_fmt_print("System audio power %s at start, %s after 3 s; %zu callbacks.\n",
+                       tb_test_audio_power_name(initial_power),
+                       tb_test_audio_power_name(after_power), first);
+    if (!await_wake && !await_audio)
     {
         if (first < MINIMUM_CALLBACKS)
         {
@@ -56,38 +70,46 @@ static bool observe(tb_platform_atomic_size *calls, bool await_wake)
         }
         return true;
     }
-    if (after != TB_TEST_AUDIO_DISPLAY_ASLEEP)
+    if ((await_wake && after != TB_TEST_AUDIO_DISPLAY_ASLEEP) ||
+        (await_audio && after_power != TB_TEST_AUDIO_POWER_OFF))
     {
-        (void)tb_fmt_print_error("Display woke before the initial observation finished.\n");
+        (void)tb_fmt_print_error("Power state changed before the initial observation finished.\n");
         return false;
     }
     (void)tb_fmt_print("Wake the Mac now. The stream stays open for up to 30 s.\n");
     (void)tb_fmt_flush();
     const uint64_t deadline = tb_platform_clock_nanoseconds() + WAKE_TIMEOUT_NANOSECONDS;
-    while (tb_test_audio_display_state() == TB_TEST_AUDIO_DISPLAY_ASLEEP &&
-           tb_platform_clock_nanoseconds() < deadline)
+    bool woke = false;
+    while (!woke && tb_platform_clock_nanoseconds() < deadline)
     {
         tb_platform_sleep(WAKE_POLL_NANOSECONDS);
+        woke = await_audio ? tb_test_audio_power_state() == TB_TEST_AUDIO_POWER_ON
+                           : tb_test_audio_display_state() == TB_TEST_AUDIO_DISPLAY_AWAKE;
     }
-    if (tb_test_audio_display_state() != TB_TEST_AUDIO_DISPLAY_AWAKE)
+    if (!woke)
     {
-        (void)tb_fmt_print_error("No display wake observed.\n");
+        (void)tb_fmt_print_error("No wake observed for the requested capability.\n");
         return false;
     }
     const size_t at_wake = tb_platform_atomic_size_load(calls);
     tb_platform_sleep(OBSERVE_NANOSECONDS);
     const size_t resumed = tb_platform_atomic_size_load(calls) - at_wake;
-    (void)tb_fmt_print("Display woke; %zu callbacks on the same output in the next 3 s.\n",
-                       resumed);
-    return resumed >= MINIMUM_CALLBACKS;
+    const tb_test_audio_power resumed_power = tb_test_audio_power_state();
+    (void)tb_fmt_print("System audio power %s after wake; %zu callbacks on the same output "
+                       "in the next 3 s.\n",
+                       tb_test_audio_power_name(resumed_power), resumed);
+    return resumed >= MINIMUM_CALLBACKS &&
+           (!await_audio || resumed_power == TB_TEST_AUDIO_POWER_ON);
 }
 
 int main(int argc, char **argv)
 {
     const bool await_wake = argc == 2 && tb_str_equal(argv[1], "--await-wake");
-    if (argc != 1 && !await_wake)
+    const bool await_audio = argc == 2 && tb_str_equal(argv[1], "--await-audio-power");
+    if (argc != 1 && !await_wake && !await_audio)
     {
-        (void)tb_fmt_print_error("Usage: tb_macos_audio_probe [--await-wake]\n");
+        (void)tb_fmt_print_error(
+            "Usage: tb_macos_audio_probe [--await-wake | --await-audio-power]\n");
         return 2;
     }
 
@@ -105,7 +127,7 @@ int main(int argc, char **argv)
         goto cleanup;
     }
     tb_audio_device_start(device);
-    if (observe(&calls, await_wake))
+    if (observe(&calls, await_wake, await_audio))
     {
         status = 0;
     }
