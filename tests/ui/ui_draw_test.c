@@ -89,8 +89,7 @@ static void check_canvas_clipping(float scale)
     ui_release(&fixture);
     ui_frame(&fixture);
     const tb_ui_command *const label = ui_text_command(&fixture, "Text");
-    TB_TEST_REQUIRE_POINTER(label, !=, NULL);
-    TB_TEST_REQUIRE(label->clip.x >= frame_width);
+    TB_TEST_REQUIRE(label != NULL && label->clip.x >= frame_width);
     TB_TEST_REQUIRE(tb_renderer_begin_frame(renderer, &camera, (tb_vec4){0, 0, 0, 1}));
     tb_ui_draw(fixture.ui, renderer);
     TB_TEST_REQUIRE_UINT(tb_renderer_end_frame(renderer), ==, TB_RHI_OK);
