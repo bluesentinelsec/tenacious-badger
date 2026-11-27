@@ -207,12 +207,65 @@ TB_TEST(codec_inflate, pieces_of_any_size_decode_the_same)
         decode_in_pieces(vector, expected, length, 1, 1, false);
         decode_in_pieces(vector, expected, length, 1, 4096, false);
         decode_in_pieces(vector, expected, length, 4096, 1, false);
+        /* Whole DEFLATE matches fit at 258 bytes. Check both sides of the
+         * boundary and calls large enough to defer a full window flush. */
+        decode_in_pieces(vector, expected, length, 8, 258, false);
+        decode_in_pieces(vector, expected, length, 512, 257, false);
+        decode_in_pieces(vector, expected, length, 65536, 40000, false);
         for (size_t trial = 0; trial < 5; trial++)
         {
             decode_in_pieces(vector, expected, length, 64, 300, true);
         }
         tb_free(expected);
     }
+}
+
+/* A caller may immediately reuse its output. Matches spanning calls must
+ * survive a single run longer than the window, including a partial wrap. */
+TB_TEST(codec_inflate, repeated_calls_can_overwrite_the_previous_output)
+{
+    const size_t span = 32749;
+    const size_t length = span * 5u;
+    const size_t room = 65537;
+    unsigned char *const original = tb_malloc(length);
+    unsigned char *const chunk = tb_malloc(room);
+    const size_t bound = tb_deflate_bound(length);
+    unsigned char *const encoded = tb_malloc(bound + 8u);
+    size_t bytes = 0, consumed = 0, produced = 0;
+    /* Only sixteen literal values, then matches nearly a whole window back. */
+    lcg_bytes(original, span, 777);
+    for (size_t i = 0; i < span; i++)
+    {
+        original[i] &= 15u;
+    }
+    for (size_t i = span; i < length; i++)
+    {
+        original[i] = original[i - span];
+    }
+    TB_TEST_REQUIRE_UINT(tb_deflate(TB_DEFLATE_RAW, 6, original, length, encoded, bound, &bytes),
+                         ==, TB_DEFLATE_OK);
+    memset(encoded + bytes, 0xAC, 8);
+    tb_inflater *const inflater = tb_inflater_create(TB_DEFLATE_RAW, NULL);
+    while (!tb_inflater_finished(inflater))
+    {
+        size_t used = 0, written = 0;
+        memset(chunk, 0xCC, room);
+        TB_TEST_REQUIRE_UINT(tb_inflater_run(inflater, encoded + consumed, bytes + 8u - consumed,
+                                             &used, chunk, room, &written),
+                             ==, TB_DEFLATE_OK);
+        TB_TEST_REQUIRE(used != 0 || written != 0 || tb_inflater_finished(inflater));
+        TB_TEST_REQUIRE_UINT(used, <=, bytes - consumed);
+        TB_TEST_REQUIRE_UINT(written, <=, length - produced);
+        TB_TEST_EXPECT_BYTES(chunk, original + produced, written);
+        consumed += used;
+        produced += written;
+    }
+    TB_TEST_EXPECT_UINT(consumed, ==, bytes);
+    TB_TEST_EXPECT_UINT(produced, ==, length);
+    tb_inflater_destroy(inflater);
+    tb_free(encoded);
+    tb_free(chunk);
+    tb_free(original);
 }
 
 /* What follows a stream is not consumed: the next gzip member, or whatever an
