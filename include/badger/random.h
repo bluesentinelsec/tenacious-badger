@@ -19,9 +19,8 @@
  * @brief Fill a buffer with random bytes from the operating system.
  * @param bytes Output, NULL only at length zero.
  * @param length Bytes to fill; any number.
- * @return Whether the buffer was filled. false only when the system has no
- * generator to give, which no supported system lacks; then the buffer's
- * contents are unspecified and must not be used.
+ * @return true when all requested bytes were filled, including an empty request.
+ * On a system generator failure, returns false and the buffer contents are unspecified.
  * @par Threading Thread-safe.
  */
 TB_API bool tb_random_bytes(void *bytes, size_t length);

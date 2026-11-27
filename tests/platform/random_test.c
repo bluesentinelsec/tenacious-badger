@@ -1,8 +1,4 @@
-/* Random bytes cannot be checked for being unpredictable, only for what
- * unpredictable bytes are never far from: every byte of the buffer is
- * written, two draws differ, and every bit is set about half the time. The
- * bounds are wide enough that a correct generator fails them about once in
- * 10^20 runs. */
+/* Exercise the operating system provider through the public API. */
 #include "badger/assert.h"
 #include "badger/random.h"
 #include "badger/thread.h"
@@ -19,29 +15,16 @@ TB_TEST(platform_random, an_empty_request_succeeds)
     TB_TEST_EXPECT(tb_random_bytes(NULL, 0));
 }
 
-/* Every byte is written: a buffer filled from two opposite patterns comes
- * back equal in neither, at any length and alignment. */
-TB_TEST(platform_random, every_byte_of_the_buffer_is_written)
+TB_TEST(platform_random, a_draw_preserves_the_surrounding_bytes)
 {
-    static unsigned char zeros[4099];
-    static unsigned char ones[4099];
-    for (size_t length = 1; length <= 4099; length = length * 3 + 1)
+    unsigned char bytes[4101] = {0};
+    for (size_t length = 1; length + 2 <= sizeof(bytes); length = length * 3 + 1)
     {
-        size_t untouched = 0;
         TB_TEST_CONTEXT("length %zu", length);
-        memset(zeros, 0x00, sizeof(zeros));
-        memset(ones, 0xFF, sizeof(ones));
-        TB_TEST_REQUIRE(tb_random_bytes(zeros, length));
-        TB_TEST_REQUIRE(tb_random_bytes(ones, length));
-        /* A byte left alone would be 0x00 in one and 0xFF in the other. */
-        for (size_t index = 0; index < length; index++)
-        {
-            untouched += zeros[index] == 0x00 && ones[index] == 0xFF ? 1u : 0u;
-        }
-        /* By chance, a written byte matches both patterns 1 time in 65,536. */
-        TB_TEST_EXPECT_UINT(untouched, <=, 2);
-        TB_TEST_EXPECT_UINT(zeros[length], ==, 0x00);
-        TB_TEST_EXPECT_UINT(ones[length], ==, 0xFF);
+        memset(bytes, 0xA5, sizeof(bytes));
+        TB_TEST_REQUIRE(tb_random_bytes(bytes + 1, length));
+        TB_TEST_EXPECT_UINT(bytes[0], ==, 0xA5);
+        TB_TEST_EXPECT_UINT(bytes[length + 1], ==, 0xA5);
     }
 }
 

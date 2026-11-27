@@ -670,8 +670,9 @@ cryptography, for keys, nonces, and salts: what no one may guess or repeat.
 | macOS | `arc4random_buf`, which cannot fail |
 | Other | "not implemented": standard C has no source fit for a key |
 
-It returns false only when the system has no generator to give, which no
-supported system lacks. It is thread-safe and needs no setup.
+An empty request succeeds. If the generator is unavailable or reports an
+error, the call returns false and the caller must discard the buffer.
+It is thread-safe and needs no setup.
 
 These bytes cannot be seeded, so nothing that must repeat (a test, a
 simulation, a replay) may use them; those use a [generator](random.md) and

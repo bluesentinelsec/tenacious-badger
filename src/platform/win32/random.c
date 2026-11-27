@@ -6,13 +6,7 @@
 #include "badger/assert.h"
 #include "badger/library.h"
 
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-
-#include <bcrypt.h>
-
-typedef NTSTATUS WINAPI tb_win32_gen_random(BCRYPT_ALG_HANDLE algorithm, PUCHAR buffer,
-                                            ULONG length, ULONG flags);
+#include "random_fill.h"
 
 static INIT_ONCE tb_win32_random_once = INIT_ONCE_STATIC_INIT;
 static tb_win32_gen_random *tb_win32_random_function;
@@ -40,31 +34,31 @@ static BOOL CALLBACK tb_win32_random_load(PINIT_ONCE once, PVOID parameter, PVOI
     return TRUE;
 }
 
-bool tb_random_bytes(void *bytes, size_t length)
+bool tb_win32_random_fill(unsigned char *output, size_t length, ULONG chunk_limit,
+                          tb_win32_gen_random *generate)
 {
-    unsigned char *output = bytes;
-    TB_ASSERT(bytes != NULL || length == 0);
-    (void)InitOnceExecuteOnce(&tb_win32_random_once, tb_win32_random_load, NULL, NULL);
-    /* coverage-off: as above */
-    if (tb_win32_random_function == NULL)
-    {
-        return false;
-    }
-    /* coverage-on */
+    TB_ASSERT(chunk_limit > 0);
     while (length > 0)
     {
-        /* The function takes a 32-bit length. */
-        const ULONG piece = length > (size_t)0x40000000 ? 0x40000000u : (ULONG)length;
-        const NTSTATUS status =
-            tb_win32_random_function(NULL, output, piece, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
-        /* coverage-off: the system's generator does not fail */
-        if (!BCRYPT_SUCCESS(status))
+        const ULONG piece = length > chunk_limit ? chunk_limit : (ULONG)length;
+        if (generate == NULL ||
+            !BCRYPT_SUCCESS(generate(NULL, output, piece, BCRYPT_USE_SYSTEM_PREFERRED_RNG)))
         {
             return false;
         }
-        /* coverage-on */
         output += piece;
         length -= piece;
     }
     return true;
+}
+
+bool tb_random_bytes(void *bytes, size_t length)
+{
+    TB_ASSERT(bytes != NULL || length == 0);
+    if (length == 0)
+    {
+        return true;
+    }
+    (void)InitOnceExecuteOnce(&tb_win32_random_once, tb_win32_random_load, NULL, NULL);
+    return tb_win32_random_fill(bytes, length, 0x40000000u, tb_win32_random_function);
 }

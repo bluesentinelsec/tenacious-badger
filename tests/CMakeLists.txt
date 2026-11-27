@@ -333,7 +333,8 @@ endif()
 # Input that a platform sends only to the window in front is handed to its
 # backend's handling directly.
 if(WIN32)
-    list(APPEND TB_INTERNAL_TEST_CASE_SOURCES platform/win32/window_raw_test.c
+    list(APPEND TB_INTERNAL_TEST_CASE_SOURCES platform/win32/random_fill_test.c
+        platform/win32/window_raw_test.c
         platform/win32/gamepad_xinput_test.c platform/win32/gamepad_rawhid_test.c)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     list(APPEND TB_INTERNAL_TEST_CASE_SOURCES platform/linux/window_input_test.c
