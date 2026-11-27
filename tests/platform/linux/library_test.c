@@ -1,6 +1,8 @@
 /* The Linux side of badger/library.h: a library the dynamic linker finds by
  * its versioned name. */
 #define _POSIX_C_SOURCE 200809L
+#include "library_linux.h"
+
 #include "badger/library.h"
 
 #include "tb_test.h"
@@ -23,5 +25,30 @@ TB_TEST(platform_library_linux, a_system_library_loads_by_its_versioned_name)
     TB_TEST_REQUIRE_UINT(tb_library_find_function(library, "getpid", &function, NULL), ==,
                          TB_LIBRARY_OK);
     TB_TEST_EXPECT_INT(((get_process_id_function *)function)(), ==, getpid());
+    tb_library_close(library);
+}
+
+TB_TEST(platform_library_linux, keeping_a_loaded_library_reuses_its_globals_after_close)
+{
+    tb_library *library = NULL;
+    void *answer = NULL;
+    TB_TEST_EXPECT(!tb_linux_library_keep_loaded("libbadger_no_such_library.so.1"));
+    TB_TEST_REQUIRE_UINT(
+        tb_library_open(TB_LIBRARY_FIXTURE_PATH, TB_LIBRARY_SEARCH_PATH, &library, NULL), ==,
+        TB_LIBRARY_OK);
+    TB_TEST_REQUIRE_UINT(tb_library_find_data(library, "tb_library_fixture_answer", &answer, NULL),
+                         ==, TB_LIBRARY_OK);
+    const int original = *(int *)answer;
+    TB_TEST_REQUIRE(tb_linux_library_keep_loaded(TB_LIBRARY_FIXTURE_PATH));
+    *(int *)answer = 73;
+    tb_library_close(library);
+
+    TB_TEST_REQUIRE_UINT(
+        tb_library_open(TB_LIBRARY_FIXTURE_PATH, TB_LIBRARY_SEARCH_PATH, &library, NULL), ==,
+        TB_LIBRARY_OK);
+    TB_TEST_REQUIRE_UINT(tb_library_find_data(library, "tb_library_fixture_answer", &answer, NULL),
+                         ==, TB_LIBRARY_OK);
+    TB_TEST_EXPECT_INT(*(int *)answer, ==, 73);
+    *(int *)answer = original;
     tb_library_close(library);
 }

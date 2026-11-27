@@ -89,6 +89,9 @@ static void exercise(open_function *open_backend, const char *backend)
 
 TB_TEST(platform_audio_linux, pipewire_plays)
 {
+    /* Reopening in one process exercises the lifetime of the client
+     * modules and their process-wide data across context teardown. */
+    exercise(tb_pipewire_open, "PipeWire");
     exercise(tb_pipewire_open, "PipeWire");
 }
 
