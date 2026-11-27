@@ -131,12 +131,10 @@ typedef struct tb_core_audio
     tb_library *foundation;
     tb_ca_status (*get_size)(tb_ca_object object, const tb_ca_address *address,
                              uint32_t qualifier_size, const void *qualifier, uint32_t *size);
-    tb_ca_status (*get)(tb_ca_object object, const tb_ca_address *address,
-                        uint32_t qualifier_size, const void *qualifier, uint32_t *size,
-                        void *data);
-    tb_ca_status (*set)(tb_ca_object object, const tb_ca_address *address,
-                        uint32_t qualifier_size, const void *qualifier, uint32_t size,
-                        const void *data);
+    tb_ca_status (*get)(tb_ca_object object, const tb_ca_address *address, uint32_t qualifier_size,
+                        const void *qualifier, uint32_t *size, void *data);
+    tb_ca_status (*set)(tb_ca_object object, const tb_ca_address *address, uint32_t qualifier_size,
+                        const void *qualifier, uint32_t size, const void *data);
     tb_ca_status (*add_listener)(tb_ca_object object, const tb_ca_address *address,
                                  tb_ca_listener *listener, void *context);
     tb_ca_status (*remove_listener)(tb_ca_object object, const tb_ca_address *address,
@@ -144,8 +142,8 @@ typedef struct tb_core_audio
     tb_au_component (*find_next)(tb_au_component component, const tb_au_description *desc);
     tb_ca_status (*instance_new)(tb_au_component component, tb_au_unit *unit);
     tb_ca_status (*instance_dispose)(tb_au_unit unit);
-    tb_ca_status (*unit_set)(tb_au_unit unit, uint32_t property, uint32_t scope,
-                             uint32_t element, const void *data, uint32_t size);
+    tb_ca_status (*unit_set)(tb_au_unit unit, uint32_t property, uint32_t scope, uint32_t element,
+                             const void *data, uint32_t size);
     tb_ca_status (*unit_initialize)(tb_au_unit unit);
     tb_ca_status (*unit_uninitialize)(tb_au_unit unit);
     tb_ca_status (*output_start)(tb_au_unit unit);
@@ -193,8 +191,7 @@ static uint32_t tb_ca_get_u32(const tb_core_audio *audio, tb_ca_object object,
     return value;
 }
 
-static double tb_ca_get_f64(const tb_core_audio *audio, tb_ca_object object,
-                            tb_ca_address address)
+static double tb_ca_get_f64(const tb_core_audio *audio, tb_ca_object object, tb_ca_address address)
 {
     double value = 0.0;
     uint32_t size = sizeof(value);
@@ -234,8 +231,7 @@ static uint32_t tb_ca_output_channels(const tb_core_audio *audio, tb_ca_object o
     uint32_t size = 0;
     uint32_t channels = 0;
 
-    if (audio->get_size(object, &address, 0, NULL, &size) != 0 ||
-        size < sizeof(tb_ca_buffer_list))
+    if (audio->get_size(object, &address, 0, NULL, &size) != 0 || size < sizeof(tb_ca_buffer_list))
     {
         return 0;
     }
@@ -333,9 +329,9 @@ static size_t tb_ca_list(void *native, tb_audio_device_info *devices, size_t cap
             tb_ca_get_text(audio, objects[index], TB_CA_UID, info->id, sizeof(info->id));
             tb_ca_get_text(audio, objects[index], TB_CA_NAME, info->name, sizeof(info->name));
             info->is_default = objects[index] == default_output;
-            info->sample_rate = (uint32_t)(tb_ca_get_f64(audio, objects[index],
-                                                         tb_ca_global(TB_CA_NOMINAL_RATE)) +
-                                           0.5);
+            info->sample_rate =
+                (uint32_t)(tb_ca_get_f64(audio, objects[index], tb_ca_global(TB_CA_NOMINAL_RATE)) +
+                           0.5);
             info->channels = channels;
         }
         outputs++;
@@ -436,8 +432,8 @@ static tb_audio_device_result tb_ca_start_unit(tb_ca_stream *stream, tb_ca_objec
     if (stream->format.channels == 0)
     {
         const uint32_t channels = tb_ca_output_channels(audio, object);
-        stream->format.channels = channels < TB_AUDIO_DEVICE_MAX_CHANNELS ? channels
-                                                                          : TB_AUDIO_DEVICE_MAX_CHANNELS;
+        stream->format.channels =
+            channels < TB_AUDIO_DEVICE_MAX_CHANNELS ? channels : TB_AUDIO_DEVICE_MAX_CHANNELS;
     }
     const uint32_t frame_bytes = stream->format.channels * (uint32_t)sizeof(float);
     const tb_ca_stream_format format = {(double)stream->format.sample_rate,
@@ -508,8 +504,7 @@ static tb_audio_device_result tb_ca_start_unit(tb_ca_stream *stream, tb_ca_objec
 failed:
     tb_ca_dispose(stream);
     return tb_audio_device_fail(error, TB_AUDIO_DEVICE_SYSTEM_ERROR,
-                                "Core Audio: the output unit refused the stream (%d)",
-                                (int)status);
+                                "Core Audio: the output unit refused the stream (%d)", (int)status);
 }
 
 /* Move to the default output, after it changed or the device went. */
@@ -621,7 +616,6 @@ static void tb_ca_close_stream(void *native, void *opened)
     const tb_ca_address default_output = tb_ca_global(TB_CA_DEFAULT_OUTPUT);
 
     (void)audio->remove_listener(TB_CA_SYSTEM_OBJECT, &default_output, tb_ca_changed, stream);
-    tb_ca_watch(stream, stream->playing, false);
     tb_platform_atomic_u32_store(&stream->quit, 1u);
     tb_semaphore_signal(&stream->wake, 1);
     tb_thread_join(&stream->thread);
@@ -637,7 +631,8 @@ static tb_library_result tb_ca_load(const char *name, tb_library **library,
                                     const tb_library_binding *bindings, size_t count,
                                     tb_library_error *error)
 {
-    const tb_library_result result = tb_library_open(name, TB_LIBRARY_SEARCH_SYSTEM, library, error);
+    const tb_library_result result =
+        tb_library_open(name, TB_LIBRARY_SEARCH_SYSTEM, library, error);
 
     if (result != TB_LIBRARY_OK)
     {
@@ -656,8 +651,7 @@ tb_audio_device_result tb_native_audio_open(const tb_audio_system_ops **ops, voi
         {"AudioObjectGetPropertyData", (tb_library_function *)&audio->get, true},
         {"AudioObjectSetPropertyData", (tb_library_function *)&audio->set, true},
         {"AudioObjectAddPropertyListener", (tb_library_function *)&audio->add_listener, true},
-        {"AudioObjectRemovePropertyListener", (tb_library_function *)&audio->remove_listener,
-         true},
+        {"AudioObjectRemovePropertyListener", (tb_library_function *)&audio->remove_listener, true},
     };
     const tb_library_binding toolbox[] = {
         {"AudioComponentFindNext", (tb_library_function *)&audio->find_next, true},

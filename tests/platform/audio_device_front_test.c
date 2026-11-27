@@ -176,8 +176,7 @@ static tb_audio_device *open_device(tb_audio_system *system, fake_listener *list
     const tb_audio_device_desc desc = {
         .format = *format, .render = fake_render, .context = listener};
 
-    TB_TEST_REQUIRE_INT(tb_audio_device_open(system, &desc, &device, NULL), ==,
-                        TB_AUDIO_DEVICE_OK);
+    TB_TEST_REQUIRE_INT(tb_audio_device_open(system, &desc, &device, NULL), ==, TB_AUDIO_DEVICE_OK);
     TB_TEST_REQUIRE(device != NULL);
     return device;
 }
@@ -215,6 +214,9 @@ TB_TEST(platform_audio_device_front, renders_only_while_started)
 
     /* No frames: nothing to call it for. */
     tb_audio_device_render(device, NULL, 0, FAKE_CHANNELS);
+    /* An unrepresentable backend request cannot index or clear the buffer. */
+    tb_audio_device_render(device, buffer, SIZE_MAX, FAKE_CHANNELS);
+    TB_TEST_EXPECT_FLOAT(buffer[3], ==, 0.25f);
     TB_TEST_EXPECT_UINT(tb_platform_atomic_size_load(&listener.calls), ==, 1);
 
     tb_audio_device_stop(device);
@@ -279,8 +281,7 @@ TB_TEST(platform_audio_device_front, the_backend_resolves_the_format)
                                        .render = fake_render,
                                        .context = &listener};
 
-    TB_TEST_REQUIRE_INT(tb_audio_device_open(system, &desc, &device, NULL), ==,
-                        TB_AUDIO_DEVICE_OK);
+    TB_TEST_REQUIRE_INT(tb_audio_device_open(system, &desc, &device, NULL), ==, TB_AUDIO_DEVICE_OK);
     TB_TEST_EXPECT_STRING(backend.last_device_id, ==, "speakers");
     TB_TEST_EXPECT_UINT(backend.last_request.period_frames, ==, 128);
     TB_TEST_EXPECT_STRING(backend.last_request.stream_name, ==, "Burrow");
@@ -353,9 +354,8 @@ TB_TEST(platform_audio_device_front, events_queue_in_order)
 
     for (size_t index = 0; index < 20; index++)
     {
-        tb_audio_device_report(device, index < 19 ? TB_AUDIO_DEVICE_EVENT_LOST
-                                                   : TB_AUDIO_DEVICE_EVENT_CHANGED,
-                               NULL);
+        tb_audio_device_report(
+            device, index < 19 ? TB_AUDIO_DEVICE_EVENT_LOST : TB_AUDIO_DEVICE_EVENT_CHANGED, NULL);
     }
     size_t taken = 0;
     while (tb_audio_device_next_event(device, &event))
@@ -405,7 +405,10 @@ TB_TEST(platform_audio_device_front, helpers)
     char name[8] = {0};
     tb_audio_device_error error = TB_AUDIO_DEVICE_ERROR_INIT;
 
-    tb_audio_device_copy_name(name, sizeof(name), "a\xff" "b", 3);
+    tb_audio_device_copy_name(name, sizeof(name),
+                              "a\xff"
+                              "b",
+                              3);
     TB_TEST_EXPECT_STRING(name, ==, "a?b");
     tb_audio_device_copy_name(name, sizeof(name), "abcdefghij", 10);
     TB_TEST_EXPECT_STRING(name, ==, "abcdefg");
@@ -425,16 +428,14 @@ TB_TEST(platform_audio_device_front, helpers)
 
     TB_TEST_EXPECT_INT(tb_audio_device_fail(NULL, TB_AUDIO_DEVICE_UNAVAILABLE, "x"), ==,
                        TB_AUDIO_DEVICE_UNAVAILABLE);
-    TB_TEST_EXPECT_INT(
-        tb_audio_device_fail(&error, TB_AUDIO_DEVICE_SYSTEM_ERROR, "code %d", 7), ==,
-        TB_AUDIO_DEVICE_SYSTEM_ERROR);
+    TB_TEST_EXPECT_INT(tb_audio_device_fail(&error, TB_AUDIO_DEVICE_SYSTEM_ERROR, "code %d", 7), ==,
+                       TB_AUDIO_DEVICE_SYSTEM_ERROR);
     TB_TEST_EXPECT_STRING(error.message, ==, "code 7");
 
     TB_TEST_EXPECT_STRING(tb_audio_device_result_name(TB_AUDIO_DEVICE_OK), ==, "ok");
     TB_TEST_EXPECT_STRING(tb_audio_device_result_name(TB_AUDIO_DEVICE_UNAVAILABLE), ==,
                           "unavailable");
-    TB_TEST_EXPECT_STRING(tb_audio_device_result_name(TB_AUDIO_DEVICE_NOT_FOUND), ==,
-                          "not found");
+    TB_TEST_EXPECT_STRING(tb_audio_device_result_name(TB_AUDIO_DEVICE_NOT_FOUND), ==, "not found");
     TB_TEST_EXPECT_STRING(tb_audio_device_result_name(TB_AUDIO_DEVICE_SYSTEM_ERROR), ==,
                           "system error");
     TB_TEST_EXPECT_STRING(tb_audio_device_result_name((tb_audio_device_result)99), ==,

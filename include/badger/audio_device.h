@@ -24,7 +24,9 @@
  * if (tb_audio_system_open(&audio, &error) != TB_AUDIO_DEVICE_OK ||
  *     tb_audio_device_open(audio, &desc, &device, &error) != TB_AUDIO_DEVICE_OK)
  * {
- *     report(error.message); // and play on in silence
+ *     report(error.message);
+ *     tb_audio_system_close(audio);
+ *     return; // play on in silence
  * }
  * tb_audio_device_start(device);
  * // Once a frame, on the main thread:
@@ -42,7 +44,7 @@
  * other speakers, the system converts.
  *
  * **The default device.** A device opened without an identifier plays on the
- * system's default output, and follows it: when the player picks another
+ * system's default output. On backends with `follows_default`, when the player picks another
  * default or unplugs the headphones, the device moves to the new default and
  * reports #TB_AUDIO_DEVICE_EVENT_CHANGED. A device opened by identifier
  * plays there until that device goes away, then moves to the default. While
@@ -187,7 +189,7 @@ typedef struct tb_audio_format
  * @param samples `frame_count * channels` floats, silent when the function
  * is called, to write the frames into; valid only during the call.
  * @param frame_count Frames to fill: as many as the device needs now, which
- * varies from call to call and is at most the latency's `buffer_frames`.
+ * can vary from call to call.
  * @param channels The device's channels, as tb_audio_device_get_format() says.
  */
 typedef void tb_audio_render_function(void *context, float *samples, size_t frame_count,
@@ -222,7 +224,7 @@ typedef struct tb_audio_device_latency
 {
     /** Frames the device asks for at a time, as the system chose them. */
     uint32_t period_frames;
-    /** Frames the device's buffer holds: the most one call is asked for. */
+    /** Estimated device buffer size in frames at the stream's sample rate. */
     uint32_t buffer_frames;
     /** Seconds from a sample written to it being heard, as far as the
      * system says: the buffer, and the device's own latency where known. */

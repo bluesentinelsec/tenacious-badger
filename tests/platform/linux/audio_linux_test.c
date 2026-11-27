@@ -36,9 +36,8 @@ static void exercise(open_function *open_backend, const char *backend)
     tb_audio_system_info info = {0};
     tb_audio_device_info devices[8] = {0};
     tb_audio_device_latency latency = {0};
-    tb_audio_device_desc desc = {.format = {.sample_rate = 48000, .channels = 2},
-                                 .render = count_calls,
-                                 .context = &calls};
+    tb_audio_device_desc desc = {
+        .format = {.sample_rate = 48000, .channels = 2}, .render = count_calls, .context = &calls};
 
     if (open_backend(&ops, &native, &error) != TB_AUDIO_DEVICE_OK)
     {

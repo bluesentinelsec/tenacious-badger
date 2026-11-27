@@ -5,8 +5,7 @@
 /* Standard C has no sound: how a system finds an output device and feeds
  * it is each system's own. */
 
-tb_audio_device_result tb_audio_system_open(tb_audio_system **system,
-                                            tb_audio_device_error *error)
+tb_audio_device_result tb_audio_system_open(tb_audio_system **system, tb_audio_device_error *error)
 {
     (void)system;
     (void)error;
@@ -37,8 +36,7 @@ size_t tb_audio_system_list_devices(tb_audio_system *system, tb_audio_device_inf
 
 tb_audio_device_result tb_audio_device_open(tb_audio_system *system,
                                             const tb_audio_device_desc *desc,
-                                            tb_audio_device **device,
-                                            tb_audio_device_error *error)
+                                            tb_audio_device **device, tb_audio_device_error *error)
 {
     (void)system;
     (void)desc;

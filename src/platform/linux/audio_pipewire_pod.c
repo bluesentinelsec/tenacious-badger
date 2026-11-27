@@ -110,8 +110,7 @@ size_t tb_pipewire_format_pod(uint32_t rate, uint32_t channels, uint64_t *pod)
     tb_pod_word(&writer, TB_SPA_TYPE_OBJECT_FORMAT);
     tb_pod_word(&writer, TB_SPA_PARAM_ENUM_FORMAT);
     tb_pod_property(&writer, TB_SPA_FORMAT_MEDIA_TYPE, TB_SPA_TYPE_ID, TB_SPA_MEDIA_TYPE_AUDIO);
-    tb_pod_property(&writer, TB_SPA_FORMAT_MEDIA_SUBTYPE, TB_SPA_TYPE_ID,
-                    TB_SPA_MEDIA_SUBTYPE_RAW);
+    tb_pod_property(&writer, TB_SPA_FORMAT_MEDIA_SUBTYPE, TB_SPA_TYPE_ID, TB_SPA_MEDIA_SUBTYPE_RAW);
     tb_pod_property(&writer, TB_SPA_FORMAT_AUDIO_FORMAT, TB_SPA_TYPE_ID, TB_SPA_AUDIO_FORMAT_F32);
     tb_pod_property(&writer, TB_SPA_FORMAT_AUDIO_RATE, TB_SPA_TYPE_INT, rate);
     tb_pod_property(&writer, TB_SPA_FORMAT_AUDIO_CHANNELS, TB_SPA_TYPE_INT, channels);

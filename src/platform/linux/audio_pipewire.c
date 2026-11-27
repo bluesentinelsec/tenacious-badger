@@ -17,8 +17,8 @@
  * (WirePlumber) moves it to; one with a target is moved to the default
  * when its sink goes. The backend sees both in the registry and the
  * metadata, and reports them. */
-#include "audio_linux.h"
 #include "audio_pipewire.h"
+#include "audio_linux.h"
 
 #include "badger/assert.h"
 #include "badger/fmt.h"
@@ -248,8 +248,7 @@ typedef struct tb_pw_functions
 {
     void (*init)(int *argc, char ***argv);
     void (*deinit)(void);
-    struct tb_pw_thread_loop *(*thread_loop_new)(const char *name,
-                                                  const struct tb_spa_dict *props);
+    struct tb_pw_thread_loop *(*thread_loop_new)(const char *name, const struct tb_spa_dict *props);
     void (*thread_loop_destroy)(struct tb_pw_thread_loop *loop);
     int (*thread_loop_start)(struct tb_pw_thread_loop *loop);
     void (*thread_loop_stop)(struct tb_pw_thread_loop *loop);
@@ -370,8 +369,7 @@ static uint32_t tb_spa_lookup_number(const struct tb_spa_dict *dict, const char 
     {
         return 0;
     }
-    for (size_t index = 0; text[index] >= '0' && text[index] <= '9' && value < 100000000u;
-         index++)
+    for (size_t index = 0; text[index] >= '0' && text[index] <= '9' && value < 100000000u; index++)
     {
         value = value * 10u + (uint32_t)(text[index] - '0');
     }
@@ -388,8 +386,7 @@ static void tb_pipewire_copy(char *destination, size_t capacity, const char *sou
     tb_audio_device_copy_name(destination, capacity, source, tb_str_length(source));
 }
 
-static const tb_pipewire_sink *tb_pipewire_find_sink(const tb_pipewire *pipewire,
-                                                     const char *name)
+static const tb_pipewire_sink *tb_pipewire_find_sink(const tb_pipewire *pipewire, const char *name)
 {
     for (size_t index = 0; index < pipewire->sink_count; index++)
     {
@@ -462,8 +459,7 @@ static void tb_pipewire_core_done(void *data, uint32_t id, int seq)
     }
 }
 
-static void tb_pipewire_core_error(void *data, uint32_t id, int seq, int res,
-                                   const char *message)
+static void tb_pipewire_core_error(void *data, uint32_t id, int seq, int res, const char *message)
 {
     tb_pipewire *const pipewire = data;
 
@@ -477,11 +473,10 @@ static void tb_pipewire_core_error(void *data, uint32_t id, int seq, int res,
     }
 }
 
-static const struct tb_pw_core_events tb_pipewire_core_events = {
-    .version = 0,
-    .info = tb_pipewire_core_info,
-    .done = tb_pipewire_core_done,
-    .error = tb_pipewire_core_error};
+static const struct tb_pw_core_events tb_pipewire_core_events = {.version = 0,
+                                                                 .info = tb_pipewire_core_info,
+                                                                 .done = tb_pipewire_core_done,
+                                                                 .error = tb_pipewire_core_error};
 
 static int tb_pipewire_metadata_property(void *data, uint32_t subject, const char *key,
                                          const char *type, const char *value)
@@ -559,8 +554,7 @@ static void tb_pipewire_global(void *data, uint32_t id, uint32_t permissions, co
     if (pipewire->sink_count == 1)
     {
         /* The first sink of a system that had none: lost streams play again. */
-        for (tb_pipewire_stream *stream = pipewire->streams; stream != NULL;
-             stream = stream->next)
+        for (tb_pipewire_stream *stream = pipewire->streams; stream != NULL; stream = stream->next)
         {
             if (stream->lost)
             {
@@ -771,8 +765,8 @@ static bool tb_pipewire_wait_linked(tb_pipewire *pipewire, tb_pipewire_stream *s
 
 /* The latency once the first buffer is asked for: the quantum, and the
  * delay PipeWire says lies between the stream and the speakers. */
-static void tb_pipewire_measure(tb_pipewire *pipewire, tb_pipewire_stream *stream,
-                                uint32_t rate, uint32_t period_frames)
+static void tb_pipewire_measure(tb_pipewire *pipewire, tb_pipewire_stream *stream, uint32_t rate,
+                                uint32_t period_frames)
 {
     struct tb_pw_time time = {0};
     double delay_seconds = 0.0;
@@ -830,7 +824,8 @@ static tb_audio_device_result tb_pipewire_open_stream(void *native,
         request->period_frames != 0
             ? request->period_frames
             : (uint32_t)((double)rate * TB_PIPEWIRE_DEFAULT_PERIOD_SECONDS + 0.5);
-    if (request->device_id[0] != '\0' && tb_pipewire_find_sink(pipewire, request->device_id) == NULL)
+    if (request->device_id[0] != '\0' &&
+        tb_pipewire_find_sink(pipewire, request->device_id) == NULL)
     {
         result = tb_audio_device_fail(error, TB_AUDIO_DEVICE_NOT_FOUND,
                                       "PipeWire: no sink is named '%s'", request->device_id);
@@ -983,8 +978,8 @@ tb_audio_device_result tb_pipewire_open(const tb_audio_system_ops **ops, void **
     pipewire->loop = pw->thread_loop_new("badger-pipewire", NULL);
     if (pipewire->loop == NULL)
     {
-        result = tb_audio_device_fail(error, TB_AUDIO_DEVICE_SYSTEM_ERROR,
-                                      "PipeWire: no thread loop");
+        result =
+            tb_audio_device_fail(error, TB_AUDIO_DEVICE_SYSTEM_ERROR, "PipeWire: no thread loop");
         goto failed;
     }
     pipewire->context = pw->context_new(pw->thread_loop_get_loop(pipewire->loop), NULL, 0);

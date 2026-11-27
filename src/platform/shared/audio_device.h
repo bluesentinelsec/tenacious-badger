@@ -77,8 +77,7 @@ void tb_audio_device_set_latency(tb_audio_device *device, const tb_audio_device_
 /* Fill in an error, formatted as tb_fmt_buffer() does; returns `result`.
  * `error` may be NULL. */
 tb_audio_device_result tb_audio_device_fail(tb_audio_device_error *error,
-                                            tb_audio_device_result result, const char *format,
-                                            ...);
+                                            tb_audio_device_result result, const char *format, ...);
 
 /* Copy a name the system gave into `name`, of `capacity` bytes: cut at a
  * character to fit, and with any byte that is not valid UTF-8 replaced by

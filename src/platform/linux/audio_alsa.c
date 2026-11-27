@@ -14,10 +14,12 @@
 #include "badger/library.h"
 #include "badger/memory.h"
 #include "badger/platform.h"
+#include "badger/size.h"
 #include "badger/str.h"
 #include "badger/thread.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -33,7 +35,7 @@
  * periods of the hint when one is given. */
 #define TB_ALSA_DEFAULT_LATENCY_MICROSECONDS 40000u
 #define TB_ALSA_PERIODS_PER_BUFFER 4u
-#define TB_ALSA_MICROSECONDS_PER_SECOND 1000000.0
+#define TB_ALSA_MICROSECONDS_PER_SECOND 1000000u
 
 /* How long a stream with no device waits to look again. */
 #define TB_ALSA_RETRY_NANOSECONDS 1000000000u
@@ -43,11 +45,11 @@ typedef struct tb_snd_pcm tb_snd_pcm;
 typedef struct tb_alsa
 {
     tb_library *library;
+    int (*config_update_free_global)(void);
     int (*pcm_open)(tb_snd_pcm **pcm, const char *name, int stream, int mode);
     int (*pcm_set_params)(tb_snd_pcm *pcm, int format, int access, unsigned int channels,
                           unsigned int rate, int soft_resample, unsigned int latency);
-    int (*pcm_get_params)(tb_snd_pcm *pcm, unsigned long *buffer_size,
-                          unsigned long *period_size);
+    int (*pcm_get_params)(tb_snd_pcm *pcm, unsigned long *buffer_size, unsigned long *period_size);
     long (*pcm_writei)(tb_snd_pcm *pcm, const void *buffer, unsigned long size);
     int (*pcm_recover)(tb_snd_pcm *pcm, int error, int silent);
     int (*pcm_close)(tb_snd_pcm *pcm);
@@ -77,6 +79,11 @@ static void tb_alsa_close(void *native)
 {
     tb_alsa *const alsa = native;
 
+    if (alsa->config_update_free_global != NULL)
+    {
+        /* PCM lookup loads the ALSA configuration even when opening fails. */
+        (void)alsa->config_update_free_global();
+    }
     tb_library_close(alsa->library);
     tb_free(alsa);
 }
@@ -85,7 +92,9 @@ static void tb_alsa_info(void *native, tb_audio_system_info *info)
 {
     (void)native;
     memcpy(info->backend, "ALSA", sizeof("ALSA"));
-    info->follows_default = true;
+    /* ALSA resolves "default" on open and after loss. It does not notify
+     * clients when a still-working PCM stops being the default. */
+    info->follows_default = false;
     info->reports_changes = true;
     info->knows_default = true;
 }
@@ -168,16 +177,19 @@ static bool tb_alsa_listed(tb_alsa *alsa, const char *name)
     return false;
 }
 
-static tb_audio_device_result tb_alsa_connect(tb_alsa_stream *stream,
-                                              tb_audio_device_error *error)
+static tb_audio_device_result tb_alsa_connect(tb_alsa_stream *stream, tb_audio_device_error *error)
 {
     const tb_alsa *const alsa = stream->alsa;
     const uint32_t rate = stream->format.sample_rate;
-    const unsigned int latency =
-        stream->period_hint != 0
-            ? (unsigned int)((double)stream->period_hint * TB_ALSA_PERIODS_PER_BUFFER *
-                             TB_ALSA_MICROSECONDS_PER_SECOND / (double)rate)
-            : TB_ALSA_DEFAULT_LATENCY_MICROSECONDS;
+    const uint64_t requested_latency = (uint64_t)stream->period_hint * TB_ALSA_PERIODS_PER_BUFFER *
+                                       TB_ALSA_MICROSECONDS_PER_SECOND / rate;
+    unsigned int latency = TB_ALSA_DEFAULT_LATENCY_MICROSECONDS;
+    size_t needed = 0;
+
+    if (stream->period_hint != 0)
+    {
+        latency = requested_latency > UINT_MAX ? UINT_MAX : (unsigned int)requested_latency;
+    }
     int status = alsa->pcm_open(&stream->pcm, stream->name, TB_SND_PCM_STREAM_PLAYBACK, 0);
 
     if (status < 0)
@@ -194,14 +206,21 @@ static tb_audio_device_result tb_alsa_connect(tb_alsa_stream *stream,
     {
         status = alsa->pcm_get_params(stream->pcm, &stream->buffer_frames, &stream->period_frames);
     }
-    if (status < 0 || stream->period_frames == 0)
+    if (status >= 0 &&
+        (stream->period_frames == 0 || stream->period_frames > stream->buffer_frames ||
+         stream->buffer_frames > UINT32_MAX ||
+         !tb_size_multiply(stream->period_frames, stream->format.channels, &needed) ||
+         needed > SIZE_MAX / sizeof(float)))
+    {
+        status = -ERANGE;
+    }
+    if (status < 0)
     {
         (void)alsa->pcm_close(stream->pcm);
         stream->pcm = NULL;
         return tb_audio_device_fail(error, TB_AUDIO_DEVICE_SYSTEM_ERROR, "ALSA: %s: %s",
                                     stream->name, alsa->strerror(status));
     }
-    const size_t needed = (size_t)stream->period_frames * stream->format.channels;
     if (needed > stream->sample_capacity)
     {
         tb_free(stream->samples);
@@ -250,7 +269,7 @@ static bool tb_alsa_write(tb_alsa_stream *stream)
 
     tb_audio_device_render(stream->device, stream->samples, stream->period_frames,
                            stream->format.channels);
-    while (written < stream->period_frames)
+    while (written < stream->period_frames && tb_platform_atomic_u32_load(&stream->quit) == 0u)
     {
         const long frames =
             alsa->pcm_writei(stream->pcm, stream->samples + written * stream->format.channels,
@@ -301,8 +320,7 @@ static tb_audio_device_result tb_alsa_open_stream(void *native, tb_audio_device_
 {
     tb_alsa *const alsa = native;
     tb_alsa_stream *const stream = tb_calloc(1, sizeof(*stream));
-    const tb_thread_options options = {.name = "audio device",
-                                       .priority = TB_THREAD_PRIORITY_HIGH};
+    const tb_thread_options options = {.name = "audio device", .priority = TB_THREAD_PRIORITY_HIGH};
     tb_audio_device_result result = TB_AUDIO_DEVICE_OK;
 
     stream->alsa = alsa;
@@ -372,6 +390,8 @@ tb_audio_device_result tb_alsa_open(const tb_audio_system_ops **ops, void **nati
         {"snd_device_name_hint", (tb_library_function *)&alsa->device_name_hint, true},
         {"snd_device_name_get_hint", (tb_library_function *)&alsa->device_name_get_hint, true},
         {"snd_device_name_free_hint", (tb_library_function *)&alsa->device_name_free_hint, true},
+        {"snd_config_update_free_global", (tb_library_function *)&alsa->config_update_free_global,
+         true},
     };
 
     if (tb_library_open("libasound.so.2", TB_LIBRARY_SEARCH_SYSTEM, &alsa->library,

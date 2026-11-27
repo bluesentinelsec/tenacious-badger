@@ -67,8 +67,7 @@ static const PROPERTYKEY tb_wasapi_key_friendly_name = {
 typedef HRESULT(WINAPI tb_co_initialize_ex_function)(LPVOID reserved, DWORD model);
 typedef void(WINAPI tb_co_uninitialize_function)(void);
 typedef HRESULT(WINAPI tb_co_create_instance_function)(REFCLSID clsid, LPUNKNOWN outer,
-                                                       DWORD context, REFIID iid,
-                                                       LPVOID *object);
+                                                       DWORD context, REFIID iid, LPVOID *object);
 typedef void(WINAPI tb_co_task_mem_free_function)(LPVOID memory);
 typedef HRESULT(WINAPI tb_prop_variant_clear_function)(PROPVARIANT *value);
 typedef HANDLE(WINAPI tb_av_set_function)(LPCWSTR task, LPDWORD index);
@@ -451,8 +450,8 @@ static void tb_wasapi_device_changed(IMMNotificationClient *client, LPCWSTR id, 
     }
 }
 
-static HRESULT STDMETHODCALLTYPE tb_wasapi_state_changed(IMMNotificationClient *client,
-                                                         LPCWSTR id, DWORD state)
+static HRESULT STDMETHODCALLTYPE tb_wasapi_state_changed(IMMNotificationClient *client, LPCWSTR id,
+                                                         DWORD state)
 {
     tb_wasapi_device_changed(client, id, state != DEVICE_STATE_ACTIVE);
     return S_OK;
@@ -471,8 +470,7 @@ static HRESULT STDMETHODCALLTYPE tb_wasapi_removed(IMMNotificationClient *client
 }
 
 static HRESULT STDMETHODCALLTYPE tb_wasapi_default_changed(IMMNotificationClient *client,
-                                                           EDataFlow flow, ERole role,
-                                                           LPCWSTR id)
+                                                           EDataFlow flow, ERole role, LPCWSTR id)
 {
     tb_wasapi_stream *const stream = tb_wasapi_notified(client);
     bool follows = false;
@@ -498,8 +496,8 @@ static HRESULT STDMETHODCALLTYPE tb_wasapi_property_changed(IMMNotificationClien
 }
 
 static IMMNotificationClientVtbl tb_wasapi_notifier_table = {
-    tb_wasapi_query_interface, tb_wasapi_add_ref,        tb_wasapi_release,
-    tb_wasapi_state_changed,   tb_wasapi_added,          tb_wasapi_removed,
+    tb_wasapi_query_interface, tb_wasapi_add_ref,         tb_wasapi_release,
+    tb_wasapi_state_changed,   tb_wasapi_added,           tb_wasapi_removed,
     tb_wasapi_default_changed, tb_wasapi_property_changed};
 
 /* ---------------------------------------------------------------------------
@@ -579,8 +577,8 @@ static tb_audio_device_result tb_wasapi_find_endpoint(tb_wasapi_stream *stream,
     if (stream->named_id != NULL)
     {
         DWORD state = 0;
-        result = IMMDeviceEnumerator_GetDevice(stream->enumerator, stream->named_id,
-                                               &stream->endpoint);
+        result =
+            IMMDeviceEnumerator_GetDevice(stream->enumerator, stream->named_id, &stream->endpoint);
         if (SUCCEEDED(result) && SUCCEEDED(IMMDevice_GetState(stream->endpoint, &state)) &&
             state == DEVICE_STATE_ACTIVE)
         {
@@ -674,9 +672,9 @@ static tb_audio_device_result tb_wasapi_start_client(tb_wasapi_stream *stream,
     (void)IAudioClient_GetDevicePeriod(stream->client, &default_period, &minimum_period);
     (void)IAudioClient_GetStreamLatency(stream->client, &stream_latency);
     const uint32_t rate = stream->format.sample_rate;
-    const tb_audio_device_latency latency = tb_audio_device_latency_of(
-        tb_wasapi_frames(default_period, rate), stream->buffer_frames, rate,
-        (double)stream_latency / TB_WASAPI_UNITS_PER_SECOND);
+    const tb_audio_device_latency latency =
+        tb_audio_device_latency_of(tb_wasapi_frames(default_period, rate), stream->buffer_frames,
+                                   rate, (double)stream_latency / TB_WASAPI_UNITS_PER_SECOND);
     tb_audio_device_set_latency(stream->device, &latency);
     if (!tb_wasapi_fill(stream))
     {
@@ -810,8 +808,8 @@ cleanup:
     tb_wasapi_disconnect(stream);
     if (registered)
     {
-        (void)IMMDeviceEnumerator_UnregisterEndpointNotificationCallback(
-            stream->enumerator, &stream->notifier.client);
+        (void)IMMDeviceEnumerator_UnregisterEndpointNotificationCallback(stream->enumerator,
+                                                                         &stream->notifier.client);
     }
     if (stream->enumerator != NULL)
     {
@@ -860,8 +858,7 @@ static tb_audio_device_result tb_wasapi_open(void *native, tb_audio_device_reque
                                              tb_audio_device_error *error)
 {
     tb_wasapi_stream *const stream = tb_calloc(1, sizeof(*stream));
-    const tb_thread_options options = {.name = "audio device",
-                                       .priority = TB_THREAD_PRIORITY_HIGH};
+    const tb_thread_options options = {.name = "audio device", .priority = TB_THREAD_PRIORITY_HIGH};
 
     stream->wasapi = native;
     stream->device = device;
@@ -914,8 +911,8 @@ static void tb_wasapi_close_stream(void *native, void *opened)
 }
 /* coverage-on */
 
-static const tb_audio_system_ops tb_wasapi_ops = {
-    tb_wasapi_close, tb_wasapi_info, tb_wasapi_list, tb_wasapi_open, tb_wasapi_close_stream};
+static const tb_audio_system_ops tb_wasapi_ops = {tb_wasapi_close, tb_wasapi_info, tb_wasapi_list,
+                                                  tb_wasapi_open, tb_wasapi_close_stream};
 
 tb_audio_device_result tb_native_audio_open(const tb_audio_system_ops **ops, void **native,
                                             tb_audio_device_error *error)

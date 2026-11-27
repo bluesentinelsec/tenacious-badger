@@ -8,6 +8,7 @@
 #include "badger/fmt.h"
 #include "badger/memory.h"
 #include "badger/platform.h"
+#include "badger/size.h"
 #include "badger/str.h"
 #include "badger/thread.h"
 #include "badger/utf8.h"
@@ -50,8 +51,7 @@ struct tb_audio_device
 };
 
 tb_audio_device_result tb_audio_device_fail(tb_audio_device_error *error,
-                                            tb_audio_device_result result, const char *format,
-                                            ...)
+                                            tb_audio_device_result result, const char *format, ...)
 {
     va_list arguments;
 
@@ -146,8 +146,7 @@ tb_audio_system *tb_audio_system_make(const tb_audio_system_ops *ops, void *nati
     return system;
 }
 
-tb_audio_device_result tb_audio_system_open(tb_audio_system **system,
-                                            tb_audio_device_error *error)
+tb_audio_device_result tb_audio_system_open(tb_audio_system **system, tb_audio_device_error *error)
 {
     const tb_audio_system_ops *ops = NULL;
     void *native = NULL;
@@ -220,8 +219,7 @@ static bool tb_audio_format_complete(const tb_audio_format *format)
 
 tb_audio_device_result tb_audio_device_open(tb_audio_system *system,
                                             const tb_audio_device_desc *desc,
-                                            tb_audio_device **device,
-                                            tb_audio_device_error *error)
+                                            tb_audio_device **device, tb_audio_device_error *error)
 {
     tb_audio_device *opened = NULL;
     tb_audio_device_request request = {0};
@@ -329,16 +327,22 @@ bool tb_audio_device_next_event(tb_audio_device *device, tb_audio_device_event *
 void tb_audio_device_render(tb_audio_device *device, float *samples, size_t frame_count,
                             uint32_t channels)
 {
-    const size_t sample_count = frame_count * channels;
+    size_t bytes = 0;
 
     TB_ASSERT(device != NULL);
-    TB_ASSERT(samples != NULL || frame_count == 0);
-    if (sample_count > 0)
+    if (frame_count == 0)
     {
-        memset(samples, 0, sample_count * sizeof(*samples));
+        return;
     }
+    TB_ASSERT(samples != NULL);
+    TB_ASSERT(channels > 0 && channels <= TB_AUDIO_DEVICE_MAX_CHANNELS);
+    if (!tb_size_multiply(frame_count, channels * sizeof(*samples), &bytes))
+    {
+        return;
+    }
+    memset(samples, 0, bytes);
     tb_platform_atomic_u32_store(&device->rendering, 1u);
-    if (tb_platform_atomic_u32_load(&device->started) != 0u && frame_count > 0)
+    if (tb_platform_atomic_u32_load(&device->started) != 0u)
     {
         device->render(device->context, samples, frame_count, channels);
     }

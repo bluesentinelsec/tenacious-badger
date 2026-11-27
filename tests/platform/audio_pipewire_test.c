@@ -10,13 +10,13 @@
 
 /* spa_format_audio_raw_build(SPA_PARAM_EnumFormat) of F32, 48000 Hz, FL FR. */
 static const uint32_t stereo_words[] = {
-    0xa0,    0xf, 0x40003, 3,                                   /* object, Format, EnumFormat */
-    1,       0,   4,       3, 1,      0,                        /* mediaType: audio */
-    2,       0,   4,       3, 1,      0,                        /* mediaSubtype: raw */
-    0x10001, 0,   4,       3, 0x11b,  0,                        /* format: F32 */
-    0x10003, 0,   4,       4, 0xbb80, 0,                        /* rate: 48000 */
-    0x10004, 0,   4,       4, 2,      0,                        /* channels: 2 */
-    0x10005, 0,   0x10,    0xd, 4,    3, 3, 4};                 /* position: FL FR */
+    0xa0,    0xf, 0x40003, 3,                     /* object, Format, EnumFormat */
+    1,       0,   4,       3,   1,      0,        /* mediaType: audio */
+    2,       0,   4,       3,   1,      0,        /* mediaSubtype: raw */
+    0x10001, 0,   4,       3,   0x11b,  0,        /* format: F32 */
+    0x10003, 0,   4,       4,   0xbb80, 0,        /* rate: 48000 */
+    0x10004, 0,   4,       4,   2,      0,        /* channels: 2 */
+    0x10005, 0,   0x10,    0xd, 4,      3, 3, 4}; /* position: FL FR */
 
 TB_TEST(platform_audio_pipewire, the_format_pod_is_spa_s)
 {
