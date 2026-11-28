@@ -52,6 +52,7 @@ typedef struct shaderc_backend
 
 static const shaderc_backend shaderc_known_backends[] = {
     {"d3d12", "d3d12.tbsl", TB_SHADER_TARGET_DXIL},
+    {"metal", "metal.tbsl", TB_SHADER_TARGET_MSL},
     {"d3d11", "d3d11.tbsl", TB_SHADER_TARGET_DXBC},
 };
 
@@ -197,7 +198,9 @@ static bool shaderc_build(const shaderc_backend *backend, const tb_shader_manife
                                  d3dcompiler_error.message);
         return false;
     }
-    compiler = dxc != NULL ? tb_dxc_version(dxc) : tb_d3dcompiler_version(d3dcompiler);
+    compiler = backend->target == TB_SHADER_TARGET_MSL ? "badger-msl"
+               : dxc != NULL                           ? tb_dxc_version(dxc)
+                                                       : tb_d3dcompiler_version(d3dcompiler);
     shaderc_work work = {0};
     work.backend = backend;
     work.loader = tb_shader_vfs_loader(vfs);
@@ -240,7 +243,7 @@ static const shaderc_backend *shaderc_find_backend(const char *name)
         }
     }
     (void)tb_fmt_print_error("badger-shaderc: error: no shader library is written for '%s' yet; "
-                             "the backends with libraries are: d3d12, d3d11\n",
+                             "the backends with libraries are: d3d12, d3d11, metal\n",
                              name);
     return NULL;
 }
@@ -381,9 +384,9 @@ static const tb_cli_option shaderc_options[] = {
      .texts = shaderc_backends,
      .capacity = SHADERC_MOST_BACKENDS,
      .count = &shaderc_backend_count,
-     .help =
-         "A backend to write a library for, as graphics.renderer names it: d3d12 or d3d11. May be "
-         "given more than once; none compiles nothing."},
+     .help = "A backend to write a library for, as graphics.renderer names it: d3d12, d3d11 or "
+             "metal. May be "
+             "given more than once; none compiles nothing."},
     {.long_name = "output",
      .name = "DIRECTORY",
      .text = &shaderc_output,

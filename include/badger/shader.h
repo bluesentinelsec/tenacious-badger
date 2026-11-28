@@ -475,7 +475,9 @@ typedef enum tb_shader_target
      * form: the DXBC container, behind a table of the registers the D3D11
      * backend binds what the shader takes from the descriptor heaps to,
      * which only that backend reads. */
-    TB_SHADER_TARGET_DXBC
+    TB_SHADER_TARGET_DXBC,
+    /** UTF-8 Metal Shading Language for one raster stage. The Metal function is tb_main. */
+    TB_SHADER_TARGET_MSL
 } tb_shader_target;
 
 /** @brief A shader model, as its major and minor versions: `TB_SHADER_MODEL(6, 6)`. */
@@ -525,8 +527,8 @@ typedef struct tb_shader_compiled
     const tb_shader_diagnostic *diagnostics; /**< Errors and warnings, in the order found. */
     size_t diagnostic_count;                 /**< Entries of `diagnostics`. */
     /** What the target runs, on OK, aligned to 4 bytes: for DXIL, the DXBC
-     * container; for DXBC, the shader the D3D11 backend makes. NULL for
-     * TB_SHADER_TARGET_NONE, and on failure. */
+     * container; for MSL, UTF-8 source bytes without a terminator; for DXBC, the shader the D3D11
+     * backend makes. NULL for TB_SHADER_TARGET_NONE, and on failure. */
     const void *code;
     size_t code_size; /**< Bytes of `code`. */
 } tb_shader_compiled;

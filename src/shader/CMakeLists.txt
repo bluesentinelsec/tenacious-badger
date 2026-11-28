@@ -26,6 +26,7 @@ set(TB_SHADER_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_library.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_lower.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_lower_expression.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/shader_msl.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_manifest.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_methods.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/shader_parse.c"

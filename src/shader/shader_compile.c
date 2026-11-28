@@ -9,6 +9,7 @@
 #include "shader_hlsl.h"
 #include "shader_internal.h"
 #include "shader_lower.h"
+#include "shader_msl.h"
 #include "shader_reflect.h"
 #include "shader_syntax.h"
 
@@ -309,7 +310,7 @@ static bool reflect_entry(compile *state, const tb_shader_compile_request *reque
 /* What is wrong with the request's target, or NULL when nothing is. */
 static const char *check_target(const tb_shader_compile_request *request)
 {
-    if (request->target == TB_SHADER_TARGET_NONE)
+    if (request->target == TB_SHADER_TARGET_NONE || request->target == TB_SHADER_TARGET_MSL)
     {
         return NULL;
     }
@@ -416,6 +417,26 @@ tb_shader_result tb_shader_compile(const tb_shader_compile_request *request, tb_
     else if (request->target == TB_SHADER_TARGET_DXBC && !write_dxbc(&state, request, &reflection))
     {
         result = TB_SHADER_FAILED;
+    }
+    else if (request->target == TB_SHADER_TARGET_MSL)
+    {
+        tb_shader_location location = {0};
+        const char *reason = NULL;
+        const char *source = NULL;
+        if (tb_shader_write_msl(&state.entry, &reflection, state.scratch, &source, &state.code_size,
+                                &location, &reason))
+        {
+            state.code = source;
+        }
+        else
+        {
+            const char *path =
+                location.file < state.unit.file_count ? state.unit.files[location.file] : "";
+            const tb_shader_diagnostic diagnostic = {TB_SHADER_ERROR, path, location.line,
+                                                     location.column, reason};
+            add_diagnostics(&state, &diagnostic, 1);
+            result = TB_SHADER_FAILED;
+        }
     }
     const tb_arena_mark mark = tb_arena_get_mark(arena);
     if (!copy_output(&state, result == TB_SHADER_OK ? &reflection : NULL, arena, output))
