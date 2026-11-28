@@ -128,6 +128,13 @@ TB_TEST(rhi_metal, raster_triangle_reads_each_draws_constants)
     const float colors[][4] = {{1, 0, 0, 1}, {0, 1, 0, 1}};
     for (size_t frame = 0; frame < 2; frame++)
     {
+        if (frame == 1)
+        {
+            uint32_t pixel = 0;
+            TB_TEST_REQUIRE_UINT(tb_rhi_device_recreate(device, &error), ==, TB_RHI_OK);
+            tb_rhi_buffer_read(device, readback, 0, &pixel, sizeof(pixel));
+            TB_TEST_EXPECT_HEX(pixel, ==, 0xff0000ffu);
+        }
         tb_rhi_command_list *const list = tb_rhi_command_list_begin(device);
         tb_rhi_cmd_barrier(list, &(tb_rhi_barrier){.texture = target,
                                                    .before = frame == 0 ? TB_RHI_STATE_COMMON
@@ -164,6 +171,56 @@ TB_TEST(rhi_metal, raster_triangle_reads_each_draws_constants)
     tb_rhi_pipeline_destroy(device, pipeline);
     tb_rhi_texture_destroy(device, target);
     tb_rhi_buffer_destroy(device, readback);
+    tb_rhi_device_destroy(device);
+}
+
+TB_TEST(rhi_metal, recreation_copies_nonzero_texture_levels_and_slices)
+{
+    tb_rhi_device *device = NULL;
+    tb_rhi_error error = TB_RHI_ERROR_INIT;
+    const tb_rhi_result opened = tb_rhi_device_create_on(
+        &tb_rhi_metal_backend, &(tb_rhi_device_options){0}, &device, &error);
+    if (opened == TB_RHI_UNAVAILABLE)
+    {
+        TB_TEST_SKIP("%s", error.message);
+    }
+    TB_TEST_REQUIRE_UINT(opened, ==, TB_RHI_OK);
+    tb_rhi_texture texture = {0};
+    tb_rhi_buffer upload = {0}, readback = {0};
+    const tb_rhi_texture_desc desc = {.format = TB_RHI_FORMAT_R8G8B8A8_UNORM,
+                                      .width = 2,
+                                      .height = 2,
+                                      .mips = 2,
+                                      .layers = 2,
+                                      .usage = TB_RHI_TEXTURE_STORAGE};
+    TB_TEST_REQUIRE_UINT(tb_rhi_texture_create(device, &desc, &texture, &error), ==, TB_RHI_OK);
+    tb_rhi_buffer_desc staging = {.size = TB_RHI_TEXTURE_COPY_PITCH_ALIGNMENT,
+                                  .memory = TB_RHI_MEMORY_UPLOAD};
+    TB_TEST_REQUIRE_UINT(tb_rhi_buffer_create(device, &staging, &upload, &error), ==, TB_RHI_OK);
+    staging.memory = TB_RHI_MEMORY_READBACK;
+    TB_TEST_REQUIRE_UINT(tb_rhi_buffer_create(device, &staging, &readback, &error), ==, TB_RHI_OK);
+    const uint32_t color = 0xffe37b14u;
+    tb_rhi_buffer_write(device, upload, 0, &color, sizeof(color));
+    tb_rhi_texture_copy copy = {.texture = texture,
+                                .buffer = upload,
+                                .row_pitch = TB_RHI_TEXTURE_COPY_PITCH_ALIGNMENT,
+                                .mip = 1,
+                                .layer = 1};
+    const uint32_t index = tb_rhi_texture_storage_mip_index(device, texture, 1);
+    tb_rhi_command_list *list = tb_rhi_command_list_begin(device);
+    tb_rhi_cmd_copy_buffer_to_texture(list, &copy);
+    (void)tb_rhi_submit(device, &list, 1);
+    tb_rhi_buffer_destroy(device, upload);
+    TB_TEST_REQUIRE_UINT(tb_rhi_device_recreate(device, &error), ==, TB_RHI_OK);
+    TB_TEST_EXPECT_UINT(tb_rhi_texture_storage_mip_index(device, texture, 1), ==, index);
+    copy.buffer = readback;
+    list = tb_rhi_command_list_begin(device);
+    tb_rhi_cmd_copy_texture_to_buffer(list, &copy);
+    const uint64_t submission = tb_rhi_submit(device, &list, 1);
+    TB_TEST_REQUIRE_UINT(tb_rhi_wait(device, submission), ==, TB_RHI_OK);
+    uint32_t observed = 0;
+    tb_rhi_buffer_read(device, readback, 0, &observed, sizeof(observed));
+    TB_TEST_EXPECT_HEX(observed, ==, color);
     tb_rhi_device_destroy(device);
 }
 

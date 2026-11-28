@@ -23,7 +23,8 @@ if (tb_rhi_device_create(&(tb_rhi_device_options){.backend = TB_RHI_BACKEND_AUTO
 | `null` | Accepts every call and draws nothing, as Unreal's null RHI does: for servers, tools, and tests of what sits above the RHI. Buffers keep their bytes, and the GPU finishes each submission at once. |
 | `d3d12` | Windows. Direct3D 12 through its COM C bindings, with `d3d12.dll` and `dxgi.dll` loaded at run time. Bindless where the device has Shader Model 6.6 and resource binding tier 3; the debug layer, its messages written to the log, with validation; flip-model swap chains that tear without vsync where the system allows, and show their images unscaled, so that a window dragged larger never stretches the last frame. Tested on WARP. |
 | `d3d11` | Windows, for GPUs and drivers without D3D12. Direct3D 11 through its COM C bindings, with `d3d11.dll` and `dxgi.dll` loaded at run time, at feature level 11_0 or 11_1. It imitates the explicit model (see [D3D11](#d3d11-what-it-imitates)): its own command lists, replayed when they are submitted; bindless resources for heap indices the same for a whole draw; constants copied into constant buffers of its own. Flip-model swap chains as D3D12's; the debug layer, its messages written to the log, where it is installed. Tested on WARP. |
-| `vulkan`, `opengl`, `metal`, `software` | Planned. |
+| `metal` | macOS. Draws and presents Burrow using the bundled Metal shaders. See [Metal on macOS](#metal-on-macos). |
+| `vulkan`, `opengl`, `software` | Planned. |
 
 ## Choosing a backend
 
@@ -272,3 +273,19 @@ content scale for the layer. The render targets have stable handles until
 resize. Presentation copies the current target to a freshly acquired drawable
 on the same command queue. A hidden window can temporarily have no drawable.
 Destroying the chain restores the view's previous layer.
+
+### Recreating a healthy device
+
+Metal and the null backend advertise `TB_RHI_FEATURE_DEVICE_RECREATE`.
+Call `tb_rhi_device_recreate()` on the presentation thread between frames,
+with exclusive access to the device and all command lists submitted or
+discarded. The call waits for the GPU, creates a queue and resource tables
+on the same adapter, rebuilds pipelines from their retained shaders, and
+copies live buffers and textures. Swap chains keep their windows and images.
+Existing handles, heap indices, and submission numbers stay valid.
+
+Rebuilding temporarily needs enough memory for both sets of resources.
+If allocation or copying fails, the caller can resume on the original
+device or retry. An already lost device returns `TB_RHI_DEVICE_LOST`.
+Restoring data after physical device loss and switching graphics APIs are
+tracked in #218.

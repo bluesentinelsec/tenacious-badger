@@ -501,6 +501,34 @@ static scene make_scene(tb_rhi_device *device)
     return made;
 }
 
+TB_TEST(rhi, recreation_preserves_the_scene_and_its_submission_timeline)
+{
+    tb_rhi_device *const device = open_null(0, 0);
+    const scene made = make_scene(device);
+    tb_rhi_sampler sampler = {0};
+    TB_TEST_REQUIRE_UINT(tb_rhi_sampler_create(device, &(tb_rhi_sampler_desc){0}, &sampler, NULL),
+                         ==, TB_RHI_OK);
+    const uint32_t texture_index = tb_rhi_texture_index(device, made.image);
+    const uint32_t sampler_index = tb_rhi_sampler_index(device, sampler);
+    tb_rhi_command_list *list = tb_rhi_command_list_begin(device);
+    TB_TEST_EXPECT_UINT(tb_rhi_device_recreate(device, NULL), ==, TB_RHI_SYSTEM_ERROR);
+    const uint64_t before = tb_rhi_submit(device, &list, 1);
+    for (size_t pass = 0; pass < 2; pass++)
+    {
+        TB_TEST_REQUIRE_UINT(tb_rhi_device_recreate(device, NULL), ==, TB_RHI_OK);
+        TB_TEST_EXPECT_UINT(tb_rhi_wait(device, before), ==, TB_RHI_OK);
+        TB_TEST_EXPECT_UINT(tb_rhi_texture_index(device, made.image), ==, texture_index);
+        TB_TEST_EXPECT_UINT(tb_rhi_sampler_index(device, sampler), ==, sampler_index);
+        list = tb_rhi_command_list_begin(device);
+        tb_rhi_cmd_pipeline(list, made.dispatch);
+        tb_rhi_cmd_dispatch(list, 1, 1, 1);
+        const uint64_t submission = tb_rhi_submit(device, &list, 1);
+        TB_TEST_EXPECT_UINT(submission, ==, before + pass + 1);
+        TB_TEST_EXPECT_UINT(tb_rhi_wait(device, submission), ==, TB_RHI_OK);
+    }
+    tb_rhi_device_destroy(device);
+}
+
 /* A frame of every command records and submits, and its submission is one
  * the GPU then finishes. */
 TB_TEST(rhi, a_frame_records_and_submits)

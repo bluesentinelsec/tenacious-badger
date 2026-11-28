@@ -95,6 +95,15 @@ typedef struct tb_rhi_swap_chain_images
     tb_rhi_format format;
 } tb_rhi_swap_chain_images;
 
+/* Source and destination on the same physical adapter; bytes is zero for a
+ * whole texture (all slices and levels). Both objects outlive the copy. */
+typedef struct tb_rhi_device_copy
+{
+    void *source;
+    void *destination;
+    uint64_t bytes;
+} tb_rhi_device_copy;
+
 typedef struct tb_rhi_backend_table
 {
     tb_rhi_backend backend;
@@ -103,6 +112,12 @@ typedef struct tb_rhi_backend_table
     tb_rhi_result (*device_create)(const tb_rhi_device_options *options, void **state,
                                    tb_rhi_device_info *info, tb_rhi_error *error);
     void (*device_destroy)(void *state);
+    /* Optional pair: open an independent state compatible with the old swap
+     * chains and fence timeline, then finish copying before returning. */
+    tb_rhi_result (*device_replacement)(void *old, const tb_rhi_device_info *info,
+                                        void **replacement, tb_rhi_error *error);
+    tb_rhi_result (*device_copy)(void *state, const tb_rhi_device_copy *copies, size_t count,
+                                 tb_rhi_error *error);
 
     tb_rhi_result (*buffer_create)(void *state, const tb_rhi_buffer_desc *desc,
                                    tb_rhi_indices indices, void **object, tb_rhi_error *error);

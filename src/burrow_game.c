@@ -16,6 +16,7 @@
 #include "badger/file.h"
 #include "badger/fmt.h"
 #include "badger/game_loop.h"
+#include "badger/hash.h"
 #include "badger/material.h"
 #include "badger/memory.h"
 #include "badger/path.h"
@@ -26,6 +27,7 @@
 #include "badger/vfs.h"
 #include "badger/window.h"
 
+#include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -77,6 +79,7 @@ typedef struct burrow_game
     uint64_t vsync_version; /* Of display.vsync, when the renderer last took it. */
     int status;
     bool developer;
+    bool recreate_on_pause;
     /* The menus, and what they are made with; NULL menus where they could
      * not be made, and the game plays without them. */
     burrow_menus *menus;
@@ -279,21 +282,11 @@ static void burrow_draw_shade(burrow_game *game)
         (tb_canvas_rect){0.0f, 0.0f, (float)width / view.scale, (float)height / view.scale}, shade);
 }
 
-static void burrow_frame(void *context, const tb_game_time *time)
+static bool burrow_draw_frame(burrow_game *game)
 {
-    burrow_game *const game = context;
-
-    if (game->renderer == NULL)
-    {
-        return;
-    }
-    burrow_hud_count_frame(game->hud, time->frame_seconds);
-    burrow_apply_settings(game);
-    burrow_update_menus(game, time);
-    burrow_place_camera(game, time);
     if (!tb_renderer_begin_frame(game->renderer, &game->camera, burrow_clear))
     {
-        return; /* the window is minimized */
+        return false; /* the window is minimized */
     }
     burrow_scene_draw(game->scene, game->renderer);
     if (game->menus == NULL || game->screen == BURROW_SCREEN_PLAYING)
@@ -314,6 +307,74 @@ static void burrow_frame(void *context, const tb_game_time *time)
         tb_game_loop_quit(game->loop);
     }
     /* coverage-on */
+    return game->status == EXIT_SUCCESS;
+}
+
+static bool burrow_capture_hash(burrow_game *game, uint64_t *hash)
+{
+    uint32_t width = 0, height = 0;
+    tb_renderer_capture_next_frame(game->renderer);
+    if (!burrow_draw_frame(game))
+    {
+        return false;
+    }
+    const uint8_t *const pixels = tb_renderer_captured(game->renderer, &width, &height);
+    if (pixels == NULL)
+    {
+        return false;
+    }
+    /* The renderer has already allocated and packed exactly these rows. */
+    *hash = tb_hash_bytes(pixels, (size_t)width * height * 4u);
+    return true;
+}
+
+static void burrow_frame(void *context, const tb_game_time *time)
+{
+    burrow_game *const game = context;
+
+    if (game->renderer == NULL)
+    {
+        return;
+    }
+    burrow_hud_count_frame(game->hud, time->frame_seconds);
+    burrow_apply_settings(game);
+    burrow_update_menus(game, time);
+    burrow_place_camera(game, time);
+    if (game->recreate_on_pause && game->screen == BURROW_SCREEN_PAUSE)
+    {
+        uint64_t before = 0, after = 0;
+        tb_rhi_error error = TB_RHI_ERROR_INIT;
+        /* Consecutive captures need identical projections and no temporal blending. */
+        tb_renderer_quality saved = TB_RENDERER_QUALITY_INIT;
+        tb_renderer_quality_of(game->renderer, &saved);
+        tb_renderer_quality capture = saved;
+        capture.temporal_aa = false;
+        tb_renderer_set_quality(game->renderer, &capture);
+        game->recreate_on_pause = false;
+        if (burrow_capture_hash(game, &before) &&
+            tb_rhi_device_recreate(tb_renderer_device(game->renderer), &error) == TB_RHI_OK &&
+            burrow_capture_hash(game, &after))
+        {
+            (void)tb_fmt_print("burrow: recreated graphics device; paused frame %016" PRIx64
+                               " -> %016" PRIx64 "\n",
+                               before, after);
+            if (before != after)
+            {
+                game->status = EXIT_FAILURE;
+                tb_game_loop_quit(game->loop);
+            }
+        }
+        else
+        {
+            (void)tb_fmt_print_error(
+                "burrow: failed to capture or recreate the paused renderer: %s\n", error.message);
+            game->status = EXIT_FAILURE;
+            tb_game_loop_quit(game->loop);
+        }
+        tb_renderer_set_quality(game->renderer, &saved);
+        return;
+    }
+    (void)burrow_draw_frame(game);
 }
 
 static void burrow_run_loop(burrow_game *game, tb_window_system *system)
@@ -603,6 +664,7 @@ int burrow_play(const burrow_settings *loaded, const burrow_play_options *option
     game->player = burrow_player_spawn(game->room->spawn, game->room->spawn_yaw);
     game->status = EXIT_SUCCESS;
     game->developer = options->developer;
+    game->recreate_on_pause = options->recreate_on_pause;
     game->screen = BURROW_SCREEN_PLAYING;
     if (options->navigate != NULL && !burrow_read_navigation(game, options->navigate))
     {

@@ -263,6 +263,18 @@ On macOS, `burrow --renderer=metal` draws the menus and the graybox room on a
 Metal GPU. Automatic selection tries Metal first. An exported game reads
 `metal.tbsl` from the shader directory in the app bundle.
 
+To verify device recreation on macOS, launch:
+
+```sh
+burrow --renderer=metal --recreate-renderer-on-pause --navigate=accept,back,wait,accept --frames=6
+```
+
+At the first pause Burrow captures the room and menu, recreates the graphics
+device, and draws the same scene through its existing handles. It temporarily
+disables temporal anti-aliasing so both captures use the same projection,
+prints their pixel hashes, and exits with an error if the captures differ.
+The final navigation action resumes play.
+
 ## Not yet
 
 - Collision against the room, and walking with gravity (#313).
