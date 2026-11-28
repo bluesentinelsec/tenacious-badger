@@ -42,12 +42,41 @@ static tb_rhi_result tb_rhi_null_device_create(const tb_rhi_device_options *opti
     (void)error;
     *state = tb_calloc(1, sizeof(tb_rhi_null_state));
     (void)tb_fmt_buffer(info->adapter, sizeof(info->adapter), "%s", "null");
-    info->features = TB_RHI_FEATURE_BINDLESS | TB_RHI_FEATURE_HEAP_INDICES;
+    info->features =
+        TB_RHI_FEATURE_BINDLESS | TB_RHI_FEATURE_HEAP_INDICES | TB_RHI_FEATURE_DEVICE_RECREATE;
     info->shader_model = 66;
     info->max_texture_size = 16384;
     return TB_RHI_OK;
 }
 
+static tb_rhi_result null_replacement(void *original, const tb_rhi_device_info *info,
+                                      void **replacement, tb_rhi_error *error)
+{
+    (void)info;
+    (void)error;
+    const tb_rhi_null_state *const old = original;
+    tb_rhi_null_state *const fresh = tb_calloc(1, sizeof(*fresh));
+    fresh->completed = old->completed;
+    *replacement = fresh;
+    return TB_RHI_OK;
+}
+
+static tb_rhi_result null_device_copy(void *state, const tb_rhi_device_copy *copies, size_t count,
+                                      tb_rhi_error *error)
+{
+    (void)state;
+    (void)error;
+    for (size_t i = 0; i < count; i++)
+    {
+        if (copies[i].bytes)
+        {
+            const tb_rhi_null_buffer *const source = copies[i].source;
+            tb_rhi_null_buffer *const destination = copies[i].destination;
+            memcpy(destination->bytes, source->bytes, (size_t)copies[i].bytes);
+        }
+    }
+    return TB_RHI_OK;
+}
 static void tb_rhi_null_device_destroy(void *state)
 {
     tb_free(state);
@@ -431,6 +460,8 @@ const tb_rhi_backend_table tb_rhi_null_backend = {
     .backend = TB_RHI_BACKEND_NULL,
     .device_create = tb_rhi_null_device_create,
     .device_destroy = tb_rhi_null_device_destroy,
+    .device_replacement = null_replacement,
+    .device_copy = null_device_copy,
     .buffer_create = tb_rhi_null_buffer_create,
     .buffer_destroy = tb_rhi_null_buffer_destroy,
     .buffer_write = tb_rhi_null_buffer_write,

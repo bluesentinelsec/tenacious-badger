@@ -143,6 +143,10 @@ struct tb_rhi_swap_chain
 tb_rhi_slot *tb_rhi_slot_of(tb_rhi_device *device, tb_rhi_kind kind, uint32_t index,
                             uint32_t generation);
 
+tb_rhi_slot *tb_rhi_table_at(const tb_rhi_table *table, uint32_t index);
+void tb_rhi_release_object(const tb_rhi_backend_table *table, void *state, tb_rhi_kind kind,
+                           void *object);
+
 /* Release what the GPU has finished with. Called with the lock held. */
 void tb_rhi_collect(tb_rhi_device *device, uint64_t completed);
 

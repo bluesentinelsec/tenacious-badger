@@ -133,7 +133,7 @@ uint32_t tb_rhi_mip_size(uint32_t size, uint32_t mip)
  * Tables of slots, and bindless indices.
  * ------------------------------------------------------------------------- */
 
-static tb_rhi_slot *tb_rhi_table_at(const tb_rhi_table *table, uint32_t index)
+tb_rhi_slot *tb_rhi_table_at(const tb_rhi_table *table, uint32_t index)
 {
     return &table->chunks[index / TB_RHI_CHUNK_SLOTS][index % TB_RHI_CHUNK_SLOTS];
 }
@@ -312,26 +312,25 @@ static tb_rhi_index_pool *tb_rhi_pool_of(tb_rhi_device *device, tb_rhi_kind kind
  * Releasing what the GPU has finished with.
  * ------------------------------------------------------------------------- */
 
-static void tb_rhi_release_object(tb_rhi_device *device, tb_rhi_kind kind, void *object)
+void tb_rhi_release_object(const tb_rhi_backend_table *table, void *state, tb_rhi_kind kind,
+                           void *object)
 {
-    const tb_rhi_backend_table *const table = device->table;
-
     switch (kind)
     {
     case TB_RHI_KIND_BUFFER:
-        table->buffer_destroy(device->state, object);
+        table->buffer_destroy(state, object);
         break;
     case TB_RHI_KIND_TEXTURE:
-        table->texture_destroy(device->state, object);
+        table->texture_destroy(state, object);
         break;
     case TB_RHI_KIND_SAMPLER:
-        table->sampler_destroy(device->state, object);
+        table->sampler_destroy(state, object);
         break;
     case TB_RHI_KIND_SHADER:
-        table->shader_destroy(device->state, object);
+        table->shader_destroy(state, object);
         break;
     case TB_RHI_KIND_PIPELINE:
-        table->pipeline_destroy(device->state, object);
+        table->pipeline_destroy(state, object);
         break;
     case TB_RHI_KIND_COUNT:
         TB_ASSERT_MSG(false, "not a kind of object");
@@ -348,7 +347,7 @@ void tb_rhi_collect(tb_rhi_device *device, uint64_t completed)
         const tb_rhi_retired retired = device->retired[index];
         if (retired.after <= completed)
         {
-            tb_rhi_release_object(device, retired.kind, retired.object);
+            tb_rhi_release_object(device->table, device->state, retired.kind, retired.object);
             tb_rhi_indices_give(tb_rhi_pool_of(device, retired.kind), &retired.indices);
         }
         else
@@ -609,7 +608,8 @@ void tb_rhi_device_destroy(tb_rhi_device *device)
             TB_ASSERT_MSG(!slot->alive || !slot->chain_owned, "a swap chain outlives its device");
             if (slot->alive)
             {
-                tb_rhi_release_object(device, (tb_rhi_kind)kind, slot->object);
+                tb_rhi_release_object(device->table, device->state, (tb_rhi_kind)kind,
+                                      slot->object);
                 tb_rhi_release_description((tb_rhi_kind)kind, slot);
             }
         }

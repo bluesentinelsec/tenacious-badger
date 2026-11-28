@@ -244,7 +244,8 @@ typedef enum tb_rhi_feature
      * constants or a constant buffer in upload memory: every device with
      * #TB_RHI_FEATURE_BINDLESS, and D3D11, which binds what they name
      * before each draw. What the engine's shaders need. */
-    TB_RHI_FEATURE_HEAP_INDICES = 1u << 7
+    TB_RHI_FEATURE_HEAP_INDICES = 1u << 7,
+    TB_RHI_FEATURE_DEVICE_RECREATE = 1u << 8 /**< Recreate a healthy device on the same adapter. */
 } tb_rhi_feature;
 
 /** @brief Bytes of an adapter's name, its NUL included. */
@@ -692,6 +693,20 @@ TB_API tb_rhi_result tb_rhi_device_create(const tb_rhi_device_options *options,
  * @par Threading Stage-owned: the thread that made it, when no other uses it.
  */
 TB_API void tb_rhi_device_destroy(tb_rhi_device *device);
+
+/**
+ * @brief Recreate the device on its current backend and physical adapter.
+ * @param device A healthy device with no open command lists.
+ * @param error Optional reason for failure.
+ * @return #TB_RHI_OK after replacing its queue and resources, #TB_RHI_UNAVAILABLE
+ * if unsupported, or an error. The original objects remain usable if rebuilding fails.
+ * Resource handles, indices, contents, swap chains and submission numbers survive.
+ * The old GPU must be available to copy its contents.
+ * @par Threading
+ * Externally synchronized. Call between frames on the presentation thread with
+ * exclusive access to the device, its resources and all its swap chains.
+ */
+TB_API tb_rhi_result tb_rhi_device_recreate(tb_rhi_device *device, tb_rhi_error *error);
 
 /**
  * @brief What a device is and has.

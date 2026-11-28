@@ -86,6 +86,7 @@ TB_TEST(rhi_device, a_lost_device_says_so_when_waited_on)
     submission = tb_rhi_submit(device, NULL, 0);
     TB_TEST_EXPECT_UINT(tb_rhi_wait(device, submission), ==, TB_RHI_DEVICE_LOST);
     TB_TEST_EXPECT_UINT(tb_rhi_wait_idle(device), ==, TB_RHI_DEVICE_LOST);
+    TB_TEST_EXPECT_UINT(tb_rhi_device_recreate(device, NULL), ==, TB_RHI_DEVICE_LOST);
     gpu.completed = submission;
     tb_rhi_device_destroy(device);
 }
@@ -165,5 +166,50 @@ TB_TEST(rhi_device, pipelines_retain_their_inputs_after_shader_slot_reuse)
     TB_TEST_EXPECT_UINT(((const unsigned char *)shadow->first->desc.code)[0], ==, 19);
     TB_TEST_EXPECT_UINT(((const unsigned char *)work->first->desc.code)[0], ==, 47);
     TB_TEST_EXPECT_STRING(work->compute.name, ==, "Ceometry");
+    tb_rhi_device_destroy(device);
+}
+
+static tb_rhi_result fail_copy(void *state, const tb_rhi_device_copy *copies, size_t count,
+                               tb_rhi_error *error)
+{
+    (void)state;
+    (void)copies;
+    (void)count;
+    return tb_rhi_fail(error, TB_RHI_SYSTEM_ERROR, "injected copy failure");
+}
+
+TB_TEST(rhi_device, an_unsuccessful_recreation_keeps_the_old_objects_and_can_be_retried)
+{
+    tb_rhi_backend_table table = tb_rhi_null_backend;
+    tb_rhi_device *device = NULL;
+    tb_rhi_buffer buffer = {0};
+    tb_rhi_error error = TB_RHI_ERROR_INIT;
+    TB_TEST_REQUIRE_UINT(
+        tb_rhi_device_create_on(&table, &(tb_rhi_device_options){0}, &device, NULL), ==, TB_RHI_OK);
+    TB_TEST_REQUIRE_UINT(
+        tb_rhi_buffer_create(device,
+                             &(tb_rhi_buffer_desc){.size = 32, .memory = TB_RHI_MEMORY_UPLOAD},
+                             &buffer, NULL),
+        ==, TB_RHI_OK);
+    tb_rhi_slot *const slot =
+        tb_rhi_slot_of(device, TB_RHI_KIND_BUFFER, buffer.index, buffer.generation);
+    const uint32_t word = 0x17304589u;
+    uint32_t observed = 0;
+    tb_rhi_buffer_write(device, buffer, 8, &word, sizeof(word));
+    void *const old_object = slot->object;
+    void *const old_state = device->state;
+    table.device_replacement = NULL;
+    TB_TEST_EXPECT_UINT(tb_rhi_device_recreate(device, &error), ==, TB_RHI_UNAVAILABLE);
+    table.device_replacement = tb_rhi_null_backend.device_replacement;
+    table.device_copy = fail_copy;
+    TB_TEST_EXPECT_UINT(tb_rhi_device_recreate(device, &error), ==, TB_RHI_SYSTEM_ERROR);
+    TB_TEST_EXPECT_STRING(error.message, ==, "injected copy failure");
+    TB_TEST_EXPECT_POINTER(slot->object, ==, old_object);
+    TB_TEST_EXPECT_POINTER(device->state, ==, old_state);
+    table.device_copy = tb_rhi_null_backend.device_copy;
+    TB_TEST_REQUIRE_UINT(tb_rhi_device_recreate(device, &error), ==, TB_RHI_OK);
+    TB_TEST_EXPECT_STRING(error.message, ==, "");
+    table.buffer_read(device->state, slot->object, 8, &observed, sizeof(observed));
+    TB_TEST_EXPECT_UINT(observed, ==, word);
     tb_rhi_device_destroy(device);
 }

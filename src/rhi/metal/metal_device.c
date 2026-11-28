@@ -87,8 +87,8 @@ tb_rhi_result tb_metal_device_create(const tb_rhi_device_options *options, void 
         d->pool_pop(pool);
         goto failed;
     }
-    info->features =
-        TB_RHI_FEATURE_HEAP_INDICES | (d->argument_buffers ? TB_RHI_FEATURE_BINDLESS : 0u);
+    info->features = TB_RHI_FEATURE_DEVICE_RECREATE | TB_RHI_FEATURE_HEAP_INDICES |
+                     (d->argument_buffers ? TB_RHI_FEATURE_BINDLESS : 0u);
     const char *const name = tb_metal_get(d, tb_metal_get(d, d->gpu, "name"), "UTF8String");
     info->max_texture_size = 8192; /* Conservative 2D limit across macOS Metal families. */
 
@@ -123,10 +123,84 @@ tb_rhi_result tb_metal_wait(void *state, uint64_t submission)
     return lost ? TB_RHI_DEVICE_LOST : TB_RHI_OK;
 }
 
+static tb_rhi_result metal_replacement(void *original, const tb_rhi_device_info *info,
+                                       void **replacement, tb_rhi_error *error)
+{
+    tb_metal_device *const old = original;
+    tb_rhi_device_info fresh_info = *info;
+    void *state = NULL;
+    const tb_rhi_result opened =
+        tb_metal_device_create(&(tb_rhi_device_options){0}, &state, &fresh_info, error);
+    if (opened != TB_RHI_OK)
+    {
+        return opened;
+    }
+    tb_metal_device *const fresh = state;
+    /* Metal resources and the layer belong to this exact MTLDevice. */
+    if (fresh->gpu != old->gpu)
+    {
+        tb_metal_device_destroy(fresh);
+        return tb_rhi_fail(error, TB_RHI_UNAVAILABLE,
+                           "The original Metal adapter is no longer the default device");
+    }
+    fresh->completed = old->completed;
+    *replacement = fresh;
+    return TB_RHI_OK;
+}
+
+static tb_rhi_result metal_device_copy(void *state, const tb_rhi_device_copy *copies, size_t count,
+                                       tb_rhi_error *error)
+{
+    tb_metal_device *const d = state;
+    void *const pool = d->pool_push();
+    void *const commands = tb_metal_get(d, d->queue, "commandBuffer");
+    void *const encoder = tb_metal_get(d, commands, "blitCommandEncoder");
+    tb_rhi_result result = TB_RHI_OK;
+    if (encoder == NULL)
+    {
+        result = tb_rhi_fail(error, TB_RHI_OUT_OF_MEMORY,
+                             "Could not create a Metal resource copy encoder");
+        goto done;
+    }
+    for (size_t i = 0; i < count; i++)
+    {
+        const tb_rhi_device_copy *const copy = &copies[i];
+        if (copy->bytes)
+        {
+            TB_METAL_METHOD(d, void, void *, unsigned long, void *, unsigned long, unsigned long)(
+                encoder,
+                d->selector("copyFromBuffer:sourceOffset:toBuffer:destinationOffset:size:"),
+                copy->source, 0ul, copy->destination, 0ul, copy->bytes);
+        }
+        else
+        {
+            TB_METAL_METHOD(d, void, void *, void *)(encoder,
+                                                     d->selector("copyFromTexture:toTexture:"),
+                                                     copy->source, copy->destination);
+        }
+    }
+    tb_metal_call(d, encoder, "endEncoding");
+    tb_metal_call(d, commands, "commit");
+    tb_metal_call(d, commands, "waitUntilCompleted");
+    if (((unsigned long (*)(void *, void *))d->send)(commands, d->selector("status")) != 4ul)
+    {
+        const char *const why = tb_metal_get(
+            d, tb_metal_get(d, tb_metal_get(d, commands, "error"), "localizedDescription"),
+            "UTF8String");
+        result = tb_rhi_fail(error, TB_RHI_SYSTEM_ERROR, "Metal resource copy failed: %s",
+                             why ? why : "no diagnostic");
+    }
+done:
+    d->pool_pop(pool);
+    return result;
+}
+
 const tb_rhi_backend_table tb_rhi_metal_backend = {
     .backend = TB_RHI_BACKEND_METAL,
     .device_create = tb_metal_device_create,
     .device_destroy = tb_metal_device_destroy,
+    .device_replacement = metal_replacement,
+    .device_copy = metal_device_copy,
     .buffer_create = tb_metal_buffer_create,
     .buffer_destroy = tb_metal_resource_destroy,
     .buffer_write = tb_metal_buffer_write,

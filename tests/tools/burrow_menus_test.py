@@ -49,12 +49,13 @@ with tempfile.TemporaryDirectory(prefix='tb-burrow-menus-') as temporary:
 
     # Play, pause with Back, quit to the menu, and quit: Quit is the main
     # menu's last button, and Up goes around to it.
-    status, out, err = run(*common, '--frames=60',
+    status, out, err = run(*common, '--frames=60', '--recreate-renderer-on-pause',
                            '--navigate=accept,back,down,down,accept,up,accept')
     if status != 0 and 'no window' in err:
         print(f'skipped: no display: {err.strip()}')
         sys.exit(SKIPPED)
     expect(status == 0, f'playing: status {status}', err)
+    expect('recreated graphics device' in out, 'the paused device was recreated', out)
     expect(screens(out) == ['main', 'playing', 'pause', 'main', 'quit'],
            'play, pause, quit to the menu, and quit', out)
 

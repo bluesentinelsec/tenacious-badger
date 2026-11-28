@@ -1233,7 +1233,6 @@ static void tb_renderer_keep_capture(tb_renderer *renderer, uint64_t submission,
     padded = tb_malloc((size_t)pitch * renderer->height);
     tb_rhi_buffer_read(renderer->device, renderer->capture, 0, padded,
                        (size_t)pitch * renderer->height);
-    tb_free(renderer->captured);
     renderer->captured = tb_malloc(row * renderer->height);
     for (uint32_t y = 0; y < renderer->height; y++)
     {
@@ -1286,6 +1285,10 @@ tb_rhi_result tb_renderer_end_frame(tb_renderer *renderer)
                               renderer->height);
     if (renderer->capture_next)
     {
+        tb_free(renderer->captured);
+        renderer->captured = NULL;
+        renderer->captured_width = 0;
+        renderer->captured_height = 0;
         capturing = (tb_renderer_capturing){renderer, image, (renderer->width * 4u + 255u) & ~255u};
         if (tb_rhi_buffer_create(
                 renderer->device,
