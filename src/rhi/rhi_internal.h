@@ -154,6 +154,12 @@ struct tb_rhi_swap_chain
 tb_rhi_slot *tb_rhi_slot_of(tb_rhi_device *device, tb_rhi_kind kind, uint32_t index,
                             uint32_t generation);
 
+uint32_t tb_rhi_table_take(tb_rhi_table *table);
+void tb_rhi_table_give(tb_rhi_table *table, uint32_t index);
+void tb_rhi_index_give(tb_rhi_index_pool *pool, uint32_t index);
+tb_rhi_result tb_rhi_rebuild_object(const tb_rhi_backend_table *table, void *state,
+                                    tb_rhi_kind kind, const tb_rhi_slot *slot, void **object,
+                                    tb_rhi_error *error);
 tb_rhi_slot *tb_rhi_table_at(const tb_rhi_table *table, uint32_t index);
 void tb_rhi_release_object(const tb_rhi_backend_table *table, void *state, tb_rhi_kind kind,
                            void *object);

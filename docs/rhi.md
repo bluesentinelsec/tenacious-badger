@@ -116,6 +116,29 @@ backend, path, entry and stage. A pipeline created from raw native shader
 bytes also reports unavailable. The source pipeline remains usable if lookup
 or native pipeline creation fails. The caller owns the destination handle.
 
+### Staging scene resources on a second device
+
+Call `tb_renderer_stage_resources()` between frames. It opens the requested
+device, allocates static and skinned mesh buffers, owned material textures,
+canvas images and scene samplers, and uploads their retained CPU data. Canvas
+updates are included. For mipmapped textures, the destination's cooked
+shader library supplies the compute pipeline that regenerates the mip chain.
+A same-backend transfer can use the active renderer's open library.
+
+The returned device owns the completed snapshot. Buffer, texture and sampler
+handles keep their slots and generations, and every sampled or storage view
+keeps its heap index, including each writable mip. An allocation, shader
+lookup or upload failure destroys the candidate and leaves the active
+renderer drawing on its original swap chain. Destroy a successful candidate
+with `tb_rhi_device_destroy()` when finished.
+
+At the RHI level, `tb_rhi_device_stage_resources()` accepts a selection of
+live handles and allocates their descriptions on a new device. The caller
+supplies buffer and texture contents. Unselected slots and descriptor indices
+are available for subsequent allocations. Swap-chain images belong to the
+presentation window. Raw resources and borrowed material textures remain
+their owner's responsibility.
+
 ## Binding: bindless, with one layout
 
 There are no binding layouts. Every pipeline shares one, which follows
@@ -319,7 +342,7 @@ If the original Metal adapter is unavailable, recovery returns an error.
 
 At renderer level, `tb_renderer_recover_device()` reopens the window's swap
 chain and uploads meshes, skinned meshes, material textures (including cube
-faces), and canvas images from CPU copies retained on recoverable backends.
+faces), and canvas images from CPU copies retained by the renderer.
 It regenerates mipmaps and the glyph atlas and restarts temporal history.
 A failure can be retried before drawing. Custom RHI resources and textures
 passed to `tb_texture_from_rhi()` still belong to their caller, who restores

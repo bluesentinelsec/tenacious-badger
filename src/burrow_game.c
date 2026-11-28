@@ -80,6 +80,7 @@ typedef struct burrow_game
     int status;
     bool developer;
     bool recreate_on_pause;
+    bool stage_scene_on_pause;
     bool lose_device_on_pause;
     /* The menus, and what they are made with; NULL menus where they could
      * not be made, and the game plays without them. */
@@ -347,6 +348,32 @@ static bool burrow_capture_hash(burrow_game *game, uint64_t *hash)
 static bool burrow_reset_paused_device(burrow_game *game, tb_rhi_error *error)
 {
     tb_rhi_device *const device = tb_renderer_device(game->renderer);
+    if (game->stage_scene_on_pause)
+    {
+        tb_rhi_device_info info = {0};
+        tb_rhi_device_info_of(device, &info);
+        tb_rhi_device_options options = {0};
+        tb_engine_settings_device_options(game->engine, &options);
+        options.backend = info.backend;
+        options.bindless_resources = info.bindless_resources;
+        options.bindless_samplers = 1;
+        tb_rhi_device *staged = NULL;
+        const tb_rhi_result probe =
+            tb_renderer_stage_resources(game->renderer, &options, NULL, &staged, error);
+        tb_rhi_device_destroy(staged);
+        if (probe != TB_RHI_UNAVAILABLE)
+        {
+            return false;
+        }
+        options.bindless_samplers = info.bindless_samplers;
+        if (tb_renderer_stage_resources(game->renderer, &options, NULL, &staged, error) !=
+            TB_RHI_OK)
+        {
+            return false;
+        }
+        tb_rhi_device_destroy(staged);
+        return true;
+    }
     if (game->lose_device_on_pause)
     {
         tb_rhi_device_report_loss(device);
@@ -381,8 +408,10 @@ static void burrow_frame(void *context, const tb_game_time *time)
         if (burrow_capture_hash(game, &before) && burrow_reset_paused_device(game, &error) &&
             burrow_capture_hash(game, &after))
         {
-            (void)tb_fmt_print("burrow: recreated graphics device; paused frame %016" PRIx64
-                               " -> %016" PRIx64 "\n",
+            (void)tb_fmt_print("burrow: %s; paused frame %016" PRIx64 " -> %016" PRIx64 "\n",
+                               game->stage_scene_on_pause
+                                   ? "staged scene resources on a second device"
+                                   : "recreated graphics device",
                                before, after);
             if (before != after)
             {
@@ -392,8 +421,7 @@ static void burrow_frame(void *context, const tb_game_time *time)
         }
         else
         {
-            (void)tb_fmt_print_error(
-                "burrow: failed to capture or recreate the paused renderer: %s\n", error.message);
+            (void)tb_fmt_print_error("burrow: paused renderer check failed: %s\n", error.message);
             game->status = EXIT_FAILURE;
             tb_game_loop_quit(game->loop);
         }
@@ -690,7 +718,9 @@ int burrow_play(const burrow_settings *loaded, const burrow_play_options *option
     game->player = burrow_player_spawn(game->room->spawn, game->room->spawn_yaw);
     game->status = EXIT_SUCCESS;
     game->developer = options->developer;
-    game->recreate_on_pause = options->recreate_on_pause || options->lose_device_on_pause;
+    game->recreate_on_pause = options->recreate_on_pause || options->lose_device_on_pause ||
+                              options->stage_scene_on_pause;
+    game->stage_scene_on_pause = options->stage_scene_on_pause;
     game->lose_device_on_pause = options->lose_device_on_pause;
     game->screen = BURROW_SCREEN_PLAYING;
     if (options->navigate != NULL && !burrow_read_navigation(game, options->navigate))

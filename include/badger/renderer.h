@@ -88,6 +88,7 @@ struct tb_engine_settings;
 struct tb_font;
 struct tb_log;
 struct tb_shader_cache;
+struct tb_shader_library;
 struct tb_vfs;
 struct tb_window;
 
@@ -338,6 +339,25 @@ TB_API void tb_renderer_destroy(tb_renderer *renderer);
  * @par Threading Stage-owned. Call on the presentation thread with exclusive device access.
  */
 TB_API tb_rhi_result tb_renderer_recover_device(tb_renderer *renderer, tb_rhi_error *error);
+
+/**
+ * @brief Stage the renderer's persistent scene resources on an independent destination device.
+ * @param renderer Active renderer between frames, with exclusive access to scene and device.
+ * @param options Destination device and descriptor heap sizes.
+ * @param library Cooked destination shader library for regenerating mipmaps. NULL uses the
+ * active library on the same backend. A scene without mipmaps requires no library.
+ * @param staged Receives the owned device on success or NULL on failure. Mesh buffers, owned
+ * material textures, canvas images and scene samplers use their original handles and indices.
+ * Uploads complete before return. Destroy the staged device with tb_rhi_device_destroy().
+ * @param error Optional destination allocation, shader or upload diagnostic.
+ * @return #TB_RHI_OK or a staging error. The active renderer keeps its device and window.
+ * Frame targets, swap chains and caller-owned raw resources are outside this snapshot.
+ * @par Threading Stage-owned. Call on the presentation thread.
+ */
+TB_API tb_rhi_result tb_renderer_stage_resources(tb_renderer *renderer,
+                                                 const tb_rhi_device_options *options,
+                                                 const struct tb_shader_library *library,
+                                                 tb_rhi_device **staged, tb_rhi_error *error);
 
 /** @brief The renderer's device, for what draws through the RHI itself. */
 TB_API tb_rhi_device *tb_renderer_device(tb_renderer *renderer);

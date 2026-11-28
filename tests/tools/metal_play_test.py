@@ -27,7 +27,7 @@ with tempfile.TemporaryDirectory(prefix='badger-metal-') as temporary:
     options = ['--set', 'display.window_mode=windowed', '--set', 'display.window_width=640',
                '--set', 'display.window_height=360']
     if sys.argv[1] == 'burrow':
-        for diagnostic in ('--recreate-renderer-on-pause', '--lose-device-on-pause'):
+        for diagnostic in ('--recreate-renderer-on-pause', '--lose-device-on-pause', '--stage-scene-on-pause'):
             output = draw(sys.argv[2], ['--renderer=metal', '--frames=6', '--navigate=accept,back,wait,accept',
                                         diagnostic,
                                         '--settings-file', str(directory / 'settings.cfg'), '--set',
@@ -38,6 +38,8 @@ with tempfile.TemporaryDirectory(prefix='badger-metal-') as temporary:
                     raise AssertionError(output)
             hashes = re.search(r'paused frame ([0-9a-f]{16}) -> ([0-9a-f]{16})', output)
             if not hashes or hashes[1] != hashes[2] or output.count('menu: playing') != 2:
+                raise AssertionError(output)
+            if diagnostic == '--stage-scene-on-pause' and 'staged scene resources on a second device' not in output:
                 raise AssertionError(output)
             if diagnostic == '--lose-device-on-pause' and 'recovered graphics device from CPU scene data' not in output:
                 raise AssertionError(output)

@@ -47,31 +47,31 @@ static tb_rhi_result rebuild_pipeline(const tb_rhi_backend_table *table, void *s
     return result;
 }
 
-static tb_rhi_result rebuild(const tb_rhi_backend_table *table, void *state, replacement *change,
-                             tb_rhi_error *error)
+tb_rhi_result tb_rhi_rebuild_object(const tb_rhi_backend_table *table, void *state,
+                                    tb_rhi_kind kind, const tb_rhi_slot *slot, void **object,
+                                    tb_rhi_error *error)
 {
-    const tb_rhi_slot *const slot = change->slot;
-    switch (change->kind)
+    switch (kind)
     {
     case TB_RHI_KIND_BUFFER: {
         tb_rhi_buffer_desc desc = slot->desc.buffer;
         desc.name = slot->name;
-        return table->buffer_create(state, &desc, slot->indices, &change->object, error);
+        return table->buffer_create(state, &desc, slot->indices, object, error);
     }
     case TB_RHI_KIND_TEXTURE: {
         tb_rhi_texture_desc desc = slot->desc.texture;
         desc.name = slot->name;
-        return table->texture_create(state, &desc, slot->indices, &change->object, error);
+        return table->texture_create(state, &desc, slot->indices, object, error);
     }
     case TB_RHI_KIND_SAMPLER: {
         tb_rhi_sampler_desc desc = slot->desc.sampler;
         desc.name = slot->name;
-        return table->sampler_create(state, &desc, slot->indices, &change->object, error);
+        return table->sampler_create(state, &desc, slot->indices, object, error);
     }
     case TB_RHI_KIND_SHADER:
-        return table->shader_create(state, &slot->desc.shader->desc, &change->object, error);
+        return table->shader_create(state, &slot->desc.shader->desc, object, error);
     case TB_RHI_KIND_PIPELINE:
-        return rebuild_pipeline(table, state, slot, &change->object, error);
+        return rebuild_pipeline(table, state, slot, object, error);
     case TB_RHI_KIND_COUNT:
         break;
     }
@@ -132,7 +132,7 @@ static tb_rhi_result replace_device(tb_rhi_device *device, bool recover, tb_rhi_
                 continue;
             }
             replacement change = {.kind = kind, .slot = slot};
-            result = rebuild(table, fresh, &change, error);
+            result = tb_rhi_rebuild_object(table, fresh, kind, slot, &change.object, error);
             if (result != TB_RHI_OK)
             {
                 goto finish;

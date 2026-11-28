@@ -23,7 +23,6 @@ struct tb_texture
     tb_renderer_source source;
     uint8_t *pixels; /* packed base level, all faces */
     tb_texture_content content;
-    tb_rhi_texture texture;
     bool owned; /* made here, not borrowed from a caller */
     bool cube;  /* six faces, sampled as a TextureCube */
     uint32_t width;
@@ -83,16 +82,17 @@ static bool tb_texture_can_make_mips(const tb_renderer *renderer)
 
 /* Make each level after the first from the one before. The texture is in
  * TB_RHI_STATE_STORAGE, and stays there. */
-static void tb_texture_record_mips(tb_renderer *renderer, tb_rhi_command_list *list,
+static void tb_texture_record_mips(tb_renderer_upload_target target, tb_rhi_command_list *list,
                                    const tb_texture *texture, tb_texture_content content,
                                    uint32_t layers)
 {
-    tb_rhi_cmd_pipeline(list, renderer->mip_pipeline);
+    tb_rhi_cmd_pipeline(list, target.mip_pipeline);
     for (uint32_t mip = 1; mip < texture->mips; mip++)
     {
         const tb_mip_constants constants = {
-            .source = tb_rhi_texture_storage_mip_index(renderer->device, texture->texture, mip - 1),
-            .dest = tb_rhi_texture_storage_mip_index(renderer->device, texture->texture, mip),
+            .source =
+                tb_rhi_texture_storage_mip_index(target.device, texture->source.texture, mip - 1),
+            .dest = tb_rhi_texture_storage_mip_index(target.device, texture->source.texture, mip),
             .width = tb_rhi_mip_size(texture->width, mip),
             .height = tb_rhi_mip_size(texture->height, mip),
             .source_width = tb_rhi_mip_size(texture->width, mip - 1),
@@ -103,7 +103,7 @@ static void tb_texture_record_mips(tb_renderer *renderer, tb_rhi_command_list *l
         tb_rhi_cmd_dispatch(list, (constants.width + TB_MIP_GROUP - 1u) / TB_MIP_GROUP,
                             (constants.height + TB_MIP_GROUP - 1u) / TB_MIP_GROUP, layers);
         /* The next level reads what this one wrote. */
-        tb_rhi_cmd_barrier(list, &(tb_rhi_barrier){.texture = texture->texture,
+        tb_rhi_cmd_barrier(list, &(tb_rhi_barrier){.texture = texture->source.texture,
                                                    .before = TB_RHI_STATE_STORAGE,
                                                    .after = TB_RHI_STATE_STORAGE});
     }
@@ -112,7 +112,7 @@ static void tb_texture_record_mips(tb_renderer *renderer, tb_rhi_command_list *l
 /* Copy each layer's pixels into the texture's first level, make the levels
  * after, and leave it to be sampled. The copy is submitted at once, before
  * any frame that draws it. */
-static tb_rhi_result tb_texture_upload(tb_renderer *renderer, const tb_texture *texture,
+static tb_rhi_result tb_texture_upload(tb_renderer_upload_target target, const tb_texture *texture,
                                        tb_texture_content content, uint32_t layers,
                                        const uint8_t *pixels, tb_rhi_error *error)
 {
@@ -136,7 +136,7 @@ static tb_rhi_result tb_texture_upload(tb_renderer *renderer, const tb_texture *
         }
     }
     const tb_rhi_result result =
-        tb_rhi_buffer_create(renderer->device,
+        tb_rhi_buffer_create(target.device,
                              &(tb_rhi_buffer_desc){.size = (uint64_t)layer_bytes * layers,
                                                    .memory = TB_RHI_MEMORY_UPLOAD,
                                                    .name = "texture pixels"},
@@ -146,10 +146,10 @@ static tb_rhi_result tb_texture_upload(tb_renderer *renderer, const tb_texture *
         tb_free(staged);
         return result;
     }
-    tb_rhi_buffer_write(renderer->device, staging, 0, staged, layer_bytes * layers);
+    tb_rhi_buffer_write(target.device, staging, 0, staged, layer_bytes * layers);
     tb_free(staged);
-    list = tb_rhi_command_list_begin(renderer->device);
-    tb_rhi_cmd_barrier(list, &(tb_rhi_barrier){.texture = texture->texture,
+    list = tb_rhi_command_list_begin(target.device);
+    tb_rhi_cmd_barrier(list, &(tb_rhi_barrier){.texture = texture->source.texture,
                                                .before = TB_RHI_STATE_COMMON,
                                                .after = TB_RHI_STATE_COPY_DEST});
     for (uint32_t layer = 0; layer < layers; layer++)
@@ -158,31 +158,31 @@ static tb_rhi_result tb_texture_upload(tb_renderer *renderer, const tb_texture *
                                           &(tb_rhi_texture_copy){.buffer = staging,
                                                                  .offset = layer_bytes * layer,
                                                                  .row_pitch = (uint32_t)pitch,
-                                                                 .texture = texture->texture,
+                                                                 .texture = texture->source.texture,
                                                                  .layer = layer});
     }
     tb_rhi_cmd_barrier(
-        list, &(tb_rhi_barrier){.texture = texture->texture,
+        list, &(tb_rhi_barrier){.texture = texture->source.texture,
                                 .before = TB_RHI_STATE_COPY_DEST,
                                 .after = mips ? TB_RHI_STATE_STORAGE : TB_RHI_STATE_SHADER_READ});
     if (mips)
     {
-        tb_texture_record_mips(renderer, list, texture, content, layers);
-        tb_rhi_cmd_barrier(list, &(tb_rhi_barrier){.texture = texture->texture,
+        tb_texture_record_mips(target, list, texture, content, layers);
+        tb_rhi_cmd_barrier(list, &(tb_rhi_barrier){.texture = texture->source.texture,
                                                    .before = TB_RHI_STATE_STORAGE,
                                                    .after = TB_RHI_STATE_SHADER_READ});
     }
-    (void)tb_rhi_submit(renderer->device, &list, 1);
+    (void)tb_rhi_submit(target.device, &list, 1);
     /* The staging buffer goes once the GPU has copied it. */
-    tb_rhi_buffer_destroy(renderer->device, staging);
+    tb_rhi_buffer_destroy(target.device, staging);
     return TB_RHI_OK;
 }
 
-static tb_rhi_result tb_texture_restore(tb_renderer *renderer, tb_renderer_source *source,
-                                        tb_rhi_error *error)
+static tb_rhi_result tb_texture_restore(tb_renderer_upload_target target,
+                                        tb_renderer_source *source, tb_rhi_error *error)
 {
     const tb_texture *const texture = TB_LIST_ENTRY(source, tb_texture, source);
-    return tb_texture_upload(renderer, texture, texture->content, texture->cube ? 6u : 1u,
+    return tb_texture_upload(target, texture, texture->content, texture->cube ? 6u : 1u,
                              texture->pixels, error);
 }
 
@@ -221,23 +221,23 @@ static tb_texture *tb_texture_make(tb_renderer *renderer, const tb_texture_desc 
     made.mips = texture->mips;
     made.usage = TB_RHI_TEXTURE_SAMPLED | (texture->mips > 1 ? TB_RHI_TEXTURE_STORAGE : 0u);
     made.name = desc->name != NULL ? desc->name : "texture";
-    if (tb_rhi_texture_create(renderer->device, &made, &texture->texture, &error) != TB_RHI_OK)
+    if (tb_rhi_texture_create(renderer->device, &made, &texture->source.texture, &error) !=
+        TB_RHI_OK)
     {
         tb_fatal("renderer: no memory for a texture: %s", error.message);
     }
-    texture->index = tb_rhi_texture_index(renderer->device, texture->texture);
-    if (tb_texture_upload(renderer, texture, desc->content, layers, pixels, &error) != TB_RHI_OK)
+    texture->index = tb_rhi_texture_index(renderer->device, texture->source.texture);
+    if (tb_texture_upload((tb_renderer_upload_target){renderer->device, renderer->mip_pipeline},
+                          texture, desc->content, layers, pixels, &error) != TB_RHI_OK)
     {
         tb_fatal("renderer: no memory for a texture's pixels: %s", error.message);
     }
-    if ((renderer->info.features & TB_RHI_FEATURE_DEVICE_RECOVERY) != 0)
-    {
-        texture->pixels = tb_malloc(size);
-        memcpy(texture->pixels, pixels, size);
-        texture->content = desc->content;
-        texture->source.upload = tb_texture_restore;
-        tb_list_push_back(&renderer->sources, &texture->source.link);
-    }
+    texture->source.mipmapped = texture->mips > 1;
+    texture->pixels = tb_malloc(size);
+    memcpy(texture->pixels, pixels, size);
+    texture->content = desc->content;
+    texture->source.upload = tb_texture_restore;
+    tb_list_push_back(&renderer->sources, &texture->source.link);
     return texture;
 }
 
@@ -264,7 +264,7 @@ tb_texture *tb_texture_from_rhi(tb_renderer *renderer, tb_rhi_texture texture)
     tb_rhi_texture_desc_of(renderer->device, texture, &desc);
     TB_ASSERT_MSG((desc.usage & TB_RHI_TEXTURE_SAMPLED) != 0, "a texture shaders sample");
     made = tb_calloc(1, sizeof(*made));
-    made->texture = texture;
+    made->source.texture = texture;
     made->width = desc.width;
     made->height = desc.height;
     made->mips = desc.mips;
@@ -280,14 +280,11 @@ void tb_texture_destroy(tb_renderer *renderer, tb_texture *texture)
     {
         return;
     }
-    if (tb_list_link_is_linked(&texture->source.link))
+    if (texture->owned)
     {
         tb_list_remove(&texture->source.link);
         tb_free(texture->pixels);
-    }
-    if (texture->owned)
-    {
-        tb_rhi_texture_destroy(renderer->device, texture->texture);
+        tb_rhi_texture_destroy(renderer->device, texture->source.texture);
     }
     tb_free(texture);
 }

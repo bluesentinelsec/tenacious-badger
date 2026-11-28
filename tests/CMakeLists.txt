@@ -300,6 +300,7 @@ set(TB_INTERNAL_TEST_CASE_SOURCES
     render/temporal_test.c
     rhi/rhi_choice_test.c
     rhi/rhi_device_test.c
+    rhi/rhi_stage_test.c
     rhi/rhi_shader_library_test.c
     shader/shader_check_test.c
     shader/shader_dxc_test.c
@@ -362,13 +363,13 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     endif()
 endif()
 if(TB_BUILD_SHADERS AND NOT TB_USE_DEFAULT_PLATFORM_ADAPTER AND (APPLE OR WIN32))
-    list(APPEND TB_INTERNAL_TEST_CASE_SOURCES render/pipeline_library_test.c)
+    list(APPEND TB_INTERNAL_TEST_CASE_SOURCES render/pipeline_library_test.c render/stage_resources_test.c)
     if(WIN32)
         set(tb_transfer_backends "TB_TEST_SOURCE_BACKEND=TB_RHI_BACKEND_D3D11;TB_TEST_DESTINATION_BACKEND=TB_RHI_BACKEND_D3D12;TB_TEST_ADAPTER=TB_RHI_ADAPTER_SOFTWARE")
     else()
         set(tb_transfer_backends "TB_TEST_SOURCE_BACKEND=TB_RHI_BACKEND_METAL;TB_TEST_DESTINATION_BACKEND=TB_RHI_BACKEND_METAL;TB_TEST_ADAPTER=TB_RHI_ADAPTER_HIGH_PERFORMANCE")
     endif()
-    set_source_files_properties(render/pipeline_library_test.c PROPERTIES COMPILE_DEFINITIONS
+    set_source_files_properties(render/pipeline_library_test.c render/stage_resources_test.c PROPERTIES COMPILE_DEFINITIONS
         "${tb_transfer_backends};TB_TEST_SHADER_DIRECTORY=\"${PROJECT_BINARY_DIR}/bin\"")
 endif()
 set(TB_ENGINE_SOURCES ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES} ${TB_JOBS_SOURCES}

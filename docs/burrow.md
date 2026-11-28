@@ -275,6 +275,13 @@ disables temporal anti-aliasing so both captures use the same projection,
 prints their pixel hashes, and exits with an error if the captures differ.
 The final navigation action resumes play.
 
+Use `--stage-scene-on-pause` with the same navigation sequence to exercise
+destination staging. Burrow first requests a sampler heap too small for the
+scene, then retries with the active device's heap sizes. It releases the
+successful snapshot, compares the paused frame on the original renderer, and
+resumes play. Release builds use the packaged shader library to regenerate
+the destination's material mipmaps.
+
 Use `--lose-device-on-pause` in place of `--recreate-renderer-on-pause` to
 test recovery after the GPU contents become unavailable. Burrow reports a
 device loss, rebuilds the scene on the same Metal adapter from CPU data, and

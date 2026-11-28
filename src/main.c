@@ -28,6 +28,7 @@ static size_t burrow_mode = BURROW_DEVELOPER ? 0u : 1u;
 static bool burrow_reset = false;
 static bool burrow_recreate_on_pause = false;
 static bool burrow_lose_device_on_pause = false;
+static bool burrow_stage_scene_on_pause = false;
 static bool burrow_headless = false;
 static const char *burrow_settings_file = NULL;
 static const char *burrow_values[BURROW_MOST_VALUES] = {0};
@@ -77,7 +78,8 @@ static int burrow_run(const tb_cli_outcome *outcome, void *context)
                                          .developer = burrow_mode == 0,
                                          .navigate = burrow_navigation,
                                          .recreate_on_pause = burrow_recreate_on_pause,
-                                         .lose_device_on_pause = burrow_lose_device_on_pause};
+                                         .lose_device_on_pause = burrow_lose_device_on_pause,
+                                         .stage_scene_on_pause = burrow_stage_scene_on_pause};
     status = burrow_play(&loaded, &options);
     burrow_settings_release(&loaded);
     return status;
@@ -156,6 +158,10 @@ static const tb_cli_option burrow_options[] = {
      .maximum = INT64_MAX,
      .help = "Stop after this many frames, as tests do; the same as --set "
              "developer.frame_count=COUNT."},
+    {.long_name = "stage-scene-on-pause",
+     .flag = &burrow_stage_scene_on_pause,
+     .help = "On the first pause, reject an undersized destination, stage the scene on a second "
+             "device and compare the original frame."},
     {.long_name = "lose-device-on-pause",
      .flag = &burrow_lose_device_on_pause,
      .help = "On the first pause, inject graphics device loss and compare the recovered frame."},

@@ -41,11 +41,21 @@ struct tb_shader_library;
 #define TB_RENDERER_MIN_RENDER_SCALE 0.25f
 #define TB_RENDERER_MAX_RENDER_SCALE 2.0f
 
-/* Renderer-owned assets are linked for re-upload only on recoverable devices. */
+/* An upload can target the active device or a separately owned candidate. */
+typedef struct tb_renderer_upload_target
+{
+    tb_rhi_device *device;
+    tb_rhi_pipeline mip_pipeline;
+} tb_renderer_upload_target;
+
+/* An owned texture or mesh and the CPU source that restores it. */
 typedef struct tb_renderer_source
 {
     tb_list_link link;
-    tb_rhi_result (*upload)(tb_renderer *renderer, struct tb_renderer_source *source,
+    const tb_mesh *mesh;
+    tb_rhi_texture texture;
+    bool mipmapped;
+    tb_rhi_result (*upload)(tb_renderer_upload_target target, struct tb_renderer_source *source,
                             tb_rhi_error *error);
 } tb_renderer_source;
 

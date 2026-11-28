@@ -6,6 +6,7 @@
 #include "renderer_internal.h"
 
 #include "badger/arena.h"
+#include "badger/array.h"
 #include "badger/assert.h"
 #include "badger/d3dcompiler.h"
 #include "badger/dxc.h"
@@ -344,6 +345,105 @@ static tb_rhi_result tb_renderer_open_chain(tb_renderer *renderer, tb_rhi_error 
     return TB_RHI_OK;
 }
 
+static tb_rhi_result upload_scene(tb_renderer *renderer, tb_renderer_upload_target target,
+                                  tb_rhi_error *error)
+{
+    for (tb_list_link *link = tb_list_first(&renderer->sources); link != NULL;
+         link = tb_list_next(&renderer->sources, link))
+    {
+        tb_renderer_source *const source = TB_LIST_ENTRY(link, tb_renderer_source, link);
+        const tb_rhi_result result = source->upload(target, source, error);
+        if (result != TB_RHI_OK)
+        {
+            return result;
+        }
+        const tb_rhi_result waited = tb_rhi_wait_idle(target.device);
+        if (waited != TB_RHI_OK)
+        {
+            return tb_renderer_fail(error, waited,
+                                    "Device failed while waiting for a scene upload");
+        }
+    }
+    return TB_RHI_OK;
+}
+
+tb_rhi_result tb_renderer_stage_resources(tb_renderer *renderer,
+                                          const tb_rhi_device_options *options,
+                                          const tb_shader_library *library, tb_rhi_device **staged,
+                                          tb_rhi_error *error)
+{
+    TB_ASSERT(renderer != NULL && options != NULL && staged != NULL && !renderer->in_frame);
+    *staged = NULL;
+    tb_array *const buffers = TB_ARRAY_CREATE(NULL, tb_rhi_buffer);
+    tb_array *const textures = TB_ARRAY_CREATE(NULL, tb_rhi_texture);
+    bool mipmapped = false;
+    for (tb_list_link *link = tb_list_first(&renderer->sources); link != NULL;
+         link = tb_list_next(&renderer->sources, link))
+    {
+        const tb_renderer_source *const source = TB_LIST_ENTRY(link, tb_renderer_source, link);
+        if (source->mesh != NULL)
+        {
+            (void)tb_array_push(buffers, &source->mesh->vertices);
+            (void)tb_array_push(buffers, &source->mesh->indices);
+        }
+        if (source->texture.generation != 0)
+        {
+            (void)tb_array_push(textures, &source->texture);
+            mipmapped = mipmapped || source->mipmapped;
+        }
+    }
+    const tb_rhi_sampler samplers[] = {renderer->material_sampler, renderer->canvas_samplers[0],
+                                       renderer->canvas_samplers[1]};
+    const tb_rhi_resource_set resources = {.buffers = tb_array_data(buffers),
+                                           .buffer_count = tb_array_length(buffers),
+                                           .textures = tb_array_data(textures),
+                                           .texture_count = tb_array_length(textures),
+                                           .samplers = samplers,
+                                           .sampler_count = 3};
+    tb_renderer_upload_target target = {0};
+    tb_rhi_result result =
+        tb_rhi_device_stage_resources(renderer->device, options, &resources, &target.device, error);
+    tb_array_destroy(textures);
+    tb_array_destroy(buffers);
+    if (result != TB_RHI_OK)
+    {
+        return result;
+    }
+    if (mipmapped)
+    {
+        tb_rhi_device_info info = {0};
+        tb_rhi_device_info_of(target.device, &info);
+        if (library == NULL && info.backend == renderer->info.backend)
+        {
+            library = renderer->shader_library;
+        }
+        if (library == NULL)
+        {
+            result = tb_renderer_fail(error, TB_RHI_UNAVAILABLE,
+                                      "A cooked %s shader library is required to restore mipmaps",
+                                      tb_rhi_backend_name(info.backend));
+        }
+        else
+        {
+            result = tb_rhi_pipeline_create_from_library(renderer->device, renderer->mip_pipeline,
+                                                         target.device, library,
+                                                         &target.mip_pipeline, error);
+        }
+    }
+    if (result == TB_RHI_OK)
+    {
+        result = upload_scene(renderer, target, error);
+    }
+    tb_rhi_pipeline_destroy(target.device, target.mip_pipeline);
+    if (result != TB_RHI_OK)
+    {
+        tb_rhi_device_destroy(target.device);
+        return result;
+    }
+    *staged = target.device;
+    return TB_RHI_OK;
+}
+
 tb_rhi_result tb_renderer_recover_device(tb_renderer *renderer, tb_rhi_error *error)
 {
     TB_ASSERT(renderer != NULL && !renderer->in_frame);
@@ -368,16 +468,10 @@ tb_rhi_result tb_renderer_recover_device(tb_renderer *renderer, tb_rhi_error *er
         return result;
     }
     result = tb_renderer_open_chain(renderer, error);
-    for (tb_list_link *link = tb_list_first(&renderer->sources);
-         result == TB_RHI_OK && link != NULL; link = tb_list_next(&renderer->sources, link))
+    if (result == TB_RHI_OK)
     {
-        tb_renderer_source *const source = TB_LIST_ENTRY(link, tb_renderer_source, link);
-        result = source->upload(renderer, source, error);
-        if (result == TB_RHI_OK && tb_rhi_wait_idle(renderer->device) != TB_RHI_OK)
-        {
-            result =
-                tb_renderer_fail(error, TB_RHI_DEVICE_LOST, "Lost the device during scene upload");
-        }
+        result = upload_scene(
+            renderer, (tb_renderer_upload_target){renderer->device, renderer->mip_pipeline}, error);
     }
     if (result != TB_RHI_OK)
     {
@@ -1384,7 +1478,7 @@ const uint8_t *tb_renderer_captured(const tb_renderer *renderer, uint32_t *width
  * Meshes.
  * ------------------------------------------------------------------------- */
 
-static tb_rhi_result tb_mesh_upload(tb_renderer *renderer, const tb_mesh *mesh,
+static tb_rhi_result tb_mesh_upload(tb_rhi_device *device, const tb_mesh *mesh,
                                     const void *vertices, const uint32_t *indices,
                                     tb_rhi_error *error)
 {
@@ -1392,7 +1486,7 @@ static tb_rhi_result tb_mesh_upload(tb_renderer *renderer, const tb_mesh *mesh,
     tb_rhi_buffer staging = {0};
     tb_rhi_command_list *list = NULL;
     const tb_rhi_result result =
-        tb_rhi_buffer_create(renderer->device,
+        tb_rhi_buffer_create(device,
                              &(tb_rhi_buffer_desc){.size = mesh->vertex_bytes + index_bytes,
                                                    .memory = TB_RHI_MEMORY_UPLOAD},
                              &staging, error);
@@ -1400,9 +1494,9 @@ static tb_rhi_result tb_mesh_upload(tb_renderer *renderer, const tb_mesh *mesh,
     {
         return result;
     }
-    tb_rhi_buffer_write(renderer->device, staging, 0, vertices, mesh->vertex_bytes);
-    tb_rhi_buffer_write(renderer->device, staging, mesh->vertex_bytes, indices, index_bytes);
-    list = tb_rhi_command_list_begin(renderer->device);
+    tb_rhi_buffer_write(device, staging, 0, vertices, mesh->vertex_bytes);
+    tb_rhi_buffer_write(device, staging, mesh->vertex_bytes, indices, index_bytes);
+    list = tb_rhi_command_list_begin(device);
     tb_rhi_cmd_barriers(list,
                         (const tb_rhi_barrier[]){{.buffer = mesh->vertices,
                                                   .before = TB_RHI_STATE_COMMON,
@@ -1421,17 +1515,17 @@ static tb_rhi_result tb_mesh_upload(tb_renderer *renderer, const tb_mesh *mesh,
                                                   .before = TB_RHI_STATE_COPY_DEST,
                                                   .after = TB_RHI_STATE_VERTEX_INDEX}},
                         2);
-    (void)tb_rhi_submit(renderer->device, &list, 1);
+    (void)tb_rhi_submit(device, &list, 1);
     /* The staging buffer goes once the GPU has copied it. */
-    tb_rhi_buffer_destroy(renderer->device, staging);
+    tb_rhi_buffer_destroy(device, staging);
     return TB_RHI_OK;
 }
 
-static tb_rhi_result tb_mesh_restore(tb_renderer *renderer, tb_renderer_source *source,
+static tb_rhi_result tb_mesh_restore(tb_renderer_upload_target target, tb_renderer_source *source,
                                      tb_rhi_error *error)
 {
     const tb_mesh *const mesh = TB_LIST_ENTRY(source, tb_mesh, source);
-    return tb_mesh_upload(renderer, mesh, mesh->cpu_vertices, mesh->cpu_indices, error);
+    return tb_mesh_upload(target.device, mesh, mesh->cpu_vertices, mesh->cpu_indices, error);
 }
 
 void tb_renderer_mesh_init(tb_renderer *renderer, tb_mesh *mesh, const void *vertices,
@@ -1444,19 +1538,13 @@ void tb_renderer_mesh_init(tb_renderer *renderer, tb_mesh *mesh, const void *ver
     mesh->index_count = (uint32_t)index_count;
     mesh->vertex_bytes = vertex_bytes;
     mesh->vertex_state = skinned ? TB_RHI_STATE_SHADER_READ : TB_RHI_STATE_VERTEX_INDEX;
-    const bool recover = (renderer->info.features & TB_RHI_FEATURE_DEVICE_RECOVERY) != 0;
-    if (recover || skinned)
-    {
-        mesh->cpu_vertices = tb_malloc(vertex_bytes);
-        memcpy(mesh->cpu_vertices, vertices, vertex_bytes);
-    }
-    if (recover)
-    {
-        mesh->cpu_indices = tb_malloc(index_bytes);
-        memcpy(mesh->cpu_indices, indices, index_bytes);
-        mesh->source.upload = tb_mesh_restore;
-        tb_list_push_back(&renderer->sources, &mesh->source.link);
-    }
+    mesh->cpu_vertices = tb_malloc(vertex_bytes);
+    memcpy(mesh->cpu_vertices, vertices, vertex_bytes);
+    mesh->cpu_indices = tb_malloc(index_bytes);
+    memcpy(mesh->cpu_indices, indices, index_bytes);
+    mesh->source.mesh = mesh;
+    mesh->source.upload = tb_mesh_restore;
+    tb_list_push_back(&renderer->sources, &mesh->source.link);
     if (tb_rhi_buffer_create(renderer->device,
                              &(tb_rhi_buffer_desc){.size = vertex_bytes,
                                                    .usage = skinned ? TB_RHI_BUFFER_SHADER_READ
@@ -1468,7 +1556,7 @@ void tb_renderer_mesh_init(tb_renderer *renderer, tb_mesh *mesh, const void *ver
                                                    .usage = TB_RHI_BUFFER_INDEX,
                                                    .name = "mesh indices"},
                              &mesh->indices, &error) != TB_RHI_OK ||
-        tb_mesh_upload(renderer, mesh, vertices, indices, &error) != TB_RHI_OK)
+        tb_mesh_upload(renderer->device, mesh, vertices, indices, &error) != TB_RHI_OK)
     {
         tb_fatal("renderer: no memory for a mesh: %s", error.message);
     }
@@ -1504,10 +1592,7 @@ tb_mesh *tb_mesh_create_shape(tb_renderer *renderer, tb_mesh_shape shape, uint32
 
 void tb_renderer_mesh_release(tb_renderer *renderer, tb_mesh *mesh)
 {
-    if (tb_list_link_is_linked(&mesh->source.link))
-    {
-        tb_list_remove(&mesh->source.link);
-    }
+    tb_list_remove(&mesh->source.link);
     tb_free(mesh->cpu_vertices);
     tb_free(mesh->cpu_indices);
     tb_rhi_buffer_destroy(renderer->device, mesh->vertices);

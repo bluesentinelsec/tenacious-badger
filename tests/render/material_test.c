@@ -105,6 +105,25 @@ TB_TEST(material_texture, a_texture_has_the_mip_chain_of_its_size)
     close_screen(&opened);
 }
 
+TB_TEST(material_texture, staging_requires_a_cooked_library_only_for_generated_mips)
+{
+    screen opened = {0};
+    open_screen(&opened, 0);
+    tb_rhi_device *staged = NULL;
+    const tb_rhi_device_options options = {.backend = TB_RHI_BACKEND_NULL};
+    const uint8_t pixels[16] = {0};
+    tb_texture *const texture = tb_texture_create(
+        opened.renderer, &(tb_texture_desc){.width = 2, .height = 2}, pixels, sizeof(pixels));
+    TB_TEST_EXPECT_UINT(tb_renderer_stage_resources(opened.renderer, &options, NULL, &staged, NULL),
+                        ==, TB_RHI_UNAVAILABLE);
+    TB_TEST_EXPECT_POINTER(staged, ==, NULL);
+    tb_texture_destroy(opened.renderer, texture);
+    TB_TEST_REQUIRE_UINT(
+        tb_renderer_stage_resources(opened.renderer, &options, NULL, &staged, NULL), ==, TB_RHI_OK);
+    close_screen(&opened);
+    tb_rhi_device_destroy(staged);
+}
+
 /* A texture of the caller's own RHI texture borrows it: destroying the
  * texture leaves the RHI's texture alive, the caller's to destroy. */
 TB_TEST(material_texture, a_texture_borrows_a_callers_rhi_texture)
