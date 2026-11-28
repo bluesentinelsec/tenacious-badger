@@ -98,6 +98,21 @@ TB_API tb_shader_result tb_shader_key_make(const tb_shader_compile_request *requ
                                            tb_shader_key *key);
 
 /**
+ * @brief Compute library keys for the same source and permutation on several targets.
+ * @param request Required. Its entry, stage, ordered defines and compile flags apply to all
+ * targets. An explicit shader model applies to its original target. Other targets use their default
+ * model.
+ * @param targets Required array of shader targets.
+ * @param count Number of targets and output keys.
+ * @param keys Receives one key per target in order, all zero on failure.
+ * @return As tb_shader_key_make(). Preprocesses the sources once and needs no target compiler.
+ * @par Threading Thread-safe with a thread-safe source loader.
+ */
+TB_API tb_shader_result tb_shader_keys_for_targets(const tb_shader_compile_request *request,
+                                                   const tb_shader_target *targets, size_t count,
+                                                   tb_shader_key *keys);
+
+/**
  * @brief Make the cache key of a shader key compiled by a compiler.
  * @param shader Required; a shader key.
  * @param compiler Required, NUL-terminated: the compiler as it names itself,

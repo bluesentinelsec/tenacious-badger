@@ -4,6 +4,7 @@
 
 #include "rhi_backend.h"
 
+#include "badger/shader_cache.h"
 #include "badger/thread.h"
 
 #include <stdbool.h>
@@ -23,11 +24,20 @@ typedef enum tb_rhi_kind
 /* Bytes of a shader's entry point's name, its NUL included. */
 #define TB_RHI_ENTRY_CAPACITY 64u
 
+/* Keys for each cooked target, indexed by tb_shader_target. The shader's
+ * entry and stage are in its retained description. Its path is never truncated. */
+typedef struct tb_rhi_shader_origin
+{
+    char *path;
+    tb_shader_key keys[TB_SHADER_TARGET_MSL + 1];
+} tb_rhi_shader_origin;
+
 /* One immutable copy of the compiled shader, shared by its live handle and
  * by each pipeline using it. The device lock protects the reference count. */
 typedef struct tb_rhi_shader_data
 {
     size_t references;
+    tb_rhi_shader_origin *origin; /* NULL for native bytecode without a portable identity */
     tb_rhi_shader_desc desc;
     char name[TB_RHI_NAME_CAPACITY];
     char entry[TB_RHI_ENTRY_CAPACITY];
@@ -154,5 +164,10 @@ void tb_rhi_collect(tb_rhi_device *device, uint64_t completed);
 /* Give a swap chain's images handles, or take them away. */
 void tb_rhi_register_images(tb_rhi_swap_chain *chain, const tb_rhi_swap_chain_images *images);
 void tb_rhi_unregister_images(tb_rhi_swap_chain *chain);
+
+tb_rhi_result tb_rhi_shader_create_with_origin(tb_rhi_device *device,
+                                               const tb_rhi_shader_desc *desc,
+                                               const tb_shader_key *keys, tb_rhi_shader *shader,
+                                               tb_rhi_error *error);
 
 #endif

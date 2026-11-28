@@ -270,6 +270,13 @@ shipped game draws with its libraries' shaders alone, as Unreal's packaged
 games do, and a shader they lack is an error that names it, rather than a
 compile on a player's machine.
 
+For pipeline transfers, `tb_shader_keys_for_targets` preprocesses the source
+once and derives the key for each requested target using the same inputs as
+the cooker. An explicit shader model applies to the original target. Other
+targets use their default models. The RHI retains these keys at creation so
+a later transfer can look up an exact permutation from the destination
+library after the original sources and compiler have been released.
+
 ## Threading
 
 Every function of `badger/shader_cache.h` is thread-safe. An open library is

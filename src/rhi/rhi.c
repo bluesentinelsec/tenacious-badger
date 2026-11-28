@@ -365,6 +365,11 @@ static void tb_rhi_release_shader(tb_rhi_shader_data *shader)
     shader->references--;
     if (shader->references == 0)
     {
+        if (shader->origin != NULL)
+        {
+            tb_str_free(NULL, shader->origin->path);
+            tb_free(shader->origin);
+        }
         tb_free(shader->code);
         tb_free(shader);
     }
@@ -931,6 +936,14 @@ uint32_t tb_rhi_sampler_index(tb_rhi_device *device, tb_rhi_sampler sampler)
 tb_rhi_result tb_rhi_shader_create(tb_rhi_device *device, const tb_rhi_shader_desc *desc,
                                    tb_rhi_shader *shader, tb_rhi_error *error)
 {
+    return tb_rhi_shader_create_with_origin(device, desc, NULL, shader, error);
+}
+
+tb_rhi_result tb_rhi_shader_create_with_origin(tb_rhi_device *device,
+                                               const tb_rhi_shader_desc *desc,
+                                               const tb_shader_key *keys, tb_rhi_shader *shader,
+                                               tb_rhi_error *error)
+{
     const tb_rhi_indices none = {.read = TB_RHI_NO_INDEX, .write = TB_RHI_NO_INDEX};
     tb_rhi_shader_desc kept = {0};
     char entry[TB_RHI_ENTRY_CAPACITY] = {0};
@@ -955,6 +968,12 @@ tb_rhi_result tb_rhi_shader_create(tb_rhi_device *device, const tb_rhi_shader_de
     data = TB_NEW(tb_rhi_shader_data);
     data->code = tb_malloc(desc->size);
     data->references = 1;
+    if (keys != NULL)
+    {
+        data->origin = TB_NEW(tb_rhi_shader_origin);
+        memcpy(data->origin->keys, keys, sizeof(data->origin->keys));
+        data->origin->path = tb_str_dup(NULL, desc->name);
+    }
     data->desc = kept;
     memcpy(data->code, desc->code, desc->size);
     memcpy(data->entry, entry, sizeof(entry));

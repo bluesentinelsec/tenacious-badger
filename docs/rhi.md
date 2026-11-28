@@ -98,6 +98,24 @@ of each stage. Pipelines using the same shader share one copy. A graphics
 pipeline also owns its input attributes and their semantic names, so the
 caller can release those arrays and strings after creation.
 
+### Rebuilding a pipeline on a second device
+
+Create portable shader stages with `tb_rhi_shader_create_compiled` from
+`badger/rhi_shader_library.h`. Pass the exact compile request and the
+compiled bytes. Each pipeline retains the stage's virtual path, entry point,
+and library keys for the same permutation on Metal, D3D11 and D3D12. The
+renderer uses this path for its built-in shaders. The source files and shader
+handles can be released after pipeline creation.
+
+`tb_rhi_pipeline_create_from_library` takes a live pipeline, a destination
+device and its open shader library. It resolves every stage before creating
+a graphics or compute pipeline on the destination. The new pipeline owns
+its code and graphics state and survives closing the library or destroying
+the source device. A missing variant returns `TB_RHI_UNAVAILABLE` with its
+backend, path, entry and stage. A pipeline created from raw native shader
+bytes also reports unavailable. The source pipeline remains usable if lookup
+or native pipeline creation fails. The caller owns the destination handle.
+
 ## Binding: bindless, with one layout
 
 There are no binding layouts. Every pipeline shares one, which follows

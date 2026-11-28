@@ -21,6 +21,7 @@
 #include "badger/material.h"
 #include "badger/memory.h"
 #include "badger/process.h"
+#include "badger/rhi_shader_library.h"
 #include "badger/settings.h"
 #include "badger/shader.h"
 #include "badger/shader_cache.h"
@@ -141,7 +142,6 @@ bool sandbox_shader(sandbox *box, const char *path, const char *source, const ch
     tb_shader_compile_request request = {0};
     tb_shader_compiled compiled = {0};
     tb_arena *const arena = tb_arena_create(0);
-    tb_rhi_shader_desc desc = {.stage = stage, .entry = entry, .name = path};
     tb_rhi_error error = TB_RHI_ERROR_INIT;
     bool made = false;
 
@@ -156,10 +156,7 @@ bool sandbox_shader(sandbox *box, const char *path, const char *source, const ch
     request.source.file_count = 1;
     request.entry_point = entry;
     request.stage = sandbox_stage(stage);
-    request.target = box->dxc != NULL                            ? TB_SHADER_TARGET_DXIL
-                     : box->d3dcompiler != NULL                  ? TB_SHADER_TARGET_DXBC
-                     : box->info.backend == TB_RHI_BACKEND_METAL ? TB_SHADER_TARGET_MSL
-                                                                 : TB_SHADER_TARGET_NONE;
+    request.target = tb_rhi_backend_shader_target(box->info.backend);
     request.dxc = box->dxc;
     request.d3dcompiler = box->d3dcompiler;
     if (tb_shader_compile(&request, arena, &compiled) != TB_SHADER_OK)
@@ -173,9 +170,10 @@ bool sandbox_shader(sandbox *box, const char *path, const char *source, const ch
         goto done;
     }
     /* The null backend runs nothing, so the checked source stands in. */
-    desc.code = compiled.code != NULL ? compiled.code : (const void *)source;
-    desc.size = compiled.code != NULL ? compiled.code_size : file.length;
-    if (tb_rhi_shader_create(box->device, &desc, shader, &error) != TB_RHI_OK)
+    const void *const code = compiled.code != NULL ? compiled.code : (const void *)source;
+    const size_t size = compiled.code != NULL ? compiled.code_size : file.length;
+    if (tb_rhi_shader_create_compiled(box->device, &request, code, size, shader, &error) !=
+        TB_RHI_OK)
     {
         (void)tb_fmt_print_error("badger-sandbox: %s %s: %s\n", path, entry, error.message);
         goto done;
