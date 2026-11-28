@@ -131,7 +131,7 @@ static tb_rhi_result metal_replacement(void *original, const tb_rhi_device_info 
     void *state = NULL;
     const tb_rhi_result opened =
         tb_metal_device_create(&(tb_rhi_device_options){0}, &state, &fresh_info, error);
-    if (opened != TB_RHI_OK)
+    if (state == NULL)
     {
         return opened;
     }
