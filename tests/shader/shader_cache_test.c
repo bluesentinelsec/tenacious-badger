@@ -75,6 +75,36 @@ TB_TEST(shader_cache, the_same_request_has_the_same_key)
     TB_TEST_EXPECT(keys_equal(&a, &c));
 }
 
+TB_TEST(shader_cache, target_keys_match_individually_cooked_shader_models)
+{
+    key_case source = {0};
+    key_case_init(&source);
+    source.request.shader_model = TB_SHADER_MODEL(6, 7);
+    const tb_shader_target targets[] = {TB_SHADER_TARGET_DXBC, TB_SHADER_TARGET_MSL,
+                                        TB_SHADER_TARGET_DXIL};
+    tb_shader_key keys[TB_TEST_COUNT_OF(targets)] = {0};
+    TB_TEST_REQUIRE_UINT(
+        tb_shader_keys_for_targets(&source.request, targets, TB_TEST_COUNT_OF(targets), keys), ==,
+        TB_SHADER_OK);
+    for (size_t i = 0; i < TB_TEST_COUNT_OF(targets); i++)
+    {
+        source.request.target = targets[i];
+        source.request.shader_model =
+            targets[i] == TB_SHADER_TARGET_DXIL ? TB_SHADER_MODEL(6, 7) : 0;
+        const tb_shader_key single = key_of(&source);
+        TB_TEST_EXPECT(keys_equal(&keys[i], &single));
+    }
+    source.request.source.file_count = 1; /* missing included file */
+    TB_TEST_EXPECT_UINT(
+        tb_shader_keys_for_targets(&source.request, targets, TB_TEST_COUNT_OF(targets), keys), ==,
+        TB_SHADER_FAILED);
+    const tb_shader_key zero = {0};
+    for (size_t i = 0; i < TB_TEST_COUNT_OF(targets); i++)
+    {
+        TB_TEST_EXPECT(keys_equal(&keys[i], &zero));
+    }
+}
+
 TB_TEST(shader_cache, every_input_changes_the_key)
 {
     static const char other_main[] = "#include \"/Engine/Public/Common.hlsli\"\n"

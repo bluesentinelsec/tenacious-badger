@@ -13,6 +13,7 @@
 #include "badger/fmt.h"
 #include "badger/log.h"
 #include "badger/memory.h"
+#include "badger/rhi_shader_library.h"
 #include "badger/shader.h"
 #include "badger/shader_cache.h"
 #include "badger/shader_library.h"
@@ -72,24 +73,6 @@ static tb_shader_stage tb_renderer_stage(tb_rhi_stage stage)
     return TB_SHADER_STAGE_COMPUTE;
 }
 
-/* The payload the backend accepts in shader creation. */
-static tb_shader_target tb_renderer_shader_target(tb_rhi_backend backend)
-{
-    if (backend == TB_RHI_BACKEND_D3D12)
-    {
-        return TB_SHADER_TARGET_DXIL;
-    }
-    if (backend == TB_RHI_BACKEND_D3D11)
-    {
-        return TB_SHADER_TARGET_DXBC;
-    }
-    if (backend == TB_RHI_BACKEND_METAL)
-    {
-        return TB_SHADER_TARGET_MSL;
-    }
-    return TB_SHADER_TARGET_NONE;
-}
-
 /* Load a renderer shader from the library or cache, or compile it for the device. */
 tb_rhi_result tb_renderer_shader(tb_renderer *renderer, const char *path, const char *source,
                                  const char *entry, tb_rhi_stage stage, tb_rhi_shader *shader,
@@ -103,7 +86,6 @@ tb_rhi_result tb_renderer_shader(tb_renderer *renderer, const char *path, const 
     tb_shader_key key = {0};
     tb_shader_origin origin = TB_SHADER_ORIGIN_COMPILE;
     tb_arena *const arena = tb_arena_create(0);
-    tb_rhi_shader_desc desc = {.stage = stage, .entry = entry, .name = path};
     tb_rhi_result result = TB_RHI_OK;
 
     request.source.path = path;
@@ -116,7 +98,7 @@ tb_rhi_result tb_renderer_shader(tb_renderer *renderer, const char *path, const 
     }
     request.entry_point = entry;
     request.stage = tb_renderer_stage(stage);
-    request.target = tb_renderer_shader_target(renderer->info.backend);
+    request.target = tb_rhi_backend_shader_target(renderer->info.backend);
     request.dxc = renderer->dxc;
     request.d3dcompiler = renderer->d3dcompiler;
     lookup.library = renderer->shader_library;
@@ -134,15 +116,14 @@ tb_rhi_result tb_renderer_shader(tb_renderer *renderer, const char *path, const 
             tb_renderer_fail(error, TB_RHI_SYSTEM_ERROR, "renderer: %s %s: %s", path, entry, line);
         goto done;
     }
-    desc.code = compiled.code;
-    desc.size = compiled.code_size;
     if (compiled.code == NULL)
     {
-        /* The null backend keeps the source, which it runs no more than code. */
-        desc.code = source != NULL ? source : path;
-        desc.size = tb_str_length(desc.code);
+        /* The null backend keeps source bytes as its placeholder. */
+        compiled.code = source != NULL ? source : path;
+        compiled.code_size = tb_str_length(compiled.code);
     }
-    result = tb_rhi_shader_create(renderer->device, &desc, shader, error);
+    result = tb_rhi_shader_create_compiled(renderer->device, &request, compiled.code,
+                                           compiled.code_size, shader, error);
 done:
     tb_arena_destroy(arena);
     return result;
@@ -315,7 +296,7 @@ static tb_rhi_result tb_renderer_shader_sources(tb_renderer *renderer,
 
     renderer->shader_cache = options->shader_cache;
     renderer->shader_library_only = options->shader_library_only;
-    if (tb_renderer_shader_target(renderer->info.backend) == TB_SHADER_TARGET_NONE)
+    if (tb_rhi_backend_shader_target(renderer->info.backend) == TB_SHADER_TARGET_NONE)
     {
         return TB_RHI_OK;
     }

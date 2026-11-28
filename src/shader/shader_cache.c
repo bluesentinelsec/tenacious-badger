@@ -90,10 +90,15 @@ static void hash_request(tb_sha256_state *hash, const tb_shader_compile_request 
     }
 }
 
-tb_shader_result tb_shader_key_make(const tb_shader_compile_request *request, tb_shader_key *key)
+tb_shader_result tb_shader_keys_for_targets(const tb_shader_compile_request *request,
+                                            const tb_shader_target *targets, size_t count,
+                                            tb_shader_key *keys)
 {
     const tb_shader_key empty = {0};
-    *key = empty;
+    for (size_t i = 0; i < count; i++)
+    {
+        keys[i] = empty;
+    }
     if (request->entry_point == NULL || request->entry_point[0] == '\0' ||
         (size_t)request->stage >= STAGE_COUNT)
     {
@@ -104,17 +109,28 @@ tb_shader_result tb_shader_key_make(const tb_shader_compile_request *request, tb
     source.flags |= TB_SHADER_LINE_MARKERS;
     tb_shader_preprocessed preprocessed = {0};
     const tb_shader_result result = tb_shader_preprocess(&source, scratch, &preprocessed);
-    if (result == TB_SHADER_OK)
+    for (size_t i = 0; result == TB_SHADER_OK && i < count; i++)
     {
+        tb_shader_compile_request variant = *request;
+        variant.target = targets[i];
+        if (variant.target != request->target)
+        {
+            variant.shader_model = 0;
+        }
         tb_sha256_state hash = {0};
         tb_sha256_init(&hash);
-        hash_request(&hash, request);
+        hash_request(&hash, &variant);
         hash_bytes(&hash, preprocessed.text, preprocessed.length);
-        tb_sha256_final(&hash, key->bytes);
+        tb_sha256_final(&hash, keys[i].bytes);
     }
     tb_arena_destroy(scratch);
     /* The scratch arena grows, so only the source can fail. */
     return result;
+}
+
+tb_shader_result tb_shader_key_make(const tb_shader_compile_request *request, tb_shader_key *key)
+{
+    return tb_shader_keys_for_targets(request, &request->target, 1, key);
 }
 
 void tb_shader_cache_key(const tb_shader_key *shader, const char *compiler, tb_shader_key *key)

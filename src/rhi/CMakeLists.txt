@@ -4,6 +4,7 @@
 set(TB_RHI_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/rhi.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/rhi_recreate.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/rhi_shader_library.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/rhi_commands.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/rhi_null.c")
 tb_select_platform_adapter("${CMAKE_SYSTEM_NAME}" "${TB_USE_DEFAULT_PLATFORM_ADAPTER}"

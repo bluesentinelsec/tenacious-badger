@@ -300,6 +300,7 @@ set(TB_INTERNAL_TEST_CASE_SOURCES
     render/temporal_test.c
     rhi/rhi_choice_test.c
     rhi/rhi_device_test.c
+    rhi/rhi_shader_library_test.c
     shader/shader_check_test.c
     shader/shader_dxc_test.c
     shader/shader_form_test.c
@@ -360,6 +361,16 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
         list(APPEND TB_INTERNAL_TEST_CASE_SOURCES rhi/rhi_metal_test.c render/recovery_metal_test.c ${TB_RHI_HLSL_SOURCE})
     endif()
 endif()
+if(TB_BUILD_SHADERS AND NOT TB_USE_DEFAULT_PLATFORM_ADAPTER AND (APPLE OR WIN32))
+    list(APPEND TB_INTERNAL_TEST_CASE_SOURCES render/pipeline_library_test.c)
+    if(WIN32)
+        set(tb_transfer_backends "TB_TEST_SOURCE_BACKEND=TB_RHI_BACKEND_D3D11;TB_TEST_DESTINATION_BACKEND=TB_RHI_BACKEND_D3D12;TB_TEST_ADAPTER=TB_RHI_ADAPTER_SOFTWARE")
+    else()
+        set(tb_transfer_backends "TB_TEST_SOURCE_BACKEND=TB_RHI_BACKEND_METAL;TB_TEST_DESTINATION_BACKEND=TB_RHI_BACKEND_METAL;TB_TEST_ADAPTER=TB_RHI_ADAPTER_HIGH_PERFORMANCE")
+    endif()
+    set_source_files_properties(render/pipeline_library_test.c PROPERTIES COMPILE_DEFINITIONS
+        "${tb_transfer_backends};TB_TEST_SHADER_DIRECTORY=\"${PROJECT_BINARY_DIR}/bin\"")
+endif()
 set(TB_ENGINE_SOURCES ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES} ${TB_JOBS_SOURCES}
     ${TB_CODEC_SOURCES} ${TB_MEDIA_SOURCES} ${TB_SERIALIZE_SOURCES} ${TB_FONT_SOURCES} ${TB_FONT_DATA_OBJECTS}
     ${TB_VFS_SOURCES}
@@ -383,6 +394,9 @@ endif()
 # The arguments go to tb_add_tests.
 function(tb_add_internal_tests target)
     tb_add_tests(${target} SOURCES ${TB_INTERNAL_TEST_CASE_SOURCES} ${ARGN})
+    if(tb_transfer_backends)
+        add_dependencies(${target} badger_shaders)
+    endif()
     target_sources(${target} PRIVATE ${TB_ENGINE_SOURCES})
     target_link_libraries(${target} PRIVATE ${TB_MATH_LIBRARIES})
     target_include_directories(${target} PRIVATE "${PROJECT_SOURCE_DIR}/src")
