@@ -25,7 +25,6 @@ struct tb_image
 {
     tb_renderer_source source;
     uint8_t *pixels; /* packed RGBA, in the caller's alpha convention */
-    tb_rhi_texture texture;
     uint32_t width;
     uint32_t height;
     uint32_t index;   /* the texture's bindless index */
@@ -40,7 +39,7 @@ struct tb_image
 /* Copy RGBA pixels into a region of an image's texture, premultiplied as the
  * image keeps them, and wait for nothing: the copy is submitted before any
  * frame that draws it. */
-static tb_rhi_result tb_image_upload(tb_renderer *renderer, tb_image *image, tb_rhi_rect region,
+static tb_rhi_result tb_image_upload(tb_rhi_device *device, tb_image *image, tb_rhi_rect region,
                                      const uint8_t *pixels, bool first, tb_rhi_error *error)
 {
     const size_t row = (size_t)region.width * 4u;
@@ -59,7 +58,7 @@ static tb_rhi_result tb_image_upload(tb_renderer *renderer, tb_image *image, tb_
         }
     }
     const tb_rhi_result result =
-        tb_rhi_buffer_create(renderer->device,
+        tb_rhi_buffer_create(device,
                              &(tb_rhi_buffer_desc){.size = (uint64_t)pitch * region.height,
                                                    .memory = TB_RHI_MEMORY_UPLOAD,
                                                    .name = "image pixels"},
@@ -69,31 +68,31 @@ static tb_rhi_result tb_image_upload(tb_renderer *renderer, tb_image *image, tb_
         tb_free(staged);
         return result;
     }
-    tb_rhi_buffer_write(renderer->device, staging, 0, staged, pitch * region.height);
+    tb_rhi_buffer_write(device, staging, 0, staged, pitch * region.height);
     tb_free(staged);
-    list = tb_rhi_command_list_begin(renderer->device);
+    list = tb_rhi_command_list_begin(device);
     tb_rhi_cmd_barrier(
-        list, &(tb_rhi_barrier){.texture = image->texture,
+        list, &(tb_rhi_barrier){.texture = image->source.texture,
                                 .before = first ? TB_RHI_STATE_COMMON : TB_RHI_STATE_SHADER_READ,
                                 .after = TB_RHI_STATE_COPY_DEST});
     tb_rhi_cmd_copy_buffer_to_texture(list, &(tb_rhi_texture_copy){.buffer = staging,
                                                                    .row_pitch = (uint32_t)pitch,
-                                                                   .texture = image->texture,
+                                                                   .texture = image->source.texture,
                                                                    .region = region});
-    tb_rhi_cmd_barrier(list, &(tb_rhi_barrier){.texture = image->texture,
+    tb_rhi_cmd_barrier(list, &(tb_rhi_barrier){.texture = image->source.texture,
                                                .before = TB_RHI_STATE_COPY_DEST,
                                                .after = TB_RHI_STATE_SHADER_READ});
-    (void)tb_rhi_submit(renderer->device, &list, 1);
+    (void)tb_rhi_submit(device, &list, 1);
     /* The staging buffer goes once the GPU has copied it. */
-    tb_rhi_buffer_destroy(renderer->device, staging);
+    tb_rhi_buffer_destroy(device, staging);
     return TB_RHI_OK;
 }
 
-static tb_rhi_result tb_image_restore(tb_renderer *renderer, tb_renderer_source *source,
+static tb_rhi_result tb_image_restore(tb_renderer_upload_target target, tb_renderer_source *source,
                                       tb_rhi_error *error)
 {
     tb_image *const image = TB_LIST_ENTRY(source, tb_image, source);
-    return tb_image_upload(renderer, image, (tb_rhi_rect){0, 0, image->width, image->height},
+    return tb_image_upload(target.device, image, (tb_rhi_rect){0, 0, image->width, image->height},
                            image->pixels, true, error);
 }
 
@@ -121,28 +120,25 @@ tb_image *tb_image_create(tb_renderer *renderer, const tb_image_desc *desc, cons
                                    .height = desc->height,
                                    .usage = TB_RHI_TEXTURE_SAMPLED,
                                    .name = desc->name != NULL ? desc->name : "image"},
-            &image->texture, &error) != TB_RHI_OK)
+            &image->source.texture, &error) != TB_RHI_OK)
     {
         tb_fatal("renderer: no memory for an image: %s", error.message);
     }
-    image->index = tb_rhi_texture_index(renderer->device, image->texture);
+    image->index = tb_rhi_texture_index(renderer->device, image->source.texture);
     image->sampler = tb_rhi_sampler_index(
         renderer->device, renderer->canvas_samplers[desc->filter == TB_IMAGE_NEAREST ? 1 : 0]);
-    if (tb_image_upload(renderer, image, (tb_rhi_rect){0, 0, desc->width, desc->height}, pixels,
-                        true, &error) != TB_RHI_OK)
+    if (tb_image_upload(renderer->device, image, (tb_rhi_rect){0, 0, desc->width, desc->height},
+                        pixels, true, &error) != TB_RHI_OK)
     {
         tb_fatal("renderer: no memory for an image's pixels: %s", error.message);
     }
-    if ((renderer->info.features & TB_RHI_FEATURE_DEVICE_RECOVERY) != 0)
+    image->pixels = tb_calloc((size_t)desc->width * desc->height, 4u);
+    if (pixels != NULL)
     {
-        image->pixels = tb_calloc((size_t)desc->width * desc->height, 4u);
-        if (pixels != NULL)
-        {
-            memcpy(image->pixels, pixels, size);
-        }
-        image->source.upload = tb_image_restore;
-        tb_list_push_back(&renderer->sources, &image->source.link);
+        memcpy(image->pixels, pixels, size);
     }
+    image->source.upload = tb_image_restore;
+    tb_list_push_back(&renderer->sources, &image->source.link);
     return image;
 }
 
@@ -161,18 +157,15 @@ void tb_image_update(tb_renderer *renderer, tb_image *image, tb_rhi_rect region,
                   "a region inside the image");
     TB_ASSERT_MSG(size == (size_t)region.width * region.height * 4u, "the region's RGBA pixels");
     tb_rhi_error error = TB_RHI_ERROR_INIT;
-    if (tb_image_upload(renderer, image, region, pixels, false, &error) != TB_RHI_OK)
+    if (tb_image_upload(renderer->device, image, region, pixels, false, &error) != TB_RHI_OK)
     {
         tb_fatal("renderer: no memory for an image's pixels: %s", error.message);
     }
-    if (image->pixels != NULL)
+    const size_t row = (size_t)region.width * 4u;
+    for (uint32_t y = 0; y < region.height; y++)
     {
-        const size_t row = (size_t)region.width * 4u;
-        for (uint32_t y = 0; y < region.height; y++)
-        {
-            const size_t start = ((size_t)region.y + y) * image->width + (size_t)region.x;
-            memcpy(image->pixels + start * 4u, pixels + row * y, row);
-        }
+        const size_t start = ((size_t)region.y + y) * image->width + (size_t)region.x;
+        memcpy(image->pixels + start * 4u, pixels + row * y, row);
     }
 }
 
@@ -183,12 +176,9 @@ void tb_image_destroy(tb_renderer *renderer, tb_image *image)
     {
         return;
     }
-    tb_rhi_texture_destroy(renderer->device, image->texture);
-    if (tb_list_link_is_linked(&image->source.link))
-    {
-        tb_list_remove(&image->source.link);
-        tb_free(image->pixels);
-    }
+    tb_rhi_texture_destroy(renderer->device, image->source.texture);
+    tb_list_remove(&image->source.link);
+    tb_free(image->pixels);
     tb_free(image);
 }
 

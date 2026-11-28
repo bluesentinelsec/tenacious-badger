@@ -139,7 +139,7 @@ tb_rhi_slot *tb_rhi_table_at(const tb_rhi_table *table, uint32_t index)
 }
 
 /* A free slot of a table, its generation advanced past the last object's. */
-static uint32_t tb_rhi_table_take(tb_rhi_table *table)
+uint32_t tb_rhi_table_take(tb_rhi_table *table)
 {
     uint32_t index = 0;
     tb_rhi_slot *slot = NULL;
@@ -171,7 +171,7 @@ static uint32_t tb_rhi_table_take(tb_rhi_table *table)
 }
 
 /* Give a slot back: its handle is stale from now on. */
-static void tb_rhi_table_give(tb_rhi_table *table, uint32_t index)
+void tb_rhi_table_give(tb_rhi_table *table, uint32_t index)
 {
     tb_rhi_slot *const slot = tb_rhi_table_at(table, index);
     const uint32_t generation = slot->generation;
@@ -238,7 +238,7 @@ static uint32_t tb_rhi_index_take(tb_rhi_index_pool *pool)
     return pool->next - 1;
 }
 
-static void tb_rhi_index_give(tb_rhi_index_pool *pool, uint32_t index)
+void tb_rhi_index_give(tb_rhi_index_pool *pool, uint32_t index)
 {
     if (index == TB_RHI_NO_INDEX)
     {

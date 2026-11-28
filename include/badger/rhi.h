@@ -687,6 +687,36 @@ typedef struct tb_rhi_texture_copy
 TB_API tb_rhi_result tb_rhi_device_create(const tb_rhi_device_options *options,
                                           tb_rhi_device **device, tb_rhi_error *error);
 
+/** @brief Live resources to allocate on another device under the same handles and heap indices.
+ * Arrays are borrowed for the call. Each may be NULL at count zero. */
+typedef struct tb_rhi_resource_set
+{
+    const tb_rhi_buffer *buffers; /**< Buffers to allocate. */
+    size_t buffer_count;          /**< Entries in buffers. */
+    const tb_rhi_texture
+        *textures;        /**< Textures to allocate. Swap-chain images belong to their window. */
+    size_t texture_count; /**< Entries in textures. */
+    const tb_rhi_sampler *samplers; /**< Sampler states to reproduce. */
+    size_t sampler_count;           /**< Entries in samplers. */
+} tb_rhi_resource_set;
+
+/**
+ * @brief Allocate selected live resources on a fresh device, preserving their handle generations
+ * and all shader-visible indices, including storage indices for individual mip levels.
+ * @param source Device owning the handles in resources. Its GPU contents are never read.
+ * @param options Destination backend, adapter and heap sizes, as for tb_rhi_device_create().
+ * @param resources Required selection. Repeated handles select one resource.
+ * @param staged Receives an independent device, or NULL on any failure. Destroy it with
+ * tb_rhi_device_destroy(). Its buffers and textures need their contents uploaded before use.
+ * @param error Optional diagnostic, including when the destination cannot represent the layout.
+ * @return #TB_RHI_OK or a destination allocation or capability error. The source stays usable.
+ * @par Threading Externally synchronized. Call between frames with exclusive access to the source.
+ */
+TB_API tb_rhi_result tb_rhi_device_stage_resources(tb_rhi_device *source,
+                                                   const tb_rhi_device_options *options,
+                                                   const tb_rhi_resource_set *resources,
+                                                   tb_rhi_device **staged, tb_rhi_error *error);
+
 /**
  * @brief Destroy a device: wait for the GPU, then release everything.
  * @param device May be NULL. Its swap chains must be destroyed already, and

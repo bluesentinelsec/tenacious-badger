@@ -23,6 +23,7 @@ typedef struct burrow_play_options
      * burrow_nav_named() reads them ("down,accept"). The menus then write
      * each screen they show. */
     const char *navigate;
+    bool stage_scene_on_pause; /* Exercise independent device staging. */
     bool lose_device_on_pause; /* Exercise recovery from unreadable GPU contents. */
     bool recreate_on_pause;    /* Exercise same-adapter recreation once, at the pause menu. */
 } burrow_play_options;

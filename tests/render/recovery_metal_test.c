@@ -3,10 +3,10 @@
 #include "render/renderer_internal.h"
 #include "tb_test.h"
 
-static tb_rhi_result fail_upload(tb_renderer *renderer, tb_renderer_source *source,
+static tb_rhi_result fail_upload(tb_renderer_upload_target target, tb_renderer_source *source,
                                  tb_rhi_error *error)
 {
-    (void)renderer;
+    (void)target;
     (void)source;
     *error = (tb_rhi_error){.result = TB_RHI_OUT_OF_MEMORY,
                             .message = "injected staging allocation failure"};
