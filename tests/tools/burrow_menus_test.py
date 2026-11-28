@@ -60,8 +60,9 @@ with tempfile.TemporaryDirectory(prefix='tb-burrow-menus-') as temporary:
            'play, pause, quit to the menu, and quit', out)
 
     # The options from the pause menu go back to it.
-    status, out, err = run(*common, '--frames=40', '--navigate=accept,back,down,accept,back')
+    status, out, err = run(*common, '--frames=40', '--lose-device-on-pause', '--navigate=accept,back,down,accept,back')
     expect(status == 0, f'options from the pause menu: status {status}', err)
+    expect('recovered graphics device from CPU scene data' in out, 'the lost device recovered', out)
     expect(screens(out) == ['main', 'playing', 'pause', 'options', 'pause'],
            'the options go back to the pause menu', out)
 

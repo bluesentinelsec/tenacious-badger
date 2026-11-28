@@ -413,7 +413,10 @@ static void tb_rhi_retire(tb_rhi_device *device, tb_rhi_kind kind, uint32_t inde
     device->retired_count++;
     tb_rhi_release_description(kind, slot);
     tb_rhi_table_give(&device->tables[kind], index);
-    tb_rhi_collect(device, device->table->completed(device->state));
+    if (!device->lost)
+    {
+        tb_rhi_collect(device, device->table->completed(device->state));
+    }
     tb_mutex_unlock(&device->lock);
 }
 
@@ -596,7 +599,10 @@ void tb_rhi_device_destroy(tb_rhi_device *device)
         return;
     }
     TB_ASSERT_MSG(device->open_lists == 0, "a command list is still recording");
-    (void)device->table->wait(device->state, device->submitted);
+    if (!device->lost)
+    {
+        (void)device->table->wait(device->state, device->submitted);
+    }
     tb_mutex_lock(&device->lock);
     tb_rhi_collect(device, device->submitted);
     for (int kind = 0; kind < TB_RHI_KIND_COUNT; kind++)
@@ -1178,6 +1184,9 @@ tb_rhi_result tb_rhi_swap_chain_create(tb_rhi_device *device, struct tb_window *
     made->object = object;
     made->vsync = filled.vsync;
     tb_rhi_register_images(made, &images);
+    tb_mutex_lock(&device->lock);
+    device->swap_chains++;
+    tb_mutex_unlock(&device->lock);
     *chain = made;
     tb_rhi_succeed(error);
     return TB_RHI_OK;
@@ -1195,6 +1204,9 @@ void tb_rhi_swap_chain_destroy(tb_rhi_swap_chain *chain)
     (void)tb_rhi_wait_idle(device);
     tb_rhi_unregister_images(chain);
     device->table->swap_chain_destroy(device->state, chain->object);
+    tb_mutex_lock(&device->lock);
+    device->swap_chains--;
+    tb_mutex_unlock(&device->lock);
     tb_free(chain);
 }
 
@@ -1211,7 +1223,20 @@ tb_rhi_texture tb_rhi_swap_chain_current(tb_rhi_swap_chain *chain)
 tb_rhi_result tb_rhi_swap_chain_present(tb_rhi_swap_chain *chain)
 {
     TB_ASSERT(chain != NULL);
-    return chain->device->table->swap_chain_present(chain->device->state, chain->object);
+    tb_rhi_device *const device = chain->device;
+    tb_mutex_lock(&device->lock);
+    const bool lost = device->lost;
+    tb_mutex_unlock(&device->lock);
+    if (lost)
+    {
+        return TB_RHI_DEVICE_LOST;
+    }
+    const tb_rhi_result result = device->table->swap_chain_present(device->state, chain->object);
+    if (result == TB_RHI_DEVICE_LOST)
+    {
+        tb_rhi_device_report_loss(device);
+    }
+    return result;
 }
 
 tb_rhi_result tb_rhi_swap_chain_resize(tb_rhi_swap_chain *chain, uint32_t width, uint32_t height,
@@ -1233,6 +1258,10 @@ tb_rhi_result tb_rhi_swap_chain_resize(tb_rhi_swap_chain *chain, uint32_t width,
                                               &images, error);
     if (result != TB_RHI_OK)
     {
+        if (result == TB_RHI_DEVICE_LOST)
+        {
+            tb_rhi_device_report_loss(device);
+        }
         return result;
     }
     chain->vsync = vsync;

@@ -27,17 +27,20 @@ with tempfile.TemporaryDirectory(prefix='badger-metal-') as temporary:
     options = ['--set', 'display.window_mode=windowed', '--set', 'display.window_width=640',
                '--set', 'display.window_height=360']
     if sys.argv[1] == 'burrow':
-        output = draw(sys.argv[2], ['--renderer=metal', '--frames=6', '--navigate=accept,back,wait,accept',
-                                    '--recreate-renderer-on-pause',
-                                    '--settings-file', str(directory / 'settings.cfg'), '--set',
-                                    'shaders.runtime_compile=false', '--set',
-                                    'gameplay.pause_when_unfocused=false', *options], directory)
-        for line in ('drawing with metal on ', 'menu: main', 'menu: playing', 'menu: pause'):
-            if line not in output:
+        for diagnostic in ('--recreate-renderer-on-pause', '--lose-device-on-pause'):
+            output = draw(sys.argv[2], ['--renderer=metal', '--frames=6', '--navigate=accept,back,wait,accept',
+                                        diagnostic,
+                                        '--settings-file', str(directory / 'settings.cfg'), '--set',
+                                        'shaders.runtime_compile=false', '--set',
+                                        'gameplay.pause_when_unfocused=false', *options], directory)
+            for line in ('drawing with metal on ', 'menu: main', 'menu: playing', 'menu: pause'):
+                if line not in output:
+                    raise AssertionError(output)
+            hashes = re.search(r'paused frame ([0-9a-f]{16}) -> ([0-9a-f]{16})', output)
+            if not hashes or hashes[1] != hashes[2] or output.count('menu: playing') != 2:
                 raise AssertionError(output)
-        hashes = re.search(r'paused frame ([0-9a-f]{16}) -> ([0-9a-f]{16})', output)
-        if not hashes or hashes[1] != hashes[2] or output.count('menu: playing') != 2:
-            raise AssertionError(output)
+            if diagnostic == '--lose-device-on-pause' and 'recovered graphics device from CPU scene data' not in output:
+                raise AssertionError(output)
     else:
         capture = directory / 'checker.bmp'
         output = draw(sys.argv[2], ['--renderer', 'metal', '--scene', 'textured',

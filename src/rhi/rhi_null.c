@@ -42,21 +42,21 @@ static tb_rhi_result tb_rhi_null_device_create(const tb_rhi_device_options *opti
     (void)error;
     *state = tb_calloc(1, sizeof(tb_rhi_null_state));
     (void)tb_fmt_buffer(info->adapter, sizeof(info->adapter), "%s", "null");
-    info->features =
-        TB_RHI_FEATURE_BINDLESS | TB_RHI_FEATURE_HEAP_INDICES | TB_RHI_FEATURE_DEVICE_RECREATE;
+    info->features = TB_RHI_FEATURE_BINDLESS | TB_RHI_FEATURE_HEAP_INDICES |
+                     TB_RHI_FEATURE_DEVICE_RECOVERY | TB_RHI_FEATURE_DEVICE_RECREATE;
     info->shader_model = 66;
     info->max_texture_size = 16384;
     return TB_RHI_OK;
 }
 
 static tb_rhi_result null_replacement(void *original, const tb_rhi_device_info *info,
-                                      void **replacement, tb_rhi_error *error)
+                                      uint64_t submission, void **replacement, tb_rhi_error *error)
 {
     (void)info;
     (void)error;
-    const tb_rhi_null_state *const old = original;
+    (void)original;
     tb_rhi_null_state *const fresh = tb_calloc(1, sizeof(*fresh));
-    fresh->completed = old->completed;
+    fresh->completed = submission;
     *replacement = fresh;
     return TB_RHI_OK;
 }
