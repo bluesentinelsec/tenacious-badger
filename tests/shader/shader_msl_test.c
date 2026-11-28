@@ -54,11 +54,11 @@ TB_TEST(shader_msl, triangle_uses_vertex_id_and_draw_constants)
 
 TB_TEST(shader_msl, unsupported_stage_reports_the_source_location)
 {
-    const char text[] = "[numthreads(1,1,1)] void Compute() {}";
+    const char text[] = "float4 Pixel() : SV_Target { return 1; }";
     const tb_shader_file file = {"/Engine/Private/Compute.hlsl", text, sizeof(text) - 1};
     tb_arena *const arena = tb_arena_create(0);
     tb_shader_compiled compiled = {0};
-    TB_TEST_REQUIRE_UINT(compile_stage(&file, "Compute", TB_SHADER_STAGE_COMPUTE, arena, &compiled),
+    TB_TEST_REQUIRE_UINT(compile_stage(&file, "Pixel", TB_SHADER_STAGE_GEOMETRY, arena, &compiled),
                          ==, TB_SHADER_FAILED);
     TB_TEST_REQUIRE_UINT(compiled.diagnostic_count, >, 0);
     TB_TEST_EXPECT_STRING(compiled.diagnostics[0].path, ==, file.path);

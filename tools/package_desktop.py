@@ -97,6 +97,8 @@ def verify_shader_libraries(folder, metadata, system):
     if system == 'Windows':
         require('d3d12.tbsl' in libraries, 'The build wrote no D3D12 shader library')
         require('d3d11.tbsl' in libraries, 'The build wrote no D3D11 shader library')
+    if system == 'Darwin':
+        require('metal.tbsl' in libraries, 'The build wrote no Metal shader library')
     for name in libraries:
         library = shader_directory(folder, system) / name
         require(library.is_file(), f'Missing shader library: {name}')
