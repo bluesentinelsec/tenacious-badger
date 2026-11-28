@@ -1,6 +1,7 @@
 #include "badger/arena.h"
 #include "badger/shader.h"
 #include "badger/str.h"
+#include "badger/window.h"
 #include "rhi/metal/metal_internal.h"
 #include "tb_test.h"
 #include "test_data.h"
@@ -116,5 +117,66 @@ TB_TEST(rhi_metal, raster_triangle_reads_each_draws_constants)
     tb_rhi_pipeline_destroy(device, pipeline);
     tb_rhi_texture_destroy(device, target);
     tb_rhi_buffer_destroy(device, readback);
+    tb_rhi_device_destroy(device);
+}
+
+TB_TEST(rhi_metal, swap_chain_tracks_backing_pixels_and_presents_after_resize)
+{
+    tb_rhi_device *device = NULL;
+    tb_rhi_error error = TB_RHI_ERROR_INIT;
+    const tb_rhi_result opened = tb_rhi_device_create_on(
+        &tb_rhi_metal_backend, &(tb_rhi_device_options){0}, &device, &error);
+    if (opened == TB_RHI_UNAVAILABLE)
+    {
+        TB_TEST_SKIP("%s", error.message);
+    }
+    TB_TEST_REQUIRE_UINT(opened, ==, TB_RHI_OK);
+    tb_window_system *system = NULL;
+    tb_window_error window_error = TB_WINDOW_ERROR_INIT;
+    if (tb_window_system_open(NULL, &system, &window_error) != TB_WINDOW_OK)
+    {
+        tb_rhi_device_destroy(device);
+        TB_TEST_SKIP("%s", window_error.message);
+    }
+    tb_window *window = NULL;
+    TB_TEST_REQUIRE_UINT(tb_window_create(system, &(tb_window_options){.width = 160, .height = 90},
+                                          &window, &window_error),
+                         ==, TB_WINDOW_OK);
+    tb_window_state size = {0};
+    tb_window_state_of(window, &size);
+    tb_rhi_swap_chain *chain = NULL;
+    TB_TEST_REQUIRE_UINT(tb_rhi_swap_chain_create(device, window,
+                                                  &(tb_rhi_swap_chain_desc){.images = 2}, &chain,
+                                                  &error),
+                         ==, TB_RHI_OK);
+    for (size_t frame = 0; frame < 3; frame++)
+    {
+        const uint32_t width = frame == 1 ? 96 : size.pixel_width;
+        const uint32_t height = frame == 1 ? 64 : size.pixel_height;
+        if (frame > 0)
+        {
+            TB_TEST_REQUIRE_UINT(tb_rhi_swap_chain_resize(chain, frame == 1 ? width : 0,
+                                                          frame == 1 ? height : 0, frame == 1,
+                                                          &error),
+                                 ==, TB_RHI_OK);
+        }
+        tb_rhi_texture target = tb_rhi_swap_chain_current(chain);
+        tb_rhi_texture_desc desc = {0};
+        tb_rhi_texture_desc_of(device, target, &desc);
+        TB_TEST_EXPECT_UINT(desc.width, ==, width);
+        TB_TEST_EXPECT_UINT(desc.height, ==, height);
+        tb_rhi_command_list *const list = tb_rhi_command_list_begin(device);
+        tb_rhi_cmd_begin_pass(list, &(tb_rhi_pass){.color_count = 1,
+                                                   .colors = {{.texture = target,
+                                                               .load = TB_RHI_LOAD_CLEAR,
+                                                               .clear = {0, 1, 0, 1}}}});
+        tb_rhi_cmd_end_pass(list);
+        (void)tb_rhi_submit(device, &list, 1);
+        TB_TEST_REQUIRE_UINT(tb_rhi_swap_chain_present(chain), ==, TB_RHI_OK);
+        TB_TEST_EXPECT_UINT(tb_rhi_swap_chain_current(chain).index, !=, target.index);
+    }
+    tb_rhi_swap_chain_destroy(chain);
+    tb_window_destroy(window);
+    tb_window_system_close(system);
     tb_rhi_device_destroy(device);
 }

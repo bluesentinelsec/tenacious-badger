@@ -95,4 +95,13 @@ void tb_metal_cmd_copy_texture_to_buffer(void *list, const tb_rhi_texture_copy_r
 void tb_metal_cmd_begin_marker(void *list, const char *name);
 void tb_metal_cmd_end_marker(void *list);
 void tb_metal_release(void *state, void *object);
+tb_rhi_result tb_metal_swap_chain_create(void *state, struct tb_window *window,
+                                         const tb_rhi_swap_chain_desc *desc, void **chain,
+                                         tb_rhi_swap_chain_images *images, tb_rhi_error *error);
+void tb_metal_swap_chain_destroy(void *state, void *chain);
+uint32_t tb_metal_swap_chain_current(void *state, void *chain);
+tb_rhi_result tb_metal_swap_chain_present(void *state, void *chain);
+tb_rhi_result tb_metal_swap_chain_resize(void *state, void *chain, uint32_t width, uint32_t height,
+                                         bool vsync, tb_rhi_swap_chain_images *images,
+                                         tb_rhi_error *error);
 #endif

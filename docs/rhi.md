@@ -260,3 +260,10 @@ readback buffer. Submission waits for Metal to complete. GPU tests run on an
 available device and report the reason when no device is available. The
 backend stays out of automatic selection while presentation and the shaders
 used by Burrow are in development.
+
+A Metal swap chain attaches a CAMetalLayer to the window's Cocoa view.
+It uses the window's backing-pixel size for its images and the display's
+content scale for the layer. The render targets have stable handles until
+resize. Presentation copies the current target to a freshly acquired drawable
+on the same command queue. A hidden window can temporarily have no drawable.
+Destroying the chain restores the view's previous layer.
