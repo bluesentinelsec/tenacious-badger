@@ -1,10 +1,11 @@
 #include "badger/memory.h"
+#include "badger/str.h"
 #include "metal_internal.h"
 
 #include <string.h>
 
 /* MTLPixelFormat values from the Metal ABI. */
-static unsigned long pixel_format(tb_rhi_format format)
+unsigned long tb_metal_pixel_format(tb_rhi_format format)
 {
     static const unsigned long formats[TB_RHI_FORMAT_COUNT] = {
         [TB_RHI_FORMAT_R8_UNORM] = 10,
@@ -31,11 +32,15 @@ tb_rhi_result tb_metal_buffer_create(void *state, const tb_rhi_buffer_desc *desc
                                      tb_rhi_indices indices, void **object, tb_rhi_error *error)
 {
     tb_metal_device *const d = state;
-    (void)indices;
     /* MTLResourceStorageModePrivate for GPU-only, Shared for staging. */
     const unsigned long options = desc->memory == TB_RHI_MEMORY_GPU ? 32ul : 0ul;
     *object = TB_METAL_METHOD(d, void *, unsigned long, unsigned long)(
         d->gpu, d->selector("newBufferWithLength:options:"), desc->size, options);
+    if (*object)
+    {
+        tb_metal_heap_add(d, *object, *object, TB_MSL_BUFFERS, indices.read, 1);
+        tb_metal_heap_add(d, *object, *object, TB_MSL_BUFFERS, indices.write, 3);
+    }
     return *object != NULL
                ? TB_RHI_OK
                : tb_rhi_fail(error, TB_RHI_OUT_OF_MEMORY, "Metal could not allocate a buffer");
@@ -56,16 +61,20 @@ tb_rhi_result tb_metal_texture_create(void *state, const tb_rhi_texture_desc *de
                                       tb_rhi_indices indices, void **object, tb_rhi_error *error)
 {
     tb_metal_device *const d = state;
-    (void)indices;
-    const unsigned long format = pixel_format(desc->format);
-    if (format == 0 || desc->samples > 1 || desc->kind != TB_RHI_TEXTURE_2D)
+    const unsigned long format = tb_metal_pixel_format(desc->format);
+    if (format == 0 || desc->samples > 1 ||
+        (desc->kind == TB_RHI_TEXTURE_CUBE && desc->layers != 6))
     {
         return tb_rhi_fail(error, TB_RHI_UNAVAILABLE,
                            "Metal texture format or shape is unavailable");
     }
     void *const descriptor = tb_metal_get(d, d->get_class("MTLTextureDescriptor"), "new");
-    tb_metal_number(d, descriptor, "setTextureType:", desc->layers > 1 ? 3ul : 2ul);
-    tb_metal_number(d, descriptor, "setArrayLength:", desc->layers);
+    tb_metal_number(d, descriptor, "setTextureType:",
+                    desc->kind == TB_RHI_TEXTURE_CUBE ? 5ul
+                    : desc->layers > 1                ? 3ul
+                                                      : 2ul);
+    tb_metal_number(d, descriptor, "setArrayLength:",
+                    desc->kind == TB_RHI_TEXTURE_CUBE ? desc->layers / 6 : desc->layers);
     tb_metal_number(d, descriptor, "setMipmapLevelCount:", desc->mips);
     tb_metal_number(d, descriptor, "setWidth:", desc->width);
     tb_metal_number(d, descriptor, "setHeight:", desc->height);
@@ -74,15 +83,48 @@ tb_rhi_result tb_metal_texture_create(void *state, const tb_rhi_texture_desc *de
     /* MTLTextureUsageShaderRead, ShaderWrite, RenderTarget. */
     const unsigned long usage =
         ((desc->usage & TB_RHI_TEXTURE_SAMPLED) ? 1ul : 0ul) |
-        ((desc->usage & TB_RHI_TEXTURE_STORAGE) ? 3ul : 0ul) |
+        ((desc->usage & TB_RHI_TEXTURE_STORAGE) ? 19ul : 0ul) |
         ((desc->usage & (TB_RHI_TEXTURE_RENDER_TARGET | TB_RHI_TEXTURE_DEPTH)) ? 4ul : 0ul);
     tb_metal_number(d, descriptor, "setUsage:", usage);
     *object = TB_METAL_METHOD(d, void *, void *)(d->gpu, d->selector("newTextureWithDescriptor:"),
                                                  descriptor);
     tb_metal_release(d, descriptor);
-    return *object != NULL ? TB_RHI_OK
-                           : tb_rhi_fail(error, TB_RHI_UNAVAILABLE,
-                                         "Metal could not create the requested texture");
+    if (*object == NULL)
+    {
+        return tb_rhi_fail(error, TB_RHI_UNAVAILABLE,
+                           "Metal could not create the requested texture");
+    }
+    const tb_msl_heap read = desc->kind == TB_RHI_TEXTURE_CUBE ? TB_MSL_CUBES
+                             : desc->layers > 1                ? TB_MSL_ARRAY_TEXTURES
+                                                               : TB_MSL_TEXTURES;
+    tb_metal_heap_add(d, *object, *object, read, indices.read, 1);
+    if (indices.write != TB_RHI_NO_INDEX)
+    {
+        typedef struct metal_range
+        {
+            unsigned long first, count;
+        } metal_range;
+        const unsigned long storage = format == 71 ? 70ul : format == 81 ? 80ul : format;
+        const bool array = desc->layers > 1;
+        for (uint32_t i = 0; i < desc->mips; i++)
+        {
+            void *const view = TB_METAL_METHOD(d, void *, unsigned long, unsigned long, metal_range,
+                                               metal_range)(
+                *object, d->selector("newTextureViewWithPixelFormat:textureType:levels:slices:"),
+                storage, array ? 3ul : 2ul, (metal_range){i, 1}, (metal_range){0, desc->layers});
+            if (!view)
+            {
+                tb_metal_resource_destroy(d, *object);
+                *object = NULL;
+                return tb_rhi_fail(error, TB_RHI_UNAVAILABLE,
+                                   "Metal could not create a writable texture level");
+            }
+            tb_metal_heap_add(d, *object, view,
+                              array ? TB_MSL_STORAGE_ARRAYS : TB_MSL_STORAGE_TEXTURES,
+                              i == 0 ? indices.write : indices.mip_writes[i - 1], 3);
+        }
+    }
+    return TB_RHI_OK;
 }
 
 static const char *error_message(tb_metal_device *d, void *error)
@@ -106,15 +148,27 @@ tb_rhi_result tb_metal_shader_create(void *state, const tb_rhi_shader_desc *desc
     tb_rhi_result result = TB_RHI_OK;
     if (source != NULL)
     {
+        void *msl = source;
+        if (!d->argument_buffers)
+        {
+            void *const prefix = TB_METAL_METHOD(d, void *, const char *)(
+                string, d->selector("stringWithUTF8String:"), "#define TB_MSL_FIXED 1\n");
+            msl = TB_METAL_METHOD(d, void *,
+                                  void *)(prefix, d->selector("stringByAppendingString:"), source);
+        }
         library = TB_METAL_METHOD(d, void *, void *, void *, void **)(
-            d->gpu, d->selector("newLibraryWithSource:options:error:"), source, NULL,
-            &native_error);
+            d->gpu, d->selector("newLibraryWithSource:options:error:"), msl, NULL, &native_error);
     }
     if (library == NULL)
     {
-        result =
-            tb_rhi_fail(error, TB_RHI_SYSTEM_ERROR, "Metal shader compilation: %s",
-                        source == NULL ? "source is not UTF-8" : error_message(d, native_error));
+        const char *const message =
+            source == NULL ? "source is not UTF-8" : error_message(d, native_error);
+        const bool tier_required =
+            !d->argument_buffers &&
+            tb_str_find(message, 0, TB_STR_END, "requires tier 2 argument buffers") !=
+                TB_STR_NOT_FOUND;
+        result = tb_rhi_fail(error, tier_required ? TB_RHI_UNAVAILABLE : TB_RHI_SYSTEM_ERROR,
+                             "Metal shader compilation: %s", message);
     }
     else
     {
@@ -133,59 +187,48 @@ tb_rhi_result tb_metal_shader_create(void *state, const tb_rhi_shader_desc *desc
     return result;
 }
 
-tb_rhi_result tb_metal_graphics_pipeline_create(void *state,
-                                                const tb_rhi_graphics_pipeline_ref *ref,
-                                                void **object, tb_rhi_error *error)
+tb_rhi_result tb_metal_sampler_create(void *state, const tb_rhi_sampler_desc *desc,
+                                      tb_rhi_indices indices, void **object, tb_rhi_error *error)
 {
     tb_metal_device *const d = state;
-    const tb_rhi_graphics_pipeline_desc *const desc = ref->desc;
-    if (desc->attribute_count || desc->depth != TB_RHI_FORMAT_UNKNOWN || desc->depth_test ||
-        desc->depth_write || desc->samples > 1 || desc->wireframe ||
-        desc->cull != TB_RHI_CULL_NONE || desc->depth_bias != 0 || desc->depth_bias_slope != 0)
+    if (desc->mip_bias != 0)
     {
         return tb_rhi_fail(error, TB_RHI_UNAVAILABLE,
-                           "Metal raster pipeline needs unsupported vertex, depth or raster state");
+                           "Metal samplers require shader-side mip bias");
     }
-    void *const pool = d->pool_push();
-    void *const descriptor = tb_metal_get(d, d->get_class("MTLRenderPipelineDescriptor"), "new");
-    tb_metal_set(d, descriptor, "setVertexFunction:", ref->vertex);
-    tb_metal_set(d, descriptor, "setFragmentFunction:", ref->pixel);
-    tb_rhi_result result = TB_RHI_OK;
-    for (uint32_t index = 0; index < desc->color_count; index++)
+    void *const descriptor = tb_metal_get(d, d->get_class("MTLSamplerDescriptor"), "new");
+    const unsigned long address[] = {2, 3, 0,
+                                     5}; /* Repeat, MirrorRepeat, ClampToEdge, ClampToBorderColor */
+    tb_metal_number(d, descriptor, "setSAddressMode:", address[desc->address_u]);
+    tb_metal_number(d, descriptor, "setTAddressMode:", address[desc->address_v]);
+    tb_metal_number(d, descriptor, "setRAddressMode:", address[desc->address_w]);
+    tb_metal_number(d, descriptor,
+                    "setMinFilter:", desc->min_filter == TB_RHI_FILTER_LINEAR ? 1ul : 0ul);
+    tb_metal_number(d, descriptor,
+                    "setMagFilter:", desc->mag_filter == TB_RHI_FILTER_LINEAR ? 1ul : 0ul);
+    tb_metal_number(d, descriptor,
+                    "setMipFilter:", desc->mip_filter == TB_RHI_FILTER_LINEAR ? 2ul : 1ul);
+    tb_metal_number(d, descriptor,
+                    "setMaxAnisotropy:", desc->anisotropy == 0 ? 1ul : desc->anisotropy);
+    if (desc->compare)
     {
-        if (pixel_format(desc->colors[index]) == 0 || desc->blend[index].enabled ||
-            desc->blend[index].write_mask_off)
-        {
-            result = tb_rhi_fail(error, TB_RHI_UNAVAILABLE,
-                                 "Metal color format or blend state is unavailable");
-            goto cleanup;
-        }
-        tb_metal_number(d, tb_metal_color(d, descriptor, index),
-                        "setPixelFormat:", pixel_format(desc->colors[index]));
+        tb_metal_number(d, descriptor, "setCompareFunction:", desc->compare_op);
     }
-    void *native_error = NULL;
-    void *const pipeline = TB_METAL_METHOD(d, void *, void *, void **)(
-        d->gpu, d->selector("newRenderPipelineStateWithDescriptor:error:"), descriptor,
-        &native_error);
-    if (pipeline == NULL)
-    {
-        result = tb_rhi_fail(error, TB_RHI_SYSTEM_ERROR, "Metal raster pipeline: %s",
-                             error_message(d, native_error));
-        goto cleanup;
-    }
-    static const unsigned long primitives[] = {3, 4, 1, 2, 0};
-    tb_metal_pipeline *const made = tb_calloc(1, sizeof(*made));
-    made->state = pipeline;
-    made->primitive = primitives[desc->topology];
-    *object = made;
-cleanup:
+    TB_METAL_METHOD(d, void, bool)(descriptor, d->selector("setSupportArgumentBuffers:"),
+                                   d->argument_buffers);
+    *object = TB_METAL_METHOD(d, void *, void *)(
+        d->gpu, d->selector("newSamplerStateWithDescriptor:"), descriptor);
     tb_metal_release(d, descriptor);
-    d->pool_pop(pool);
-    return result;
-}
-void tb_metal_pipeline_destroy(void *state, void *object)
-{
-    tb_metal_pipeline *const pipeline = object;
-    tb_metal_release(state, pipeline->state);
-    tb_free(pipeline);
+    if (!*object)
+    {
+        return tb_rhi_fail(error, TB_RHI_UNAVAILABLE,
+                           "Metal could not create the requested sampler");
+    }
+    /* Metal can intern equivalent samplers. Each RHI handle owns its own
+     * table entry even when the native sampler objects compare equal. */
+    uint32_t *const owner = tb_calloc(1, sizeof(*owner));
+    *owner = indices.read;
+    tb_metal_heap_add(d, owner, *object, TB_MSL_SAMPLERS, *owner, 0);
+    *object = owner;
+    return TB_RHI_OK;
 }

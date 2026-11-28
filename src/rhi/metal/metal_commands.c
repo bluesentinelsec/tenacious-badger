@@ -29,6 +29,11 @@ typedef struct metal_list
     unsigned char constants[TB_RHI_PUSH_CONSTANT_BYTES];
     void *buffers[TB_RHI_CONSTANT_BUFFER_SLOTS];
     uint64_t offsets[TB_RHI_CONSTANT_BUFFER_SLOTS];
+    void *vertices[TB_RHI_VERTEX_BUFFERS];
+    uint64_t vertex_offsets[TB_RHI_VERTEX_BUFFERS];
+    void *indices;
+    uint64_t index_offset;
+    unsigned long index_type;
     uint32_t width, height;
 } metal_list;
 
@@ -110,6 +115,16 @@ void tb_metal_cmd_begin_pass(void *object, const tb_rhi_pass_ref *pass)
                                    (double)color->clear[2], (double)color->clear[3]};
         TB_METAL_METHOD(d, void, metal_color)(attachment, d->selector("setClearColor:"), clear);
     }
+    if (pass->depth_texture.object != NULL)
+    {
+        void *const attachment = tb_metal_get(d, desc, "depthAttachment");
+        const unsigned long loads[] = {1, 2, 0};
+        tb_metal_set(d, attachment, "setTexture:", pass->depth_texture.object);
+        tb_metal_number(d, attachment, "setLoadAction:", loads[pass->depth.load]);
+        tb_metal_number(d, attachment, "setStoreAction:", 1);
+        TB_METAL_METHOD(d, void, double)(attachment, d->selector("setClearDepth:"),
+                                         (double)pass->depth.clear);
+    }
     list->width = pass->width;
     list->height = pass->height;
     void *const encoder = TB_METAL_METHOD(d, void *, void *)(
@@ -152,7 +167,7 @@ void tb_metal_cmd_scissor(void *object, tb_rhi_rect rect)
 void tb_metal_cmd_pipeline(void *object, void *pipeline, bool compute)
 {
     metal_list *const list = object;
-    TB_ASSERT(!compute);
+    (void)compute;
     list->pipeline = pipeline;
 }
 void tb_metal_cmd_push_constants(void *object, const void *data, size_t size)
@@ -166,27 +181,198 @@ void tb_metal_cmd_constant_buffer(void *object, uint32_t slot, void *buffer, uin
     list->buffers[slot] = buffer;
     list->offsets[slot] = offset;
 }
+void tb_metal_cmd_index_buffer(void *object, void *buffer, uint64_t offset, uint64_t size,
+                               tb_rhi_format format)
+{
+    metal_list *const list = object;
+    (void)size;
+    list->indices = buffer;
+    list->index_offset = offset;
+    list->index_type = format == TB_RHI_FORMAT_R16_UINT ? 0ul : 1ul;
+}
+void tb_metal_cmd_vertex_buffer(void *object, uint32_t slot, void *buffer, uint64_t offset,
+                                uint64_t size, uint32_t stride)
+{
+    metal_list *const list = object;
+    (void)size;
+    (void)stride;
+    list->vertices[slot] = buffer;
+    list->vertex_offsets[slot] = offset;
+}
+static uint32_t uniform_index(metal_list *list, const tb_msl_slot *slot)
+{
+    const uint8_t *bytes = list->constants;
+    uint64_t size = sizeof(list->constants);
+    if (slot->buffer != 0)
+    {
+        const size_t index = slot->buffer - 1;
+        tb_metal_device *const d = list->device;
+        void *const buffer = list->buffers[index];
+        const uint64_t length =
+            ((unsigned long (*)(void *, void *))d->send)(buffer, d->selector("length"));
+        if (list->offsets[index] > length)
+        {
+            return TB_RHI_NO_INDEX;
+        }
+        bytes = tb_metal_get(d, buffer, "contents");
+        if (bytes == NULL)
+        {
+            return TB_RHI_NO_INDEX;
+        }
+        bytes += list->offsets[index];
+        size = length - list->offsets[index];
+    }
+    if (slot->offset > size || size - slot->offset < sizeof(uint32_t))
+    {
+        return TB_RHI_NO_INDEX;
+    }
+    uint32_t value = 0;
+    memcpy(&value, bytes + slot->offset, sizeof(value));
+    return value;
+}
+static void bind_stage(metal_list *list, void *encoder, tb_rhi_stage stage)
+{
+    static const char *const bytes[] = {
+        "setVertexBytes:length:atIndex:", "setFragmentBytes:length:atIndex:",
+        "setBytes:length:atIndex:"};
+    static const char *const buffers[] = {
+        "setVertexBuffer:offset:atIndex:", "setFragmentBuffer:offset:atIndex:",
+        "setBuffer:offset:atIndex:"};
+    static const char *const textures[] = {
+        "setVertexTexture:atIndex:", "setFragmentTexture:atIndex:", "setTexture:atIndex:"};
+    static const char *const samplers[] = {
+        "setVertexSamplerState:atIndex:", "setFragmentSamplerState:atIndex:",
+        "setSamplerState:atIndex:"};
+    tb_metal_device *const d = list->device;
+    void *const set_buffer = d->selector(buffers[stage]);
+    TB_METAL_METHOD(d, void, const void *, unsigned long, unsigned long)(
+        encoder, d->selector(bytes[stage]), list->constants, sizeof(list->constants), 0ul);
+    for (size_t i = 0; i < TB_RHI_CONSTANT_BUFFER_SLOTS; i++)
+    {
+        TB_METAL_METHOD(d, void, void *, unsigned long, unsigned long)(
+            encoder, set_buffer, list->buffers[i], list->offsets[i], i + 1);
+    }
+    if (!d->argument_buffers)
+    {
+        const tb_metal_bindings *const bindings = &list->pipeline->stages[stage];
+        tb_mutex_lock(&d->lock);
+        for (uint32_t i = 0; i < bindings->count; i++)
+        {
+            const tb_msl_slot *const slot = &bindings->slots[i];
+            void *const resource = tb_metal_resource_at(d, slot->heap, uniform_index(list, slot));
+            if (slot->heap == TB_MSL_BUFFERS)
+            {
+                TB_METAL_METHOD(d, void, void *, unsigned long,
+                                unsigned long)(encoder, set_buffer, resource, 0ul, slot->slot);
+            }
+            else
+            {
+                void *const method =
+                    d->selector(slot->heap == TB_MSL_SAMPLERS ? samplers[stage] : textures[stage]);
+                TB_METAL_METHOD(d, void, void *, unsigned long)(encoder, method, resource,
+                                                                slot->slot);
+            }
+        }
+        tb_mutex_unlock(&d->lock);
+        return;
+    }
+    for (size_t i = 0; i < TB_MSL_HEAP_COUNT; i++)
+    {
+        TB_METAL_METHOD(d, void, void *, unsigned long, unsigned long)(
+            encoder, set_buffer, d->heaps[i], 0ul, TB_MSL_FIRST_HEAP_SLOT + i);
+    }
+}
+static void declare_residency(tb_metal_device *d, void *encoder, bool compute)
+{
+    if (!d->argument_buffers)
+    {
+        return;
+    }
+    tb_mutex_lock(&d->lock);
+    for (size_t i = 0; i < tb_array_length(d->residents); i++)
+    {
+        const tb_metal_resident *const entry = TB_ARRAY_AT(d->residents, tb_metal_resident, i);
+        if (entry->heap != TB_MSL_SAMPLERS)
+        {
+            if (compute)
+            {
+                TB_METAL_METHOD(d, void, void *, unsigned long)(
+                    encoder, d->selector("useResource:usage:"), entry->resource, entry->usage);
+            }
+            else
+            {
+                TB_METAL_METHOD(d, void, void *, unsigned long,
+                                unsigned long)(encoder, d->selector("useResource:usage:stages:"),
+                                               entry->resource, entry->usage, 3ul);
+            }
+        }
+    }
+    tb_mutex_unlock(&d->lock);
+}
+
+static void prepare_draw(metal_list *list)
+{
+    tb_metal_device *const d = list->device;
+    tb_metal_pipeline *const p = list->pipeline;
+    tb_metal_set(d, list->render, "setRenderPipelineState:", p->state);
+    tb_metal_set(d, list->render, "setDepthStencilState:", p->depth);
+    tb_metal_number(d, list->render, "setCullMode:", p->cull);
+    tb_metal_number(d, list->render, "setFrontFacingWinding:", p->winding);
+    tb_metal_number(d, list->render, "setTriangleFillMode:", p->wireframe ? 1ul : 0ul);
+    TB_METAL_METHOD(d, void, float, float, float)(
+        list->render, d->selector("setDepthBias:slopeScale:clamp:"), p->bias, p->slope, 0.0f);
+    bind_stage(list, list->render, TB_RHI_STAGE_VERTEX);
+    bind_stage(list, list->render, TB_RHI_STAGE_PIXEL);
+    for (size_t i = 0; i < TB_RHI_VERTEX_BUFFERS; i++)
+    {
+        if (list->vertices[i] != NULL)
+        {
+            TB_METAL_METHOD(d, void, void *, unsigned long, unsigned long)(
+                list->render, d->selector("setVertexBuffer:offset:atIndex:"), list->vertices[i],
+                list->vertex_offsets[i], TB_MSL_FIRST_VERTEX_SLOT + i);
+        }
+    }
+    declare_residency(d, list->render, false);
+}
+void tb_metal_cmd_dispatch(void *object, uint32_t x, uint32_t y, uint32_t z)
+{
+    metal_list *const list = object;
+    tb_metal_device *const d = list->device;
+    void *const pool = d->pool_push();
+    void *const encoder = tb_metal_get(d, list->commands, "computeCommandEncoder");
+    tb_metal_set(d, encoder, "setComputePipelineState:", list->pipeline->state);
+    bind_stage(list, encoder, TB_RHI_STAGE_COMPUTE);
+    declare_residency(d, encoder, true);
+    const metal_extent groups = {x, y, z};
+    const unsigned long *const group = list->pipeline->group;
+    const metal_extent threads = {group[0], group[1], group[2]};
+    TB_METAL_METHOD(d, void, metal_extent, metal_extent)(
+        encoder, d->selector("dispatchThreadgroups:threadsPerThreadgroup:"), groups, threads);
+    tb_metal_call(d, encoder, "endEncoding");
+    d->pool_pop(pool);
+}
+void tb_metal_cmd_draw_indexed(void *object, uint32_t indices, uint32_t instances, uint32_t first,
+                               int32_t vertex, uint32_t instance)
+{
+    metal_list *const list = object;
+    tb_metal_device *const d = list->device;
+    prepare_draw(list);
+    const unsigned long offset =
+        list->index_offset + (unsigned long)first * (list->index_type == 0 ? 2ul : 4ul);
+    TB_METAL_METHOD(d, void, unsigned long, unsigned long, unsigned long, void *, unsigned long,
+                    unsigned long, long, unsigned long)(
+        list->render,
+        d->selector("drawIndexedPrimitives:indexCount:indexType:indexBuffer:indexBufferOffset:"
+                    "instanceCount:baseVertex:baseInstance:"),
+        list->pipeline->primitive, indices, list->index_type, list->indices, offset, instances,
+        vertex, instance);
+}
 void tb_metal_cmd_draw(void *object, uint32_t vertices, uint32_t instances, uint32_t first_vertex,
                        uint32_t first_instance)
 {
     metal_list *const list = object;
     tb_metal_device *const d = list->device;
-    tb_metal_set(d, list->render, "setRenderPipelineState:", list->pipeline->state);
-    const char *const bytes[] = {"setVertexBytes:length:atIndex:",
-                                 "setFragmentBytes:length:atIndex:"};
-    const char *const buffers[] = {"setVertexBuffer:offset:atIndex:",
-                                   "setFragmentBuffer:offset:atIndex:"};
-    for (size_t stage = 0; stage < 2; stage++)
-    {
-        TB_METAL_METHOD(d, void, const void *, unsigned long, unsigned long)(
-            list->render, d->selector(bytes[stage]), list->constants, sizeof(list->constants), 0ul);
-        for (size_t slot = 0; slot < TB_RHI_CONSTANT_BUFFER_SLOTS; slot++)
-        {
-            TB_METAL_METHOD(d, void, void *, unsigned long,
-                            unsigned long)(list->render, d->selector(buffers[stage]),
-                                           list->buffers[slot], list->offsets[slot], slot + 1);
-        }
-    }
+    prepare_draw(list);
     TB_METAL_METHOD(d, void, unsigned long, unsigned long, unsigned long, unsigned long,
                     unsigned long)(
         list->render,

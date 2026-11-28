@@ -62,8 +62,9 @@ tb_rhi_result tb_metal_swap_chain_resize(void *state, void *object, uint32_t wid
                                       .usage = TB_RHI_TEXTURE_RENDER_TARGET};
     for (uint32_t i = 0; i < next.count; i++)
     {
-        const tb_rhi_result result =
-            tb_metal_texture_create(d, &desc, (tb_rhi_indices){0}, &next.objects[i], error);
+        const tb_rhi_result result = tb_metal_texture_create(
+            d, &desc, (tb_rhi_indices){.read = TB_RHI_NO_INDEX, .write = TB_RHI_NO_INDEX},
+            &next.objects[i], error);
         if (result != TB_RHI_OK)
         {
             release_images(d, &next);

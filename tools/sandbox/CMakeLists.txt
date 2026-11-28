@@ -20,6 +20,13 @@ if(TB_BUILD_TESTS)
         COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tests/tools/log_file_test.py"
             "$<TARGET_FILE:badger-sandbox>" "shapes" list)
     # A few frames on the null backend, wherever there is a window to open.
+    if(APPLE AND NOT TB_USE_DEFAULT_PLATFORM_ADAPTER)
+        add_test(NAME sandbox.samples_a_checkerboard_on_metal
+            COMMAND Python3::Interpreter "${PROJECT_SOURCE_DIR}/tests/tools/metal_play_test.py"
+                sandbox "$<TARGET_FILE:badger-sandbox>")
+        set_tests_properties(sandbox.samples_a_checkerboard_on_metal PROPERTIES
+            SKIP_RETURN_CODE 77 ENVIRONMENT "MTL_DEBUG_LAYER=1")
+    endif()
     add_test(NAME sandbox.runs_frames_on_the_null_backend
         COMMAND badger-sandbox --renderer null --scene triangle --frames 3)
     add_test(NAME sandbox.draws_text_on_the_null_backend

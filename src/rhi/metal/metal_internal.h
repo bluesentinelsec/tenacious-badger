@@ -2,9 +2,20 @@
  * NSUInteger and by-value structs. No framework contributes a link dependency. */
 #ifndef TB_METAL_INTERNAL_H
 #define TB_METAL_INTERNAL_H
+#include "../../shader/shader_msl_bindings.h"
 #include "../rhi_backend.h"
+#include "badger/array.h"
 #include "badger/library.h"
 #include "badger/thread.h"
+
+typedef struct tb_metal_resident
+{
+    void *owner;
+    void *resource;
+    tb_msl_heap heap;
+    uint32_t index;
+    unsigned long usage;
+} tb_metal_resident;
 
 typedef struct tb_metal_device
 {
@@ -17,16 +28,34 @@ typedef struct tb_metal_device
     void (*pool_pop)(void *);
     void *gpu;
     void *queue;
+    bool argument_buffers;
+    void *heaps[TB_MSL_HEAP_COUNT];
+    uint64_t *entries[TB_MSL_HEAP_COUNT];
+    tb_array *residents;
     tb_mutex lock;
     tb_condition finished;
     uint64_t completed;
     bool lost;
 } tb_metal_device;
 
+typedef struct tb_metal_bindings
+{
+    uint32_t count;
+    tb_msl_slot slots[TB_MSL_MAX_SLOTS];
+} tb_metal_bindings;
+
 typedef struct tb_metal_pipeline
 {
     void *state;
+    tb_metal_bindings stages[3];
     unsigned long primitive;
+    void *depth;
+    unsigned long cull;
+    unsigned long winding;
+    bool wireframe;
+    float bias;
+    float slope;
+    unsigned long group[3];
 } tb_metal_pipeline;
 
 /* Cast objc_msgSend to a fixed method signature before passing arguments:
@@ -104,4 +133,26 @@ tb_rhi_result tb_metal_swap_chain_present(void *state, void *chain);
 tb_rhi_result tb_metal_swap_chain_resize(void *state, void *chain, uint32_t width, uint32_t height,
                                          bool vsync, tb_rhi_swap_chain_images *images,
                                          tb_rhi_error *error);
+bool tb_metal_read_bindings(const tb_rhi_shader_desc *shader, tb_metal_bindings *bindings);
+void *tb_metal_resource_at(tb_metal_device *d, tb_msl_heap heap, uint32_t index);
+bool tb_metal_heaps_create(tb_metal_device *device);
+void tb_metal_heaps_destroy(tb_metal_device *device);
+void tb_metal_heap_add(tb_metal_device *device, void *owner, void *resource, tb_msl_heap heap,
+                       uint32_t index, unsigned long usage);
+void tb_metal_sampler_destroy(void *state, void *object);
+void tb_metal_resource_destroy(void *state, void *object);
+tb_rhi_result tb_metal_sampler_create(void *state, const tb_rhi_sampler_desc *desc,
+                                      tb_rhi_indices indices, void **object, tb_rhi_error *error);
+tb_rhi_result tb_metal_compute_pipeline_create(void *state,
+                                               const tb_rhi_compute_pipeline_desc *desc,
+                                               void *shader, const tb_rhi_shader_desc *shader_desc,
+                                               void **object, tb_rhi_error *error);
+void tb_metal_cmd_dispatch(void *list, uint32_t x, uint32_t y, uint32_t z);
+void tb_metal_cmd_index_buffer(void *list, void *buffer, uint64_t offset, uint64_t size,
+                               tb_rhi_format format);
+void tb_metal_cmd_vertex_buffer(void *list, uint32_t slot, void *buffer, uint64_t offset,
+                                uint64_t size, uint32_t stride);
+void tb_metal_cmd_draw_indexed(void *list, uint32_t indices, uint32_t instances, uint32_t first,
+                               int32_t vertex, uint32_t instance);
+unsigned long tb_metal_pixel_format(tb_rhi_format format);
 #endif

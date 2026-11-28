@@ -22,6 +22,8 @@ if(tb_rhi_platform STREQUAL "win32")
         "${CMAKE_CURRENT_SOURCE_DIR}/d3d11/d3d11_swap_chain.c")
 elseif(tb_rhi_platform STREQUAL "macos")
     list(APPEND TB_RHI_SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/metal/metal_pipeline.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/metal/metal_heaps.c"
         "${CMAKE_CURRENT_SOURCE_DIR}/metal/metal_commands.c"
         "${CMAKE_CURRENT_SOURCE_DIR}/metal/metal_device.c"
         "${CMAKE_CURRENT_SOURCE_DIR}/metal/metal_resources.c"
