@@ -245,7 +245,8 @@ typedef enum tb_rhi_feature
      * #TB_RHI_FEATURE_BINDLESS, and D3D11, which binds what they name
      * before each draw. What the engine's shaders need. */
     TB_RHI_FEATURE_HEAP_INDICES = 1u << 7,
-    TB_RHI_FEATURE_DEVICE_RECREATE = 1u << 8 /**< Recreate a healthy device on the same adapter. */
+    TB_RHI_FEATURE_DEVICE_RECREATE = 1u << 8, /**< Recreate a healthy device on the same adapter. */
+    TB_RHI_FEATURE_DEVICE_RECOVERY = 1u << 9 /**< Restore objects after loss on the same adapter. */
 } tb_rhi_feature;
 
 /** @brief Bytes of an adapter's name, its NUL included. */
@@ -707,6 +708,27 @@ TB_API void tb_rhi_device_destroy(tb_rhi_device *device);
  * exclusive access to the device, its resources and all its swap chains.
  */
 TB_API tb_rhi_result tb_rhi_device_recreate(tb_rhi_device *device, tb_rhi_error *error);
+
+/**
+ * @brief Report a device loss detected externally, or inject one between frames for testing.
+ * @param device Required. A subsequent wait or present reports #TB_RHI_DEVICE_LOST.
+ * For an injected loss, finish outstanding submissions first. Discard any open lists.
+ * Stop using GPU resources until recovery or destruction.
+ * @par Threading Externally synchronized with all device use.
+ */
+TB_API void tb_rhi_device_report_loss(tb_rhi_device *device);
+
+/**
+ * @brief Rebuild a lost device's objects without waiting for or reading its old GPU resources.
+ * @param device A lost device with all command lists closed and all swap chains destroyed.
+ * @param error Optional reason for failure.
+ * @return #TB_RHI_OK on success, #TB_RHI_UNAVAILABLE on an unsupported backend or adapter,
+ * or another error. A failed recovery can be retried.
+ * Handles and indices survive. All buffers and textures start with undefined contents.
+ * Their owners must restore persistent data before drawing. Old submissions are retired.
+ * @par Threading Externally synchronized. Call with exclusive access between frames.
+ */
+TB_API tb_rhi_result tb_rhi_device_recover(tb_rhi_device *device, tb_rhi_error *error);
 
 /**
  * @brief What a device is and has.

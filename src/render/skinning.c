@@ -6,13 +6,10 @@
 #include "renderer_internal.h"
 
 #include "badger/assert.h"
-#include "badger/fatal.h"
 #include "badger/fmt.h"
 #include "badger/log.h"
 #include "badger/memory.h"
 #include "badger/skinning.h"
-
-#include <string.h>
 
 /* Bytes of a vertex as the skinning shader reads it, and as it writes it. */
 #define TB_SKIN_SOURCE_BYTES 56u
@@ -39,11 +36,9 @@ TB_STATIC_ASSERT(TB_SKINNED_MESH_MAX_VERTICES == TB_SKIN_GROUP * 65535u,
 
 struct tb_skinned_mesh
 {
-    tb_mesh mesh;         /* its indices; its vertices are the frame's skinned ones */
-    tb_rhi_buffer source; /* its vertices as they were bound, read by index */
+    tb_mesh mesh; /* its indices; its vertices are the frame's skinned ones */
     uint32_t source_index;
     uint32_t vertex_count;
-    tb_skinned_vertex *bound; /* the same, for the CPU to skin */
 };
 
 /* A draw's skinning, as the skinning shader's SkinConstants lays it out. */
@@ -63,76 +58,20 @@ typedef struct tb_skin_constants
  * Meshes.
  * ------------------------------------------------------------------------- */
 
-static void tb_skinned_mesh_buffer(tb_renderer *renderer, const tb_rhi_buffer_desc *desc,
-                                   tb_rhi_buffer *buffer)
-{
-    tb_rhi_error error = TB_RHI_ERROR_INIT;
-
-    if (tb_rhi_buffer_create(renderer->device, desc, buffer, &error) != TB_RHI_OK)
-    {
-        tb_fatal("renderer: no memory for a skinned mesh: %s", error.message);
-    }
-}
-
 tb_skinned_mesh *tb_skinned_mesh_create(tb_renderer *renderer, const tb_skinned_vertex *vertices,
                                         size_t vertex_count, const uint32_t *indices,
                                         size_t index_count)
 {
-    const size_t vertex_bytes = vertex_count * sizeof(*vertices);
-    const size_t index_bytes = index_count * sizeof(*indices);
-    tb_skinned_mesh *mesh = NULL;
-    tb_rhi_buffer staging = {0};
-    tb_rhi_command_list *list = NULL;
-
     TB_ASSERT(renderer != NULL && vertices != NULL && indices != NULL);
     TB_ASSERT_MSG(vertex_count > 0 && vertex_count <= TB_SKINNED_MESH_MAX_VERTICES,
                   "a skinned mesh of from 1 to TB_SKINNED_MESH_MAX_VERTICES vertices");
     TB_ASSERT_MSG(index_count > 0 && index_count % 3 == 0 && index_count <= UINT32_MAX,
                   "a mesh of whole triangles");
-    mesh = tb_calloc(1, sizeof(*mesh));
+    tb_skinned_mesh *const mesh = tb_calloc(1, sizeof(*mesh));
     mesh->vertex_count = (uint32_t)vertex_count;
-    mesh->mesh.index_count = (uint32_t)index_count;
-    mesh->bound = tb_calloc(vertex_count, sizeof(*mesh->bound));
-    memcpy(mesh->bound, vertices, vertex_bytes);
-    tb_skinned_mesh_buffer(renderer,
-                           &(tb_rhi_buffer_desc){.size = vertex_bytes,
-                                                 .usage = TB_RHI_BUFFER_SHADER_READ,
-                                                 .name = "skinned mesh vertices"},
-                           &mesh->source);
-    tb_skinned_mesh_buffer(renderer,
-                           &(tb_rhi_buffer_desc){.size = index_bytes,
-                                                 .usage = TB_RHI_BUFFER_INDEX,
-                                                 .name = "skinned mesh indices"},
-                           &mesh->mesh.indices);
-    tb_skinned_mesh_buffer(
-        renderer,
-        &(tb_rhi_buffer_desc){.size = vertex_bytes + index_bytes, .memory = TB_RHI_MEMORY_UPLOAD},
-        &staging);
-    mesh->source_index = tb_rhi_buffer_index(renderer->device, mesh->source);
-    tb_rhi_buffer_write(renderer->device, staging, 0, vertices, vertex_bytes);
-    tb_rhi_buffer_write(renderer->device, staging, vertex_bytes, indices, index_bytes);
-    list = tb_rhi_command_list_begin(renderer->device);
-    tb_rhi_cmd_barriers(list,
-                        (const tb_rhi_barrier[]){{.buffer = mesh->source,
-                                                  .before = TB_RHI_STATE_COMMON,
-                                                  .after = TB_RHI_STATE_COPY_DEST},
-                                                 {.buffer = mesh->mesh.indices,
-                                                  .before = TB_RHI_STATE_COMMON,
-                                                  .after = TB_RHI_STATE_COPY_DEST}},
-                        2);
-    tb_rhi_cmd_copy_buffer(list, mesh->source, 0, staging, 0, vertex_bytes);
-    tb_rhi_cmd_copy_buffer(list, mesh->mesh.indices, 0, staging, vertex_bytes, index_bytes);
-    tb_rhi_cmd_barriers(list,
-                        (const tb_rhi_barrier[]){{.buffer = mesh->source,
-                                                  .before = TB_RHI_STATE_COPY_DEST,
-                                                  .after = TB_RHI_STATE_SHADER_READ},
-                                                 {.buffer = mesh->mesh.indices,
-                                                  .before = TB_RHI_STATE_COPY_DEST,
-                                                  .after = TB_RHI_STATE_VERTEX_INDEX}},
-                        2);
-    (void)tb_rhi_submit(renderer->device, &list, 1);
-    /* The staging buffer goes once the GPU has copied it. */
-    tb_rhi_buffer_destroy(renderer->device, staging);
+    tb_renderer_mesh_init(renderer, &mesh->mesh, vertices, vertex_count * sizeof(*vertices),
+                          indices, index_count, true);
+    mesh->source_index = tb_rhi_buffer_index(renderer->device, mesh->mesh.vertices);
     return mesh;
 }
 
@@ -143,9 +82,7 @@ void tb_skinned_mesh_destroy(tb_renderer *renderer, tb_skinned_mesh *mesh)
     {
         return;
     }
-    tb_rhi_buffer_destroy(renderer->device, mesh->source);
-    tb_rhi_buffer_destroy(renderer->device, mesh->mesh.indices);
-    tb_free(mesh->bound);
+    tb_renderer_mesh_release(renderer, &mesh->mesh);
     tb_free(mesh);
 }
 
@@ -206,7 +143,7 @@ static uint64_t tb_renderer_skin_on_cpu(tb_renderer *renderer, const tb_skinned_
             tb_realloc_array(renderer->cpu_skinned, vertex_count, sizeof(*renderer->cpu_skinned));
         renderer->cpu_skinned_capacity = vertex_count;
     }
-    tb_skin_vertices(mesh->bound, vertex_count, draw->joints, draw->joint_count,
+    tb_skin_vertices(mesh->mesh.cpu_vertices, vertex_count, draw->joints, draw->joint_count,
                      renderer->cpu_skinned);
     return tb_renderer_upload(renderer, renderer->cpu_skinned, bytes, TB_SKIN_CPU_ALIGNMENT);
 }

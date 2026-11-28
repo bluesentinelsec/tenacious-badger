@@ -80,6 +80,7 @@ typedef struct burrow_game
     int status;
     bool developer;
     bool recreate_on_pause;
+    bool lose_device_on_pause;
     /* The menus, and what they are made with; NULL menus where they could
      * not be made, and the game plays without them. */
     burrow_menus *menus;
@@ -282,11 +283,29 @@ static void burrow_draw_shade(burrow_game *game)
         (tb_canvas_rect){0.0f, 0.0f, (float)width / view.scale, (float)height / view.scale}, shade);
 }
 
+static bool burrow_recover_device(burrow_game *game)
+{
+    tb_rhi_error error = TB_RHI_ERROR_INIT;
+    if (tb_renderer_recover_device(game->renderer, &error) == TB_RHI_OK)
+    {
+        (void)tb_fmt_print("burrow: recovered graphics device from CPU scene data\n");
+        return true;
+    }
+    (void)tb_fmt_print_error("burrow: graphics device recovery failed: %s\n", error.message);
+    game->status = EXIT_FAILURE;
+    tb_game_loop_quit(game->loop);
+    return false;
+}
+
 static bool burrow_draw_frame(burrow_game *game)
 {
     if (!tb_renderer_begin_frame(game->renderer, &game->camera, burrow_clear))
     {
-        return false; /* the window is minimized */
+        if (tb_rhi_wait(tb_renderer_device(game->renderer), 0) == TB_RHI_DEVICE_LOST)
+        {
+            (void)burrow_recover_device(game);
+        }
+        return false;
     }
     burrow_scene_draw(game->scene, game->renderer);
     if (game->menus == NULL || game->screen == BURROW_SCREEN_PLAYING)
@@ -299,14 +318,11 @@ static bool burrow_draw_frame(burrow_game *game)
         burrow_draw_shade(game);
         burrow_menus_draw(game->menus, game->renderer);
     }
-    /* coverage-off: only a GPU that is reset or removed loses the device */
-    if (tb_renderer_end_frame(game->renderer) != TB_RHI_OK)
+    if (tb_renderer_end_frame(game->renderer) == TB_RHI_DEVICE_LOST)
     {
-        (void)tb_fmt_print_error("burrow: error: the graphics device was lost\n");
-        game->status = EXIT_FAILURE;
-        tb_game_loop_quit(game->loop);
+        (void)burrow_recover_device(game);
+        return false;
     }
-    /* coverage-on */
     return game->status == EXIT_SUCCESS;
 }
 
@@ -326,6 +342,17 @@ static bool burrow_capture_hash(burrow_game *game, uint64_t *hash)
     /* The renderer has already allocated and packed exactly these rows. */
     *hash = tb_hash_bytes(pixels, (size_t)width * height * 4u);
     return true;
+}
+
+static bool burrow_reset_paused_device(burrow_game *game, tb_rhi_error *error)
+{
+    tb_rhi_device *const device = tb_renderer_device(game->renderer);
+    if (game->lose_device_on_pause)
+    {
+        tb_rhi_device_report_loss(device);
+        return burrow_recover_device(game);
+    }
+    return tb_rhi_device_recreate(device, error) == TB_RHI_OK;
 }
 
 static void burrow_frame(void *context, const tb_game_time *time)
@@ -351,8 +378,7 @@ static void burrow_frame(void *context, const tb_game_time *time)
         capture.temporal_aa = false;
         tb_renderer_set_quality(game->renderer, &capture);
         game->recreate_on_pause = false;
-        if (burrow_capture_hash(game, &before) &&
-            tb_rhi_device_recreate(tb_renderer_device(game->renderer), &error) == TB_RHI_OK &&
+        if (burrow_capture_hash(game, &before) && burrow_reset_paused_device(game, &error) &&
             burrow_capture_hash(game, &after))
         {
             (void)tb_fmt_print("burrow: recreated graphics device; paused frame %016" PRIx64
@@ -664,7 +690,8 @@ int burrow_play(const burrow_settings *loaded, const burrow_play_options *option
     game->player = burrow_player_spawn(game->room->spawn, game->room->spawn_yaw);
     game->status = EXIT_SUCCESS;
     game->developer = options->developer;
-    game->recreate_on_pause = options->recreate_on_pause;
+    game->recreate_on_pause = options->recreate_on_pause || options->lose_device_on_pause;
+    game->lose_device_on_pause = options->lose_device_on_pause;
     game->screen = BURROW_SCREEN_PLAYING;
     if (options->navigate != NULL && !burrow_read_navigation(game, options->navigate))
     {

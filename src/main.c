@@ -27,6 +27,7 @@ static const char *const burrow_modes[] = {"developer", "release"};
 static size_t burrow_mode = BURROW_DEVELOPER ? 0u : 1u;
 static bool burrow_reset = false;
 static bool burrow_recreate_on_pause = false;
+static bool burrow_lose_device_on_pause = false;
 static bool burrow_headless = false;
 static const char *burrow_settings_file = NULL;
 static const char *burrow_values[BURROW_MOST_VALUES] = {0};
@@ -75,7 +76,8 @@ static int burrow_run(const tb_cli_outcome *outcome, void *context)
     const burrow_play_options options = {.headless = burrow_headless,
                                          .developer = burrow_mode == 0,
                                          .navigate = burrow_navigation,
-                                         .recreate_on_pause = burrow_recreate_on_pause};
+                                         .recreate_on_pause = burrow_recreate_on_pause,
+                                         .lose_device_on_pause = burrow_lose_device_on_pause};
     status = burrow_play(&loaded, &options);
     burrow_settings_release(&loaded);
     return status;
@@ -154,6 +156,9 @@ static const tb_cli_option burrow_options[] = {
      .maximum = INT64_MAX,
      .help = "Stop after this many frames, as tests do; the same as --set "
              "developer.frame_count=COUNT."},
+    {.long_name = "lose-device-on-pause",
+     .flag = &burrow_lose_device_on_pause,
+     .help = "On the first pause, inject graphics device loss and compare the recovered frame."},
     {.long_name = "recreate-renderer-on-pause",
      .flag = &burrow_recreate_on_pause,
      .help = "On the first pause, recreate the graphics device and print the frame hashes before "

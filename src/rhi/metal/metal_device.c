@@ -87,7 +87,8 @@ tb_rhi_result tb_metal_device_create(const tb_rhi_device_options *options, void 
         d->pool_pop(pool);
         goto failed;
     }
-    info->features = TB_RHI_FEATURE_DEVICE_RECREATE | TB_RHI_FEATURE_HEAP_INDICES |
+    info->features = TB_RHI_FEATURE_DEVICE_RECOVERY | TB_RHI_FEATURE_DEVICE_RECREATE |
+                     TB_RHI_FEATURE_HEAP_INDICES |
                      (d->argument_buffers ? TB_RHI_FEATURE_BINDLESS : 0u);
     const char *const name = tb_metal_get(d, tb_metal_get(d, d->gpu, "name"), "UTF8String");
     info->max_texture_size = 8192; /* Conservative 2D limit across macOS Metal families. */
@@ -124,7 +125,7 @@ tb_rhi_result tb_metal_wait(void *state, uint64_t submission)
 }
 
 static tb_rhi_result metal_replacement(void *original, const tb_rhi_device_info *info,
-                                       void **replacement, tb_rhi_error *error)
+                                       uint64_t submission, void **replacement, tb_rhi_error *error)
 {
     tb_metal_device *const old = original;
     tb_rhi_device_info fresh_info = *info;
@@ -143,7 +144,7 @@ static tb_rhi_result metal_replacement(void *original, const tb_rhi_device_info 
         return tb_rhi_fail(error, TB_RHI_UNAVAILABLE,
                            "The original Metal adapter is no longer the default device");
     }
-    fresh->completed = old->completed;
+    fresh->completed = submission;
     *replacement = fresh;
     return TB_RHI_OK;
 }

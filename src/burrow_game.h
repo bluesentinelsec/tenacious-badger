@@ -23,7 +23,8 @@ typedef struct burrow_play_options
      * burrow_nav_named() reads them ("down,accept"). The menus then write
      * each screen they show. */
     const char *navigate;
-    bool recreate_on_pause; /* Exercise same-adapter recreation once, at the pause menu. */
+    bool lose_device_on_pause; /* Exercise recovery from unreadable GPU contents. */
+    bool recreate_on_pause;    /* Exercise same-adapter recreation once, at the pause menu. */
 } burrow_play_options;
 
 /* Play until the player quits or `developer.frame_count` frames have run:

@@ -20,6 +20,9 @@
 
 struct tb_texture
 {
+    tb_renderer_source source;
+    uint8_t *pixels; /* packed base level, all faces */
+    tb_texture_content content;
     tb_rhi_texture texture;
     bool owned; /* made here, not borrowed from a caller */
     bool cube;  /* six faces, sampled as a TextureCube */
@@ -109,8 +112,9 @@ static void tb_texture_record_mips(tb_renderer *renderer, tb_rhi_command_list *l
 /* Copy each layer's pixels into the texture's first level, make the levels
  * after, and leave it to be sampled. The copy is submitted at once, before
  * any frame that draws it. */
-static void tb_texture_upload(tb_renderer *renderer, const tb_texture *texture,
-                              tb_texture_content content, uint32_t layers, const uint8_t *pixels)
+static tb_rhi_result tb_texture_upload(tb_renderer *renderer, const tb_texture *texture,
+                                       tb_texture_content content, uint32_t layers,
+                                       const uint8_t *pixels, tb_rhi_error *error)
 {
     const size_t row = (size_t)texture->width * 4u;
     const size_t pitch = (row + TB_RHI_TEXTURE_COPY_PITCH_ALIGNMENT - 1u) &
@@ -122,7 +126,6 @@ static void tb_texture_upload(tb_renderer *renderer, const tb_texture *texture,
     uint8_t *staged = tb_calloc(layers, layer_bytes);
     tb_rhi_buffer staging = {0};
     tb_rhi_command_list *list = NULL;
-    tb_rhi_error error = TB_RHI_ERROR_INIT;
 
     for (uint32_t layer = 0; layer < layers; layer++)
     {
@@ -132,13 +135,16 @@ static void tb_texture_upload(tb_renderer *renderer, const tb_texture *texture,
                    &pixels[row * ((size_t)texture->height * layer + y)], row);
         }
     }
-    if (tb_rhi_buffer_create(renderer->device,
+    const tb_rhi_result result =
+        tb_rhi_buffer_create(renderer->device,
                              &(tb_rhi_buffer_desc){.size = (uint64_t)layer_bytes * layers,
                                                    .memory = TB_RHI_MEMORY_UPLOAD,
                                                    .name = "texture pixels"},
-                             &staging, &error) != TB_RHI_OK)
+                             &staging, error);
+    if (result != TB_RHI_OK)
     {
-        tb_fatal("renderer: no memory for a texture's pixels: %s", error.message);
+        tb_free(staged);
+        return result;
     }
     tb_rhi_buffer_write(renderer->device, staging, 0, staged, layer_bytes * layers);
     tb_free(staged);
@@ -169,6 +175,15 @@ static void tb_texture_upload(tb_renderer *renderer, const tb_texture *texture,
     (void)tb_rhi_submit(renderer->device, &list, 1);
     /* The staging buffer goes once the GPU has copied it. */
     tb_rhi_buffer_destroy(renderer->device, staging);
+    return TB_RHI_OK;
+}
+
+static tb_rhi_result tb_texture_restore(tb_renderer *renderer, tb_renderer_source *source,
+                                        tb_rhi_error *error)
+{
+    const tb_texture *const texture = TB_LIST_ENTRY(source, tb_texture, source);
+    return tb_texture_upload(renderer, texture, texture->content, texture->cube ? 6u : 1u,
+                             texture->pixels, error);
 }
 
 /* Make a texture of `layers` square or flat images, as a 2D texture or a
@@ -211,7 +226,18 @@ static tb_texture *tb_texture_make(tb_renderer *renderer, const tb_texture_desc 
         tb_fatal("renderer: no memory for a texture: %s", error.message);
     }
     texture->index = tb_rhi_texture_index(renderer->device, texture->texture);
-    tb_texture_upload(renderer, texture, desc->content, layers, pixels);
+    if (tb_texture_upload(renderer, texture, desc->content, layers, pixels, &error) != TB_RHI_OK)
+    {
+        tb_fatal("renderer: no memory for a texture's pixels: %s", error.message);
+    }
+    if ((renderer->info.features & TB_RHI_FEATURE_DEVICE_RECOVERY) != 0)
+    {
+        texture->pixels = tb_malloc(size);
+        memcpy(texture->pixels, pixels, size);
+        texture->content = desc->content;
+        texture->source.upload = tb_texture_restore;
+        tb_list_push_back(&renderer->sources, &texture->source.link);
+    }
     return texture;
 }
 
@@ -253,6 +279,11 @@ void tb_texture_destroy(tb_renderer *renderer, tb_texture *texture)
     if (texture == NULL)
     {
         return;
+    }
+    if (tb_list_link_is_linked(&texture->source.link))
+    {
+        tb_list_remove(&texture->source.link);
+        tb_free(texture->pixels);
     }
     if (texture->owned)
     {

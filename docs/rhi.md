@@ -287,5 +287,23 @@ Existing handles, heap indices, and submission numbers stay valid.
 Rebuilding temporarily needs enough memory for both sets of resources.
 If allocation or copying fails, the caller can resume on the original
 device or retry. An already lost device returns `TB_RHI_DEVICE_LOST`.
-Restoring data after physical device loss and switching graphics APIs are
+
+### Recovering a lost device
+
+Metal and null advertise `TB_RHI_FEATURE_DEVICE_RECOVERY`. Once a submission,
+wait, or presentation reports device loss, release all swap chains and call
+`tb_rhi_device_recover()` between frames with exclusive access. Recovery
+rebuilds objects on the same physical adapter. It keeps resource handles
+and heap indices, retires abandoned submissions, and starts every buffer
+and texture with undefined contents. Restore the data before drawing.
+The recovery path never waits on the old queue or copies from its resources.
+If the original Metal adapter is unavailable, recovery returns an error.
+
+At renderer level, `tb_renderer_recover_device()` reopens the window's swap
+chain and uploads meshes, skinned meshes, material textures (including cube
+faces), and canvas images from CPU copies retained on recoverable backends.
+It regenerates mipmaps and the glyph atlas and restarts temporal history.
+A failure can be retried before drawing. Custom RHI resources and textures
+passed to `tb_texture_from_rhi()` still belong to their caller, who restores
+their contents. Switching to a different adapter or graphics API remains
 tracked in #218.

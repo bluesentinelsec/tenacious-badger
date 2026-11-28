@@ -115,7 +115,8 @@ typedef struct tb_rhi_backend_table
     /* Optional pair: open an independent state compatible with the old swap
      * chains and fence timeline, then finish copying before returning. */
     tb_rhi_result (*device_replacement)(void *old, const tb_rhi_device_info *info,
-                                        void **replacement, tb_rhi_error *error);
+                                        uint64_t submission, void **replacement,
+                                        tb_rhi_error *error);
     tb_rhi_result (*device_copy)(void *state, const tb_rhi_device_copy *copies, size_t count,
                                  tb_rhi_error *error);
 

@@ -105,6 +105,7 @@ struct tb_rhi_device
     size_t retired_count;
     size_t retired_capacity;
     size_t open_lists;
+    size_t swap_chains;
     tb_mutex submit_lock; /* one submission at a time */
     uint64_t submitted;   /* under both locks to write; under either to read */
     bool lost;

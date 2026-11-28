@@ -65,7 +65,10 @@ uint64_t tb_rhi_submit(tb_rhi_device *device, tb_rhi_command_list *const *lists,
     }
     tb_mutex_lock(&device->lock);
     device->lost = device->lost || result == TB_RHI_DEVICE_LOST;
-    tb_rhi_collect(device, device->table->completed(device->state));
+    if (!device->lost)
+    {
+        tb_rhi_collect(device, device->table->completed(device->state));
+    }
     tb_mutex_unlock(&device->lock);
     return submission;
 }
@@ -98,7 +101,10 @@ tb_rhi_result tb_rhi_wait(tb_rhi_device *device, uint64_t submission)
     result = device->table->wait(device->state, submission);
     tb_mutex_lock(&device->lock);
     device->lost = device->lost || result == TB_RHI_DEVICE_LOST;
-    tb_rhi_collect(device, device->table->completed(device->state));
+    if (!device->lost)
+    {
+        tb_rhi_collect(device, device->table->completed(device->state));
+    }
     tb_mutex_unlock(&device->lock);
     return result;
 }

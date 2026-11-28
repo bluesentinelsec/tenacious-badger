@@ -11,6 +11,7 @@ typedef struct lagging
 {
     uint64_t completed;
     size_t buffers_released;
+    size_t waits;
     bool lose;
 } lagging;
 
@@ -211,5 +212,49 @@ TB_TEST(rhi_device, an_unsuccessful_recreation_keeps_the_old_objects_and_can_be_
     TB_TEST_EXPECT_STRING(error.message, ==, "");
     table.buffer_read(device->state, slot->object, 8, &observed, sizeof(observed));
     TB_TEST_EXPECT_UINT(observed, ==, word);
+    tb_rhi_device_destroy(device);
+}
+
+/* Simulate a submission that never finishes. Recovery must build from the CPU
+ * descriptions, without waiting for that fence or copying from the old state. */
+static tb_rhi_result lost_wait(void *state, uint64_t submission)
+{
+    (void)state;
+    (void)submission;
+    gpu.waits++;
+    return TB_RHI_DEVICE_LOST;
+}
+
+TB_TEST(rhi_device, recovery_retires_unfinished_submissions_without_reading_the_lost_gpu)
+{
+    tb_rhi_backend_table table = {0};
+    tb_rhi_device *const device = open_lagging(&table);
+    tb_rhi_buffer retired = {0}, buffer = {0};
+    const tb_rhi_buffer_desc desc = {.size = 4, .memory = TB_RHI_MEMORY_READBACK};
+    TB_TEST_REQUIRE_UINT(tb_rhi_buffer_create(device, &desc, &buffer, NULL), ==, TB_RHI_OK);
+    TB_TEST_REQUIRE_UINT(tb_rhi_buffer_create(device, &desc, &retired, NULL), ==, TB_RHI_OK);
+    tb_rhi_slot *const slot =
+        tb_rhi_slot_of(device, TB_RHI_KIND_BUFFER, buffer.index, buffer.generation);
+    const uint32_t sentinel = 0xd07af88du;
+    table.buffer_write(device->state, slot->object, 0, &sentinel, sizeof(sentinel));
+    TB_TEST_EXPECT_UINT(tb_rhi_device_recover(device, NULL), ==, TB_RHI_SYSTEM_ERROR);
+    gpu.lose = true;
+    const uint64_t failed = tb_rhi_submit(device, NULL, 0);
+    tb_rhi_buffer_destroy(device, retired);
+    TB_TEST_EXPECT_UINT(gpu.buffers_released, ==, 0);
+    table.device_copy = fail_copy;
+    table.wait = lost_wait;
+    TB_TEST_REQUIRE_UINT(tb_rhi_device_recover(device, NULL), ==, TB_RHI_OK);
+    TB_TEST_EXPECT_UINT(gpu.buffers_released, ==, 2);
+    TB_TEST_EXPECT_UINT(gpu.waits, ==, 0);
+    table.completed = tb_rhi_null_backend.completed;
+    table.wait = tb_rhi_null_backend.wait;
+    table.submit = tb_rhi_null_backend.submit;
+    TB_TEST_EXPECT_UINT(tb_rhi_completed(device), ==, failed);
+    uint32_t value = sentinel;
+    tb_rhi_buffer_read(device, buffer, 0, &value, sizeof(value));
+    /* New null buffers are zeroed. The original bytes were never transferred. */
+    TB_TEST_EXPECT_UINT(value, ==, 0);
+    TB_TEST_EXPECT_UINT(tb_rhi_submit(device, NULL, 0), ==, failed + 1);
     tb_rhi_device_destroy(device);
 }

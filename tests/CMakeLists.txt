@@ -357,7 +357,7 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     list(APPEND TB_INTERNAL_TEST_CASE_SOURCES platform/macos/gamepad_macos_test.c)
     if(NOT TB_USE_DEFAULT_PLATFORM_ADAPTER)
-        list(APPEND TB_INTERNAL_TEST_CASE_SOURCES rhi/rhi_metal_test.c ${TB_RHI_HLSL_SOURCE})
+        list(APPEND TB_INTERNAL_TEST_CASE_SOURCES rhi/rhi_metal_test.c render/recovery_metal_test.c ${TB_RHI_HLSL_SOURCE})
     endif()
 endif()
 set(TB_ENGINE_SOURCES ${TB_CORE_SOURCES} ${TB_PLATFORM_SOURCES} ${TB_JOBS_SOURCES}

@@ -275,6 +275,13 @@ disables temporal anti-aliasing so both captures use the same projection,
 prints their pixel hashes, and exits with an error if the captures differ.
 The final navigation action resumes play.
 
+Use `--lose-device-on-pause` in place of `--recreate-renderer-on-pause` to
+test recovery after the GPU contents become unavailable. Burrow reports a
+device loss, rebuilds the scene on the same Metal adapter from CPU data, and
+compares the paused pixels before resuming. A device loss during ordinary play
+uses the same recovery function. If recovery fails, Burrow prints the reason
+and exits.
+
 ## Not yet
 
 - Collision against the room, and walking with gravity (#313).

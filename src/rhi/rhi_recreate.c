@@ -78,7 +78,7 @@ static tb_rhi_result rebuild(const tb_rhi_backend_table *table, void *state, rep
     return tb_rhi_fail(error, TB_RHI_SYSTEM_ERROR, "Unknown resource kind");
 }
 
-tb_rhi_result tb_rhi_device_recreate(tb_rhi_device *device, tb_rhi_error *error)
+static tb_rhi_result replace_device(tb_rhi_device *device, bool recover, tb_rhi_error *error)
 {
     TB_ASSERT(device != NULL);
     const tb_rhi_backend_table *const table = device->table;
@@ -94,14 +94,27 @@ tb_rhi_result tb_rhi_device_recreate(tb_rhi_device *device, tb_rhi_error *error)
             error, TB_RHI_SYSTEM_ERROR,
             "Device recreation requires all command lists to be submitted or discarded");
     }
-    tb_rhi_result result = tb_rhi_wait_idle(device);
-    if (result != TB_RHI_OK)
+    tb_rhi_result result = TB_RHI_OK;
+    if (recover)
     {
-        return tb_rhi_fail(error, result, "Device recreation requires a healthy source device");
+        if (!device->lost || device->swap_chains != 0)
+        {
+            return tb_rhi_fail(error, TB_RHI_SYSTEM_ERROR,
+                               "Recovery requires a lost device with its swap chains released");
+        }
+    }
+    else
+    {
+        result = tb_rhi_wait_idle(device);
+        if (result != TB_RHI_OK)
+        {
+            return tb_rhi_fail(error, result, "Device recreation requires a healthy source device");
+        }
     }
     void *fresh = NULL;
     void *discard = NULL;
-    result = table->device_replacement(device->state, &device->info, &fresh, error);
+    result =
+        table->device_replacement(device->state, &device->info, device->submitted, &fresh, error);
     if (result != TB_RHI_OK)
     {
         return result;
@@ -125,7 +138,7 @@ tb_rhi_result tb_rhi_device_recreate(tb_rhi_device *device, tb_rhi_error *error)
                 goto finish;
             }
             (void)tb_array_push(changes, &change);
-            if (kind == TB_RHI_KIND_BUFFER || kind == TB_RHI_KIND_TEXTURE)
+            if (!recover && (kind == TB_RHI_KIND_BUFFER || kind == TB_RHI_KIND_TEXTURE))
             {
                 const tb_rhi_device_copy copy = {slot->object, change.object,
                                                  kind == TB_RHI_KIND_BUFFER ? slot->desc.buffer.size
@@ -142,6 +155,9 @@ finish:
     discard = fresh;
     if (result == TB_RHI_OK)
     {
+        /* Retired objects and their heap entries still belong to the abandoned state. */
+        tb_rhi_collect(device, device->submitted);
+        device->lost = false;
         discard = device->state;
         device->state = fresh;
         if (error != NULL)
@@ -164,4 +180,28 @@ finish:
     tb_array_destroy(changes);
     table->device_destroy(discard);
     return result;
+}
+
+tb_rhi_result tb_rhi_device_recreate(tb_rhi_device *device, tb_rhi_error *error)
+{
+    return replace_device(device, false, error);
+}
+
+void tb_rhi_device_report_loss(tb_rhi_device *device)
+{
+    TB_ASSERT(device != NULL);
+    tb_mutex_lock(&device->lock);
+    device->lost = true;
+    tb_mutex_unlock(&device->lock);
+}
+
+tb_rhi_result tb_rhi_device_recover(tb_rhi_device *device, tb_rhi_error *error)
+{
+    TB_ASSERT(device != NULL);
+    if ((device->info.features & TB_RHI_FEATURE_DEVICE_RECOVERY) == 0)
+    {
+        return tb_rhi_fail(error, TB_RHI_UNAVAILABLE, "%s does not support device-loss recovery",
+                           tb_rhi_backend_name(device->table->backend));
+    }
+    return replace_device(device, true, error);
 }

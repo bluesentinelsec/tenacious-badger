@@ -1,7 +1,7 @@
 /* The render graph: passes culled when nothing uses their work, transient
  * resources given pooled memory for the passes between their first and last
  * use, and barriers placed from the states passes declare. */
-#include "badger/render_graph.h"
+#include "renderer_internal.h"
 
 #include "badger/assert.h"
 #include "badger/fatal.h"
@@ -162,16 +162,22 @@ static void tb_rg_release_pooled(tb_render_graph *graph, const tb_rg_pooled *poo
     }
 }
 
+void tb_render_graph_discard_pool(tb_render_graph *graph)
+{
+    for (uint32_t index = 0; index < graph->pool_count; index++)
+    {
+        tb_rg_release_pooled(graph, &graph->pool[index]);
+    }
+    graph->pool_count = 0;
+}
+
 void tb_render_graph_destroy(tb_render_graph *graph)
 {
     if (graph == NULL)
     {
         return;
     }
-    for (uint32_t index = 0; index < graph->pool_count; index++)
-    {
-        tb_rg_release_pooled(graph, &graph->pool[index]);
-    }
+    tb_render_graph_discard_pool(graph);
     tb_free(graph->pool);
     tb_free(graph->resources);
     tb_free(graph->passes);

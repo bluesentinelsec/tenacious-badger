@@ -328,6 +328,17 @@ TB_API tb_rhi_result tb_renderer_create(const tb_renderer_options *options, tb_r
 /** @brief Destroy a renderer, waiting for the GPU. NULL is ignored. */
 TB_API void tb_renderer_destroy(tb_renderer *renderer);
 
+/**
+ * @brief Recover a reported device loss on a supported backend and restore renderer-owned assets.
+ * @param renderer Required, between frames. Release additional caller-owned swap chains first.
+ * @param error Optional reason for failure.
+ * @return #TB_RHI_OK when drawing can resume. After failure, retry recovery or destroy the
+ * renderer. Meshes, images, materials, texture handles and bindless indices stay valid. The caller
+ * must re-upload any raw RHI data it owns, including textures borrowed by a material.
+ * @par Threading Stage-owned. Call on the presentation thread with exclusive device access.
+ */
+TB_API tb_rhi_result tb_renderer_recover_device(tb_renderer *renderer, tb_rhi_error *error);
+
 /** @brief The renderer's device, for what draws through the RHI itself. */
 TB_API tb_rhi_device *tb_renderer_device(tb_renderer *renderer);
 
@@ -447,7 +458,8 @@ TB_API void tb_renderer_quality_from_settings(const struct tb_engine_settings *e
  * @param clear The color behind everything in the viewport; the bars beside
  * it are the policy's color.
  * @return true to draw the frame and end it; false when the window shows
- * nothing, as when it is minimized: then draw nothing and do not end it.
+ * nothing or the device was lost. On false, skip the frame. A wait for submission
+ * zero distinguishes device loss from a minimized window.
  */
 TB_API bool tb_renderer_begin_frame(tb_renderer *renderer, const tb_camera *camera, tb_vec4 clear);
 

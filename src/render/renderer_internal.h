@@ -8,6 +8,7 @@
 #include "badger/font_catalog.h"
 #include "badger/font_raster.h"
 #include "badger/light.h"
+#include "badger/list.h"
 #include "badger/material.h"
 #include "badger/render_graph.h"
 #include "badger/renderer.h"
@@ -40,8 +41,21 @@ struct tb_shader_library;
 #define TB_RENDERER_MIN_RENDER_SCALE 0.25f
 #define TB_RENDERER_MAX_RENDER_SCALE 2.0f
 
+/* Renderer-owned assets are linked for re-upload only on recoverable devices. */
+typedef struct tb_renderer_source
+{
+    tb_list_link link;
+    tb_rhi_result (*upload)(tb_renderer *renderer, struct tb_renderer_source *source,
+                            tb_rhi_error *error);
+} tb_renderer_source;
+
 struct tb_mesh
 {
+    tb_renderer_source source;
+    void *cpu_vertices;
+    uint32_t *cpu_indices;
+    size_t vertex_bytes;
+    tb_rhi_state vertex_state;
     tb_rhi_buffer vertices;
     tb_rhi_buffer indices;
     uint32_t index_count;
@@ -148,6 +162,7 @@ typedef struct tb_renderer_frame
 struct tb_renderer
 {
     tb_rhi_device *device;
+    tb_list sources;
     tb_rhi_device_info info;
     tb_rhi_swap_chain *chain;
     struct tb_dxc *dxc;                       /* NULL where shaders come from the library only */
@@ -285,6 +300,12 @@ struct tb_renderer
     uint32_t captured_width;
     uint32_t captured_height;
 };
+
+void tb_renderer_mesh_init(tb_renderer *renderer, tb_mesh *mesh, const void *vertices,
+                           size_t vertex_bytes, const uint32_t *indices, size_t index_count,
+                           bool skinned);
+void tb_renderer_mesh_release(tb_renderer *renderer, tb_mesh *mesh);
+void tb_render_graph_discard_pool(tb_render_graph *graph);
 
 /* The skinning pass of a frame being recorded. */
 typedef struct tb_skinning_recording
