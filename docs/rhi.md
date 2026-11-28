@@ -250,3 +250,13 @@ shaders are `tests/data/rhi/*.hlsl`, compiled to DXIL by
 - Timestamps, indirect draws, and queries.
 - Async compute and copy queues: one queue does everything for now.
 - Rebuilding every object on another backend while the game runs (#218).
+
+### Metal offscreen rendering
+
+The macOS backend loads Metal and the Objective-C runtime through the engine's
+system-library loader. Its first internal RHI path compiles MSL, records
+render passes into a command buffer, and copies a color target into a shared
+readback buffer. Submission waits for Metal to complete. GPU tests run on an
+available device and report the reason when no device is available. The
+backend stays out of automatic selection while presentation and the shaders
+used by Burrow are in development.

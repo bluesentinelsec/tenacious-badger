@@ -20,6 +20,11 @@ if(tb_rhi_platform STREQUAL "win32")
         "${CMAKE_CURRENT_SOURCE_DIR}/d3d11/d3d11_guids.c"
         "${CMAKE_CURRENT_SOURCE_DIR}/d3d11/d3d11_resources.c"
         "${CMAKE_CURRENT_SOURCE_DIR}/d3d11/d3d11_swap_chain.c")
+elseif(tb_rhi_platform STREQUAL "macos")
+    list(APPEND TB_RHI_SOURCES
+        "${CMAKE_CURRENT_SOURCE_DIR}/metal/metal_commands.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/metal/metal_device.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/metal/metal_resources.c")
 endif()
 set(TB_RHI_SOURCES ${TB_RHI_SOURCES} CACHE INTERNAL "Render hardware interface sources")
 target_sources(badger PRIVATE ${TB_RHI_SOURCES})
